@@ -1,3 +1,3 @@
-nvm use 20
-yarn 
-yarn start:dev
+## nvm use 20
+## yarn 
+## yarn start:dev
