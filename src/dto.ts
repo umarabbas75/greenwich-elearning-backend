@@ -1,15 +1,31 @@
 export class BodyDto {
-  transactionHash: string;
-  address: string;
-  investment:number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  phone: string;
+  role: string;
+  photo?: string;
+  timestamp: number;
+}
+
+export class LoginDto {
+  email: string;
+  password: string;
+}
+
+export class CourseDto {
+  title: string;
+  description: string;
+  id?: string;
 }
 
 export class ParamsDto {
-  address: string;
+  email: string;
 }
 
 export class ResponseDto {
-  msg: string;
-  status: string;
-  data:object;
+  message: string;
+  statusCode: number;
+  data:object | object[];
 }
