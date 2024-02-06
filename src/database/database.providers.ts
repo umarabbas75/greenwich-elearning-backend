@@ -2,7 +2,9 @@ import { Sequelize } from 'sequelize-typescript';
 import * as dotenv from 'dotenv';
 import { DataTypes } from "sequelize";
 dotenv.config();
-
+if(!process.env?.DB_URL){
+    throw new Error("DB_URL is not set");
+}
 export const sequelize = new Sequelize(process.env.DB_URL, {
     dialect: 'postgres',
     protocol: 'postgres',
