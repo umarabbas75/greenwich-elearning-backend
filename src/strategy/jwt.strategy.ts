@@ -5,7 +5,8 @@ import {
   Strategy,
 } from 'passport-jwt';
 import { User } from '../database/database.providers';
-
+import * as dotenv from 'dotenv';
+dotenv.config();
 @Injectable()
 export class JwtStrategy extends PassportStrategy(
   Strategy,
@@ -16,7 +17,7 @@ export class JwtStrategy extends PassportStrategy(
     super({
       jwtFromRequest:
         ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: "my_secret",
+      secretOrKey: process.env.JWT_SECRET,
     });
   }
 
@@ -24,7 +25,6 @@ export class JwtStrategy extends PassportStrategy(
     sub: number;
     email: string;
   }) {
-    // console.log("---->",payload)
     const user :any =
       await User.findOne({
         where: {
@@ -32,7 +32,6 @@ export class JwtStrategy extends PassportStrategy(
         },
       });
       if(user.role != "admin") return null
-      // console.log(user)
     delete user.password;
     return user
   }
