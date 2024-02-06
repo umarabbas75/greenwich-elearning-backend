@@ -1,10 +1,9 @@
-import { Controller, Get,Post,Body,Param,Query, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { UserService } from './user.service';
-import { BodyDto, ParamsDto,ResponseDto,LoginDto } from '../../dto';
+import { BodyDto, ParamsDto, ResponseDto, LoginDto } from '../../dto';
 import { AuthGuard } from '@nestjs/passport';
 
-
-@Controller("/users")
+@Controller('/users')
 export class UserController {
   constructor(private readonly appService: UserService) {}
 
@@ -13,19 +12,18 @@ export class UserController {
     return this.appService.getAllUsers();
   }
 
-
   @Get('/:email')
-  getUser(@Param() params:ParamsDto): Promise<ResponseDto> {
+  getUser(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getUser(params.email);
   }
 
   @UseGuards(AuthGuard('jwt'))
-  @Post("/")
-  createUser(@Body() body:BodyDto):Promise<ResponseDto> {
+  @Post('/')
+  createUser(@Body() body: BodyDto): Promise<ResponseDto> {
     return this.appService.createUser(body);
   }
-  @Post("/login")
-  loginUser(@Body() body:LoginDto):Promise<ResponseDto> {
+  @Post('/login')
+  loginUser(@Body() body: LoginDto): Promise<ResponseDto> {
     return this.appService.loginUser(body);
   }
 }

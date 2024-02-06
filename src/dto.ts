@@ -24,6 +24,11 @@ export class ParamsDto {
   email: string;
 }
 
+
+export class CourseParamDto {
+  id: string;
+}
+
 export class ResponseDto {
   message: string;
   statusCode: number;

@@ -1,18 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { User, Course } from '../../database/database.providers';
+import { User } from '../../database/database.providers';
 import { ResponseDto, BodyDto ,LoginDto} from '../../dto';
 import * as argon2 from 'argon2';
 import { JwtService } from '@nestjs/jwt';
 
-// type UserType = {
-//   firstName: string,
-//   lastName: string,
-//   email: string,
-//   password:string,
-//   phone: string,
-//   role: string,
-//   photo: string,
-// }
 
 @Injectable()
 export class UserService {
