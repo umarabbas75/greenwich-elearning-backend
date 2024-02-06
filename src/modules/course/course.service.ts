@@ -65,7 +65,10 @@ export class CourseService {
   }
   async getAllCourses(): Promise<ResponseDto> {
     try {
-      let users = await Course.findAll({});
+      let users = await Course.findAll({ 
+        limit: 10,
+         // offset: 10,
+      });
       if (!users)
         return { message: 'No Users found', statusCode: 400, data: {} };
       return {

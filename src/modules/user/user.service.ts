@@ -28,7 +28,11 @@ export class UserService {
   }
   async getAllUsers(): Promise<ResponseDto> {
     try {
-      let users = await User.findAll({  attributes: { exclude: ['password'] }});
+      let users = await User.findAll({ 
+        attributes: { exclude: ['password'] },
+        // offset: 10,
+        limit: 10,
+    });
       if (!users)
         return { message: 'No Users found', statusCode: 400, data: {} };
       return {
