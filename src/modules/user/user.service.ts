@@ -13,9 +13,10 @@ export class UserService {
 
   async getUser(email: string): Promise<ResponseDto> {
     try {
-      let user = await User.findOne({ where: { email } });
+      let user:any = await User.findOne({ where: { email } ,  attributes: { exclude: ['password'] }});
       if (!user)
         return { message: 'User not found', statusCode: 400, data: {} };
+       
       return {
         message: 'Successfully fetch user info',
         statusCode: 200,
@@ -27,7 +28,7 @@ export class UserService {
   }
   async getAllUsers(): Promise<ResponseDto> {
     try {
-      let users = await User.findAll({});
+      let users = await User.findAll({  attributes: { exclude: ['password'] }});
       if (!users)
         return { message: 'No Users found', statusCode: 400, data: {} };
       return {
@@ -102,7 +103,7 @@ export class UserService {
   async signToken(
     userId: number,
     email: string,
-  ): Promise<{ access_token: string }> {
+  ): Promise<string> {
     const payload = {
       sub: userId,
       email,
@@ -117,9 +118,7 @@ export class UserService {
       },
     );
 
-    return {
-      access_token: token,
-    };
+    return token;
   }
 
 }
