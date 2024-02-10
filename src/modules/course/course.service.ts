@@ -104,7 +104,7 @@ export class CourseService {
       return {
         message: 'Successfully fetch all Courses info',
         statusCode: 200,
-        data: Course,
+        data: courses,
       };
     } catch (error) {
       throw new HttpException({
