@@ -1,6 +1,6 @@
-import { Controller, Get,Post,Body,Param,Query, UseGuards } from '@nestjs/common';
+import { Controller, Get,Post,Body,Param, UseGuards } from '@nestjs/common';
 import { CourseService } from './course.service';
-import { BodyDto, CourseDto, CourseParamDto, ResponseDto } from 'src/dto';
+import {  CourseDto, CourseParamDto, ResponseDto } from 'src/dto';
 import { AuthGuard } from '@nestjs/passport';
 
 

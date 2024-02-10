@@ -1,22 +1,24 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { User } from '../../database/database.providers';
 import { ResponseDto, BodyDto ,LoginDto} from '../../dto';
 import * as argon2 from 'argon2';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 
 
 @Injectable()
 export class UserService {
   constructor(
-    private jwt: JwtService
+    private jwt: JwtService,
+    private config: ConfigService,
   ) {}
 
-  async getUser(email: string): Promise<ResponseDto> {
+  async getUser(id: string): Promise<ResponseDto> {
     try {
-      let user:any = await User.findOne({ where: { email } ,  attributes: { exclude: ['password'] }});
-      if (!user)
-        return { message: 'User not found', statusCode: 400, data: {} };
-       
+      let user:any = await User.findOne({ where: { id } ,  attributes: { exclude: ['password'] }});
+      if (!user){
+        throw new Error('User not found')
+      }
       return {
         message: 'Successfully fetch user info',
         statusCode: 200,
@@ -33,15 +35,22 @@ export class UserService {
         // offset: 10,
         limit: 10,
     });
-      if (!users)
-        return { message: 'No Users found', statusCode: 400, data: {} };
+      if (!(users.length > 0)){
+        throw new Error('No Users found')
+      }
       return {
         message: 'Successfully fetch all users info',
         statusCode: 200,
         data: users,
       };
     } catch (error) {
-      return { message: 'Something went wrong', statusCode: 500, data: {} };
+
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: 'Some thing went wrong',
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
 
@@ -50,8 +59,14 @@ export class UserService {
       // console.log(req.user)
       let required = ['firstName', 'lastName', 'email', 'password', 'phone','role'];
       for (let key of required) {
-        if (!body?.[key])
-          return { message: `${key} is required`, statusCode: 400, data: {} };
+        if (!body?.[key]) {
+          throw new Error(`${key} is required`);
+        }
+      }
+
+      let isUserExist:any = await User.findOne({ where: { email:body.email }})  
+      if(isUserExist){
+        throw new Error("credentials already taken");
       }
       let password = await argon2.hash(body.password);
       delete body.password;
@@ -73,8 +88,12 @@ export class UserService {
         data:user
       };
     } catch (error) {
-      console.log(error);
-      return { message: 'Something went wrong', statusCode: 500, data: {} };
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: 'Some thing went wrong',
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
 
@@ -83,8 +102,9 @@ export class UserService {
     try {
       let required = [ 'email', 'password'];
       for (let key of required) {
-        if (!body?.[key])
-          return { message: `${key} is required`, statusCode: 400, data: {} };
+        if (!body?.[key]) {
+          throw new Error(`${key} is required`);
+        }
       }
 
       let user:any = await User.findOne({ where: { email:body.email } });
@@ -100,8 +120,12 @@ export class UserService {
         data: {jwt},
       };
     } catch (error) {
-      console.log(error);
-      return { message: 'Something went wrong', statusCode: 500, data: {} };
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: 'Some thing went wrong',
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
   async signToken(
@@ -112,7 +136,7 @@ export class UserService {
       sub: userId,
       email,
     };
-    const secret = "my_secret"
+    const secret = this.config.get('JWT_SECRET')
 
     const token = await this.jwt.signAsync(
       payload,

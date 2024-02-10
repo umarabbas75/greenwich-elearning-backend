@@ -12,9 +12,9 @@ export class UserController {
     return this.appService.getAllUsers();
   }
 
-  @Get('/:email')
+  @Get('/:id')
   getUser(@Param() params: ParamsDto): Promise<ResponseDto> {
-    return this.appService.getUser(params.email);
+    return this.appService.getUser(params.id);
   }
 
   @UseGuards(AuthGuard('jwt'))

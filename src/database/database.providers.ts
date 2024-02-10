@@ -45,7 +45,6 @@ export const User = sequelize.define("Users", {
     }
 }, { timestamps: true });
 
-
 export const Course = sequelize.define("Courses", {
     title: DataTypes.TEXT,
     description: DataTypes.TEXT,
@@ -57,8 +56,6 @@ export const Course = sequelize.define("Courses", {
         defaultValue: DataTypes.UUIDV4 
     }
 }, { timestamps: true });
-
-
 
 // Define Module model
 export const Module = sequelize.define('Modules', {
@@ -144,7 +141,6 @@ Module.belongsTo(Course,{ foreignKey: 'courseId' });
 Module.hasMany(Chapter,{ foreignKey: 'moduleId', as: 'chapters' });
 Chapter.belongsTo(Module,{ foreignKey: 'moduleId' });
 
-// Establish association between Chapter and Section
 Chapter.hasMany(Section, { foreignKey: 'chapterId', as: 'sections' });
 Section.belongsTo(Chapter, { foreignKey: 'chapterId' });
 

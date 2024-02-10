@@ -1,35 +1,74 @@
+import { IsEmail, IsNotEmpty, IsString,IsOptional } from "class-validator";
+
 export class BodyDto {
+  @IsString()
+  @IsNotEmpty()
   firstName: string;
+
+  @IsString()
+  @IsNotEmpty()
   lastName: string;
+  
+  @IsEmail()
+  @IsNotEmpty()
   email: string;
+  
+  @IsString()
+  @IsNotEmpty()
   password: string;
+  
+  @IsString()
+  @IsNotEmpty()
   phone: string;
+  
+  @IsString()
+  @IsNotEmpty()
   role: string;
+  
+  @IsString()
+  @IsOptional()
   photo?: string;
+  
   timestamp: number;
 }
 
 export class LoginDto {
+  @IsEmail()
+  @IsNotEmpty()
   email: string;
+
+  @IsString()
+  @IsNotEmpty()
   password: string;
 }
 
 export class CourseDto {
+  @IsEmail()
+  @IsNotEmpty()
   title: string;
+  
+  @IsEmail()
+  @IsNotEmpty()
   description: string;
+
+  @IsOptional()
   id?: string;
 }
 
 export class ParamsDto {
-  email: string;
+  @IsString()
+  @IsNotEmpty()
+  id: string;
 }
 
 
 export class CourseParamDto {
+  @IsString()
+  @IsNotEmpty()
   id: string;
 }
 
-export class ResponseDto {
+export interface ResponseDto {
   message: string;
   statusCode: number;
   data:object | object[];

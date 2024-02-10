@@ -5,22 +5,23 @@ import {
   Strategy,
 } from 'passport-jwt';
 import { User } from '../database/database.providers';
-import * as dotenv from 'dotenv';
-dotenv.config();
+import { ConfigService } from '@nestjs/config';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(
   Strategy,
   'jwt',
 ) {
   constructor(
+    config: ConfigService,
   ) {
-    if(!process.env?.JWT_SECRET){
+    let jwt_secret = config.get('JWT_SECRET')
+    if(!jwt_secret){
       throw new Error("JWT_SECRET is not set");
   }
     super({
       jwtFromRequest:
         ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: process.env.JWT_SECRET,
+      secretOrKey: jwt_secret,
     });
   }
 
