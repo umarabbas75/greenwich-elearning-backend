@@ -21,16 +21,12 @@ export class CourseService {
         data: course,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'Some thing went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: error?.message || "Something went wrong",
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
 
@@ -46,16 +42,12 @@ export class CourseService {
         data: module,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'Some thing went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: error?.message || "Something went wrong",
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
 
@@ -71,16 +63,12 @@ export class CourseService {
         data: chapter,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'Some thing went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: error?.message || "Something went wrong",
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
 
@@ -96,16 +84,12 @@ export class CourseService {
         data: section,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'Some thing went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: error?.message || "Something went wrong",
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
   async getAllCourses(): Promise<ResponseDto> {
@@ -123,16 +107,12 @@ export class CourseService {
         data: Course,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'Some thing went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: error?.message || "Something went wrong",
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
   async createCourse(body: CourseDto): Promise<ResponseDto> {
@@ -159,17 +139,12 @@ export class CourseService {
         data: course,
       };
     } catch (error) {
-      console.log(error);
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'Some thing went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: error?.message || "Something went wrong",
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
   async createModule(body: CourseDto): Promise<ResponseDto> {
@@ -197,16 +172,12 @@ export class CourseService {
         data: module,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'Some thing went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: error?.message || "Something went wrong",
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
   async createChapter(body: CourseDto): Promise<ResponseDto> {
@@ -234,17 +205,12 @@ export class CourseService {
         data: chapter,
       };
     } catch (error) {
-      console.log(error);
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'Some thing went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: error?.message || "Something went wrong",
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
   async createSection(body: CourseDto): Promise<ResponseDto> {
@@ -272,17 +238,12 @@ export class CourseService {
         data: section,
       };
     } catch (error) {
-      console.log(error);
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'Some thing went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: error?.message || "Something went wrong",
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
 }

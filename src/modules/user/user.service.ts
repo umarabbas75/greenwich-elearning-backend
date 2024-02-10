@@ -25,7 +25,12 @@ export class UserService {
         data: user,
       };
     } catch (error) {
-      return { message: 'Something went wrong', statusCode: 500, data: {} };
+      throw new HttpException({
+        status: HttpStatus.FORBIDDEN,
+        error: error?.message || "Something went wrong",
+      }, HttpStatus.FORBIDDEN, {
+        cause: error
+      });
     }
   }
   async getAllUsers(): Promise<ResponseDto> {
@@ -47,7 +52,7 @@ export class UserService {
 
       throw new HttpException({
         status: HttpStatus.FORBIDDEN,
-        error: 'Some thing went wrong',
+        error: error?.message || "Something went wrong",
       }, HttpStatus.FORBIDDEN, {
         cause: error
       });
@@ -90,7 +95,7 @@ export class UserService {
     } catch (error) {
       throw new HttpException({
         status: HttpStatus.FORBIDDEN,
-        error: 'Some thing went wrong',
+        error: error?.message || "Something went wrong",
       }, HttpStatus.FORBIDDEN, {
         cause: error
       });
@@ -122,7 +127,7 @@ export class UserService {
     } catch (error) {
       throw new HttpException({
         status: HttpStatus.FORBIDDEN,
-        error: 'Some thing went wrong',
+        error: error?.message || "Something went wrong",
       }, HttpStatus.FORBIDDEN, {
         cause: error
       });

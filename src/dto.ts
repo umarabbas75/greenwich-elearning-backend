@@ -43,11 +43,11 @@ export class LoginDto {
 }
 
 export class CourseDto {
-  @IsEmail()
   @IsNotEmpty()
+  @IsString()
   title: string;
   
-  @IsEmail()
+  @IsString()
   @IsNotEmpty()
   description: string;
 
