@@ -11,7 +11,7 @@ import { CourseDto, ResponseDto } from 'src/dto';
 export class CourseService {
   async getCourse(id: string): Promise<ResponseDto> {
     try {
-      let course = await Course.findOne({ where: { id } });
+      const course = await Course.findOne({ where: { id } });
       if (!course) {
         throw new Error('course not found');
       }
@@ -21,18 +21,22 @@ export class CourseService {
         data: course,
       };
     } catch (error) {
-      throw new HttpException({
-        status: HttpStatus.FORBIDDEN,
-        error: error?.message || "Something went wrong",
-      }, HttpStatus.FORBIDDEN, {
-        cause: error
-      });
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
     }
   }
 
   async getModule(id: string): Promise<ResponseDto> {
     try {
-      let module = await Module.findOne({ where: { id } });
+      const module = await Module.findOne({ where: { id } });
       if (!module) {
         throw new Error('Module not found');
       }
@@ -42,18 +46,22 @@ export class CourseService {
         data: module,
       };
     } catch (error) {
-      throw new HttpException({
-        status: HttpStatus.FORBIDDEN,
-        error: error?.message || "Something went wrong",
-      }, HttpStatus.FORBIDDEN, {
-        cause: error
-      });
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
     }
   }
 
   async getChapter(id: string): Promise<ResponseDto> {
     try {
-      let chapter = await Chapter.findOne({ where: { id } });
+      const chapter = await Chapter.findOne({ where: { id } });
       if (!chapter) {
         throw new Error('Chapter not found');
       }
@@ -63,18 +71,22 @@ export class CourseService {
         data: chapter,
       };
     } catch (error) {
-      throw new HttpException({
-        status: HttpStatus.FORBIDDEN,
-        error: error?.message || "Something went wrong",
-      }, HttpStatus.FORBIDDEN, {
-        cause: error
-      });
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
     }
   }
 
   async getSection(id: string): Promise<ResponseDto> {
     try {
-      let section = await Section.findOne({ where: { id } });
+      const section = await Section.findOne({ where: { id } });
       if (!section) {
         throw new Error('section not found');
       }
@@ -84,17 +96,21 @@ export class CourseService {
         data: section,
       };
     } catch (error) {
-      throw new HttpException({
-        status: HttpStatus.FORBIDDEN,
-        error: error?.message || "Something went wrong",
-      }, HttpStatus.FORBIDDEN, {
-        cause: error
-      });
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
     }
   }
   async getAllCourses(): Promise<ResponseDto> {
     try {
-      let courses = await Course.findAll({
+      const courses = await Course.findAll({
         limit: 10,
         // offset: 10,
       });
@@ -107,28 +123,34 @@ export class CourseService {
         data: courses,
       };
     } catch (error) {
-      throw new HttpException({
-        status: HttpStatus.FORBIDDEN,
-        error: error?.message || "Something went wrong",
-      }, HttpStatus.FORBIDDEN, {
-        cause: error
-      });
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
     }
   }
   async createCourse(body: CourseDto): Promise<ResponseDto> {
     try {
       // console.log(req.user)
-      let required = ['title', 'description'];
-      for (let key of required) {
+      const required = ['title', 'description'];
+      for (const key of required) {
         if (!body?.[key]) {
           throw new Error(`${key} is required`);
         }
       }
-      let isCourseExist: any = await Course.findOne({ where:{title:body.title}})
-      if(isCourseExist){
-        throw new Error('Course already exist with specified title')
+      const isCourseExist: any = await Course.findOne({
+        where: { title: body.title },
+      });
+      if (isCourseExist) {
+        throw new Error('Course already exist with specified title');
       }
-      let course: any = await Course.create({
+      const course: any = await Course.create({
         title: body.title,
         description: body.description,
         timestamp: Date.now(),
@@ -139,28 +161,34 @@ export class CourseService {
         data: course,
       };
     } catch (error) {
-      throw new HttpException({
-        status: HttpStatus.FORBIDDEN,
-        error: error?.message || "Something went wrong",
-      }, HttpStatus.FORBIDDEN, {
-        cause: error
-      });
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
     }
   }
   async createModule(body: CourseDto): Promise<ResponseDto> {
     try {
       // console.log(req.user)
-      let required = ['title', 'description', 'id'];
-      for (let key of required) {
+      const required = ['title', 'description', 'id'];
+      for (const key of required) {
         if (!body?.[key]) {
           throw new Error(`${key} is required`);
         }
       }
-      let isModuleExist: any = await Module.findOne({ where:{title:body.title}})
-      if(isModuleExist){
-        throw new Error('Module already exist with specified title')
+      const isModuleExist: any = await Module.findOne({
+        where: { title: body.title },
+      });
+      if (isModuleExist) {
+        throw new Error('Module already exist with specified title');
       }
-      let module: any = await Module.create({
+      const module: any = await Module.create({
         title: body.title,
         description: body.description,
         timestamp: Date.now(),
@@ -172,28 +200,34 @@ export class CourseService {
         data: module,
       };
     } catch (error) {
-      throw new HttpException({
-        status: HttpStatus.FORBIDDEN,
-        error: error?.message || "Something went wrong",
-      }, HttpStatus.FORBIDDEN, {
-        cause: error
-      });
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
     }
   }
   async createChapter(body: CourseDto): Promise<ResponseDto> {
     try {
       // console.log(req.user)
-      let required = ['title', 'description', 'id'];
-      for (let key of required) {
+      const required = ['title', 'description', 'id'];
+      for (const key of required) {
         if (!body?.[key]) {
           throw new Error(`${key} is required`);
         }
       }
-      let isChapterExist: any = await Chapter.findOne({ where:{title:body.title}})
-      if(isChapterExist){
-        throw new Error('Chapter already exist with specified title')
+      const isChapterExist: any = await Chapter.findOne({
+        where: { title: body.title },
+      });
+      if (isChapterExist) {
+        throw new Error('Chapter already exist with specified title');
       }
-      let chapter: any = await Chapter.create({
+      const chapter: any = await Chapter.create({
         title: body.title,
         description: body.description,
         timestamp: Date.now(),
@@ -205,28 +239,34 @@ export class CourseService {
         data: chapter,
       };
     } catch (error) {
-      throw new HttpException({
-        status: HttpStatus.FORBIDDEN,
-        error: error?.message || "Something went wrong",
-      }, HttpStatus.FORBIDDEN, {
-        cause: error
-      });
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
     }
   }
   async createSection(body: CourseDto): Promise<ResponseDto> {
     try {
       // console.log(req.user)
-      let required = ['title', 'description', 'id'];
-      for (let key of required) {
+      const required = ['title', 'description', 'id'];
+      for (const key of required) {
         if (!body?.[key]) {
           throw new Error(`${key} is required`);
         }
       }
-      let isSectionExist: any = await Section.findOne({ where:{title:body.title}})
-      if(isSectionExist){
-        throw new Error('Section already exist with specified title')
+      const isSectionExist: any = await Section.findOne({
+        where: { title: body.title },
+      });
+      if (isSectionExist) {
+        throw new Error('Section already exist with specified title');
       }
-      let section: any = await Section.create({
+      const section: any = await Section.create({
         title: body.title,
         description: body.description,
         timestamp: Date.now(),
@@ -238,12 +278,16 @@ export class CourseService {
         data: section,
       };
     } catch (error) {
-      throw new HttpException({
-        status: HttpStatus.FORBIDDEN,
-        error: error?.message || "Something went wrong",
-      }, HttpStatus.FORBIDDEN, {
-        cause: error
-      });
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
     }
   }
 }

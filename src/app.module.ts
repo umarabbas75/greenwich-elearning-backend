@@ -9,7 +9,7 @@ import { UserModule } from './modules/user/user.module';
     ConfigModule.forRoot({ isGlobal: true }),
     DatabaseModule,
     CourseModule,
-    UserModule
-  ]
+    UserModule,
+  ],
 })
 export class AppModule {}

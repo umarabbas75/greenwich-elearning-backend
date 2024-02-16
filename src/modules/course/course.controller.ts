@@ -1,14 +1,12 @@
-import { Controller, Get,Post,Body,Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { CourseService } from './course.service';
-import {  CourseDto, CourseParamDto, ResponseDto } from 'src/dto';
+import { CourseDto, CourseParamDto, ResponseDto } from 'src/dto';
 import { AuthGuard } from '@nestjs/passport';
-
 
 @Controller('courses')
 export class CourseController {
   constructor(private readonly appService: CourseService) {}
-  
-  
+
   @Get('/:id')
   getCourse(@Param() params: CourseParamDto): Promise<ResponseDto> {
     return this.appService.getCourse(params.id);
@@ -34,26 +32,25 @@ export class CourseController {
   }
 
   @UseGuards(AuthGuard('jwt'))
-  @Post("/")
-  createCourse(@Body() body:CourseDto):Promise<ResponseDto> {
+  @Post('/')
+  createCourse(@Body() body: CourseDto): Promise<ResponseDto> {
     return this.appService.createCourse(body);
   }
 
   @UseGuards(AuthGuard('jwt'))
-  @Post("/module")
-  createModule(@Body() body:CourseDto):Promise<ResponseDto> {
+  @Post('/module')
+  createModule(@Body() body: CourseDto): Promise<ResponseDto> {
     return this.appService.createModule(body);
   }
   @UseGuards(AuthGuard('jwt'))
-  @Post("/chapter")
-  createChapter(@Body() body:CourseDto):Promise<ResponseDto> {
+  @Post('/chapter')
+  createChapter(@Body() body: CourseDto): Promise<ResponseDto> {
     return this.appService.createChapter(body);
   }
 
   @UseGuards(AuthGuard('jwt'))
-  @Post("/section")
-  createSection(@Body() body:CourseDto):Promise<ResponseDto> {
+  @Post('/section')
+  createSection(@Body() body: CourseDto): Promise<ResponseDto> {
     return this.appService.createSection(body);
   }
-
 }
