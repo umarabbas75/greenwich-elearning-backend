@@ -34,11 +34,11 @@ export class CourseController {
   getAllModules(@Param() params: CourseParamDto): Promise<ResponseDto> {
     return this.appService.getAllModules(params.id);
   }
-  @Get('/allChapters/:id')
+  @Get('/module/allChapters/:id')
   getAllChapters(@Param() params: CourseParamDto): Promise<ResponseDto> {
     return this.appService.getAllChapters(params.id);
   }
-  @Get('/allSections/:id')
+  @Get('/module/chapter/allSections/:id')
   getAllSections(@Param() params: CourseParamDto): Promise<ResponseDto> {
     return this.appService.getAllSections(params.id);
   }
