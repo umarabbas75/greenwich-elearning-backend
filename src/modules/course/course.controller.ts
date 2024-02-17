@@ -30,7 +30,18 @@ export class CourseController {
   getAllCourses(): Promise<ResponseDto> {
     return this.appService.getAllCourses();
   }
-
+  @Get('/allModules/:id')
+  getAllModules(@Param() params: CourseParamDto): Promise<ResponseDto> {
+    return this.appService.getAllModules(params.id);
+  }
+  @Get('/allChapters/:id')
+  getAllChapters(@Param() params: CourseParamDto): Promise<ResponseDto> {
+    return this.appService.getAllChapters(params.id);
+  }
+  @Get('/allSections/:id')
+  getAllSections(@Param() params: CourseParamDto): Promise<ResponseDto> {
+    return this.appService.getAllSections(params.id);
+  }
   @UseGuards(AuthGuard('jwt'))
   @Post('/')
   createCourse(@Body() body: CourseDto): Promise<ResponseDto> {

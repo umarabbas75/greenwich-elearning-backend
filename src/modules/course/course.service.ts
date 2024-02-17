@@ -135,6 +135,96 @@ export class CourseService {
       );
     }
   }
+  async getAllModules(id: string): Promise<ResponseDto> {
+    try {
+      const modules = await Module.findAll({
+        where: {
+          courseId: id,
+        },
+        limit: 10,
+        // offset: 10,
+      });
+      if (!(modules.length > 0)) {
+        throw new Error('No Modules found');
+      }
+      return {
+        message: 'Successfully fetch all Modules info',
+        statusCode: 200,
+        data: modules,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+  async getAllChapters(id: string): Promise<ResponseDto> {
+    try {
+      const chapters = await Chapter.findAll({
+        where: {
+          moduleId: id,
+        },
+        limit: 10,
+        // offset: 10,
+      });
+      if (!(chapters.length > 0)) {
+        throw new Error('No Chapters found');
+      }
+      return {
+        message: 'Successfully fetch all Chapters info',
+        statusCode: 200,
+        data: chapters,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+  async getAllSections(id: string): Promise<ResponseDto> {
+    try {
+      const sections = await Section.findAll({
+        where: {
+          chapterId: id,
+        },
+        limit: 10,
+        // offset: 10,
+      });
+      if (!(sections.length > 0)) {
+        throw new Error('No Sections found');
+      }
+      return {
+        message: 'Successfully fetch all Sections info',
+        statusCode: 200,
+        data: sections,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
   async createCourse(body: CourseDto): Promise<ResponseDto> {
     try {
       // console.log(req.user)
