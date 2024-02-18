@@ -25,6 +25,15 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         id: payload.sub,
       }
     });
+    if (!user) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: 'User not found',
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
     if (user.role !== 'admin') {
       throw new HttpException(
         {
