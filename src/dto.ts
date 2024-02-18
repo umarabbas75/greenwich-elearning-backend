@@ -1,3 +1,4 @@
+import { Role } from '@prisma/client';
 import { IsEmail, IsNotEmpty, IsString, IsOptional } from 'class-validator';
 
 export class BodyDto {
@@ -25,7 +26,7 @@ export class BodyDto {
 
   @IsString()
   @IsNotEmpty()
-  role: string;
+  role: Role;
 
   @IsString()
   @IsOptional()
@@ -33,7 +34,33 @@ export class BodyDto {
 
   timestamp: number;
 }
+export class BodyUpdateDto {
+  @IsOptional()
+  @IsString()
+  firstName?: string;
 
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  photo?: string;
+}
+
+export class ChangePasswordDto {
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+}
 export class LoginDto {
   @IsEmail()
   @IsNotEmpty()
@@ -52,9 +79,40 @@ export class CourseDto {
   @IsString()
   @IsNotEmpty()
   description: string;
+}
+
+export class UpdateCourseDto {
+  @IsOptional()
+  @IsString()
+  title?: string;
 
   @IsOptional()
-  id?: string;
+  @IsString()
+  description?: string;
+}
+
+export class AssignCourseDto {
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  courseId: string;
+}
+
+export class ModuleDto {
+  @IsNotEmpty()
+  @IsString()
+  title: string;
+
+  @IsString()
+  @IsNotEmpty()
+  description: string;
+
+  @IsString()
+  @IsNotEmpty()
+  id: string;
 }
 
 export class ParamsDto {
