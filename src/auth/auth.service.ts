@@ -28,7 +28,6 @@ export class AuthService {
         throw new Error('User not found');
       }
       const pwMatches = await argon2.verify(user.password, body.password);
-      console.log('------>', pwMatches);
       // if password incorrect throw exception
       if (!pwMatches) throw new ForbiddenException('Credentials incorrect');
       delete body.password;

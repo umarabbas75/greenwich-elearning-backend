@@ -1,10 +1,9 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { Course, Module, Chapter, Section, User } from '@prisma/client';
+import { Course, Module, Chapter, Section } from '@prisma/client';
 import {
   AssignCourseDto,
   CourseDto,
   ModuleDto,
-  ParamsDto,
   ResponseDto,
   UpdateCourseDto,
 } from 'src/dto';
@@ -241,6 +240,9 @@ export class CourseService {
         data: {
           title: body.title,
           description: body.description,
+          assessment: body.description,
+          overview: body.description,
+          image: body.description,
         },
       });
       return {
@@ -280,7 +282,7 @@ export class CourseService {
       }
 
       // Save the updated user
-      const updatedcourse = await this.prisma.course.update({
+      const updatedCourse = await this.prisma.course.update({
         where: { id }, // Specify the unique identifier for the user you want to update
         data: updateCourse, // Pass the modified user object
       });
@@ -288,7 +290,7 @@ export class CourseService {
       return {
         message: 'Successfully create course record',
         statusCode: 200,
-        data: updatedcourse,
+        data: updatedCourse,
       };
     } catch (error) {
       throw new HttpException(
@@ -322,7 +324,7 @@ export class CourseService {
       }
 
       // Save the updated user
-      const updatedmodule = await this.prisma.module.update({
+      const updatedModule = await this.prisma.module.update({
         where: { id }, // Specify the unique identifier for the user you want to update
         data: updateModule, // Pass the modified user object
       });
@@ -330,7 +332,7 @@ export class CourseService {
       return {
         message: 'Successfully create course record',
         statusCode: 200,
-        data: updatedmodule,
+        data: updatedModule,
       };
     } catch (error) {
       throw new HttpException(
@@ -364,7 +366,7 @@ export class CourseService {
       }
 
       // Save the updated user
-      const updatedchapter = await this.prisma.module.update({
+      const updatedChapter = await this.prisma.module.update({
         where: { id }, // Specify the unique identifier for the user you want to update
         data: updateChapter, // Pass the modified user object
       });
@@ -372,7 +374,7 @@ export class CourseService {
       return {
         message: 'Successfully create course record',
         statusCode: 200,
-        data: updatedchapter,
+        data: updatedChapter,
       };
     } catch (error) {
       throw new HttpException(
@@ -405,7 +407,7 @@ export class CourseService {
       }
 
       // Save the updated user
-      const updatedsection = await this.prisma.module.update({
+      const updatedSection = await this.prisma.module.update({
         where: { id }, // Specify the unique identifier for the user you want to update
         data: updateSection, // Pass the modified user object
       });
@@ -413,7 +415,7 @@ export class CourseService {
       return {
         message: 'Successfully create course record',
         statusCode: 200,
-        data: updatedsection,
+        data: updatedSection,
       };
     } catch (error) {
       throw new HttpException(
@@ -566,7 +568,7 @@ export class CourseService {
       if (!user) {
         throw new Error('User not found');
       }
-  
+
       return {
         message: 'Successfully retrieved assigned courses',
         statusCode: 200,
@@ -585,7 +587,7 @@ export class CourseService {
       );
     }
   }
-  
+
   async deleteCourse(id: string): Promise<ResponseDto> {
     try {
       const user = await this.prisma.course.findUnique({
@@ -713,9 +715,4 @@ export class CourseService {
       );
     }
   }
-
-  
 }
-
-
-

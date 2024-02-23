@@ -1,5 +1,5 @@
 import { Role } from '@prisma/client';
-import { IsEmail, IsNotEmpty, IsString, IsOptional } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, IsOptional, IsArray } from 'class-validator';
 
 export class BodyDto {
   @IsString()
@@ -79,8 +79,43 @@ export class CourseDto {
   @IsString()
   @IsNotEmpty()
   description: string;
-}
 
+  @IsString()
+  @IsNotEmpty()
+  assessment: string;
+  @IsString()
+  @IsNotEmpty()
+  image:string
+  @IsString()
+  @IsNotEmpty()
+  overview:string
+}
+export class QuizDto {
+  @IsNotEmpty()
+  @IsString()
+  question: string;
+
+  @IsArray()
+  @IsNotEmpty()
+  options: string[];
+  
+  @IsNotEmpty()
+  @IsString()
+  answer: string;
+}
+export class UpdateQuizDto {
+  @IsString()
+  @IsOptional()
+  question: string;
+
+  @IsArray()
+  @IsOptional()
+  options: string[];
+  
+  @IsOptional()
+  @IsString()
+  answer: string;
+}
 export class UpdateCourseDto {
   @IsOptional()
   @IsString()

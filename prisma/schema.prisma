@@ -33,11 +33,16 @@ model Course {
   id          String   @id @default(uuid())
   title       String   @unique
   description String
+  image       String
+  overview    String
+  assessment  String
   modules     Module[]
   users       User[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+
 
 model Module {
   id          String    @id @default(uuid())
@@ -69,7 +74,30 @@ model Section {
   description String
   chapterId   String
   chapter     Chapter @relation(fields: [chapterId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
+
+
+model UserCourseProgress {
+  id           String   @id @default(uuid())
+  userId       String
+  courseId     String
+  progress     Float    // This could represent percentage completed
+  completed    Boolean  // Optional: Indicates if the course is completed
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, courseId])
+}
+
+model Quiz {
+  id        String   @id @default(uuid())
+  question  String   @unique
+  options   String[]
+  answer    String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

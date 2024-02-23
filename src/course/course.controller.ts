@@ -109,8 +109,6 @@ export class CourseController {
     return this.appService.getAllAssignedCourses(params.id);
   }
 
-  
-
   @UseGuards(AuthGuard('jwt'))
   @Post('/module')
   createModule(@Body() body: ModuleDto): Promise<ResponseDto> {
