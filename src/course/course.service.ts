@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { Course, Module, Chapter, Section } from '@prisma/client';
+import { Course, Module, Chapter, Section, User } from '@prisma/client';
 import {
   AssignCourseDto,
   CourseDto,
@@ -557,7 +557,35 @@ export class CourseService {
       );
     }
   }
-
+  async getAllAssignedCourses(userId: string): Promise<ResponseDto> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { courses: true }, // Include the courses relation
+      });
+      if (!user) {
+        throw new Error('User not found');
+      }
+  
+      return {
+        message: 'Successfully retrieved assigned courses',
+        statusCode: 200,
+        data: user.courses, // Return the courses associated with the user
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+  
   async deleteCourse(id: string): Promise<ResponseDto> {
     try {
       const user = await this.prisma.course.findUnique({
@@ -685,4 +713,9 @@ export class CourseService {
       );
     }
   }
+
+  
 }
+
+
+

@@ -28,7 +28,7 @@ export class AuthService {
         throw new Error('User not found');
       }
       const pwMatches = await argon2.verify(user.password, body.password);
-      console.log("------>",pwMatches)
+      console.log('------>', pwMatches);
       // if password incorrect throw exception
       if (!pwMatches) throw new ForbiddenException('Credentials incorrect');
       delete body.password;
@@ -36,7 +36,7 @@ export class AuthService {
       return {
         message: 'Successfully logged in',
         statusCode: 200,
-        data: { jwt },
+        data: { jwt, user },
       };
     } catch (error) {
       throw new HttpException(

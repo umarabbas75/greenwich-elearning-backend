@@ -104,6 +104,12 @@ export class CourseController {
   assignCourse(@Body() body: AssignCourseDto): Promise<ResponseDto> {
     return this.appService.assignCourse(body);
   }
+  @Get('/getAllAssignedCourses/:id')
+  getAllAssignedCourses(@Param() params: CourseParamDto): Promise<ResponseDto> {
+    return this.appService.getAllAssignedCourses(params.id);
+  }
+
+  
 
   @UseGuards(AuthGuard('jwt'))
   @Post('/module')
