@@ -465,7 +465,7 @@ export class CourseService {
         data: {
           title: body.title,
           description: body.description,
-
+          
           moduleId: body.id,
         },
       });

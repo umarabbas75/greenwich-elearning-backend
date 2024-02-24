@@ -27,6 +27,7 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   courses   Course[]
+
   @@map("users")
 }
 
@@ -41,6 +42,7 @@ model Course {
   users       User[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
   @@map("courses")
 }
 
@@ -56,6 +58,7 @@ model Module {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
   @@map("modules")
 }
 
@@ -66,9 +69,11 @@ model Chapter {
   moduleId    String
   module      Module    @relation(fields: [moduleId], references: [id])
   sections    Section[]
-  quizId      String?
+  quizId      String?    @unique
+  quiz        Quiz?      @relation(fields: [quizId], references: [id])
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
   @@map("chapters")
 }
 
@@ -81,6 +86,7 @@ model Section {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
   @@map("sections")
 }
 
@@ -97,12 +103,14 @@ model UserCourseProgress {
 }
 
 model Quiz {
-  id        String    @id @default(uuid())
-  question  String    @unique
+  id        String   @id @default(uuid())
+  question  String   @unique
   options   String[]
   answer    String
+  chapter   Chapter?
   chapterId String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@map("quizzes")
 }
