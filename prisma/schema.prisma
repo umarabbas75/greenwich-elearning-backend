@@ -94,8 +94,7 @@ model UserCourseProgress {
   id        String   @id @default(uuid())
   userId    String
   courseId  String
-  progress  Float // This could represent percentage completed
-  completed Boolean // Optional: Indicates if the course is completed
+  chapterId String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

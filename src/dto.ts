@@ -129,6 +129,11 @@ export class UpdateCourseDto {
   @IsString()
   description?: string;
 }
+export class UpdateCourseProgress {
+  userId: string;
+    courseId: string;
+    chapterId: string;
+}
 
 export class AssignCourseDto {
   @IsString()

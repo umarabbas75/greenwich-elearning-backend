@@ -715,4 +715,99 @@ export class CourseService {
       );
     }
   }
+
+
+  async updateUserCourseProgress(
+    userId: string,
+    courseId: string,
+    chapterId: string,
+  ): Promise<ResponseDto> {
+    try {
+      // Get total modules in the course
+      const course = await this.prisma.course.findUnique({
+        where: { id: courseId },
+        include: { modules: true },
+      });
+      if (!course) {
+        throw new Error('Course not found');
+      }
+  
+  
+      // Get completed modules by the user
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+       
+      });
+  
+      if (!user) {
+        throw new Error('user not found');
+      }
+      // Update or create progress record
+      let userCourseProgress = await this.prisma.userCourseProgress.findFirst({
+        where: {
+          userId,
+          courseId,
+          chapterId
+        },
+      });
+      if (!userCourseProgress) {
+        userCourseProgress = await this.prisma.userCourseProgress.create({
+          data: {
+            userId,
+            courseId,
+            chapterId
+          },
+        });
+      } 
+  
+      return {
+        message: 'User course progress updated successfully',
+        statusCode: 200,
+        data: {
+          userCourseProgress,
+        },
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+  
+
+  async getUserCourseProgress(userId: string,courseId:string): Promise<ResponseDto> {
+    try{
+      let userCourseProgress = await this.prisma.userCourseProgress.findMany({
+        where: {
+          userId,
+          courseId
+        }
+      })
+      return {
+        message: 'User course progress updated successfully',
+        statusCode: 200,
+        data: 
+          userCourseProgress,
+      };
+    }catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
 }
