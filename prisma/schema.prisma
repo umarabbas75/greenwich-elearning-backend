@@ -27,6 +27,7 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   courses   Course[]
+  @@map("users")
 }
 
 model Course {
@@ -40,6 +41,7 @@ model Course {
   users       User[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  @@map("courses")
 }
 
 
@@ -54,6 +56,7 @@ model Module {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@map("modules")
 }
 
 model Chapter {
@@ -63,9 +66,10 @@ model Chapter {
   moduleId    String
   module      Module    @relation(fields: [moduleId], references: [id])
   sections    Section[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  quizId      String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  @@map("chapters")
 }
 
 model Section {
@@ -74,30 +78,31 @@ model Section {
   description String
   chapterId   String
   chapter     Chapter @relation(fields: [chapterId], references: [id])
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@map("sections")
 }
 
-
-
 model UserCourseProgress {
-  id           String   @id @default(uuid())
-  userId       String
-  courseId     String
-  progress     Float    // This could represent percentage completed
-  completed    Boolean  // Optional: Indicates if the course is completed
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id        String   @id @default(uuid())
+  userId    String
+  courseId  String
+  progress  Float // This could represent percentage completed
+  completed Boolean // Optional: Indicates if the course is completed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, courseId])
 }
 
 model Quiz {
-  id        String   @id @default(uuid())
-  question  String   @unique
+  id        String    @id @default(uuid())
+  question  String    @unique
   options   String[]
   answer    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  chapterId String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  @@map("quizzes")
 }

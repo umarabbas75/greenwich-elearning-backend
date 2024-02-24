@@ -78,6 +78,7 @@ export class QuizService {
           question: body.question,
           options: body.options,
           answer: body.answer,
+          chapterId: body.chapterId
         },
       });
       return {

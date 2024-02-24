@@ -102,6 +102,10 @@ export class QuizDto {
   @IsNotEmpty()
   @IsString()
   answer: string;
+
+  @IsNotEmpty()
+  @IsString()
+  chapterId: string;
 }
 export class UpdateQuizDto {
   @IsString()
