@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,11 +5,6 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-}
-
-enum Role {
-  admin
-  user
 }
 
 model User {
@@ -26,7 +18,7 @@ model User {
   role      Role
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  courses   Course[]
+  courses   Course[] @relation("CourseToUser")
 
   @@map("users")
 }
@@ -38,26 +30,23 @@ model Course {
   image       String
   overview    String
   assessment  String
-  modules     Module[]
-  users       User[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  modules     Module[]
+  users       User[]   @relation("CourseToUser")
 
   @@map("courses")
 }
-
-
 
 model Module {
   id          String    @id @default(uuid())
   title       String
   description String
   courseId    String
-  course      Course    @relation(fields: [courseId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   chapters    Chapter[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  course      Course    @relation(fields: [courseId], references: [id])
 
   @@map("modules")
 }
@@ -67,25 +56,24 @@ model Chapter {
   title       String
   description String
   moduleId    String
-  module      Module    @relation(fields: [moduleId], references: [id])
-  sections    Section[]
-  quizId      String?    @unique
-  quiz        Quiz?      @relation(fields: [quizId], references: [id])
+  quizId      String?   @unique
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  module      Module    @relation(fields: [moduleId], references: [id])
+  quiz        Quiz?     @relation(fields: [quizId], references: [id])
+  sections    Section[]
 
   @@map("chapters")
 }
 
 model Section {
-  id          String  @id @default(uuid())
+  id          String   @id @default(uuid())
   title       String
   description String
   chapterId   String
-  chapter     Chapter @relation(fields: [chapterId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  chapter     Chapter  @relation(fields: [chapterId], references: [id])
 
   @@map("sections")
 }
@@ -106,10 +94,15 @@ model Quiz {
   question  String   @unique
   options   String[]
   answer    String
-  chapter   Chapter?
   chapterId String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  chapter   Chapter?
 
   @@map("quizzes")
+}
+
+enum Role {
+  admin
+  user
 }

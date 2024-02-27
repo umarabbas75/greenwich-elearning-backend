@@ -790,11 +790,24 @@ export class CourseService {
           courseId
         }
       })
+   
+      let module = await this.prisma.module.findFirst({
+        where: {
+          courseId
+        },
+        include:{
+          chapters:true
+        }
+      })
+        
+
+      let percentage = (userCourseProgress.length/module.chapters.length)*100
       return {
         message: 'User course progress updated successfully',
         statusCode: 200,
-        data: 
-          userCourseProgress,
+        data: {
+          userCourseProgress:percentage,
+        }
       };
     }catch (error) {
       throw new HttpException(
