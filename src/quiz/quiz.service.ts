@@ -1,12 +1,8 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { Quiz } from '@prisma/client';
 import {
-  AssignCourseDto,
-  CourseDto,
-  ModuleDto,
   QuizDto,
   ResponseDto,
-  UpdateCourseDto,
   UpdateQuizDto,
 } from 'src/dto';
 import { PrismaService } from '../prisma/prisma.service';
