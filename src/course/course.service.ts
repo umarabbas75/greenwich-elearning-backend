@@ -6,6 +6,7 @@ import {
   ModuleDto,
   ResponseDto,
   UpdateCourseDto,
+  UpdateCourseProgress,
 } from 'src/dto';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -651,16 +652,16 @@ export class CourseService {
   }
 
 
-  async assignCourse(body: AssignCourseDto): Promise<ResponseDto> {
+  async assignCourse(userId:string,courseId:string): Promise<ResponseDto> {
     try {
       const course = await this.prisma.course.findUnique({
-        where: { id: body.courseId },
+        where: { id: courseId },
       });
       if (!course) {
         throw new Error('course not found');
       }
       const user = await this.prisma.user.findUnique({
-        where: { id: body.userId },
+        where: { id: userId },
       });
       if (!user) {
         throw new Error('user not found');
@@ -668,10 +669,10 @@ export class CourseService {
 
       // Assign the course to the user
       await this.prisma.user.update({
-        where: { id: body.userId },
+        where: { id: userId },
         data: {
           courses: {
-            connect: { id: body.courseId },
+            connect: { id: courseId },
           },
         },
       });
@@ -724,15 +725,12 @@ export class CourseService {
   }
 
   async updateUserCourseProgress(
-    userId: string,
-    courseId: string,
-    chapterId: string,
-    sectionId: string,
+    body:UpdateCourseProgress
   ): Promise<ResponseDto> {
     try {
       // Get total modules in the course
       const course = await this.prisma.course.findUnique({
-        where: { id: courseId },
+        where: { id: body.courseId },
         include: { modules: true },
       });
       if (!course) {
@@ -742,7 +740,7 @@ export class CourseService {
   
       // Get completed modules by the user
       const user = await this.prisma.user.findUnique({
-        where: { id: userId },
+        where: { id: body.userId },
        
       });
   
@@ -752,19 +750,19 @@ export class CourseService {
       // Update or create progress record
       let userCourseProgress = await this.prisma.userCourseProgress.findFirst({
         where: {
-          userId,
-          courseId,
-          chapterId,
-          sectionId
+          userId:body.userId,
+          courseId:body.courseId,
+          chapterId:body.chapterId,
+          sectionId:body.sectionId
         },
       });
       if (!userCourseProgress) {
         userCourseProgress = await this.prisma.userCourseProgress.create({
           data: {
-            userId,
-            courseId,
-            chapterId,
-            sectionId
+            userId:body.userId,
+            courseId:body.courseId,
+            chapterId:body.chapterId,
+            sectionId:body.sectionId
           },
         });
       } 
@@ -803,13 +801,18 @@ export class CourseService {
         where: {
           courseId
         },
+      
+      })
+      let chapter = await this.prisma.chapter.findFirst({
+        where: {
+          moduleId:module.id
+        },
         include:{
-          chapters:true
+          sections:true
         }
       })
-        
 
-      let percentage = (userCourseProgress.length/module.chapters.length)*100
+      let percentage = (userCourseProgress.length/chapter.sections.length)*100
       return {
         message: 'User course progress updated successfully',
         statusCode: 200,

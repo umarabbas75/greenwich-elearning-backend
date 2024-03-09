@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { Quiz } from '@prisma/client';
+import { Chapter, Quiz } from '@prisma/client';
 import {
   AssignQuizDto,
   QuizDto,
@@ -13,14 +13,18 @@ export class QuizService {
   constructor(private prisma: PrismaService) {}
   async getQuiz(id: string): Promise<ResponseDto> {
     try {
-      const course = await this.prisma.quiz.findUnique({ where: { id } });
-      if (!course) {
+      const quiz = await this.prisma.quiz.findUnique({ where: { id },select:{
+        id:true,
+        question:true,
+        options:true
+      } });
+      if (!quiz) {
         throw new Error('quiz not found');
       }
       return {
         message: 'Successfully fetch Quiz info',
         statusCode: 200,
-        data: course,
+        data: quiz,
       };
     } catch (error) {
       throw new HttpException(
@@ -105,16 +109,61 @@ export class QuizService {
       if (isCourseExist) {
         throw new Error('quiz not exist');
       }
-      await this.prisma.quiz.update({
-        where: { id: quizId },
+
+      const isChapterExist: Chapter = await this.prisma.chapter.findUnique({
+        where: { id: chapterId },
+      });
+      if (isChapterExist) {
+        throw new Error('chapter not exist');
+      }
+
+      await this.prisma.chapter.update({
+        where: { id: chapterId },
         data: {
-          chapterId: chapterId
+          quizzes: {
+            connect: { id: quizId },
+          },
         },
       });
       return {
         message: 'Successfully assign quiz to chapter',
         statusCode: 200,
         data: {},
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+
+  async getAllAssignQuizzes(chapterId:string): Promise<ResponseDto> {
+    try {
+      const chapter = await this.prisma.chapter.findUnique({
+        where:{
+          id:chapterId
+        },
+
+        include: { quizzes: true }
+        // limit: 10,
+        // offset: 10,
+      });
+      let quizzesWithOutAnswer = Promise.all(chapter.quizzes.map((quiz)=>{
+        quiz.answer = "";
+        return quiz
+      }))
+      return {
+        message: 'Successfully fetch all Quizzes info related to chapter',
+        statusCode: 200,
+        data: quizzesWithOutAnswer,
       };
     } catch (error) {
       throw new HttpException(
@@ -157,7 +206,7 @@ export class QuizService {
       return {
         message: 'Successfully create quiz record',
         statusCode: 200,
-        data: updatedCourse,
+        data: {},
       };
     } catch (error) {
       throw new HttpException(

@@ -9,7 +9,7 @@ import {
   Delete,
 } from '@nestjs/common';
 import { QuizService } from './quiz.service';
-import {  AssignQuizDto, CourseParamDto, ParamsDto, QuizDto, ResponseDto, UpdateQuizDto } from 'src/dto';
+import {  AssignQuizDto, CourseParamDto, GetAssignQuizDto, ParamsDto, QuizDto, ResponseDto, UpdateQuizDto } from 'src/dto';
 import { AuthGuard } from '@nestjs/passport';
 
 
@@ -51,6 +51,14 @@ export class QuizController {
     @Param() params: AssignQuizDto,
   ): Promise<ResponseDto> {
     return this.appService.assignQuiz(params.quizId, params.chapterId);
+  }
+
+
+  @Get('/getAllAssignQuizzes/:chapterId')
+  getAllAssignQuizzes(
+    @Param() params: GetAssignQuizDto
+  ): Promise<ResponseDto> {
+    return this.appService.getAllAssignQuizzes(params.chapterId);
   }
 
 }

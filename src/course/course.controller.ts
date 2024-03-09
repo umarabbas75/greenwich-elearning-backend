@@ -101,9 +101,9 @@ export class CourseController {
   }
 
   @UseGuards(AuthGuard('jwt'))
-  @Post('/assignCourse')
-  assignCourse(@Body() body: AssignCourseDto): Promise<ResponseDto> {
-    return this.appService.assignCourse(body);
+  @Put('/assignCourse/:userId/:courseId')
+  assignCourse(@Param() params: AssignCourseDto): Promise<ResponseDto> {
+    return this.appService.assignCourse(params.userId,params.courseId);
   }
   @Get('/getAllAssignedCourses/:id')
   getAllAssignedCourses(@Param() params: CourseParamDto): Promise<ResponseDto> {
@@ -153,7 +153,7 @@ export class CourseController {
   updateUserCourseProgress(
     @Body() body: UpdateCourseProgress,
   ): Promise<ResponseDto> {
-    return this.appService.updateUserCourseProgress(body.userId,body.courseId,body.chapterId,  body.sectionId);
+    return this.appService.updateUserCourseProgress(body);
   }
   @Get('/getUserCourseProgress/:userId/:courseId')
   getUserCourseProgress(@Param() params: AssignCourseDto): Promise<ResponseDto> {

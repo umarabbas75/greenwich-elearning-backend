@@ -140,9 +140,9 @@ export class UpdateCourseDto {
 }
 export class UpdateCourseProgress {
   userId: string;
-    courseId: string;
-    chapterId: string;
-    sectionId: string;
+  courseId: string;
+  chapterId: string;
+  sectionId: string;
 }
 
 export class AssignCourseDto {
@@ -179,6 +179,12 @@ export class CourseParamDto {
   @IsString()
   @IsNotEmpty()
   id: string;
+}
+
+export class GetAssignQuizDto {
+  @IsString()
+  @IsNotEmpty()
+  chapterId: string;
 }
 
 export interface ResponseDto {
