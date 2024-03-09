@@ -727,6 +727,7 @@ export class CourseService {
     userId: string,
     courseId: string,
     chapterId: string,
+    sectionId: string,
   ): Promise<ResponseDto> {
     try {
       // Get total modules in the course
@@ -753,7 +754,8 @@ export class CourseService {
         where: {
           userId,
           courseId,
-          chapterId
+          chapterId,
+          sectionId
         },
       });
       if (!userCourseProgress) {
@@ -761,7 +763,8 @@ export class CourseService {
           data: {
             userId,
             courseId,
-            chapterId
+            chapterId,
+            sectionId
           },
         });
       } 

@@ -1,6 +1,7 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { Quiz } from '@prisma/client';
 import {
+  AssignQuizDto,
   QuizDto,
   ResponseDto,
   UpdateQuizDto,
@@ -73,8 +74,7 @@ export class QuizService {
         data: {
           question: body.question,
           options: body.options,
-          answer: body.answer,
-          chapterId: body.chapterId
+          answer: body.answer
         },
       });
       return {
@@ -95,6 +95,41 @@ export class QuizService {
       );
     }
   }
+
+
+  async assignQuiz(quizId:string,chapterId:string): Promise<ResponseDto> {
+    try {
+      const isCourseExist: Quiz = await this.prisma.quiz.findUnique({
+        where: { id: quizId },
+      });
+      if (isCourseExist) {
+        throw new Error('quiz not exist');
+      }
+      await this.prisma.quiz.update({
+        where: { id: quizId },
+        data: {
+          chapterId: chapterId
+        },
+      });
+      return {
+        message: 'Successfully assign quiz to chapter',
+        statusCode: 200,
+        data: {},
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
 
   async updateQuiz(id: string, body: UpdateQuizDto): Promise<ResponseDto> {
     try {

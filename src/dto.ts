@@ -103,9 +103,6 @@ export class QuizDto {
   @IsString()
   answer: string;
 
-  @IsNotEmpty()
-  @IsString()
-  chapterId: string;
 }
 export class UpdateQuizDto {
   @IsString()
@@ -120,6 +117,18 @@ export class UpdateQuizDto {
   @IsString()
   answer: string;
 }
+
+export class AssignQuizDto {
+  @IsString()
+  @IsNotEmpty()
+  chapterId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  quizId: string;
+}
+
+
 export class UpdateCourseDto {
   @IsOptional()
   @IsString()
@@ -133,6 +142,7 @@ export class UpdateCourseProgress {
   userId: string;
     courseId: string;
     chapterId: string;
+    sectionId: string;
 }
 
 export class AssignCourseDto {
