@@ -60,5 +60,8 @@ export class QuizController {
   ): Promise<ResponseDto> {
     return this.appService.getAllAssignQuizzes(params.chapterId);
   }
-
+  @Post('/')
+  checkQuiz(@Body() body: {quizId:string,userId:string,answer:string}): Promise<ResponseDto> {
+    return this.appService.checkQuiz(body);
+  }
 }

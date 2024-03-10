@@ -252,4 +252,53 @@ export class QuizService {
       );
     }
   }
+
+  async checkQuiz(body:{quizId:string,userId:string,answer:string}): Promise<ResponseDto> {
+    try {
+      const quiz: Quiz = await this.prisma.quiz.findUnique({
+        where: { id: body.quizId },
+      });
+
+      const user = await this.prisma.user.findUnique({
+        where: { id: body.userId },
+      });
+      
+      if (!quiz || !user) {
+        throw new Error('Quiz or user not found');
+      }
+
+    let quizAnswer = await this.prisma.quizAnswer.findFirst({
+      where:{
+      quizId:body.quizId,
+      userId:body.userId
+      }
+    })
+    if(!quizAnswer){  
+    await this.prisma.quizAnswer.create({
+      data: {
+        quizId:body.quizId,
+        userId:body.userId,
+        answer:body.answer,
+        isAnswerCorrect:body.answer == quiz.answer
+      },
+    });
+  }
+      return {
+        message: 'Success',
+        statusCode: 200,
+        data: {},
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
 }

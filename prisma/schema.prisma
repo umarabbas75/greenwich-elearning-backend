@@ -60,8 +60,8 @@ model Chapter {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   module      Module    @relation(fields: [moduleId], references: [id])
+  quizzes     Quiz[]
   sections    Section[]
-  quizzes    Quiz[]
 
   @@map("chapters")
 }
@@ -96,11 +96,23 @@ model Quiz {
   options   String[]
   answer    String
   chapterId String?
-  chapter     Chapter?  @relation(fields: [chapterId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  chapter   Chapter? @relation(fields: [chapterId], references: [id])
+
+  @@map("quizzes")
+}
+
+model QuizAnswer {
+  id        String   @id @default(uuid())
+  quizId    String
+  userId    String
+  answer    String
+  isAnswerCorrect Boolean
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("quizzes")
+  @@map("quiz_answers")
 }
 
 enum Role {

@@ -15,5 +15,6 @@
 - switch to dev db
 npx prisma migrate dev
 - switch prod db  
+npx prisma db push
 npx prisma migrate resolve --applied 20240224101001_update_quiz_model
 npx prisma migrate deploy
