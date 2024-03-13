@@ -18,7 +18,7 @@ import {
   ResponseDto,
   UpdateCourseDto,
   UpdateCourseProgress,
-} from 'src/dto';
+} from '../dto';
 import { AuthGuard } from '@nestjs/passport';
 
 @Controller('courses')
@@ -60,11 +60,13 @@ export class CourseController {
   getAllSections(@Param() params: CourseParamDto): Promise<ResponseDto> {
     return this.appService.getAllSections(params.id);
   }
+
   @UseGuards(AuthGuard('jwt'))
   @Post('/')
   createCourse(@Body() body: CourseDto): Promise<ResponseDto> {
     return this.appService.createCourse(body);
   }
+
   @UseGuards(AuthGuard('jwt'))
   @Put('/:id')
   updateCourse(
@@ -148,11 +150,12 @@ export class CourseController {
     return this.appService.deleteSection(params.id);
   }
 
-  // @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('uJwt'))
   @Put('/updateUserCourse/progress')
   updateUserCourseProgress(
     @Body() body: UpdateCourseProgress,
   ): Promise<ResponseDto> {
+    console.log(body)
     return this.appService.updateUserCourseProgress(body);
   }
   @Get('/getUserCourseProgress/:userId/:courseId')

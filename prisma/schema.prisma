@@ -20,6 +20,7 @@ model User {
   updatedAt DateTime @updatedAt
   courses   Course[] @relation("CourseToUser")
 
+  @@index([email])
   @@map("users")
 }
 
@@ -104,13 +105,13 @@ model Quiz {
 }
 
 model QuizAnswer {
-  id        String   @id @default(uuid())
-  quizId    String
-  userId    String
-  answer    String
+  id              String   @id @default(uuid())
+  quizId          String
+  userId          String
+  answer          String
   isAnswerCorrect Boolean
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@map("quiz_answers")
 }

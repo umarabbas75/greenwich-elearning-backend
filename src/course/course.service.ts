@@ -7,7 +7,7 @@ import {
   ResponseDto,
   UpdateCourseDto,
   UpdateCourseProgress,
-} from 'src/dto';
+} from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -728,6 +728,7 @@ export class CourseService {
     body:UpdateCourseProgress
   ): Promise<ResponseDto> {
     try {
+      console.log("------>",body)
       // Get total modules in the course
       const course = await this.prisma.course.findUnique({
         where: { id: body.courseId },

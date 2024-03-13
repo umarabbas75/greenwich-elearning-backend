@@ -139,9 +139,17 @@ export class UpdateCourseDto {
   description?: string;
 }
 export class UpdateCourseProgress {
+  @IsString()
+  @IsNotEmpty()
   userId: string;
+  @IsString()
+  @IsNotEmpty()
   courseId: string;
+  @IsString()
+  @IsNotEmpty()
   chapterId: string;
+  @IsString()
+  @IsNotEmpty()
   sectionId: string;
 }
 

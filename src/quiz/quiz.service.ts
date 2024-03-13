@@ -5,7 +5,7 @@ import {
   QuizDto,
   ResponseDto,
   UpdateQuizDto,
-} from 'src/dto';
+} from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
