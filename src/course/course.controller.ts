@@ -7,6 +7,7 @@ import {
   UseGuards,
   Put,
   Delete,
+  Req,
 } from '@nestjs/common';
 import { CourseService } from './course.service';
 import {
@@ -154,9 +155,9 @@ export class CourseController {
   @Put('/updateUserCourse/progress')
   updateUserCourseProgress(
     @Body() body: UpdateCourseProgress,
+    @Req() req:any
   ): Promise<ResponseDto> {
-    console.log(body)
-    return this.appService.updateUserCourseProgress(body);
+    return this.appService.updateUserCourseProgress(req.user.id,body);
   }
   @Get('/getUserCourseProgress/:userId/:courseId')
   getUserCourseProgress(@Param() params: AssignCourseDto): Promise<ResponseDto> {

@@ -725,10 +725,10 @@ export class CourseService {
   }
 
   async updateUserCourseProgress(
+    userId:string,
     body:UpdateCourseProgress
   ): Promise<ResponseDto> {
     try {
-      console.log("------>",body)
       // Get total modules in the course
       const course = await this.prisma.course.findUnique({
         where: { id: body.courseId },
@@ -741,7 +741,7 @@ export class CourseService {
   
       // Get completed modules by the user
       const user = await this.prisma.user.findUnique({
-        where: { id: body.userId },
+        where: { id: userId },
        
       });
   
@@ -751,7 +751,7 @@ export class CourseService {
       // Update or create progress record
       let userCourseProgress = await this.prisma.userCourseProgress.findFirst({
         where: {
-          userId:body.userId,
+          userId:userId,
           courseId:body.courseId,
           chapterId:body.chapterId,
           sectionId:body.sectionId
@@ -760,7 +760,7 @@ export class CourseService {
       if (!userCourseProgress) {
         userCourseProgress = await this.prisma.userCourseProgress.create({
           data: {
-            userId:body.userId,
+            userId:userId,
             courseId:body.courseId,
             chapterId:body.chapterId,
             sectionId:body.sectionId
