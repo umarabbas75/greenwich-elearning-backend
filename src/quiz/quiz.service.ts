@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { Chapter, Quiz } from '@prisma/client';
 import {
   AssignQuizDto,
+  CheckQuiz,
   QuizDto,
   ResponseDto,
   UpdateQuizDto,
@@ -253,7 +254,7 @@ export class QuizService {
     }
   }
 
-  async checkQuiz(userId:string,body:{quizId:string,answer:string}): Promise<ResponseDto> {
+  async checkQuiz(userId:string,body:CheckQuiz): Promise<ResponseDto> {
     try {
       const quiz: Quiz = await this.prisma.quiz.findUnique({
         where: { id: body.quizId },

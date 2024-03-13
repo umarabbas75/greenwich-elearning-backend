@@ -193,6 +193,17 @@ export class GetAssignQuizDto {
   chapterId: string;
 }
 
+export class CheckQuiz {
+  @IsString()
+  @IsNotEmpty()
+  quizId:string;
+  @IsString()
+  @IsNotEmpty()
+  answer:string;
+}
+
+
+
 export interface ResponseDto {
   message: string;
   statusCode: number;
