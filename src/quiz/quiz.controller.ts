@@ -7,6 +7,7 @@ import {
   UseGuards,
   Put,
   Delete,
+  Req,
 } from '@nestjs/common';
 import { QuizService } from './quiz.service';
 import {  AssignQuizDto, CourseParamDto, GetAssignQuizDto, ParamsDto, QuizDto, ResponseDto, UpdateQuizDto } from '../dto';
@@ -61,8 +62,10 @@ export class QuizController {
     return this.appService.getAllAssignQuizzes(params.chapterId);
   }
   
+  @UseGuards(AuthGuard('uJwt'))
   @Post('/')
-  checkQuiz(@Body() body: {quizId:string,userId:string,answer:string}): Promise<ResponseDto> {
-    return this.appService.checkQuiz(body);
+  checkQuiz(@Body() body: {quizId:string,answer:string},    @Req() req:any): Promise<ResponseDto> {
+
+    return this.appService.checkQuiz(req.user.id,body);
   }
 }

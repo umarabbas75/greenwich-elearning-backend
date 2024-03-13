@@ -253,14 +253,14 @@ export class QuizService {
     }
   }
 
-  async checkQuiz(body:{quizId:string,userId:string,answer:string}): Promise<ResponseDto> {
+  async checkQuiz(userId:string,body:{quizId:string,answer:string}): Promise<ResponseDto> {
     try {
       const quiz: Quiz = await this.prisma.quiz.findUnique({
         where: { id: body.quizId },
       });
 
       const user = await this.prisma.user.findUnique({
-        where: { id: body.userId },
+        where: { id: userId },
       });
       
       if (!quiz || !user) {
@@ -270,14 +270,14 @@ export class QuizService {
     let quizAnswer = await this.prisma.quizAnswer.findFirst({
       where:{
       quizId:body.quizId,
-      userId:body.userId
+      userId:userId
       }
     })
     if(!quizAnswer){  
     await this.prisma.quizAnswer.create({
       data: {
         quizId:body.quizId,
-        userId:body.userId,
+        userId:userId,
         answer:body.answer,
         isAnswerCorrect:body.answer == quiz.answer
       },
