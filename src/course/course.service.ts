@@ -819,6 +819,7 @@ export class CourseService {
         statusCode: 200,
         data: {
           userCourseProgress:percentage,
+          courseProgressData:userCourseProgress
         }
       };
     }catch (error) {
