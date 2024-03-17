@@ -12,16 +12,22 @@ import { PrismaService } from '../prisma/prisma.service';
 @Injectable()
 export class QuizService {
   constructor(private prisma: PrismaService) {}
-  async getQuiz(id: string): Promise<ResponseDto> {
+  async getQuiz(id: string, role: string): Promise<ResponseDto> {
     try {
-      const quiz = await this.prisma.quiz.findUnique({ where: { id },select:{
-        id:true,
-        question:true,
-        options:true
-      } });
-      if (!quiz) {
-        throw new Error('quiz not found');
+      let quiz ={};
+      if (role == 'admin') {
+        quiz = await this.prisma.quiz.findUnique({ where: { id } });
+      } else if (role == 'user') {
+        quiz = await this.prisma.quiz.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            question: true,
+            options: true,
+          },
+        });
       }
+    
       return {
         message: 'Successfully fetch Quiz info',
         statusCode: 200,
@@ -40,15 +46,28 @@ export class QuizService {
       );
     }
   }
-  async getAllQuizzes(): Promise<ResponseDto> {
+  async getAllQuizzes(role: string): Promise<ResponseDto> {
     try {
-      const quizzes = await this.prisma.quiz.findMany({
-        // limit: 10,
-        // offset: 10,
-      });
-      if (!(quizzes.length > 0)) {
-        throw new Error('No Quizzes found');
+      let quizzes =[];
+      if (role == 'admin') {
+        quizzes = await this.prisma.quiz.findMany({
+          
+          // limit: 10,
+          // offset: 10,
+        });
+      } else if (role == 'user') {
+         quizzes = await this.prisma.quiz.findMany({
+          select: {
+            id: true,
+            question: true,
+            options: true,
+          },
+          // limit: 10,
+          // offset: 10,
+        });
       }
+    
+    
       return {
         message: 'Successfully fetch all Quizzes info',
         statusCode: 200,
@@ -67,14 +86,71 @@ export class QuizService {
       );
     }
   }
+
+  async getAllAssignQuizzes(
+    chapterId: string,
+    role: string,
+  ): Promise<ResponseDto> {
+    try {
+      let chapter
+      if (role == 'admin') {
+        chapter = await this.prisma.chapter.findUnique({
+          where: {
+            id: chapterId,
+          },
+  
+         
+          // limit: 10,
+          // offset: 10,
+        });
+      } else if (role == 'user') {
+        chapter = await this.prisma.chapter.findUnique({
+          where: {
+            id: chapterId,
+          },
+  
+          include: {
+            quizzes: {
+              select: {
+                id: true,
+                question: true,
+                options: true,
+              },
+            },
+          },
+  
+          // limit: 10,
+          // offset: 10,
+        });
+      }
+     
+    
+      return {
+        message: 'Successfully fetch all Quizzes info related to chapter',
+        statusCode: 200,
+        data: chapter?.quizzes || [],
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
   async createQuiz(body: QuizDto): Promise<ResponseDto> {
     try {
-     
-     await this.prisma.quiz.create({
+      await this.prisma.quiz.create({
         data: {
           question: body.question,
           options: body.options,
-          answer: body.answer
+          answer: body.answer,
         },
       });
       return {
@@ -96,8 +172,7 @@ export class QuizService {
     }
   }
 
-
-  async assignQuiz(quizId:string,chapterId:string): Promise<ResponseDto> {
+  async assignQuiz(quizId: string, chapterId: string): Promise<ResponseDto> {
     try {
       const isQuizExist: Quiz = await this.prisma.quiz.findUnique({
         where: { id: quizId },
@@ -139,46 +214,6 @@ export class QuizService {
       );
     }
   }
-
-
-  async getAllAssignQuizzes(chapterId:string): Promise<ResponseDto> {
-    try {
-      const chapter = await this.prisma.chapter.findUnique({
-        where:{
-          id:chapterId
-        },
-
-        include: { quizzes: {
-          select:{
-            id:true,
-            question:true,
-            options:true
-          }
-        } },
-       
-        // limit: 10,
-        // offset: 10,
-      });
-     
-      return {
-        message: 'Successfully fetch all Quizzes info related to chapter',
-        statusCode: 200,
-        data: chapter.quizzes,
-      };
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
-    }
-  }
-
 
   async updateQuiz(id: string, body: UpdateQuizDto): Promise<ResponseDto> {
     try {
@@ -253,7 +288,7 @@ export class QuizService {
     }
   }
 
-  async checkQuiz(userId:string,body:CheckQuiz): Promise<ResponseDto> {
+  async checkQuiz(userId: string, body: CheckQuiz): Promise<ResponseDto> {
     try {
       const quiz: Quiz = await this.prisma.quiz.findUnique({
         where: { id: body.quizId },
@@ -262,27 +297,27 @@ export class QuizService {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
       });
-      
+
       if (!quiz || !user) {
         throw new Error('Quiz or user not found');
       }
 
-    let quizAnswer = await this.prisma.quizAnswer.findFirst({
-      where:{
-      quizId:body.quizId,
-      userId:userId
+      let quizAnswer = await this.prisma.quizAnswer.findFirst({
+        where: {
+          quizId: body.quizId,
+          userId: userId,
+        },
+      });
+      if (!quizAnswer) {
+        await this.prisma.quizAnswer.create({
+          data: {
+            quizId: body.quizId,
+            userId: userId,
+            answer: body.answer,
+            isAnswerCorrect: body.answer == quiz.answer,
+          },
+        });
       }
-    })
-    if(!quizAnswer){  
-    await this.prisma.quizAnswer.create({
-      data: {
-        quizId:body.quizId,
-        userId:userId,
-        answer:body.answer,
-        isAnswerCorrect:body.answer == quiz.answer
-      },
-    });
-  }
       return {
         message: 'Success',
         statusCode: 200,

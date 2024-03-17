@@ -20,19 +20,26 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { GetUser } from '../decorator';
 import { User } from '@prisma/client';
-import { JwtAdminStrategy, JwtUserStrategy } from 'src/strategy';
+import { JwtAdminStrategy, JwtCombineStrategy, JwtUserStrategy } from '../strategy';
 
 @Controller('quizzes')
 export class QuizController {
   constructor(private readonly appService: QuizService) {}
+  @UseGuards(JwtCombineStrategy)
   @Get('/:id')
-  getQuiz(@Param() params: ParamsDto): Promise<ResponseDto> {
-    return this.appService.getQuiz(params.id);
+  getQuiz(@Param() params: ParamsDto,@GetUser() user: User): Promise<ResponseDto> {
+    return this.appService.getQuiz(params.id,user.role);
+  }
+  @UseGuards(JwtCombineStrategy)
+  @Get('/')
+  getAllQuizzes(@GetUser() user: User): Promise<ResponseDto> {
+    return this.appService.getAllQuizzes(user.role);
   }
 
-  @Get('/')
-  getAllQuizzes(): Promise<ResponseDto> {
-    return this.appService.getAllQuizzes();
+  @UseGuards(JwtCombineStrategy)
+  @Get('/getAllAssignQuizzes/:id')
+  getAllAssignQuizzes(@Param() params: ParamsDto,@GetUser() user: User): Promise<ResponseDto> {
+    return this.appService.getAllAssignQuizzes(params.id,user.role);
   }
 
   @UseGuards(JwtAdminStrategy)
@@ -60,10 +67,8 @@ export class QuizController {
     return this.appService.assignQuiz(params.quizId, params.chapterId);
   }
 
-  @Get('/getAllAssignQuizzes/:id')
-  getAllAssignQuizzes(@Param() params: ParamsDto): Promise<ResponseDto> {
-    return this.appService.getAllAssignQuizzes(params.id);
-  }
+
+ 
 
   @UseGuards(JwtUserStrategy)
   @Post('/checkQuiz/')

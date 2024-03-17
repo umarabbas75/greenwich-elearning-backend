@@ -25,7 +25,7 @@ import {
 } from '../dto';
 import { User } from '@prisma/client';
 import { GetUser } from '../decorator';
-import { JwtAdminStrategy, JwtUserStrategy } from 'src/strategy';
+import { JwtAdminStrategy, JwtUserStrategy } from '../strategy';
 @Controller('courses')
 export class CourseController {
   constructor(private readonly appService: CourseService) {}

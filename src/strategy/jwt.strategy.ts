@@ -10,7 +10,6 @@ abstract class BaseJwtStrategy extends PassportStrategy(Strategy) {
     strategyName: string,
     config: ConfigService,
     protected readonly prisma: PrismaService,
-    protected readonly expectedRole: string
   ) {
     const jwt_secret = config.get('JWT_SECRET');
     if (!jwt_secret) {
@@ -23,6 +22,15 @@ abstract class BaseJwtStrategy extends PassportStrategy(Strategy) {
     }, strategyName);
   }
 
+ 
+}
+
+
+@Injectable()
+export class JwtAdminStrategy extends BaseJwtStrategy {
+  constructor(config: ConfigService, prisma: PrismaService) {
+    super('jwt', config, prisma);
+  }
   async validate(payload: { sub: string; email: string }): Promise<User> {
     const user: User = await this.prisma.user.findUnique({
       where: {
@@ -32,7 +40,7 @@ abstract class BaseJwtStrategy extends PassportStrategy(Strategy) {
     if (!user) {
       throw new HttpException('User not found', HttpStatus.FORBIDDEN);
     }
-    if (user.role !== this.expectedRole) {
+    if (user.role !== "admin") {
       throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
     }
     delete user.password;
@@ -40,17 +48,46 @@ abstract class BaseJwtStrategy extends PassportStrategy(Strategy) {
   }
 }
 
-
 @Injectable()
-export class JwtAdminStrategy extends BaseJwtStrategy {
+export class JwtUserStrategy extends BaseJwtStrategy {
   constructor(config: ConfigService, prisma: PrismaService) {
-    super('jwt', config, prisma, 'admin');
+    super('uJwt', config, prisma);
+  }
+  async validate(payload: { sub: string; email: string }): Promise<User> {
+    const user: User = await this.prisma.user.findUnique({
+      where: {
+        id: payload.sub,
+      },
+    });
+    if (!user) {
+      throw new HttpException('User not found', HttpStatus.FORBIDDEN);
+    }
+    if (user.role !== "user") {
+      throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+    }
+    delete user.password;
+    return user;
   }
 }
 
 @Injectable()
-export class JwtUserStrategy extends BaseJwtStrategy {
+export class JwtCombineStrategy extends BaseJwtStrategy {
   constructor(config: ConfigService, prisma: PrismaService) {
-    super('uJwt', config, prisma, 'user');
+    super('cJwt', config, prisma);
+  }
+  async validate(payload: { sub: string; email: string }): Promise<User> {
+    const user: User = await this.prisma.user.findUnique({
+      where: {
+        id: payload.sub,
+      },
+    });
+    if (!user) {
+      throw new HttpException('User not found', HttpStatus.FORBIDDEN);
+    }
+    if (user.role == "user" || user.role == "admin") {
+      throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+    }
+    delete user.password;
+    return user;
   }
 }

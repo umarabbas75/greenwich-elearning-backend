@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { UserController } from './user.controller';
 import { UserService } from './user.service';
 import { JwtModule } from '@nestjs/jwt';
-import { JwtAdminStrategy, JwtUserStrategy } from 'src/strategy';
+import { JwtAdminStrategy, JwtUserStrategy } from '../strategy';
 @Module({
   imports: [JwtModule.register({})],
   providers: [UserService, JwtUserStrategy,JwtAdminStrategy],

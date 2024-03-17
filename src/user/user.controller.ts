@@ -16,7 +16,7 @@ import {
   BodyUpdateDto,
   ChangePasswordDto,
 } from '../dto';
-import { JwtAdminStrategy } from 'src/strategy';
+import { JwtAdminStrategy } from '../strategy';
 
 @Controller('/users')
 export class UserController {
