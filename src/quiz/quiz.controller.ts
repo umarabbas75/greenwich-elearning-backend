@@ -63,7 +63,7 @@ export class QuizController {
     return this.appService.getAllAssignQuizzes(params.id);
   }
   
-  // @UseGuards(AuthGuard('uJwt'))
+  @UseGuards(AuthGuard('uJwt'))
   @Post('/checkQuiz/')
   checkQuiz(@Body() body: CheckQuiz,    @Req() req:any): Promise<ResponseDto> {
   
