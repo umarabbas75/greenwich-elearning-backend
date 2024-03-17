@@ -7,11 +7,13 @@ import {
   UseGuards,
   Put,
   Delete,
-  Req,
+
 } from '@nestjs/common';
 import { QuizService } from './quiz.service';
 import {  AssignQuizDto, CheckQuiz, ParamsDto, QuizDto, ResponseDto, UpdateQuizDto } from '../dto';
 import { AuthGuard } from '@nestjs/passport';
+import { GetUser } from '../decorator';
+import { User } from '@prisma/client';
 
 
 @Controller('quizzes')
@@ -65,8 +67,9 @@ export class QuizController {
   
   @UseGuards(AuthGuard('uJwt'))
   @Post('/checkQuiz/')
-  checkQuiz(@Body() body: CheckQuiz,    @Req() req:any): Promise<ResponseDto> {
+  checkQuiz(@Body() body: CheckQuiz,    @GetUser() user:User): Promise<ResponseDto> {
   
-    return this.appService.checkQuiz(req.user.id,body);
+    return this.appService.checkQuiz(user.id,body);
   }
+  
 }

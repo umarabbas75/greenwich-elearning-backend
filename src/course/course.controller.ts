@@ -7,7 +7,6 @@ import {
   UseGuards,
   Put,
   Delete,
-  Req,
 } from '@nestjs/common';
 import { CourseService } from './course.service';
 import {
@@ -21,7 +20,8 @@ import {
   UpdateCourseProgress,
 } from '../dto';
 import { AuthGuard } from '@nestjs/passport';
-import {Request} from "express"
+import { User } from '@prisma/client';
+import { GetUser } from '../decorator';
 @Controller('courses')
 export class CourseController {
   constructor(private readonly appService: CourseService) {}
@@ -155,9 +155,9 @@ export class CourseController {
   @Put('/updateUserCourse/progress')
   updateUserCourseProgress(
     @Body() body: UpdateCourseProgress,
-    @Req() req:any
+    @GetUser() user:User
   ): Promise<ResponseDto> {
-    return this.appService.updateUserCourseProgress(req.user.id,body);
+    return this.appService.updateUserCourseProgress(user.id,body);
   }
   @Get('/getUserCourseProgress/:userId/:courseId')
   getUserCourseProgress(@Param() params: AssignCourseDto): Promise<ResponseDto> {
