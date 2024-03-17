@@ -153,18 +153,23 @@ export class QuizService {
           id:chapterId
         },
 
-        include: { quizzes: true }
+        include: { quizzes: {
+          select:{
+            id:true,
+            question:true,
+            options:true
+          }
+        } },
+       
         // limit: 10,
         // offset: 10,
       });
-      let quizzesWithOutAnswer = Promise.all(chapter.quizzes.map((quiz)=>{
-        quiz.answer = "";
-        return quiz
-      }))
+      console.log(chapter)
+     
       return {
         message: 'Successfully fetch all Quizzes info related to chapter',
         statusCode: 200,
-        data: quizzesWithOutAnswer,
+        data: chapter,
       };
     } catch (error) {
       throw new HttpException(

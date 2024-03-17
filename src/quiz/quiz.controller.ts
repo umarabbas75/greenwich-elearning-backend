@@ -49,7 +49,7 @@ export class QuizController {
     return this.appService.deleteQuiz(params.id);
   }
 
-  @UseGuards(AuthGuard('jwt'))
+  // @UseGuards(AuthGuard('jwt'))
   @Put('/assignQuiz/:quizId/:chapterId')
   assignQuiz(
     @Param() params: AssignQuizDto,
