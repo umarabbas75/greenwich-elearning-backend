@@ -21,7 +21,7 @@ import {
   UpdateCourseProgress,
 } from '../dto';
 import { AuthGuard } from '@nestjs/passport';
-
+import {Request} from "express"
 @Controller('courses')
 export class CourseController {
   constructor(private readonly appService: CourseService) {}

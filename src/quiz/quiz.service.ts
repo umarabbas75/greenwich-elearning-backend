@@ -104,17 +104,17 @@ export class QuizService {
 
   async assignQuiz(quizId:string,chapterId:string): Promise<ResponseDto> {
     try {
-      const isCourseExist: Quiz = await this.prisma.quiz.findUnique({
+      const isQuizExist: Quiz = await this.prisma.quiz.findUnique({
         where: { id: quizId },
       });
-      if (isCourseExist) {
+      if (!isQuizExist) {
         throw new Error('quiz not exist');
       }
 
       const isChapterExist: Chapter = await this.prisma.chapter.findUnique({
         where: { id: chapterId },
       });
-      if (isChapterExist) {
+      if (!isChapterExist) {
         throw new Error('chapter not exist');
       }
 
