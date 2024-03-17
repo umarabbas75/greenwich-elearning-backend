@@ -80,9 +80,9 @@ export class QuizController {
   }
 
   @UseGuards(JwtUserStrategy)
-  @Get('/user/getQuizAnswers/')
-  getUserQuizAnswers(@GetUser() user: User): Promise<ResponseDto> {
-    return this.appService.getUserQuizAnswers(user.id);
+  @Get('/user/getQuizAnswers/:id')
+  getUserQuizAnswers(@Param() params: ParamsDto,@GetUser() user: User): Promise<ResponseDto> {
+    return this.appService.getUserQuizAnswers(user.id,params.id);
   }
 
 }

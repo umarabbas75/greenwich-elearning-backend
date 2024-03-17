@@ -182,6 +182,9 @@ export class CheckQuiz {
   quizId: string;
   @IsString()
   @IsNotEmpty()
+  chapterId: string;
+  @IsString()
+  @IsNotEmpty()
   answer: string;
 }
 

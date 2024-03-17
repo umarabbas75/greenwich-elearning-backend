@@ -111,6 +111,7 @@ model QuizAnswer {
   id              String   @id @default(uuid())
   quizId          String
   userId          String
+  chapterId       String
   answer          String
   isAnswerCorrect Boolean
   createdAt       DateTime @default(now())

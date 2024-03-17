@@ -312,6 +312,7 @@ export class QuizService {
         await this.prisma.quizAnswer.create({
           data: {
             quizId: body.quizId,
+            chapterId: body.chapterId,
             userId: userId,
             answer: body.answer,
             isAnswerCorrect: body.answer == quiz.answer,
@@ -336,13 +337,14 @@ export class QuizService {
       );
     }
   }
-  async getUserQuizAnswers(userId: string): Promise<ResponseDto> {
+  async getUserQuizAnswers(userId: string,chapterId:string): Promise<ResponseDto> {
     try {
       
 
       let quizAnswer = await this.prisma.quizAnswer.findMany({
         where: {
           userId: userId,
+          chapterId: chapterId,
         },
       });
     
