@@ -30,6 +30,7 @@ export class QuizController {
   @UseGuards(AuthGuard('jwt'))
   @Post('/')
   createQuiz(@Body() body: QuizDto): Promise<ResponseDto> {
+  
     return this.appService.createQuiz(body);
   }
   @UseGuards(AuthGuard('jwt'))
@@ -62,10 +63,10 @@ export class QuizController {
     return this.appService.getAllAssignQuizzes(params.id);
   }
   
-  @UseGuards(AuthGuard('uJwt'))
-  @Post('/')
+  // @UseGuards(AuthGuard('uJwt'))
+  @Post('/checkQuiz/')
   checkQuiz(@Body() body: CheckQuiz,    @Req() req:any): Promise<ResponseDto> {
-
+  
     return this.appService.checkQuiz(req.user.id,body);
   }
 }
