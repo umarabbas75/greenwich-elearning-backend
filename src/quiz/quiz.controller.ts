@@ -58,7 +58,7 @@ export class QuizController {
   }
 
 
-  @Get('/getAllAssignQuizzes/:chapterId')
+  @Get('/getAllAssignQuizzes/:id')
   getAllAssignQuizzes(
     @Param() params: ParamsDto
   ): Promise<ResponseDto> {
