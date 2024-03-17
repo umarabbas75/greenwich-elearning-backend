@@ -10,7 +10,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { QuizService } from './quiz.service';
-import {  AssignQuizDto, CheckQuiz, CourseParamDto, GetAssignQuizDto, ParamsDto, QuizDto, ResponseDto, UpdateQuizDto } from '../dto';
+import {  AssignQuizDto, CheckQuiz, ParamsDto, QuizDto, ResponseDto, UpdateQuizDto } from '../dto';
 import { AuthGuard } from '@nestjs/passport';
 
 
@@ -18,7 +18,7 @@ import { AuthGuard } from '@nestjs/passport';
 export class QuizController {
   constructor(private readonly appService: QuizService) {}
   @Get('/:id')
-  getQuiz(@Param() params: CourseParamDto): Promise<ResponseDto> {
+  getQuiz(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getQuiz(params.id);
   }
 
@@ -57,9 +57,9 @@ export class QuizController {
 
   @Get('/getAllAssignQuizzes/:chapterId')
   getAllAssignQuizzes(
-    @Param() params: GetAssignQuizDto
+    @Param() params: ParamsDto
   ): Promise<ResponseDto> {
-    return this.appService.getAllAssignQuizzes(params.chapterId);
+    return this.appService.getAllAssignQuizzes(params.id);
   }
   
   @UseGuards(AuthGuard('uJwt'))

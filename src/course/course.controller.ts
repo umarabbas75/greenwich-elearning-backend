@@ -13,7 +13,7 @@ import { CourseService } from './course.service';
 import {
   AssignCourseDto,
   CourseDto,
-  CourseParamDto,
+  
   ModuleDto,
   ParamsDto,
   ResponseDto,
@@ -27,21 +27,21 @@ export class CourseController {
   constructor(private readonly appService: CourseService) {}
 
   @Get('/:id')
-  getCourse(@Param() params: CourseParamDto): Promise<ResponseDto> {
+  getCourse(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getCourse(params.id);
   }
 
   @Get('/module/:id')
-  getModule(@Param() params: CourseParamDto): Promise<ResponseDto> {
+  getModule(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getModule(params.id);
   }
   @Get('/chapter/:id')
-  getChapter(@Param() params: CourseParamDto): Promise<ResponseDto> {
+  getChapter(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getChapter(params.id);
   }
 
   @Get('/section/:id')
-  getSection(@Param() params: CourseParamDto): Promise<ResponseDto> {
+  getSection(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getSection(params.id);
   }
 
@@ -50,15 +50,15 @@ export class CourseController {
     return this.appService.getAllCourses();
   }
   @Get('/allModules/:id')
-  getAllModules(@Param() params: CourseParamDto): Promise<ResponseDto> {
+  getAllModules(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getAllModules(params.id);
   }
   @Get('/module/allChapters/:id')
-  getAllChapters(@Param() params: CourseParamDto): Promise<ResponseDto> {
+  getAllChapters(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getAllChapters(params.id);
   }
   @Get('/module/chapter/allSections/:id')
-  getAllSections(@Param() params: CourseParamDto): Promise<ResponseDto> {
+  getAllSections(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getAllSections(params.id);
   }
 
@@ -109,7 +109,7 @@ export class CourseController {
     return this.appService.assignCourse(params.userId,params.courseId);
   }
   @Get('/getAllAssignedCourses/:id')
-  getAllAssignedCourses(@Param() params: CourseParamDto): Promise<ResponseDto> {
+  getAllAssignedCourses(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getAllAssignedCourses(params.id);
   }
 

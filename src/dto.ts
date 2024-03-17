@@ -55,7 +55,6 @@ export class BodyUpdateDto {
   @IsString()
   photo?: string;
 }
-
 export class ChangePasswordDto {
   @IsString()
   @IsNotEmpty()
@@ -70,7 +69,6 @@ export class LoginDto {
   @IsNotEmpty()
   password: string;
 }
-
 export class CourseDto {
   @IsNotEmpty()
   @IsString()
@@ -117,7 +115,6 @@ export class UpdateQuizDto {
   @IsString()
   answer: string;
 }
-
 export class AssignQuizDto {
   @IsString()
   @IsNotEmpty()
@@ -127,8 +124,6 @@ export class AssignQuizDto {
   @IsNotEmpty()
   quizId: string;
 }
-
-
 export class UpdateCourseDto {
   @IsOptional()
   @IsString()
@@ -150,7 +145,6 @@ export class UpdateCourseProgress {
   @IsNotEmpty()
   sectionId: string;
 }
-
 export class AssignCourseDto {
   @IsString()
   @IsNotEmpty()
@@ -160,7 +154,6 @@ export class AssignCourseDto {
   @IsNotEmpty()
   courseId: string;
 }
-
 export class ModuleDto {
   @IsNotEmpty()
   @IsString()
@@ -174,23 +167,10 @@ export class ModuleDto {
   @IsNotEmpty()
   id: string;
 }
-
 export class ParamsDto {
   @IsString()
   @IsNotEmpty()
   id: string;
-}
-
-export class CourseParamDto {
-  @IsString()
-  @IsNotEmpty()
-  id: string;
-}
-
-export class GetAssignQuizDto {
-  @IsString()
-  @IsNotEmpty()
-  chapterId: string;
 }
 
 export class CheckQuiz {
@@ -201,9 +181,6 @@ export class CheckQuiz {
   @IsNotEmpty()
   answer:string;
 }
-
-
-
 export interface ResponseDto {
   message: string;
   statusCode: number;
