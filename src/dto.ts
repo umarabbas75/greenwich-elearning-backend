@@ -1,5 +1,11 @@
 import { Role } from '@prisma/client';
-import { IsEmail, IsNotEmpty, IsString, IsOptional, IsArray } from 'class-validator';
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsString,
+  IsOptional,
+  IsArray,
+} from 'class-validator';
 
 export class BodyDto {
   @IsString()
@@ -83,10 +89,10 @@ export class CourseDto {
   assessment: string;
   @IsString()
   @IsNotEmpty()
-  image:string
+  image: string;
   @IsString()
   @IsNotEmpty()
-  overview:string
+  overview: string;
 }
 export class QuizDto {
   @IsNotEmpty()
@@ -96,11 +102,10 @@ export class QuizDto {
   @IsArray()
   @IsNotEmpty()
   options: string[];
-  
+
   @IsNotEmpty()
   @IsString()
   answer: string;
-
 }
 export class UpdateQuizDto {
   @IsString()
@@ -110,7 +115,7 @@ export class UpdateQuizDto {
   @IsArray()
   @IsOptional()
   options: string[];
-  
+
   @IsOptional()
   @IsString()
   answer: string;
@@ -134,7 +139,6 @@ export class UpdateCourseDto {
   description?: string;
 }
 export class UpdateCourseProgress {
- 
   @IsString()
   @IsNotEmpty()
   courseId: string;
@@ -176,10 +180,30 @@ export class ParamsDto {
 export class CheckQuiz {
   @IsString()
   @IsNotEmpty()
-  quizId:string;
+  quizId: string;
   @IsString()
   @IsNotEmpty()
-  answer:string;
+  answer: string;
+}
+
+export class GetUpdateLastSeen {
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+  @IsString()
+  @IsNotEmpty()
+  chapterId: string;
+}
+export class UpdateLastSeen {
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+  @IsString()
+  @IsNotEmpty()
+  chapterId: string;
+  @IsString()
+  @IsNotEmpty()
+  sectionId: string;
 }
 export interface ResponseDto {
   message: string;

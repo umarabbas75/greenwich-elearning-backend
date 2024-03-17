@@ -13,8 +13,6 @@ import { PrismaService } from '../prisma/prisma.service';
 @Injectable()
 export class CourseService {
   constructor(private prisma: PrismaService) {}
- 
-
 
   async createCourse(body: CourseDto): Promise<ResponseDto> {
     try {
@@ -85,7 +83,7 @@ export class CourseService {
         data: {
           title: body.title,
           description: body.description,
-          
+
           moduleId: body.id,
         },
       });
@@ -135,7 +133,6 @@ export class CourseService {
       );
     }
   }
-
 
   async getCourse(id: string): Promise<ResponseDto> {
     try {
@@ -354,7 +351,6 @@ export class CourseService {
     }
   }
 
-
   async updateCourse(id: string, body: UpdateCourseDto): Promise<ResponseDto> {
     try {
       const isCourseExist: Course = await this.prisma.course.findUnique({
@@ -522,7 +518,6 @@ export class CourseService {
     }
   }
 
-
   async deleteCourse(id: string): Promise<ResponseDto> {
     try {
       const user = await this.prisma.course.findUnique({
@@ -651,8 +646,7 @@ export class CourseService {
     }
   }
 
-
-  async assignCourse(userId:string,courseId:string): Promise<ResponseDto> {
+  async assignCourse(userId: string, courseId: string): Promise<ResponseDto> {
     try {
       const course = await this.prisma.course.findUnique({
         where: { id: courseId },
@@ -725,8 +719,8 @@ export class CourseService {
   }
 
   async updateUserCourseProgress(
-    userId:string,
-    body:UpdateCourseProgress
+    userId: string,
+    body: UpdateCourseProgress,
   ): Promise<ResponseDto> {
     try {
       // Get total modules in the course
@@ -737,37 +731,35 @@ export class CourseService {
       if (!course) {
         throw new Error('Course not found');
       }
-  
-  
+
       // Get completed modules by the user
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-       
       });
-  
+
       if (!user) {
         throw new Error('user not found');
       }
       // Update or create progress record
       let userCourseProgress = await this.prisma.userCourseProgress.findFirst({
         where: {
-          userId:userId,
-          courseId:body.courseId,
-          chapterId:body.chapterId,
-          sectionId:body.sectionId
+          userId: userId,
+          courseId: body.courseId,
+          chapterId: body.chapterId,
+          sectionId: body.sectionId,
         },
       });
       if (!userCourseProgress) {
         userCourseProgress = await this.prisma.userCourseProgress.create({
           data: {
-            userId:userId,
-            courseId:body.courseId,
-            chapterId:body.chapterId,
-            sectionId:body.sectionId
+            userId: userId,
+            courseId: body.courseId,
+            chapterId: body.chapterId,
+            sectionId: body.sectionId,
           },
         });
-      } 
-  
+      }
+
       return {
         message: 'User course progress updated successfully',
         statusCode: 200,
@@ -789,40 +781,43 @@ export class CourseService {
     }
   }
 
-  async getUserCourseProgress(userId: string,courseId:string): Promise<ResponseDto> {
-    try{
+  async getUserCourseProgress(
+    userId: string,
+    courseId: string,
+  ): Promise<ResponseDto> {
+    try {
       let userCourseProgress = await this.prisma.userCourseProgress.findMany({
         where: {
           userId,
-          courseId
-        }
-      })
-   
+          courseId,
+        },
+      });
+
       let module = await this.prisma.module.findFirst({
         where: {
-          courseId
+          courseId,
         },
-      
-      })
+      });
       let chapter = await this.prisma.chapter.findFirst({
         where: {
-          moduleId:module.id
+          moduleId: module.id,
         },
-        include:{
-          sections:true
-        }
-      })
+        include: {
+          sections: true,
+        },
+      });
 
-      let percentage = (userCourseProgress.length/chapter.sections.length)*100
+      let percentage =
+        (userCourseProgress.length / chapter.sections.length) * 100;
       return {
         message: 'User course progress updated successfully',
         statusCode: 200,
         data: {
-          userCourseProgress:percentage,
-          courseProgressData:userCourseProgress
-        }
+          userCourseProgress: percentage,
+          courseProgressData: userCourseProgress,
+        },
       };
-    }catch (error) {
+    } catch (error) {
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -836,4 +831,70 @@ export class CourseService {
     }
   }
 
+  async getLastSeenSection(userId: string, chapterId: string) : Promise<ResponseDto>{
+    try {
+      let getLastSeenSection = await this.prisma.lastSeenSection.findUnique({
+        where: {
+          userId_chapterId: { userId, chapterId },
+        },
+      });
+
+
+      return {
+        message: 'success',
+        statusCode: 200,
+        data: getLastSeenSection
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async updateLastSeenSection(
+    userId: string,
+    chapterId: string,
+    sectionId: string,
+  ): Promise<ResponseDto> {
+    try {
+      await  this.prisma.lastSeenSection.upsert({
+        where: {
+          userId_chapterId: { userId, chapterId },
+        },
+        update: {
+          sectionId,
+        },
+        create: {
+          userId,
+          chapterId,
+          sectionId,
+        },
+      });
+
+      return {
+        message: 'success',
+        statusCode: 200,
+        data: {}
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
 }

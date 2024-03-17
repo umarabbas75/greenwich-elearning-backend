@@ -7,17 +7,21 @@ import {
   UseGuards,
   Put,
   Delete,
+  Query,
 } from '@nestjs/common';
 import { CourseService } from './course.service';
 import {
   AssignCourseDto,
   CourseDto,
   
+  GetUpdateLastSeen,
+  
   ModuleDto,
   ParamsDto,
   ResponseDto,
   UpdateCourseDto,
   UpdateCourseProgress,
+  UpdateLastSeen,
 } from '../dto';
 import { AuthGuard } from '@nestjs/passport';
 import { User } from '@prisma/client';
@@ -162,5 +166,15 @@ export class CourseController {
   @Get('/getUserCourseProgress/:userId/:courseId')
   getUserCourseProgress(@Param() params: AssignCourseDto): Promise<ResponseDto> {
     return this.appService.getUserCourseProgress(params.userId,params.courseId);
+  }
+
+  @Get("/section/getLastSeen/:userId/:chapterId")
+  getLastSeen(@Param() param:GetUpdateLastSeen) {
+    return this.appService.getLastSeenSection(param.userId, param.chapterId);
+  }
+
+  @Post("/section/updateLastSeen/")
+  updateLastSeen(@Body() body:UpdateLastSeen) {
+    return this.appService.updateLastSeenSection(body.userId, body.chapterId, body.sectionId);
   }
 }
