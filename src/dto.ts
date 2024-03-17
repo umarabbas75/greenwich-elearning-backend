@@ -195,9 +195,7 @@ export class GetUpdateLastSeen {
   chapterId: string;
 }
 export class UpdateLastSeen {
-  @IsString()
-  @IsNotEmpty()
-  userId: string;
+
   @IsString()
   @IsNotEmpty()
   chapterId: string;

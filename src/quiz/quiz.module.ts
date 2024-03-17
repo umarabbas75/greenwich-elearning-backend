@@ -2,11 +2,11 @@ import { Module } from '@nestjs/common';
 import { QuizService } from './quiz.service';
 import { QuizController } from './quiz.controller';
 import { JwtModule } from '@nestjs/jwt';
-import { JwtStrategy } from '../strategy';
+import { JwtAdminStrategy, JwtUserStrategy } from 'src/strategy';
 
 @Module({
   imports: [JwtModule.register({})],
-  providers: [QuizService,JwtStrategy],
+  providers: [QuizService,JwtUserStrategy,JwtAdminStrategy],
   controllers: [QuizController],
   exports: [QuizService],
 })

@@ -1,47 +1,39 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { User } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { User } from '@prisma/client';
 
-@Injectable()
-export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
-  constructor(config: ConfigService,  private prisma: PrismaService) {
+abstract class BaseJwtStrategy extends PassportStrategy(Strategy) {
+  constructor(
+    strategyName: string,
+    config: ConfigService,
+    protected readonly prisma: PrismaService,
+    protected readonly expectedRole: string
+  ) {
     const jwt_secret = config.get('JWT_SECRET');
-    const jwt_expiry = config.get('JWT_EXPIRY');
-    if (!jwt_secret || !jwt_expiry) {
-      throw new Error('JWT_SECRET or JWT_EXPIRY is not set');
+    if (!jwt_secret) {
+      throw new Error('JWT_SECRET is not set');
     }
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       secretOrKey: jwt_secret,
-    });
+      passReqToCallback: true,
+    }, strategyName);
   }
 
-  async validate(payload: { sub: string; email: string }) {
+  async validate(payload: { sub: string; email: string }): Promise<User> {
     const user: User = await this.prisma.user.findUnique({
       where: {
         id: payload.sub,
-      }
+      },
     });
     if (!user) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'User not found',
-        },
-        HttpStatus.FORBIDDEN,
-      );
+      throw new HttpException('User not found', HttpStatus.FORBIDDEN);
     }
-    if (user.role !== 'admin') {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'Forbidden',
-        },
-        HttpStatus.FORBIDDEN,
-      );
+    if (user.role !== this.expectedRole) {
+      throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
     }
     delete user.password;
     return user;
@@ -49,47 +41,16 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 }
 
 
-
+@Injectable()
+export class JwtAdminStrategy extends BaseJwtStrategy {
+  constructor(config: ConfigService, prisma: PrismaService) {
+    super('jwt', config, prisma, 'admin');
+  }
+}
 
 @Injectable()
-export class JwtUserStrategy extends PassportStrategy(Strategy, 'uJwt') {
-  constructor(config: ConfigService,  private prisma: PrismaService) {
-    const jwt_secret = config.get('JWT_SECRET');
-    const jwt_expiry = config.get('JWT_EXPIRY');
-    if (!jwt_secret || !jwt_expiry) {
-      throw new Error('JWT_SECRET or JWT_EXPIRY is not set');
-    }
-    super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: jwt_secret,
-    });
-  }
-
-  async validate(payload: { sub: string; email: string }) {
-    const user: User = await this.prisma.user.findUnique({
-      where: {
-        id: payload.sub,
-      }
-    });
-    if (!user) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'User not found',
-        },
-        HttpStatus.FORBIDDEN,
-      );
-    }
-    if (user.role !== 'user') {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'Forbidden',
-        },
-        HttpStatus.FORBIDDEN,
-      );
-    }
-    delete user.password;
-    return user;
+export class JwtUserStrategy extends BaseJwtStrategy {
+  constructor(config: ConfigService, prisma: PrismaService) {
+    super('uJwt', config, prisma, 'user');
   }
 }

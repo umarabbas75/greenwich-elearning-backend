@@ -16,7 +16,7 @@ import {
   BodyUpdateDto,
   ChangePasswordDto,
 } from '../dto';
-import { AuthGuard } from '@nestjs/passport';
+import { JwtAdminStrategy } from 'src/strategy';
 
 @Controller('/users')
 export class UserController {
@@ -32,13 +32,13 @@ export class UserController {
     return this.appService.getUser(params.id);
   }
 
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(JwtAdminStrategy)
   @Post('/')
   createUser(@Body() body: BodyDto): Promise<ResponseDto> {
     return this.appService.createUser(body);
   }
 
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(JwtAdminStrategy)
   @Put('/:id')
   updateUser(
     @Param() params: ParamsDto,
@@ -47,7 +47,7 @@ export class UserController {
     return this.appService.updateUser(params.id, body);
   }
 
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(JwtAdminStrategy)
   @Put('/changePassword/:id')
   changePassword(
     @Param() params: ParamsDto,
@@ -56,7 +56,7 @@ export class UserController {
     return this.appService.changePassword(params.id, body);
   }
 
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(JwtAdminStrategy)
   @Delete('/:id')
   deleteUser(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteUser(params.id);
