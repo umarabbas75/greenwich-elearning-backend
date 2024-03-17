@@ -6,7 +6,7 @@ import { Test } from '@nestjs/testing';
 import * as pactum from 'pactum';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { LoginDto } from 'src/dto';
+import { BodyDto, LoginDto } from 'src/dto';
 
 describe('App e2e', () => {
   let app: INestApplication;
@@ -36,6 +36,41 @@ describe('App e2e', () => {
 
   afterAll(async () => {
     await app.close();
+  });
+  describe('User', () => {
+    const dto:LoginDto = {
+      email: 'admin@gmail.com',
+      password: '123',
+    };
+    const createUserDto:BodyDto = {
+      email: 'user2@gmail.com',
+      password: '123',
+      firstName:"asad", lastName:"khan", phone:"+923352825068", role:"user"
+    }
+
+  
+    describe('create user', () => {
+      
+      it('should throw if no body provided', async() => {
+        await pactum
+          .spec()
+          .post('/auth/login')
+          .withBody(dto)
+          .stores('userAt', 'access_token');
+
+        return pactum
+          .spec()
+          .post('/users/')
+          .withBody(createUserDto)
+          .withHeaders({
+            Authorization: 'Bearer $S{userAt}',
+          })
+          .expectStatus(201);
+      });
+     
+    });
+
+ 
   });
 
   describe('Auth', () => {
@@ -82,5 +117,7 @@ describe('App e2e', () => {
 
  
   });
+
+
 
 });

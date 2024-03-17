@@ -38,7 +38,6 @@ export class BodyDto {
   @IsOptional()
   photo?: string;
 
-  timestamp: number;
 }
 export class BodyUpdateDto {
   @IsOptional()
