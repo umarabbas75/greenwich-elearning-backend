@@ -336,4 +336,34 @@ export class QuizService {
       );
     }
   }
+  async getUserQuizAnswers(userId: string): Promise<ResponseDto> {
+    try {
+      
+
+      let quizAnswer = await this.prisma.quizAnswer.findMany({
+        where: {
+          userId: userId,
+        },
+      });
+    
+      return {
+        message: 'Success',
+        statusCode: 200,
+        data: quizAnswer,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+
 }

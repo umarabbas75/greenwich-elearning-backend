@@ -78,4 +78,11 @@ export class QuizController {
   ): Promise<ResponseDto> {
     return this.appService.checkQuiz(user.id, body);
   }
+
+  @UseGuards(JwtUserStrategy)
+  @Get('/user/getQuizAnswers/')
+  getUserQuizAnswers(@GetUser() user: User): Promise<ResponseDto> {
+    return this.appService.getUserQuizAnswers(user.id);
+  }
+
 }
