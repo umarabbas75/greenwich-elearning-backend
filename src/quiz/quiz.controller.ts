@@ -20,34 +20,34 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { GetUser } from '../decorator';
 import { User } from '@prisma/client';
-import { JwtAdminStrategy, JwtCombineStrategy, JwtUserStrategy } from '../strategy';
 
 @Controller('quizzes')
 export class QuizController {
   constructor(private readonly appService: QuizService) {}
-  @UseGuards(JwtCombineStrategy)
+  @UseGuards(AuthGuard('cJwt'))
   @Get('/:id')
   getQuiz(@Param() params: ParamsDto,@GetUser() user: User): Promise<ResponseDto> {
     return this.appService.getQuiz(params.id,user.role);
   }
-  @UseGuards(JwtCombineStrategy)
+  @UseGuards(AuthGuard('cJwt'))
   @Get('/')
   getAllQuizzes(@GetUser() user: User): Promise<ResponseDto> {
     return this.appService.getAllQuizzes(user.role);
   }
 
-  @UseGuards(JwtCombineStrategy)
+  @UseGuards(AuthGuard('cJwt'))
   @Get('/getAllAssignQuizzes/:id')
   getAllAssignQuizzes(@Param() params: ParamsDto,@GetUser() user: User): Promise<ResponseDto> {
+   console.log(user)
     return this.appService.getAllAssignQuizzes(params.id,user.role);
   }
 
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Post('/')
   createQuiz(@Body() body: QuizDto): Promise<ResponseDto> {
     return this.appService.createQuiz(body);
   }
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Put('/:id')
   updateQuiz(
     @Body() body: UpdateQuizDto,
@@ -55,13 +55,13 @@ export class QuizController {
   ): Promise<ResponseDto> {
     return this.appService.updateQuiz(params.id, body);
   }
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Delete('/:id')
   deleteQuiz(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteQuiz(params.id);
   }
 
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Put('/assignQuiz/:quizId/:chapterId')
   assignQuiz(@Param() params: AssignQuizDto): Promise<ResponseDto> {
     return this.appService.assignQuiz(params.quizId, params.chapterId);
@@ -70,7 +70,7 @@ export class QuizController {
 
  
 
-  @UseGuards(JwtUserStrategy)
+  @UseGuards(AuthGuard('uJwt'))
   @Post('/checkQuiz/')
   checkQuiz(
     @Body() body: CheckQuiz,
@@ -79,7 +79,7 @@ export class QuizController {
     return this.appService.checkQuiz(user.id, body);
   }
 
-  @UseGuards(JwtUserStrategy)
+  @UseGuards(AuthGuard('uJwt'))
   @Get('/user/getQuizAnswers/:id')
   getUserQuizAnswers(@Param() params: ParamsDto,@GetUser() user: User): Promise<ResponseDto> {
     return this.appService.getUserQuizAnswers(user.id,params.id);

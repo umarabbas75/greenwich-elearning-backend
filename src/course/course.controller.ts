@@ -25,7 +25,7 @@ import {
 } from '../dto';
 import { User } from '@prisma/client';
 import { GetUser } from '../decorator';
-import { JwtAdminStrategy, JwtUserStrategy } from '../strategy';
+import { AuthGuard } from '@nestjs/passport';
 @Controller('courses')
 export class CourseController {
   constructor(private readonly appService: CourseService) {}
@@ -66,13 +66,13 @@ export class CourseController {
     return this.appService.getAllSections(params.id);
   }
 
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Post('/')
   createCourse(@Body() body: CourseDto): Promise<ResponseDto> {
     return this.appService.createCourse(body);
   }
 
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Put('/:id')
   updateCourse(
     @Body() body: UpdateCourseDto,
@@ -81,7 +81,7 @@ export class CourseController {
     return this.appService.updateCourse(params.id, body);
   }
 
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Put('/:id')
   updateModule(
     @Body() body: UpdateCourseDto,
@@ -89,7 +89,7 @@ export class CourseController {
   ): Promise<ResponseDto> {
     return this.appService.updateModule(params.id, body);
   }
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Put('/:id')
   updateChapter(
     @Body() body: UpdateCourseDto,
@@ -98,7 +98,7 @@ export class CourseController {
     return this.appService.updateChapter(params.id, body);
   }
 
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Put('/:id')
   updateSection(
     @Body() body: UpdateCourseDto,
@@ -107,7 +107,7 @@ export class CourseController {
     return this.appService.updateSection(params.id, body);
   }
 
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Put('/assignCourse/:userId/:courseId')
   assignCourse(@Param() params: AssignCourseDto): Promise<ResponseDto> {
     return this.appService.assignCourse(params.userId,params.courseId);
@@ -117,45 +117,45 @@ export class CourseController {
     return this.appService.getAllAssignedCourses(params.id);
   }
 
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Post('/module')
   createModule(@Body() body: ModuleDto): Promise<ResponseDto> {
     return this.appService.createModule(body);
   }
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Post('/chapter')
   createChapter(@Body() body: ModuleDto): Promise<ResponseDto> {
     return this.appService.createChapter(body);
   }
 
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Post('/section')
   createSection(@Body() body: ModuleDto): Promise<ResponseDto> {
     return this.appService.createSection(body);
   }
 
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Delete('/:id')
   deleteCourse(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteCourse(params.id);
   }
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Delete('/:id')
   deleteModule(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteModule(params.id);
   }
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Delete('/:id')
   deleteChapter(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteChapter(params.id);
   }
-  @UseGuards(JwtAdminStrategy)
+  @UseGuards(AuthGuard('jwt'))
   @Delete('/:id')
   deleteSection(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteSection(params.id);
   }
 
-  @UseGuards(JwtUserStrategy)
+  @UseGuards(AuthGuard('uJwt'))
   @Put('/updateUserCourse/progress')
   updateUserCourseProgress(
     @Body() body: UpdateCourseProgress,
@@ -172,7 +172,7 @@ export class CourseController {
   getLastSeen(@Param() param:GetUpdateLastSeen) {
     return this.appService.getLastSeenSection(param.userId, param.chapterId);
   }
-  @UseGuards(JwtUserStrategy)
+  @UseGuards(AuthGuard('uJwt'))
   @Post("/section/updateLastSeen/")
   updateLastSeen(@Body() body:UpdateLastSeen,@GetUser() user:User) {
     return this.appService.updateLastSeenSection(user.id, body.chapterId, body.sectionId);
