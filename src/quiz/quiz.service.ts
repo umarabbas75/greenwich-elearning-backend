@@ -42,17 +42,17 @@ export class QuizService {
   }
   async getAllQuizzes(): Promise<ResponseDto> {
     try {
-      const courses = await this.prisma.quiz.findMany({
+      const quizzes = await this.prisma.quiz.findMany({
         // limit: 10,
         // offset: 10,
       });
-      if (!(courses.length > 0)) {
+      if (!(quizzes.length > 0)) {
         throw new Error('No Quizzes found');
       }
       return {
         message: 'Successfully fetch all Quizzes info',
         statusCode: 200,
-        data: courses,
+        data: quizzes,
       };
     } catch (error) {
       throw new HttpException(
@@ -69,13 +69,8 @@ export class QuizService {
   }
   async createQuiz(body: QuizDto): Promise<ResponseDto> {
     try {
-      const isCourseExist: Quiz = await this.prisma.quiz.findUnique({
-        where: { question: body.question },
-      });
-      if (isCourseExist) {
-        throw new Error('Course already exist with specified title');
-      }
-      const course: Quiz = await this.prisma.quiz.create({
+     
+     await this.prisma.quiz.create({
         data: {
           question: body.question,
           options: body.options,
@@ -83,9 +78,9 @@ export class QuizService {
         },
       });
       return {
-        message: 'Successfully create course record',
+        message: 'Successfully create quiz record',
         statusCode: 200,
-        data: course,
+        data: {},
       };
     } catch (error) {
       throw new HttpException(
@@ -164,12 +159,11 @@ export class QuizService {
         // limit: 10,
         // offset: 10,
       });
-      console.log(chapter)
      
       return {
         message: 'Successfully fetch all Quizzes info related to chapter',
         statusCode: 200,
-        data: chapter,
+        data: chapter.quizzes,
       };
     } catch (error) {
       throw new HttpException(
@@ -188,25 +182,25 @@ export class QuizService {
 
   async updateQuiz(id: string, body: UpdateQuizDto): Promise<ResponseDto> {
     try {
-      const isCourseExist: Quiz = await this.prisma.quiz.findUnique({
+      const isQuizExist: Quiz = await this.prisma.quiz.findUnique({
         where: { id: id },
       });
-      if (isCourseExist) {
+      if (isQuizExist) {
         throw new Error('Quizzes already exist with specified title');
       }
       if (Object.entries(body).length === 0) {
         throw new Error('wrong keys');
       }
-      let updateCourse = {};
+      let updateQuiz = {};
 
       for (const [key, value] of Object.entries(body)) {
-        updateCourse[key] = value;
+        updateQuiz[key] = value;
       }
 
       // Save the updated user
-      const updatedCourse = await this.prisma.quiz.update({
+      await this.prisma.quiz.update({
         where: { id }, // Specify the unique identifier for the user you want to update
-        data: updateCourse, // Pass the modified user object
+        data: updateQuiz, // Pass the modified user object
       });
 
       return {
@@ -229,10 +223,10 @@ export class QuizService {
   }
   async deleteQuiz(id: string): Promise<ResponseDto> {
     try {
-      const user = await this.prisma.quiz.findUnique({
+      const quiz = await this.prisma.quiz.findUnique({
         where: { id },
       });
-      if (!user) {
+      if (!quiz) {
         throw new Error('Course not found');
       }
 
@@ -243,7 +237,7 @@ export class QuizService {
       return {
         message: 'Successfully deleted quiz record',
         statusCode: 200,
-        data: user,
+        data: {},
       };
     } catch (error) {
       throw new HttpException(
