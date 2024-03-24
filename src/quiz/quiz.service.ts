@@ -318,6 +318,19 @@ export class QuizService {
             isAnswerCorrect: body.answer == quiz.answer,
           },
         });
+      }else{
+        await this.prisma.quizAnswer.update({
+          where: {
+            userId_quizId: {
+              userId: userId,
+              quizId: body.quizId,
+            },
+          },
+          data: {
+            answer: body.answer,
+            isAnswerCorrect: body.answer == quiz.answer,
+          },
+        })
       }
       return {
         message: 'Success',

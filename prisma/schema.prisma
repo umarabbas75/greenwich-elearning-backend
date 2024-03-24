@@ -117,6 +117,7 @@ model QuizAnswer {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  @@unique([userId, quizId])
   @@map("quiz_answers")
 }
 
