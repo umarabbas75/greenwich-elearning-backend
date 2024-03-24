@@ -9,7 +9,10 @@ import {
   UpdateCourseProgress,
 } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
-
+interface ExtendedCourse extends Course {
+  totalSections?: number;
+  percentage?: number;
+}
 @Injectable()
 export class CourseService {
   constructor(private prisma: PrismaService) {}
@@ -689,9 +692,11 @@ export class CourseService {
       );
     }
   }
+
+  
   async getAllAssignedCourses(userId: string): Promise<ResponseDto> {
     try {
-      const user = await this.prisma.user.findUnique({
+      let user = await this.prisma.user.findUnique({
         where: { id: userId },
         include: { courses: true }, // Include the courses relation
       });
@@ -699,15 +704,45 @@ export class CourseService {
         throw new Error('User not found');
       }
 
-      
+      const extendedCourses: ExtendedCourse[] = user.courses.map(course => ({ ...course }));
+  
 
+  
+      for (let i = 0; i < extendedCourses.length; i++) {
+        let modules = await this.prisma.module.findMany({
+          where: { courseId: extendedCourses[i].id },
+          include: {
+            chapters: {
+              include: {
+                sections: true,
+              },
+            },
+          },
+        });
+        let sections = modules.flatMap(module => module.chapters.flatMap(chapter => chapter.sections));
+        extendedCourses[i].totalSections = sections.length;
+  
+        let userCourseProgress = await this.prisma.userCourseProgress.findMany({
+          where: {
+            userId,
+            courseId: extendedCourses[i].id
+          },
+        });
+        console.log("userCourseProgress.length",userCourseProgress.length)
+        console.log("extendedCourses[i].totalSections",extendedCourses[i].totalSections)
+        if(extendedCourses[i].totalSections > 0){
+
+          let percentage = (userCourseProgress.length / extendedCourses[i].totalSections) * 100;
+          extendedCourses[i].percentage = percentage;
+        }else{
+          extendedCourses[i].percentage = 0
+        }
+      }
+  
       return {
         message: 'Successfully retrieved assigned courses',
         statusCode: 200,
-        data: {
-          courses:user.courses,
-          
-        }, // Return the courses associated with the user
+        data: extendedCourses,
       };
     } catch (error) {
       throw new HttpException(
@@ -811,9 +846,12 @@ export class CourseService {
           sections: true,
         },
       });
+      let percentage = 0;
+      if(chapter.sections.length >0){
 
-      let percentage =
+        percentage =
         (userCourseProgress.length / chapter.sections.length) * 100;
+      }
       return {
         message: 'User course progress updated successfully',
         statusCode: 200,
