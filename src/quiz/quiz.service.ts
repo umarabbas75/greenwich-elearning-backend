@@ -335,7 +335,7 @@ export class QuizService {
       return {
         message: 'Success',
         statusCode: 200,
-        data: {},
+        data: quizAnswer,
       };
     } catch (error) {
       throw new HttpException(
