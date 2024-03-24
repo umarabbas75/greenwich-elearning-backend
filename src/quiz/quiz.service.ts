@@ -309,7 +309,7 @@ export class QuizService {
         },
       });
       if (!quizAnswer) {
-        await this.prisma.quizAnswer.create({
+        quizAnswer = await this.prisma.quizAnswer.create({
           data: {
             quizId: body.quizId,
             chapterId: body.chapterId,
@@ -319,7 +319,7 @@ export class QuizService {
           },
         });
       }else{
-        await this.prisma.quizAnswer.update({
+        quizAnswer = await this.prisma.quizAnswer.update({
           where: {
             userId_quizId: {
               userId: userId,

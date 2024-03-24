@@ -699,10 +699,15 @@ export class CourseService {
         throw new Error('User not found');
       }
 
+      
+
       return {
         message: 'Successfully retrieved assigned courses',
         statusCode: 200,
-        data: user.courses, // Return the courses associated with the user
+        data: {
+          courses:user.courses,
+          
+        }, // Return the courses associated with the user
       };
     } catch (error) {
       throw new HttpException(
@@ -718,7 +723,7 @@ export class CourseService {
     }
   }
 
-  async updateUserCourseProgress(
+  async updateUserChapterProgress(
     userId: string,
     body: UpdateCourseProgress,
   ): Promise<ResponseDto> {
@@ -781,7 +786,7 @@ export class CourseService {
     }
   }
 
-  async getUserCourseProgress(
+  async getUserChapterProgress(
     userId: string,
     courseId: string,
   ): Promise<ResponseDto> {

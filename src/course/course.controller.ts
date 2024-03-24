@@ -156,16 +156,16 @@ export class CourseController {
   }
 
   @UseGuards(AuthGuard('uJwt'))
-  @Put('/updateUserCourse/progress')
-  updateUserCourseProgress(
+  @Put('/updateUserChapter/progress')
+  updateUserChapterProgress(
     @Body() body: UpdateCourseProgress,
     @GetUser() user:User
   ): Promise<ResponseDto> {
-    return this.appService.updateUserCourseProgress(user.id,body);
+    return this.appService.updateUserChapterProgress(user.id,body);
   }
-  @Get('/getUserCourseProgress/:userId/:courseId')
-  getUserCourseProgress(@Param() params: AssignCourseDto): Promise<ResponseDto> {
-    return this.appService.getUserCourseProgress(params.userId,params.courseId);
+  @Get('/getUserChapterProgress/:userId/:courseId')
+  getUserChapterProgress(@Param() params: AssignCourseDto): Promise<ResponseDto> {
+    return this.appService.getUserChapterProgress(params.userId,params.courseId);
   }
 
   @Get("/section/getLastSeen/:userId/:chapterId")
