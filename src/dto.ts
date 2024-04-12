@@ -136,6 +136,18 @@ export class UpdateCourseDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
+  assessment?: string;
+  
+  @IsOptional()
+  @IsString()
+  image?: string; 
+  
+  @IsOptional()
+  @IsString()
+  overview?: string;
 }
 export class UpdateCourseProgress {
   @IsString()
@@ -156,6 +168,10 @@ export class AssignCourseDto {
   @IsString()
   @IsNotEmpty()
   courseId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  chapterId: string;
 }
 export class ModuleDto {
   @IsNotEmpty()

@@ -209,11 +209,13 @@ export class UserService {
   }
 
   async deleteUser(id: string): Promise<ResponseDto> {
+    console.log('my id ',id)
     try {
       const user = await this.prisma.user.findUnique({
         where: { id },
       });
-      if (!user) {
+      console.log('my id ',id,user)
+      if (!user?.id) {
         throw new Error('User not found');
       }
 
@@ -227,6 +229,7 @@ export class UserService {
         data: user,
       };
     } catch (error) {
+      console.log({error})
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,

@@ -359,8 +359,8 @@ export class CourseService {
       const isCourseExist: Course = await this.prisma.course.findUnique({
         where: { id: id },
       });
-      if (isCourseExist) {
-        throw new Error('Course already exist with specified title');
+      if (!isCourseExist) {
+        throw new Error('Course does not exist');
       }
       if (Object.entries(body).length === 0) {
         throw new Error('wrong keys');
@@ -370,7 +370,7 @@ export class CourseService {
       for (const [key, value] of Object.entries(body)) {
         updateCourse[key] = value;
       }
-
+      console.log({updateCourse,body})
       // Save the updated user
       const updatedCourse = await this.prisma.course.update({
         where: { id }, // Specify the unique identifier for the user you want to update
@@ -824,12 +824,14 @@ export class CourseService {
   async getUserChapterProgress(
     userId: string,
     courseId: string,
+    chapterId: string
   ): Promise<ResponseDto> {
     try {
       let userCourseProgress = await this.prisma.userCourseProgress.findMany({
         where: {
           userId,
           courseId,
+          chapterId
         },
       });
 

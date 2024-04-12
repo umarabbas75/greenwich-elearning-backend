@@ -163,9 +163,9 @@ export class CourseController {
   ): Promise<ResponseDto> {
     return this.appService.updateUserChapterProgress(user.id,body);
   }
-  @Get('/getUserChapterProgress/:userId/:courseId')
+  @Get('/getUserChapterProgress/:userId/:courseId/:chapterId')
   getUserChapterProgress(@Param() params: AssignCourseDto): Promise<ResponseDto> {
-    return this.appService.getUserChapterProgress(params.userId,params.courseId);
+    return this.appService.getUserChapterProgress(params.userId,params.courseId,params.chapterId);
   }
 
   @Get("/section/getLastSeen/:userId/:chapterId")
