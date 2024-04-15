@@ -181,6 +181,15 @@ export class UserService {
         throw new Error('User not found');
       }
 
+       // Verify old password
+       const isOldPasswordValid = await argon2.verify(
+        existingUser.password, // Hashed old password from the database
+        body.oldPassword, // Plain text old password from the request body
+      );
+      if (!isOldPasswordValid) {
+        throw new Error('Old password is incorrect');
+      }
+
       // Save the updated user
       await this.prisma.user.update({
         where: { id: userId }, // Specify the unique identifier for the user you want to update
@@ -209,12 +218,10 @@ export class UserService {
   }
 
   async deleteUser(id: string): Promise<ResponseDto> {
-    console.log('my id ',id)
     try {
       const user = await this.prisma.user.findUnique({
         where: { id },
       });
-      console.log('my id ',id,user)
       if (!user?.id) {
         throw new Error('User not found');
       }
@@ -229,7 +236,6 @@ export class UserService {
         data: user,
       };
     } catch (error) {
-      console.log({error})
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,

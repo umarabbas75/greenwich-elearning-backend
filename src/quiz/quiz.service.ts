@@ -93,36 +93,55 @@ export class QuizService {
   ): Promise<ResponseDto> {
     try {
       let chapter
-      if (role == 'admin') {
-        chapter = await this.prisma.chapter.findUnique({
-          where: {
-            id: chapterId,
-          },
+      // if (role == 'admin') {
+      //   chapter = await this.prisma.chapter.findUnique({
+      //     where: {
+      //       id: chapterId,
+      //     },
   
          
-          // limit: 10,
-          // offset: 10,
-        });
-      } else if (role == 'user') {
-        chapter = await this.prisma.chapter.findUnique({
-          where: {
-            id: chapterId,
-          },
+      //     // limit: 10,
+      //     // offset: 10,
+      //   });
+      // } else if (role == 'user') {
+      //   chapter = await this.prisma.chapter.findUnique({
+      //     where: {
+      //       id: chapterId,
+      //     },
   
-          include: {
-            quizzes: {
-              select: {
-                id: true,
-                question: true,
-                options: true,
-              },
+      //     include: {
+      //       quizzes: {
+      //         select: {
+      //           id: true,
+      //           question: true,
+      //           options: true,
+      //         },
+      //       },
+      //     },
+  
+      //     // limit: 10,
+      //     // offset: 10,
+      //   });
+      // }
+      chapter = await this.prisma.chapter.findUnique({
+        where: {
+          id: chapterId,
+        },
+
+        include: {
+          quizzes: {
+            select: {
+              id: true,
+              question: true,
+              options: true,
+              answer: true
             },
           },
-  
-          // limit: 10,
-          // offset: 10,
-        });
-      }
+        },
+
+        // limit: 10,
+        // offset: 10,
+      });
      
     
       return {

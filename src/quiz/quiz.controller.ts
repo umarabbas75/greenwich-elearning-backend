@@ -38,7 +38,6 @@ export class QuizController {
   @UseGuards(AuthGuard('cJwt'))
   @Get('/getAllAssignQuizzes/:id')
   getAllAssignQuizzes(@Param() params: ParamsDto,@GetUser() user: User): Promise<ResponseDto> {
-   console.log(user)
     return this.appService.getAllAssignQuizzes(params.id,user.role);
   }
 

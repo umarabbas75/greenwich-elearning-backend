@@ -18,6 +18,7 @@ import {
   
   ModuleDto,
   ParamsDto,
+  ParamsDto1,
   ResponseDto,
   UpdateCourseDto,
   UpdateCourseProgress,
@@ -66,6 +67,15 @@ export class CourseController {
     return this.appService.getAllSections(params.id);
   }
 
+  @UseGuards(AuthGuard('uJwt'))
+  @Get('/user/module/chapter/allSections/:id/:courseId')
+  getAllUserSections(@Param() params: ParamsDto1, @GetUser() user:User): Promise<ResponseDto> {
+    console.log({params,user})
+    return this.appService.getAllUserSections(params?.id,user.id,params?.courseId);
+  }
+
+  
+
   @UseGuards(AuthGuard('jwt'))
   @Post('/')
   createCourse(@Body() body: CourseDto): Promise<ResponseDto> {
@@ -82,7 +92,7 @@ export class CourseController {
   }
 
   @UseGuards(AuthGuard('jwt'))
-  @Put('/:id')
+  @Put('/module/:id')
   updateModule(
     @Body() body: UpdateCourseDto,
     @Param() params: ParamsDto,
@@ -90,7 +100,7 @@ export class CourseController {
     return this.appService.updateModule(params.id, body);
   }
   @UseGuards(AuthGuard('jwt'))
-  @Put('/:id')
+  @Put('/chapter/:id')
   updateChapter(
     @Body() body: UpdateCourseDto,
     @Param() params: ParamsDto,
@@ -99,7 +109,7 @@ export class CourseController {
   }
 
   @UseGuards(AuthGuard('jwt'))
-  @Put('/:id')
+  @Put('/section/update/:id')
   updateSection(
     @Body() body: UpdateCourseDto,
     @Param() params: ParamsDto,
@@ -140,7 +150,7 @@ export class CourseController {
     return this.appService.deleteCourse(params.id);
   }
   @UseGuards(AuthGuard('jwt'))
-  @Delete('/:id')
+  @Delete('/module/:id')
   deleteModule(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteModule(params.id);
   }

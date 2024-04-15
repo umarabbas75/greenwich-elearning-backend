@@ -63,7 +63,11 @@ export class BodyUpdateDto {
 export class ChangePasswordDto {
   @IsString()
   @IsNotEmpty()
-  password: string;
+  password: string; 
+  
+  @IsString()
+  @IsNotEmpty()
+  oldPassword: string;
 }
 export class LoginDto {
   @IsEmail()
@@ -78,6 +82,10 @@ export class CourseDto {
   @IsNotEmpty()
   @IsString()
   title: string;
+
+  @IsString()
+  @IsNotEmpty()
+  duration: string;
 
   @IsString()
   @IsNotEmpty()
@@ -171,6 +179,7 @@ export class AssignCourseDto {
 
   @IsString()
   @IsNotEmpty()
+  @IsOptional()
   chapterId: string;
 }
 export class ModuleDto {
@@ -190,6 +199,15 @@ export class ParamsDto {
   @IsString()
   @IsNotEmpty()
   id: string;
+}
+export class ParamsDto1 {
+  @IsString()
+  @IsNotEmpty()
+  id: string;
+
+  @IsString()
+  @IsNotEmpty()
+  courseId: string;
 }
 
 export class CheckQuiz {

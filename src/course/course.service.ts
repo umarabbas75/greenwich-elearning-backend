@@ -30,6 +30,7 @@ export class CourseService {
           title: body.title,
           description: body.description,
           assessment: body.assessment,
+          duration: body.duration,
           overview: body.overview,
           image: body.image,
         },
@@ -353,6 +354,124 @@ export class CourseService {
       );
     }
   }
+  async getAllUserSections(
+    id: string,
+    userId: string,
+    courseId: string,
+  ): Promise<ResponseDto> {
+    function insertQuizzes(sections: any, quizzes: any) {
+      // Remove first and last indexes for quiz placement
+      const availableIndexes = [];
+      if (sections.length > 2) {
+        for (let i = 1; i < sections.length - 1; i++) {
+          availableIndexes.push(i);
+        }
+      }
+
+      // Shuffle quizzes to randomize placement
+      const shuffledQuizzes = quizzes.sort(() => Math.random() - 0.5);
+
+      // Insert quizzes into available indexes
+      for (let i = 0; i < shuffledQuizzes.length; i++) {
+        const randomIndex = availableIndexes.splice(
+          Math.floor(Math.random() * availableIndexes.length),
+          1,
+        )[0];
+        sections.splice(randomIndex, 0, shuffledQuizzes[i]);
+      }
+
+      return sections;
+    }
+
+    try {
+      const [
+        sections,
+        userCourseProgress,
+        chapter,
+        quizAnswer,
+        lastSeenLesson,
+      ] = await Promise.all([
+        this.prisma.section.findMany({
+          where: { chapterId: id },
+        }),
+        this.prisma.userCourseProgress.findMany({
+          where: { userId, courseId, chapterId: id },
+        }),
+        this.prisma.chapter.findUnique({
+          where: { id },
+          include: {
+            quizzes: {
+              select: {
+                id: true,
+                question: true,
+                options: true,
+                answer: true,
+              },
+            },
+          },
+        }),
+        this.prisma.quizAnswer.findMany({
+          where: { userId, chapterId: id },
+        }),
+        this.prisma.lastSeenSection.findUnique({
+          where: { userId_chapterId: { userId, chapterId: id } },
+        }),
+      ]);
+
+      const allSections = sections?.length > 0 ? [...sections] : [];
+      const completedSections =
+        userCourseProgress?.length > 0 ? [...userCourseProgress] : [];
+        const assignedQuizzesList =
+        chapter?.quizzes?.length > 0 ? [...chapter?.quizzes] : [];
+        const quizAnsweredList = quizAnswer?.length > 0 ? [...quizAnswer] : [];
+      allSections.forEach((section: any) => {
+        // Check if the section ID exists in completedSections
+        const isCompleted = completedSections?.some(
+          (completedSection: any) => completedSection.sectionId === section.id,
+        );
+        section.isLastSeen =
+          lastSeenLesson?.sectionId === section.id ? true : false;
+        // Insert the boolean value into the section object
+        section.isCompleted = isCompleted;
+      });
+
+      assignedQuizzesList.forEach((quiz: any) => {
+        // Check if the section ID exists in completedSections
+        const isCorrect = quizAnsweredList?.some(
+          (completedQuestion: any) => completedQuestion.id === quiz.id,
+        );
+        // Insert the boolean value into the section object
+        quiz.isCorrect = isCorrect;
+      });
+
+      const mergedArray = insertQuizzes(allSections, assignedQuizzesList);
+
+      console.log(
+        'assignedQmergedArrayuizzesList',
+        mergedArray,
+        lastSeenLesson,
+      );
+      if (!(sections.length > 0)) {
+        throw new Error('No Sections found');
+      }
+      return {
+        message: 'Successfully fetch all Sections info against chapter',
+        statusCode: 200,
+        data: mergedArray,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
 
   async updateCourse(id: string, body: UpdateCourseDto): Promise<ResponseDto> {
     try {
@@ -370,7 +489,6 @@ export class CourseService {
       for (const [key, value] of Object.entries(body)) {
         updateCourse[key] = value;
       }
-      console.log({updateCourse,body})
       // Save the updated user
       const updatedCourse = await this.prisma.course.update({
         where: { id }, // Specify the unique identifier for the user you want to update
@@ -401,7 +519,7 @@ export class CourseService {
       const isModuleExist: Module = await this.prisma.module.findUnique({
         where: { id: id },
       });
-      if (isModuleExist) {
+      if (!isModuleExist) {
         throw new Error('Module already exist with specified title');
       }
       if (Object.entries(body).length === 0) {
@@ -443,7 +561,7 @@ export class CourseService {
       const isChapterExist: Chapter = await this.prisma.chapter.findUnique({
         where: { id: id },
       });
-      if (isChapterExist) {
+      if (!isChapterExist) {
         throw new Error('Chapter already exist with specified title');
       }
       if (Object.entries(body).length === 0) {
@@ -456,7 +574,7 @@ export class CourseService {
       }
 
       // Save the updated user
-      const updatedChapter = await this.prisma.module.update({
+      const updatedChapter = await this.prisma.chapter.update({
         where: { id }, // Specify the unique identifier for the user you want to update
         data: updateChapter, // Pass the modified user object
       });
@@ -484,7 +602,7 @@ export class CourseService {
       const isSectionExist: Section = await this.prisma.section.findUnique({
         where: { id: id },
       });
-      if (isSectionExist) {
+      if (!isSectionExist) {
         throw new Error('Section already exist with specified title');
       }
       if (Object.entries(body).length === 0) {
@@ -497,7 +615,7 @@ export class CourseService {
       }
 
       // Save the updated user
-      const updatedSection = await this.prisma.module.update({
+      const updatedSection = await this.prisma.section.update({
         where: { id }, // Specify the unique identifier for the user you want to update
         data: updateSection, // Pass the modified user object
       });
@@ -693,7 +811,6 @@ export class CourseService {
     }
   }
 
-  
   async getAllAssignedCourses(userId: string): Promise<ResponseDto> {
     try {
       let user = await this.prisma.user.findUnique({
@@ -704,10 +821,10 @@ export class CourseService {
         throw new Error('User not found');
       }
 
-      const extendedCourses: ExtendedCourse[] = user.courses.map(course => ({ ...course }));
-  
+      const extendedCourses: ExtendedCourse[] = user.courses.map((course) => ({
+        ...course,
+      }));
 
-  
       for (let i = 0; i < extendedCourses.length; i++) {
         let modules = await this.prisma.module.findMany({
           where: { courseId: extendedCourses[i].id },
@@ -719,26 +836,27 @@ export class CourseService {
             },
           },
         });
-        let sections = modules.flatMap(module => module.chapters.flatMap(chapter => chapter.sections));
+        let sections = modules.flatMap((module) =>
+          module.chapters.flatMap((chapter) => chapter.sections),
+        );
         extendedCourses[i].totalSections = sections.length;
-  
+
         let userCourseProgress = await this.prisma.userCourseProgress.findMany({
           where: {
             userId,
-            courseId: extendedCourses[i].id
+            courseId: extendedCourses[i].id,
           },
         });
-        console.log("userCourseProgress.length",userCourseProgress.length)
-        console.log("extendedCourses[i].totalSections",extendedCourses[i].totalSections)
-        if(extendedCourses[i].totalSections > 0){
-
-          let percentage = (userCourseProgress.length / extendedCourses[i].totalSections) * 100;
+        if (extendedCourses[i].totalSections > 0) {
+          let percentage =
+            (userCourseProgress.length / extendedCourses[i].totalSections) *
+            100;
           extendedCourses[i].percentage = percentage;
-        }else{
-          extendedCourses[i].percentage = 0
+        } else {
+          extendedCourses[i].percentage = 0;
         }
       }
-  
+
       return {
         message: 'Successfully retrieved assigned courses',
         statusCode: 200,
@@ -824,14 +942,14 @@ export class CourseService {
   async getUserChapterProgress(
     userId: string,
     courseId: string,
-    chapterId: string
+    chapterId: string,
   ): Promise<ResponseDto> {
     try {
       let userCourseProgress = await this.prisma.userCourseProgress.findMany({
         where: {
           userId,
           courseId,
-          chapterId
+          chapterId,
         },
       });
 
@@ -849,10 +967,9 @@ export class CourseService {
         },
       });
       let percentage = 0;
-      if(chapter.sections.length >0){
-
+      if (chapter.sections.length > 0) {
         percentage =
-        (userCourseProgress.length / chapter.sections.length) * 100;
+          (userCourseProgress.length / chapter.sections.length) * 100;
       }
       return {
         message: 'User course progress updated successfully',
@@ -876,7 +993,10 @@ export class CourseService {
     }
   }
 
-  async getLastSeenSection(userId: string, chapterId: string) : Promise<ResponseDto>{
+  async getLastSeenSection(
+    userId: string,
+    chapterId: string,
+  ): Promise<ResponseDto> {
     try {
       let getLastSeenSection = await this.prisma.lastSeenSection.findUnique({
         where: {
@@ -884,11 +1004,10 @@ export class CourseService {
         },
       });
 
-
       return {
         message: 'success',
         statusCode: 200,
-        data: getLastSeenSection
+        data: getLastSeenSection,
       };
     } catch (error) {
       throw new HttpException(
@@ -910,7 +1029,7 @@ export class CourseService {
     sectionId: string,
   ): Promise<ResponseDto> {
     try {
-      await  this.prisma.lastSeenSection.upsert({
+      await this.prisma.lastSeenSection.upsert({
         where: {
           userId_chapterId: { userId, chapterId },
         },
@@ -927,7 +1046,7 @@ export class CourseService {
       return {
         message: 'success',
         statusCode: 200,
-        data: {}
+        data: {},
       };
     } catch (error) {
       throw new HttpException(

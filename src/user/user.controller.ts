@@ -32,7 +32,7 @@ export class UserController {
     return this.appService.getUser(params.id);
   }
 
-  @UseGuards(AuthGuard('jwt'))
+  // @UseGuards(AuthGuard('jwt'))
   @Post('/')
   createUser(@Body() body: BodyDto): Promise<ResponseDto> {
     return this.appService.createUser(body);

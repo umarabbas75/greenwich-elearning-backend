@@ -25,6 +25,7 @@ CREATE TABLE "courses" (
     "image" TEXT NOT NULL,
     "overview" TEXT NOT NULL,
     "assessment" TEXT NOT NULL,
+    "duration" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
