@@ -24,8 +24,8 @@ CREATE TABLE "courses" (
     "description" TEXT NOT NULL,
     "image" TEXT NOT NULL,
     "overview" TEXT NOT NULL,
-    "assessment" TEXT NOT NULL,
     "duration" TEXT NOT NULL,
+    "assessment" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -96,6 +96,45 @@ CREATE TABLE "quizzes" (
 );
 
 -- CreateTable
+CREATE TABLE "quiz_answers" (
+    "id" TEXT NOT NULL,
+    "quizId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "chapterId" TEXT NOT NULL,
+    "answer" TEXT NOT NULL,
+    "isAnswerCorrect" BOOLEAN NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "quiz_answers_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "LastSeenSection" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "chapterId" TEXT NOT NULL,
+    "sectionId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "LastSeenSection_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "forum_threads" (
+    "id" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "forum_threads_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "_CourseToUser" (
     "A" TEXT NOT NULL,
     "B" TEXT NOT NULL
@@ -105,16 +144,25 @@ CREATE TABLE "_CourseToUser" (
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
 
 -- CreateIndex
+CREATE INDEX "users_email_idx" ON "users"("email");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "courses_title_key" ON "courses"("title");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "chapters_quizId_key" ON "chapters"("quizId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "UserCourseProgress_userId_courseId_key" ON "UserCourseProgress"("userId", "courseId");
+CREATE UNIQUE INDEX "UserCourseProgress_userId_courseId_chapterId_sectionId_key" ON "UserCourseProgress"("userId", "courseId", "chapterId", "sectionId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "quizzes_question_key" ON "quizzes"("question");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "quiz_answers_userId_quizId_key" ON "quiz_answers"("userId", "quizId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "LastSeenSection_userId_chapterId_key" ON "LastSeenSection"("userId", "chapterId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "_CourseToUser_AB_unique" ON "_CourseToUser"("A", "B");
@@ -133,6 +181,18 @@ ALTER TABLE "sections" ADD CONSTRAINT "sections_chapterId_fkey" FOREIGN KEY ("ch
 
 -- AddForeignKey
 ALTER TABLE "quizzes" ADD CONSTRAINT "quizzes_chapterId_fkey" FOREIGN KEY ("chapterId") REFERENCES "chapters"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LastSeenSection" ADD CONSTRAINT "LastSeenSection_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LastSeenSection" ADD CONSTRAINT "LastSeenSection_chapterId_fkey" FOREIGN KEY ("chapterId") REFERENCES "chapters"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LastSeenSection" ADD CONSTRAINT "LastSeenSection_sectionId_fkey" FOREIGN KEY ("sectionId") REFERENCES "sections"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "forum_threads" ADD CONSTRAINT "forum_threads_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "_CourseToUser" ADD CONSTRAINT "_CourseToUser_A_fkey" FOREIGN KEY ("A") REFERENCES "courses"("id") ON DELETE CASCADE ON UPDATE CASCADE;
