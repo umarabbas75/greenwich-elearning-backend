@@ -5,103 +5,34 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 //   ResponseDto,
 // } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { ForumThread, Prisma } from '@prisma/client';
 
 @Injectable()
-export class ForumThreadService {
+export class ForumCommentService {
   constructor(private prisma: PrismaService) {}
 
-  async getAllForumThreads(user: any): Promise<any> {
+  async createForumThreadComment(body: any, userId: string): Promise<any> {
     try {
-      let forums = {};
-      if (user?.role === 'user') {
-        forums = await this.prisma.forumThread.findMany({
-          where: {
-            status: 'active',
-          },
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-              },
-            },
-            ForumComment: {
-              select: {
-                id: true,
-                user: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                  },
-                },
-                createdAt: true,
-              },
-              orderBy: {
-                createdAt: Prisma.SortOrder.desc, // Order comments by createdAt in descending order
-              },
-            },
-          },
-        });
-      } else {
-        forums = await this.prisma.forumThread.findMany({
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-              },
-            },
-            ForumComment: {
-              select: {
-                id: true,
-                user: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                  },
-                },
-                createdAt: true,
-              },
-              orderBy: {
-                createdAt: Prisma.SortOrder.desc, // Order comments by createdAt in descending order
-              },
-            },
-          },
-        });
+      // Check if the user exists
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+      if (!user) {
+        throw new Error('User not found');
       }
 
-      return {
-        message: 'Successfully fetch all forum threads',
-        statusCode: 200,
-        data: forums,
-      };
-    } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
-    }
-  }
+      // Check if the thread exists
+      const thread = await this.prisma.forumThread.findUnique({
+        where: { id: body?.threadId },
+      });
+      if (!thread) {
+        throw new Error('Forum thread not found');
+      }
 
-  async createForumThread(body: any, userId: string): Promise<any> {
-    try {
-      await this.prisma.forumThread.create({
+      await this.prisma.forumComment.create({
         data: {
-          title: body.title,
-          content: body.content,
-          userId: userId,
-          status: 'inActive',
+          content: body?.content,
+          user: { connect: { id: userId } }, // Connects the user by userId
+          thread: { connect: { id: body.threadId } }, // Connects the thread by threadId
         },
       });
       return {
@@ -123,14 +54,61 @@ export class ForumThreadService {
     }
   }
 
-  async updateForumThread(forumThreadId: string, body: any): Promise<any> {
+  async getForumCommentsByThreadId(threadId: string) {
+    return this.prisma.forumComment.findMany({
+      where: {
+        threadId,
+      },
+      include: {
+        user: true, // Include user details for each comment
+      },
+    });
+  }
+
+  async getAllForumThreads(): Promise<any> {
     try {
-      const existingForumThread: ForumThread =
-        await this.prisma.forumThread.findUnique({
-          where: { id: forumThreadId },
-        });
+      const forums = await this.prisma.forumThread.findMany({
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+
+      return {
+        message: 'Successfully fetch all forum threads',
+        statusCode: 200,
+        data: forums,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async updateForumThreadComment(
+    forumThreadId: string,
+    body: any,
+  ): Promise<any> {
+    try {
+      console.log({ body });
+      const existingForumThread = await this.prisma.forumComment.findUnique({
+        where: { id: forumThreadId },
+      });
       if (!existingForumThread) {
-        throw new Error('Forum thread not found');
+        throw new Error('Forum comment not found');
       }
       if (Object.entries(body).length === 0) {
         throw new Error('wrong keys');
@@ -142,7 +120,7 @@ export class ForumThreadService {
       }
 
       // Save the updated user
-      const updatedForumThread = await this.prisma.forumThread.update({
+      const updatedForumThread = await this.prisma.forumComment.update({
         where: { id: forumThreadId }, // Specify the unique identifier for the user you want to update
         data: updateForumThread, // Pass the modified user object
       });
@@ -167,21 +145,21 @@ export class ForumThreadService {
     }
   }
 
-  async deleteForumThread(forumThreadId: any): Promise<any> {
+  async deleteForumThreadComment(forumThreadId: any): Promise<any> {
     try {
-      const quiz: ForumThread = await this.prisma.forumThread.findUnique({
+      const quiz = await this.prisma.forumComment.findUnique({
         where: { id: forumThreadId },
       });
       if (!quiz) {
         throw new Error('Forum Thread not found');
       }
 
-      await this.prisma.forumThread.delete({
+      await this.prisma.forumComment.delete({
         where: { id: forumThreadId },
       });
 
       return {
-        message: 'Successfully deleted forum thread record',
+        message: 'Successfully deleted forum thread comment record',
         statusCode: 200,
         data: {},
       };

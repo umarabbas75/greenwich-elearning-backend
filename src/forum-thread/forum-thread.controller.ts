@@ -27,8 +27,8 @@ export class ForumThreadController {
   }
   @UseGuards(AuthGuard('jwt'))
   @Get('/')
-  async getAllForumThreads() {
-    return this.forumThreadService.getAllForumThreads();
+  async getAllForumThreads(@GetUser() user: User) {
+    return this.forumThreadService.getAllForumThreads(user);
   }
 
   @UseGuards(AuthGuard('jwt'))

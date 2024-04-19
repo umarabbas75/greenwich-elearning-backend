@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { QuizModule } from './quiz/quiz.module';
 import { ForumModule } from './forum-thread/forum.module';
+import { ForumCommentModule } from './forum-comment/forum-comment.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ForumModule } from './forum-thread/forum.module';
     AuthModule,
     QuizModule,
     ForumModule,
+    ForumCommentModule,
   ],
 })
 export class AppModule {}
