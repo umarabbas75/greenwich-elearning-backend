@@ -20,23 +20,24 @@ import { User } from '@prisma/client';
 export class ForumThreadController {
   constructor(private readonly forumThreadService: ForumThreadService) {}
 
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('cJwt'))
   @Post('/')
   createForumThread(@Body() body: any, @GetUser() user: User): Promise<any> {
     return this.forumThreadService.createForumThread(body, user.id);
   }
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('cJwt'))
   @Get('/')
   async getAllForumThreads(@GetUser() user: User) {
+    console.log('api hit')
     return this.forumThreadService.getAllForumThreads(user);
   }
 
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('cJwt'))
   @Get('/:forumThreadId')
   async getForumThread(@Param() params: any) {
     return this.forumThreadService.getForumThread(params.forumThreadId);
   }
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('cJwt'))
   @Put('/update/:forumThreadId')
   updateForumThread(@Param() params: any, @Body() body: any) {
     return this.forumThreadService.updateForumThread(
@@ -45,7 +46,7 @@ export class ForumThreadController {
     );
   }
 
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('cJwt'))
   @Delete('/delete/:forumThreadId')
   deleteForumThread(@Param() params: any): Promise<any> {
     return this.forumThreadService.deleteForumThread(params.forumThreadId);

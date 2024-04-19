@@ -22,7 +22,7 @@ import { User } from '@prisma/client';
 export class ForumCommentController {
   constructor(private readonly forumThreadService: ForumCommentService) {}
 
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('cJwt'))
   @Post('/')
   createForumThreadComment(
     @Body() body: any,
@@ -30,13 +30,13 @@ export class ForumCommentController {
   ): Promise<any> {
     return this.forumThreadService.createForumThreadComment(body, user.id);
   }
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('cJwt'))
   @Get('/:forumThreadId')
   async getForumCommentsByThreadId(@Param() params: any) {
     return this.forumThreadService.getForumCommentsByThreadId(params?.threadId);
   }
 
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('cJwt'))
   @Put('/:forumThreadId')
   async updateForumThreadComment(@Param() params: any, @Body() body: any) {
     return this.forumThreadService.updateForumThreadComment(
@@ -45,7 +45,7 @@ export class ForumCommentController {
     );
   }
 
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('cJwt'))
   @Delete('/:forumThreadId')
   async deleteForumThreadComment(@Param() params: any) {
     return this.forumThreadService.deleteForumThreadComment(
