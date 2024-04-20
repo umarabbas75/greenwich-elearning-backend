@@ -7,15 +7,12 @@ import {
   UseGuards,
   Put,
   Delete,
-  Query,
 } from '@nestjs/common';
 import { CourseService } from './course.service';
 import {
   AssignCourseDto,
   CourseDto,
-  
   GetUpdateLastSeen,
-  
   ModuleDto,
   ParamsDto,
   ParamsDto1,
@@ -30,9 +27,74 @@ import { AuthGuard } from '@nestjs/passport';
 @Controller('courses')
 export class CourseController {
   constructor(private readonly appService: CourseService) {}
+  // comments
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/postComment/:postId')
+  createPostComment(
+    @Param() params: any,
+    @GetUser() user: User,
+    @Body() body: any,
+  ): Promise<any> {
+    return this.appService.createPostComment(params.postId, user?.id, body);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('/postComment/:postId')
+  getPostComments(@Param() params: any): Promise<any> {
+    return this.appService.getPostComments(params.postId);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Put('/postComment/:postId/:commentId')
+  updatePostComment(@Param() params: any, @Body() body: any): Promise<any> {
+    return this.appService.updatePostComment(
+      params?.postId,
+      params?.commentId,
+      body,
+    );
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Delete('/postComment/:postId/:commentId')
+  deletePostComment(@Param() params: any): Promise<any> {
+    return this.appService.deletePostComment(params.postId, params.commentId);
+  }
+  // posts
+
+  @Get('/post/:id')
+  getPost(@Param('id') id: string): Promise<any> {
+    return this.appService.getPost(id);
+  }
+
+  @Get('/posts/:courseId')
+  getAllPosts(@Param() params: any): Promise<ResponseDto> {
+    return this.appService.getAllPosts(params.courseId);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/post/:courseId')
+  createPost(
+    @Param() params: any,
+    @GetUser() user: User,
+    @Body() body: any,
+  ): Promise<any> {
+    return this.appService.createPost(params.courseId, user?.id, body);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Put('/post/:id')
+  updatePost(@Body() body: any, @Param('id') id: string): Promise<any> {
+    return this.appService.updatePost(id, body);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Delete('/post/:id')
+  deletePost(@Param('id') id: string): Promise<any> {
+    return this.appService.deletePost(id);
+  }
 
   @Get('/:id')
-  getCourse(@Param() params: ParamsDto): Promise<ResponseDto> {
+  getCourse(@Param() params: any): Promise<any> {
     return this.appService.getCourse(params.id);
   }
 
@@ -69,12 +131,17 @@ export class CourseController {
 
   @UseGuards(AuthGuard('uJwt'))
   @Get('/user/module/chapter/allSections/:id/:courseId')
-  getAllUserSections(@Param() params: ParamsDto1, @GetUser() user:User): Promise<ResponseDto> {
-    console.log({params,user})
-    return this.appService.getAllUserSections(params?.id,user.id,params?.courseId);
+  getAllUserSections(
+    @Param() params: ParamsDto1,
+    @GetUser() user: User,
+  ): Promise<ResponseDto> {
+    console.log({ params, user });
+    return this.appService.getAllUserSections(
+      params?.id,
+      user.id,
+      params?.courseId,
+    );
   }
-
-  
 
   @UseGuards(AuthGuard('jwt'))
   @Post('/')
@@ -120,7 +187,7 @@ export class CourseController {
   @UseGuards(AuthGuard('jwt'))
   @Put('/assignCourse/:userId/:courseId')
   assignCourse(@Param() params: AssignCourseDto): Promise<ResponseDto> {
-    return this.appService.assignCourse(params.userId,params.courseId);
+    return this.appService.assignCourse(params.userId, params.courseId);
   }
   @Get('/getAllAssignedCourses/:id')
   getAllAssignedCourses(@Param() params: ParamsDto): Promise<ResponseDto> {
@@ -169,22 +236,32 @@ export class CourseController {
   @Put('/updateUserChapter/progress')
   updateUserChapterProgress(
     @Body() body: UpdateCourseProgress,
-    @GetUser() user:User
+    @GetUser() user: User,
   ): Promise<ResponseDto> {
-    return this.appService.updateUserChapterProgress(user.id,body);
+    return this.appService.updateUserChapterProgress(user.id, body);
   }
   @Get('/getUserChapterProgress/:userId/:courseId/:chapterId')
-  getUserChapterProgress(@Param() params: AssignCourseDto): Promise<ResponseDto> {
-    return this.appService.getUserChapterProgress(params.userId,params.courseId,params.chapterId);
+  getUserChapterProgress(
+    @Param() params: AssignCourseDto,
+  ): Promise<ResponseDto> {
+    return this.appService.getUserChapterProgress(
+      params.userId,
+      params.courseId,
+      params.chapterId,
+    );
   }
 
-  @Get("/section/getLastSeen/:userId/:chapterId")
-  getLastSeen(@Param() param:GetUpdateLastSeen) {
+  @Get('/section/getLastSeen/:userId/:chapterId')
+  getLastSeen(@Param() param: GetUpdateLastSeen) {
     return this.appService.getLastSeenSection(param.userId, param.chapterId);
   }
   @UseGuards(AuthGuard('uJwt'))
-  @Post("/section/updateLastSeen/")
-  updateLastSeen(@Body() body:UpdateLastSeen,@GetUser() user:User) {
-    return this.appService.updateLastSeenSection(user.id, body.chapterId, body.sectionId);
+  @Post('/section/updateLastSeen/')
+  updateLastSeen(@Body() body: UpdateLastSeen, @GetUser() user: User) {
+    return this.appService.updateLastSeenSection(
+      user.id,
+      body.chapterId,
+      body.sectionId,
+    );
   }
 }

@@ -22,6 +22,8 @@ model User {
   LastSeenSection LastSeenSection[]
   ForumThread     ForumThread[]
   ForumComment    ForumComment[]
+  Post            Post[]
+  Comment         Comment[]
 
   @@index([email])
   @@map("users")
@@ -39,6 +41,7 @@ model Course {
   updatedAt   DateTime @updatedAt
   modules     Module[]
   users       User[]   @relation("CourseToUser")
+  Post        Post[]
 
   @@map("courses")
 }
@@ -164,6 +167,34 @@ model ForumComment {
   updatedAt DateTime    @updatedAt
 
   @@map("forum_comments")
+}
+
+model Post {
+  id        String    @id @default(uuid())
+  title     String
+  content   String
+  courseId  String
+  course    Course    @relation(fields: [courseId], references: [id])
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  comments  Comment[] // Each post can have multiple comments
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("posts")
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  content   String
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("comments")
 }
 
 enum Role {

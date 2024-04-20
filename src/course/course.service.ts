@@ -1,7 +1,7 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { Course, Module, Chapter, Section } from '@prisma/client';
 import {
-  AssignCourseDto,
+  // AssignCourseDto,
   CourseDto,
   ModuleDto,
   ResponseDto,
@@ -9,6 +9,7 @@ import {
   UpdateCourseProgress,
 } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { where } from 'sequelize';
 interface ExtendedCourse extends Course {
   totalSections?: number;
   percentage?: number;
@@ -16,6 +17,332 @@ interface ExtendedCourse extends Course {
 @Injectable()
 export class CourseService {
   constructor(private prisma: PrismaService) {}
+
+  // apis related to comments
+  async deletePostComment(postId: any, commentId: any): Promise<ResponseDto> {
+    try {
+      const post = await this.prisma.comment.findUnique({
+        where: { id: commentId, postId },
+      });
+      if (!post) {
+        throw new Error('Post not found');
+      }
+
+      await this.prisma.comment.delete({
+        where: { id: commentId, postId },
+      });
+
+      return {
+        message: 'Successfully deleted post comment record',
+        statusCode: 200,
+        data: post,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async getPostComments(postId: any): Promise<any> {
+    try {
+      const postComments = await this.prisma.comment.findMany({
+        where: {
+          postId: postId,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+      console.log({ postComments });
+
+      return {
+        message: 'Successfully retrieved data',
+        statusCode: 200,
+        data: postComments,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async createPostComment(
+    postId: any,
+    userId: any,
+    body: any,
+  ): Promise<ResponseDto> {
+    try {
+      const comment = await this.prisma.comment.create({
+        data: {
+          content: body.content, // Assuming 'content' is the main content of the post
+          postId: postId,
+          userId, // Assuming you also have a userId field in the request body
+        },
+      });
+      return {
+        message: 'Successfully created post comment record',
+        statusCode: 200,
+        data: comment,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async updatePostComment(
+    postId: string,
+    commentId: any,
+    body: any,
+  ): Promise<ResponseDto> {
+    try {
+      const doesCommentExist = await this.prisma.comment.findUnique({
+        where: { id: commentId, postId },
+      });
+      if (!doesCommentExist) {
+        throw new Error('Comment does not exist');
+      }
+      if (Object.entries(body).length === 0) {
+        throw new Error('wrong keys');
+      }
+      const updatePost = {};
+
+      for (const [key, value] of Object.entries(body)) {
+        updatePost[key] = value;
+      }
+      // Save the updated user
+      const updatedPostComment = await this.prisma.comment.update({
+        where: { id: commentId, postId }, // Specify the unique identifier for the user you want to update
+        data: updatePost, // Pass the modified user object
+      });
+
+      return {
+        message: 'Successfully updated post record',
+        statusCode: 200,
+        data: updatedPostComment,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  // api related to post
+  async deletePost(id: string): Promise<ResponseDto> {
+    try {
+      const post = await this.prisma.post.findUnique({
+        where: { id },
+      });
+      if (!post) {
+        throw new Error('Post not found');
+      }
+
+      await this.prisma.post.delete({
+        where: { id },
+      });
+
+      return {
+        message: 'Successfully deleted post record',
+        statusCode: 200,
+        data: post,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async getPost(postId: any): Promise<any> {
+    try {
+      const posts = await this.prisma.post.findUnique({
+        where: {
+          id: postId,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+
+      return {
+        message: 'Successfully retrieved data',
+        statusCode: 200,
+        data: posts,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+  async getAllPosts(courseId: any): Promise<any> {
+    try {
+      const posts = await this.prisma.post.findMany({
+        where: {
+          courseId,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+          comments: true,
+        },
+      });
+
+      return {
+        message: 'Successfully fetch all posts',
+        statusCode: 200,
+        data: posts,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async createPost(
+    courseId: any,
+    userId: any,
+    body: any,
+  ): Promise<ResponseDto> {
+    try {
+      const post = await this.prisma.post.create({
+        data: {
+          title: body.title,
+          content: body.content, // Assuming 'content' is the main content of the post
+          courseId: courseId,
+          userId, // Assuming you also have a userId field in the request body
+        },
+      });
+      return {
+        message: 'Successfully create post record',
+        statusCode: 200,
+        data: post,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async updatePost(id: string, body: UpdateCourseDto): Promise<ResponseDto> {
+    try {
+      const isPostExist = await this.prisma.post.findUnique({
+        where: { id: id },
+      });
+      if (!isPostExist) {
+        throw new Error('Post does not exist');
+      }
+      if (Object.entries(body).length === 0) {
+        throw new Error('wrong keys');
+      }
+      const updatePost = {};
+
+      for (const [key, value] of Object.entries(body)) {
+        updatePost[key] = value;
+      }
+      // Save the updated user
+      const updatedPost = await this.prisma.post.update({
+        where: { id }, // Specify the unique identifier for the user you want to update
+        data: updatePost, // Pass the modified user object
+      });
+
+      return {
+        message: 'Successfully updated post record',
+        statusCode: 200,
+        data: updatedPost,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
 
   async createCourse(body: CourseDto): Promise<ResponseDto> {
     try {
@@ -421,9 +748,9 @@ export class CourseService {
       const allSections = sections?.length > 0 ? [...sections] : [];
       const completedSections =
         userCourseProgress?.length > 0 ? [...userCourseProgress] : [];
-        const assignedQuizzesList =
+      const assignedQuizzesList =
         chapter?.quizzes?.length > 0 ? [...chapter?.quizzes] : [];
-        const quizAnsweredList = quizAnswer?.length > 0 ? [...quizAnswer] : [];
+      const quizAnsweredList = quizAnswer?.length > 0 ? [...quizAnswer] : [];
       allSections.forEach((section: any) => {
         // Check if the section ID exists in completedSections
         const isCompleted = completedSections?.some(
