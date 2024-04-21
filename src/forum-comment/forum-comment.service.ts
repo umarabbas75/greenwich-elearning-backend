@@ -103,7 +103,6 @@ export class ForumCommentService {
     body: any,
   ): Promise<any> {
     try {
-      console.log({ body });
       const existingForumThread = await this.prisma.forumComment.findUnique({
         where: { id: forumThreadId },
       });
@@ -131,7 +130,6 @@ export class ForumCommentService {
         data: updatedForumThread,
       };
     } catch (error) {
-      console.log({ error });
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,

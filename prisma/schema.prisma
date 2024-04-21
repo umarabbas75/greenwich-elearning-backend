@@ -71,6 +71,8 @@ model Chapter {
   quizzes         Quiz[]
   sections        Section[]
   LastSeenSection LastSeenSection[]
+  QuizAnswer      QuizAnswer[]
+  
 
   @@map("chapters")
 }
@@ -122,6 +124,7 @@ model QuizAnswer {
   isAnswerCorrect Boolean
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  Chapter         Chapter  @relation(fields: [chapterId], references: [id])
 
   @@unique([userId, quizId])
   @@map("quiz_answers")

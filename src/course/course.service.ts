@@ -17,7 +17,57 @@ interface ExtendedCourse extends Course {
 @Injectable()
 export class CourseService {
   constructor(private prisma: PrismaService) {}
+  async getCourseReport(courseId: any): Promise<any> {
+    try {
+      const report = await this.prisma.module.findMany({
+        where: {
+          courseId: courseId,
+        },
+        include: {
+          chapters: {
+            select: {
+              id: true,
+              title: true,
+              quizzes : true,
+              QuizAnswer : true
+              // quizzes : true,
 
+              // Add other fields you want to include here
+            },
+            
+          },
+        },
+      });
+
+      const report1 = await this.prisma.chapter.findMany({
+        where: {
+          moduleId: courseId,
+        },
+        include: {
+          sections: true,
+          LastSeenSection: true,
+        },
+      });
+
+      console.log({ report, report1 });
+      return {
+        message: 'Successfully retrieved data',
+        statusCode: 200,
+        data: report,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
   // apis related to comments
   async deletePostComment(postId: any, commentId: any): Promise<ResponseDto> {
     try {
@@ -67,7 +117,6 @@ export class CourseService {
           },
         },
       });
-      console.log({ postComments });
 
       return {
         message: 'Successfully retrieved data',
@@ -751,7 +800,7 @@ export class CourseService {
       const assignedQuizzesList =
         chapter?.quizzes?.length > 0 ? [...chapter?.quizzes] : [];
       const quizAnsweredList = quizAnswer?.length > 0 ? [...quizAnswer] : [];
-      allSections.forEach((section: any) => {
+      allSections?.forEach((section: any) => {
         // Check if the section ID exists in completedSections
         const isCompleted = completedSections?.some(
           (completedSection: any) => completedSection.sectionId === section.id,
@@ -762,10 +811,10 @@ export class CourseService {
         section.isCompleted = isCompleted;
       });
 
-      assignedQuizzesList.forEach((quiz: any) => {
+      assignedQuizzesList?.forEach((quiz: any) => {
         // Check if the section ID exists in completedSections
         const isCorrect = quizAnsweredList?.some(
-          (completedQuestion: any) => completedQuestion.id === quiz.id,
+          (completedQuestion: any) => completedQuestion.quizId === quiz.id,
         );
         // Insert the boolean value into the section object
         quiz.isCorrect = isCorrect;
@@ -773,11 +822,6 @@ export class CourseService {
 
       const mergedArray = insertQuizzes(allSections, assignedQuizzesList);
 
-      console.log(
-        'assignedQmergedArrayuizzesList',
-        mergedArray,
-        lastSeenLesson,
-      );
       if (!(sections.length > 0)) {
         throw new Error('No Sections found');
       }

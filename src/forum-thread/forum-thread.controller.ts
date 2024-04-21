@@ -28,7 +28,6 @@ export class ForumThreadController {
   @UseGuards(AuthGuard('cJwt'))
   @Get('/')
   async getAllForumThreads(@GetUser() user: User) {
-    console.log('api hit')
     return this.forumThreadService.getAllForumThreads(user);
   }
 

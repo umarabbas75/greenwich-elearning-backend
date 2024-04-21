@@ -153,7 +153,6 @@ export class ForumThreadService {
         data: updatedForumThread,
       };
     } catch (error) {
-      console.log({ error });
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
