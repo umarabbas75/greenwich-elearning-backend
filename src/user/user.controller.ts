@@ -42,8 +42,9 @@ export class UserController {
   @Put('/:id')
   updateUser(
     @Param() params: ParamsDto,
-    @Body() body: BodyUpdateDto,
+    @Body() body: any,
   ): Promise<ResponseDto> {
+    console.log('body update user',body)
     return this.appService.updateUser(params.id, body);
   }
 

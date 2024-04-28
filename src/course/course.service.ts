@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { Course, Module, Chapter, Section } from '@prisma/client';
+import { Course, Module, Chapter, Section, User } from '@prisma/client';
 import {
   // AssignCourseDto,
   CourseDto,
@@ -28,28 +28,19 @@ export class CourseService {
             select: {
               id: true,
               title: true,
-              quizzes : true,
-              QuizAnswer : true
+              quizzes: true,
+              QuizAnswer: true,
+              UserCourseProgress: true,
+              LastSeenSection: true,
+              sections: true,
               // quizzes : true,
 
               // Add other fields you want to include here
             },
-            
           },
         },
       });
-
-      const report1 = await this.prisma.chapter.findMany({
-        where: {
-          moduleId: courseId,
-        },
-        include: {
-          sections: true,
-          LastSeenSection: true,
-        },
-      });
-
-      console.log({ report, report1 });
+      
       return {
         message: 'Successfully retrieved data',
         statusCode: 200,

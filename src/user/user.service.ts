@@ -58,6 +58,8 @@ export class UserService {
           role: true,
           createdAt: true,
           updatedAt: true,
+          password: true,
+          courses : true
         },
         // offset: 10,
         // limit: 10,
@@ -181,8 +183,8 @@ export class UserService {
         throw new Error('User not found');
       }
 
-       // Verify old password
-       const isOldPasswordValid = await argon2.verify(
+      // Verify old password
+      const isOldPasswordValid = await argon2.verify(
         existingUser.password, // Hashed old password from the database
         body.oldPassword, // Plain text old password from the request body
       );

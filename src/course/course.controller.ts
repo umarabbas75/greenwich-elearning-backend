@@ -29,10 +29,9 @@ export class CourseController {
   constructor(private readonly appService: CourseService) {}
   // comments
 
-
   @UseGuards(AuthGuard('cJwt'))
   @Get('/report/:courseId')
-  getCourseReport(@Param() params: any): Promise<any> {
+  getCourseReport(@Param() params: any ): Promise<any> {
     return this.appService.getCourseReport(params.courseId);
   }
 

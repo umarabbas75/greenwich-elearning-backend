@@ -30,18 +30,19 @@ model User {
 }
 
 model Course {
-  id          String   @id @default(uuid())
-  title       String   @unique
-  description String
-  image       String
-  overview    String
-  duration    String
-  assessment  String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  modules     Module[]
-  users       User[]   @relation("CourseToUser")
-  Post        Post[]
+  id                 String               @id @default(uuid())
+  title              String               @unique
+  description        String
+  image              String
+  overview           String
+  duration           String
+  assessment         String
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  modules            Module[]
+  users              User[]               @relation("CourseToUser")
+  Post               Post[]
+  UserCourseProgress UserCourseProgress[]
 
   @@map("courses")
 }
@@ -60,19 +61,19 @@ model Module {
 }
 
 model Chapter {
-  id              String            @id @default(uuid())
-  title           String
-  description     String
-  moduleId        String
-  quizId          String?           @unique
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  module          Module            @relation(fields: [moduleId], references: [id])
-  quizzes         Quiz[]
-  sections        Section[]
-  LastSeenSection LastSeenSection[]
-  QuizAnswer      QuizAnswer[]
-  
+  id                 String               @id @default(uuid())
+  title              String
+  description        String
+  moduleId           String
+  quizId             String?              @unique
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  module             Module               @relation(fields: [moduleId], references: [id])
+  quizzes            Quiz[]
+  sections           Section[]
+  LastSeenSection    LastSeenSection[]
+  QuizAnswer         QuizAnswer[]
+  UserCourseProgress UserCourseProgress[]
 
   @@map("chapters")
 }
@@ -98,6 +99,8 @@ model UserCourseProgress {
   sectionId String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  Chapter   Chapter  @relation(fields: [chapterId], references: [id])
+  Course    Course   @relation(fields: [courseId], references: [id])
 
   @@unique([userId, courseId, chapterId, sectionId])
 }
