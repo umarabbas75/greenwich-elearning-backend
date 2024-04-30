@@ -403,6 +403,11 @@ export class CourseService {
           duration: body.duration,
           overview: body.overview,
           image: body.image,
+          syllabusOverview : body.syllabusOverview,
+          resourcesOverview : body.resourcesOverview,
+          assessments : body.assessments,
+          resources : body.resources,
+          syllabus : body.syllabus,
         },
       });
       return {
@@ -610,9 +615,13 @@ export class CourseService {
   async getAllCourses(): Promise<ResponseDto> {
     try {
       const courses = await this.prisma.course.findMany({
+        include : {
+          modules : true
+        },
         orderBy : {
           createdAt : 'desc'
-        }
+        },
+        
         // limit: 10,
         // offset: 10,
       });
@@ -643,8 +652,51 @@ export class CourseService {
         where: {
           courseId: id,
         },
+        include : {
+          chapters : true,
+        },
         orderBy : {
           createdAt : 'desc'
+        }
+        // limit: 10,
+        // offset: 10,
+      });
+      if (!(modules.length > 0)) {
+        throw new Error('No Modules found');
+      }
+      return {
+        message: 'Successfully fetch all Modules info against course',
+        statusCode: 200,
+        data: modules,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+  async getAllUserModules(id: string): Promise<ResponseDto> {
+    try {
+      const modules = await this.prisma.module.findMany({
+        where: {
+          courseId: id,
+        },
+        include : {
+          chapters : {
+            orderBy: {
+              createdAt: 'asc', // Order chapters by createdAt in ascending order
+            },
+          },
+        },
+        orderBy : {
+          createdAt : 'asc'
         }
         // limit: 10,
         // offset: 10,
@@ -675,6 +727,9 @@ export class CourseService {
       const chapters = await this.prisma.chapter.findMany({
         where: {
           moduleId: id,
+        },
+        include : {
+          sections:true
         },
         orderBy : {
           createdAt : 'desc'

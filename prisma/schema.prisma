@@ -42,6 +42,11 @@ model Course {
   modules            Module[]
   users              User[]               @relation("CourseToUser")
   Post               Post[]
+  syllabusOverview   String
+  resourcesOverview  String
+  assessments        Json[]
+  resources          Json[]
+  syllabus           Json[]
   UserCourseProgress UserCourseProgress[]
 
   @@map("courses")

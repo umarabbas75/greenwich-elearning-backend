@@ -37,7 +37,6 @@ export class BodyDto {
   @IsString()
   @IsOptional()
   photo?: string;
-
 }
 export class BodyUpdateDto {
   @IsOptional()
@@ -63,8 +62,8 @@ export class BodyUpdateDto {
 export class ChangePasswordDto {
   @IsString()
   @IsNotEmpty()
-  password: string; 
-  
+  password: string;
+
   @IsString()
   @IsNotEmpty()
   oldPassword: string;
@@ -84,7 +83,7 @@ export class CourseDto {
   title: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   duration: string;
 
   @IsString()
@@ -92,14 +91,37 @@ export class CourseDto {
   description: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   assessment: string;
   @IsString()
   @IsNotEmpty()
   image: string;
+
+
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   overview: string;
+
+  @IsString()
+  @IsOptional()
+  syllabusOverview: string;
+
+  @IsString()
+  @IsOptional()
+  resourcesOverview: string;
+
+  // Additional fields
+  @IsArray()
+  @IsOptional()
+  assessments: Array<{ file: string; isSeen: boolean }>;
+
+  @IsArray()
+  @IsOptional()
+  resources: Array<{ file: string; isSeen: boolean }>;
+
+  @IsArray()
+  @IsOptional()
+  syllabus: Array<{ file: string; isSeen: boolean }>;
 }
 export class QuizDto {
   @IsNotEmpty()
@@ -148,11 +170,11 @@ export class UpdateCourseDto {
   @IsOptional()
   @IsString()
   assessment?: string;
-  
+
   @IsOptional()
   @IsString()
-  image?: string; 
-  
+  image?: string;
+
   @IsOptional()
   @IsString()
   overview?: string;
@@ -231,7 +253,6 @@ export class GetUpdateLastSeen {
   chapterId: string;
 }
 export class UpdateLastSeen {
-
   @IsString()
   @IsNotEmpty()
   chapterId: string;

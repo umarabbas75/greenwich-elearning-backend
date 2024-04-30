@@ -127,6 +127,10 @@ export class CourseController {
   getAllModules(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getAllModules(params.id);
   }
+  @Get('/user/allModules/:id')
+  getAllUserModules(@Param() params: ParamsDto): Promise<ResponseDto> {
+    return this.appService.getAllUserModules(params.id);
+  }
   @Get('/module/allChapters/:id')
   getAllChapters(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getAllChapters(params.id);
@@ -158,7 +162,7 @@ export class CourseController {
   @UseGuards(AuthGuard('jwt'))
   @Put('/:id')
   updateCourse(
-    @Body() body: UpdateCourseDto,
+    @Body() body: CourseDto,
     @Param() params: ParamsDto,
   ): Promise<ResponseDto> {
     return this.appService.updateCourse(params.id, body);
@@ -228,12 +232,12 @@ export class CourseController {
     return this.appService.deleteModule(params.id);
   }
   @UseGuards(AuthGuard('jwt'))
-  @Delete('/:id')
+  @Delete('/chapter/:id')
   deleteChapter(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteChapter(params.id);
   }
   @UseGuards(AuthGuard('jwt'))
-  @Delete('/:id')
+  @Delete('/section/:id')
   deleteSection(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteSection(params.id);
   }
