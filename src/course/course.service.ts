@@ -289,6 +289,9 @@ export class CourseService {
           },
           comments: true,
         },
+        orderBy : {
+          createdAt : 'desc'
+        }
       });
 
       return {
@@ -607,6 +610,9 @@ export class CourseService {
   async getAllCourses(): Promise<ResponseDto> {
     try {
       const courses = await this.prisma.course.findMany({
+        orderBy : {
+          createdAt : 'desc'
+        }
         // limit: 10,
         // offset: 10,
       });
@@ -637,6 +643,9 @@ export class CourseService {
         where: {
           courseId: id,
         },
+        orderBy : {
+          createdAt : 'desc'
+        }
         // limit: 10,
         // offset: 10,
       });
@@ -667,6 +676,9 @@ export class CourseService {
         where: {
           moduleId: id,
         },
+        orderBy : {
+          createdAt : 'desc'
+        }
         // limit: 10,
         // offset: 10,
       });
@@ -697,6 +709,9 @@ export class CourseService {
         where: {
           chapterId: id,
         },
+        orderBy : {
+          createdAt : 'desc'
+        }
         // limit: 10,
         // offset: 10,
       });

@@ -56,6 +56,9 @@ export class ForumCommentService {
 
   async getForumCommentsByThreadId(threadId: string) {
     return this.prisma.forumComment.findMany({
+      orderBy : {
+        createdAt : 'desc'
+      },
       where: {
         threadId,
       },
@@ -68,6 +71,9 @@ export class ForumCommentService {
   async getAllForumThreads(): Promise<any> {
     try {
       const forums = await this.prisma.forumThread.findMany({
+        orderBy : {
+          createdAt : 'desc'
+        },
         include: {
           user: {
             select: {

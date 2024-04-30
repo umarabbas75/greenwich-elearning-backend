@@ -16,6 +16,9 @@ export class ForumThreadService {
       let forums = {};
       if (user?.role === 'user') {
         forums = await this.prisma.forumThread.findMany({
+          orderBy : {
+            createdAt : 'desc'
+          },
           where: {
             status: 'active',
           },

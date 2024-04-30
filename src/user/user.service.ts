@@ -48,6 +48,9 @@ export class UserService {
   async getAllUsers(): Promise<ResponseDto> {
     try {
       const users = await this.prisma.user.findMany({
+        orderBy : {
+          createdAt : 'desc'
+        },
         select: {
           id: true,
           firstName: true,

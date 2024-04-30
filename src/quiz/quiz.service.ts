@@ -51,12 +51,17 @@ export class QuizService {
       let quizzes =[];
       if (role == 'admin') {
         quizzes = await this.prisma.quiz.findMany({
-          
+          orderBy : {
+            createdAt : 'desc'
+          }
           // limit: 10,
           // offset: 10,
         });
       } else if (role == 'user') {
          quizzes = await this.prisma.quiz.findMany({
+          orderBy : {
+            createdAt : 'desc'
+          },
           select: {
             id: true,
             question: true,
