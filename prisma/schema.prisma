@@ -52,6 +52,8 @@ model Course {
   @@map("courses")
 }
 
+
+
 model Module {
   id          String    @id @default(uuid())
   title       String

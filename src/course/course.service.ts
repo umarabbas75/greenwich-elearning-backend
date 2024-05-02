@@ -538,6 +538,7 @@ export class CourseService {
     }
   }
 
+
   async getModule(id: string): Promise<ResponseDto> {
     try {
       const module = await this.prisma.module.findUnique({ where: { id } });
@@ -653,7 +654,11 @@ export class CourseService {
           courseId: id,
         },
         include : {
-          chapters : true,
+          chapters : {
+            include : {
+              sections : true
+            }
+          },
         },
         orderBy : {
           createdAt : 'desc'
@@ -684,7 +689,7 @@ export class CourseService {
   }
   async getAllUserModules(id: string): Promise<ResponseDto> {
     try {
-      const modules = await this.prisma.module.findMany({
+      let modules = await this.prisma.module.findMany({
         where: {
           courseId: id,
         },
@@ -693,7 +698,15 @@ export class CourseService {
             orderBy: {
               createdAt: 'asc', // Order chapters by createdAt in ascending order
             },
+            include: {
+              sections: true, // Include sections for each chapter
+            },
           },
+          course: {
+            select : {
+              UserCourseProgress : true
+            }
+          }
         },
         orderBy : {
           createdAt : 'asc'
@@ -701,9 +714,11 @@ export class CourseService {
         // limit: 10,
         // offset: 10,
       });
+      
       if (!(modules.length > 0)) {
         throw new Error('No Modules found');
       }
+      
       return {
         message: 'Successfully fetch all Modules info against course',
         statusCode: 200,
