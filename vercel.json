@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 2,
   "buildCommand": "npx prisma db push && npx prisma generate",
   "routes": [
     {
