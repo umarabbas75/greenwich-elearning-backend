@@ -7,7 +7,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'https://greenwich-elearning.vercel.app',
-      'https://greenwich-elearning.vercel.app/users',
+      'https://greenwich-elearning.vercel.app/user',
     ], // Specify the origin of your frontend
     methods: 'GET, HEAD, PUT, POST, DELETE, OPTIONS, PATCH',
     credentials: true,
