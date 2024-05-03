@@ -1,7 +1,4 @@
-import {
-  INestApplication,
-  ValidationPipe,
-} from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import * as pactum from 'pactum';
 import { AppModule } from '../src/app.module';
@@ -13,10 +10,9 @@ describe('App e2e', () => {
   let prisma: PrismaService;
 
   beforeAll(async () => {
-    const moduleRef =
-      await Test.createTestingModule({
-        imports: [AppModule],
-      }).compile();
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
 
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix('api/v1');
@@ -29,29 +25,28 @@ describe('App e2e', () => {
     await app.listen(3333);
 
     prisma = app.get(PrismaService);
-    pactum.request.setBaseUrl(
-      'http://localhost:3333/api/v1',
-    );
+    pactum.request.setBaseUrl('http://localhost:3333/api/v1');
   });
 
   afterAll(async () => {
     await app.close();
   });
   describe('User', () => {
-    const dto:LoginDto = {
+    const dto: LoginDto = {
       email: 'admin@gmail.com',
       password: '123',
     };
-    const createUserDto:BodyDto = {
+    const createUserDto: BodyDto = {
       email: 'user2@gmail.com',
       password: '123',
-      firstName:"asad", lastName:"khan", phone:"+923352825068", role:"user"
-    }
+      firstName: 'asad',
+      lastName: 'khan',
+      phone: '+923352825068',
+      role: 'user',
+    };
 
-  
     describe('create user', () => {
-      
-      it('should throw if no body provided', async() => {
+      it('should throw if no body provided', async () => {
         await pactum
           .spec()
           .post('/auth/login')
@@ -67,19 +62,15 @@ describe('App e2e', () => {
           })
           .expectStatus(201);
       });
-     
     });
-
- 
   });
 
   describe('Auth', () => {
-    const dto:LoginDto = {
+    const dto: LoginDto = {
       email: 'admin@gmail.com',
       password: '123',
     };
 
-  
     describe('Sign-in', () => {
       it('should throw if email empty', () => {
         return pactum
@@ -100,10 +91,7 @@ describe('App e2e', () => {
           .expectStatus(400);
       });
       it('should throw if no body provided', () => {
-        return pactum
-          .spec()
-          .post('/auth/login')
-          .expectStatus(400);
+        return pactum.spec().post('/auth/login').expectStatus(400);
       });
       it('should signup', () => {
         return pactum
@@ -114,10 +102,5 @@ describe('App e2e', () => {
           .inspect();
       });
     });
-
- 
   });
-
-
-
 });
