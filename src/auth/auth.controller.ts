@@ -7,7 +7,8 @@ export class AuthController {
   constructor(private readonly appService: AuthService) {}
 
   @Post('/login')
-  loginUser(@Body() body: LoginDto): Promise<ResponseDto> {
+  loginUser(@Body() body: any): Promise<ResponseDto> {
+    console.log({body})
     return this.appService.loginUser(body);
   }
 }
