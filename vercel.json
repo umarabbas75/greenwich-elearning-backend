@@ -1,8 +1,7 @@
 {
   "version": 3,
-  "build": {
-    "commands": ["npx prisma db push", "npx prisma generate"]
-  },
+  "buildCommand": "npx prisma db push && npx prisma generate",
+  "use": "@vercel/node",
   "routes": [
     {
       "src": "/(.*)",
