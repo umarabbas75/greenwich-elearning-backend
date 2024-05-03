@@ -6,7 +6,6 @@
         "npx prisma generate"
       ]
     },
-    "use": "@vercel/node",
     "routes": [
       {
         "src": "/(.*)",
