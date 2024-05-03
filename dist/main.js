@@ -8,8 +8,9 @@ async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule);
     app.enableCors({
         origin: 'https://greenwich-elearning.vercel.app',
-        methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+        methods: 'GET, HEAD, PUT, POST, DELETE, OPTIONS, PATCH',
         credentials: true,
+        allowedHeaders: 'Origin, X-Requested-With, Content-Type, Accept, Authentication, Access-control-allow-credentials, Access-control-allow-headers, Access-control-allow-methods, Access-control-allow-origin, User-Agent, Referer, Accept-Encoding, Accept-Language, Access-Control-Request-Headers, Cache-Control, Pragma',
     });
     app.setGlobalPrefix('api/v1');
     app.useGlobalPipes(new common_1.ValidationPipe({
