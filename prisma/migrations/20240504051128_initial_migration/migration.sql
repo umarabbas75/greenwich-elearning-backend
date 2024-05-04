@@ -54,12 +54,22 @@ CREATE TABLE "chapters" (
     "id" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "description" TEXT NOT NULL,
+    "pdfFile" TEXT NOT NULL,
     "moduleId" TEXT NOT NULL,
     "quizId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "chapters_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PoliciesAndProcedures" (
+    "id" TEXT NOT NULL,
+    "policiesId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+
+    CONSTRAINT "PoliciesAndProcedures_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -217,6 +227,9 @@ ALTER TABLE "modules" ADD CONSTRAINT "modules_courseId_fkey" FOREIGN KEY ("cours
 
 -- AddForeignKey
 ALTER TABLE "chapters" ADD CONSTRAINT "chapters_moduleId_fkey" FOREIGN KEY ("moduleId") REFERENCES "modules"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PoliciesAndProcedures" ADD CONSTRAINT "PoliciesAndProcedures_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "sections" ADD CONSTRAINT "sections_chapterId_fkey" FOREIGN KEY ("chapterId") REFERENCES "chapters"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

@@ -12,6 +12,7 @@ export declare class CourseService {
     getPost(postId: any): Promise<any>;
     getAllPosts(courseId: any): Promise<any>;
     createPost(courseId: any, userId: any, body: any): Promise<ResponseDto>;
+    createPolicies(userId: any, body: any): Promise<ResponseDto>;
     updatePost(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     createCourse(body: CourseDto): Promise<ResponseDto>;
     createModule(body: ModuleDto): Promise<ResponseDto>;

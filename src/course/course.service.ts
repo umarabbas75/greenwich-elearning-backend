@@ -40,7 +40,7 @@ export class CourseService {
           },
         },
       });
-      
+
       return {
         message: 'Successfully retrieved data',
         statusCode: 200,
@@ -289,9 +289,9 @@ export class CourseService {
           },
           comments: true,
         },
-        orderBy : {
-          createdAt : 'desc'
-        }
+        orderBy: {
+          createdAt: 'desc',
+        },
       });
 
       return {
@@ -331,6 +331,33 @@ export class CourseService {
         message: 'Successfully create post record',
         statusCode: 200,
         data: post,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+  async createPolicies(userId: any, body: any): Promise<ResponseDto> {
+    try {
+      const policiesAndProcedures =
+        await this.prisma.policiesAndProcedures.create({
+          data: {
+            policiesId: body?.policiesId,
+            userId,
+          },
+        });
+      return {
+        message: 'Successfully updated record',
+        statusCode: 200,
+        data: policiesAndProcedures,
       };
     } catch (error) {
       throw new HttpException(
@@ -403,11 +430,11 @@ export class CourseService {
           duration: body.duration,
           overview: body.overview,
           image: body.image,
-          syllabusOverview : body.syllabusOverview,
-          resourcesOverview : body.resourcesOverview,
-          assessments : body.assessments,
-          resources : body.resources,
-          syllabus : body.syllabus,
+          syllabusOverview: body.syllabusOverview,
+          resourcesOverview: body.resourcesOverview,
+          assessments: body.assessments,
+          resources: body.resources,
+          syllabus: body.syllabus,
         },
       });
       return {
@@ -462,7 +489,7 @@ export class CourseService {
         data: {
           title: body.title,
           description: body.description,
-
+          pdfFile: body.pdfFile,
           moduleId: body.id,
         },
       });
@@ -537,7 +564,6 @@ export class CourseService {
       );
     }
   }
-
 
   async getModule(id: string): Promise<ResponseDto> {
     try {
@@ -616,13 +642,13 @@ export class CourseService {
   async getAllCourses(): Promise<ResponseDto> {
     try {
       const courses = await this.prisma.course.findMany({
-        include : {
-          modules : true
+        include: {
+          modules: true,
         },
-        orderBy : {
-          createdAt : 'desc'
+        orderBy: {
+          createdAt: 'desc',
         },
-        
+
         // limit: 10,
         // offset: 10,
       });
@@ -653,16 +679,16 @@ export class CourseService {
         where: {
           courseId: id,
         },
-        include : {
-          chapters : {
-            include : {
-              sections : true
-            }
+        include: {
+          chapters: {
+            include: {
+              sections: true,
+            },
           },
         },
-        orderBy : {
-          createdAt : 'desc'
-        }
+        orderBy: {
+          createdAt: 'desc',
+        },
         // limit: 10,
         // offset: 10,
       });
@@ -693,8 +719,8 @@ export class CourseService {
         where: {
           courseId: id,
         },
-        include : {
-          chapters : {
+        include: {
+          chapters: {
             orderBy: {
               createdAt: 'asc', // Order chapters by createdAt in ascending order
             },
@@ -703,22 +729,22 @@ export class CourseService {
             },
           },
           course: {
-            select : {
-              UserCourseProgress : true
-            }
-          }
+            select: {
+              UserCourseProgress: true,
+            },
+          },
         },
-        orderBy : {
-          createdAt : 'asc'
-        }
+        orderBy: {
+          createdAt: 'asc',
+        },
         // limit: 10,
         // offset: 10,
       });
-      
+
       if (!(modules.length > 0)) {
         throw new Error('No Modules found');
       }
-      
+
       return {
         message: 'Successfully fetch all Modules info against course',
         statusCode: 200,
@@ -743,12 +769,13 @@ export class CourseService {
         where: {
           moduleId: id,
         },
-        include : {
-          sections:true
+        include: {
+          sections: true,
+          quizzes: true,
         },
-        orderBy : {
-          createdAt : 'desc'
-        }
+        orderBy: {
+          createdAt: 'desc',
+        },
         // limit: 10,
         // offset: 10,
       });
@@ -779,9 +806,9 @@ export class CourseService {
         where: {
           chapterId: id,
         },
-        orderBy : {
-          createdAt : 'desc'
-        }
+        orderBy: {
+          createdAt: 'desc',
+        },
         // limit: 10,
         // offset: 10,
       });
@@ -1015,10 +1042,12 @@ export class CourseService {
         throw new Error('wrong keys');
       }
       let updateChapter = {};
+      console.log({ body });
 
       for (const [key, value] of Object.entries(body)) {
         updateChapter[key] = value;
       }
+      console.log({ updateChapter });
 
       // Save the updated user
       const updatedChapter = await this.prisma.chapter.update({

@@ -12,6 +12,7 @@ export declare class CourseController {
     getPost(id: string): Promise<any>;
     getAllPosts(params: any): Promise<ResponseDto>;
     createPost(params: any, user: User, body: any): Promise<any>;
+    createPolicies(user: User, body: any): Promise<any>;
     updatePost(body: any, id: string): Promise<any>;
     deletePost(id: string): Promise<any>;
     getCourse(params: any): Promise<any>;

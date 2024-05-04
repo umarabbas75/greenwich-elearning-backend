@@ -165,6 +165,10 @@ export class UpdateCourseDto {
 
   @IsOptional()
   @IsString()
+  pdfFile?: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
 
   @IsOptional()
@@ -216,6 +220,10 @@ export class ModuleDto {
   @IsString()
   @IsNotEmpty()
   id: string;
+
+  @IsString()
+  @IsOptional()
+  pdfFile: string;
 }
 export class ParamsDto {
   @IsString()

@@ -8,22 +8,23 @@ datasource db {
 }
 
 model User {
-  id              String            @id @default(uuid())
-  firstName       String
-  lastName        String
-  email           String            @unique
-  phone           String?
-  photo           String?
-  password        String
-  role            Role
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  courses         Course[]          @relation("CourseToUser")
-  LastSeenSection LastSeenSection[]
-  ForumThread     ForumThread[]
-  ForumComment    ForumComment[]
-  Post            Post[]
-  Comment         Comment[]
+  id                    String                  @id @default(uuid())
+  firstName             String
+  lastName              String
+  email                 String                  @unique
+  phone                 String?
+  photo                 String?
+  password              String
+  role                  Role
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  courses               Course[]                @relation("CourseToUser")
+  LastSeenSection       LastSeenSection[]
+  ForumThread           ForumThread[]
+  ForumComment          ForumComment[]
+  Post                  Post[]
+  Comment               Comment[]
+  PoliciesAndProcedures PoliciesAndProcedures[]
 
   @@index([email])
   @@map("users")
@@ -52,8 +53,6 @@ model Course {
   @@map("courses")
 }
 
-
-
 model Module {
   id          String    @id @default(uuid())
   title       String
@@ -71,6 +70,7 @@ model Chapter {
   id                 String               @id @default(uuid())
   title              String
   description        String
+  pdfFile            String
   moduleId           String
   quizId             String?              @unique
   createdAt          DateTime             @default(now())
@@ -83,6 +83,13 @@ model Chapter {
   UserCourseProgress UserCourseProgress[]
 
   @@map("chapters")
+}
+
+model PoliciesAndProcedures {
+  id         String @id @default(uuid())
+  policiesId String
+  user       User   @relation(fields: [userId], references: [id])
+  userId     String
 }
 
 model Section {

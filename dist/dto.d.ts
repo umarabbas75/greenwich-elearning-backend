@@ -61,6 +61,7 @@ export declare class AssignQuizDto {
 }
 export declare class UpdateCourseDto {
     title?: string;
+    pdfFile?: string;
     description?: string;
     assessment?: string;
     image?: string;
@@ -80,6 +81,7 @@ export declare class ModuleDto {
     title: string;
     description: string;
     id: string;
+    pdfFile: string;
 }
 export declare class ParamsDto {
     id: string;

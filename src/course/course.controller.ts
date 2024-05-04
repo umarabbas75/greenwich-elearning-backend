@@ -31,7 +31,7 @@ export class CourseController {
 
   @UseGuards(AuthGuard('cJwt'))
   @Get('/report/:courseId')
-  getCourseReport(@Param() params: any ): Promise<any> {
+  getCourseReport(@Param() params: any): Promise<any> {
     return this.appService.getCourseReport(params.courseId);
   }
 
@@ -86,6 +86,12 @@ export class CourseController {
     @Body() body: any,
   ): Promise<any> {
     return this.appService.createPost(params.courseId, user?.id, body);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/policies')
+  createPolicies(@GetUser() user: User, @Body() body: any): Promise<any> {
+    return this.appService.createPolicies(user?.id, body);
   }
 
   @UseGuards(AuthGuard('cJwt'))

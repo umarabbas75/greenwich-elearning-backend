@@ -225,6 +225,11 @@ __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
+], UpdateCourseDto.prototype, "pdfFile", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
 ], UpdateCourseDto.prototype, "description", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
@@ -296,6 +301,11 @@ __decorate([
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", String)
 ], ModuleDto.prototype, "id", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], ModuleDto.prototype, "pdfFile", void 0);
 class ParamsDto {
 }
 exports.ParamsDto = ParamsDto;

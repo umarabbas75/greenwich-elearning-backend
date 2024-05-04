@@ -240,8 +240,8 @@ let CourseService = class CourseService {
                     comments: true,
                 },
                 orderBy: {
-                    createdAt: 'desc'
-                }
+                    createdAt: 'desc',
+                },
             });
             return {
                 message: 'Successfully fetch all posts',
@@ -272,6 +272,29 @@ let CourseService = class CourseService {
                 message: 'Successfully create post record',
                 statusCode: 200,
                 data: post,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async createPolicies(userId, body) {
+        try {
+            const policiesAndProcedures = await this.prisma.policiesAndProcedures.create({
+                data: {
+                    policiesId: body?.policiesId,
+                    userId,
+                },
+            });
+            return {
+                message: 'Successfully updated record',
+                statusCode: 200,
+                data: policiesAndProcedures,
             };
         }
         catch (error) {
@@ -385,6 +408,7 @@ let CourseService = class CourseService {
                 data: {
                     title: body.title,
                     description: body.description,
+                    pdfFile: body.pdfFile,
                     moduleId: body.id,
                 },
             });
@@ -515,10 +539,10 @@ let CourseService = class CourseService {
         try {
             const courses = await this.prisma.course.findMany({
                 include: {
-                    modules: true
+                    modules: true,
                 },
                 orderBy: {
-                    createdAt: 'desc'
+                    createdAt: 'desc',
                 },
             });
             if (!(courses.length > 0)) {
@@ -548,13 +572,13 @@ let CourseService = class CourseService {
                 include: {
                     chapters: {
                         include: {
-                            sections: true
-                        }
+                            sections: true,
+                        },
                     },
                 },
                 orderBy: {
-                    createdAt: 'desc'
-                }
+                    createdAt: 'desc',
+                },
             });
             if (!(modules.length > 0)) {
                 throw new Error('No Modules found');
@@ -591,13 +615,13 @@ let CourseService = class CourseService {
                     },
                     course: {
                         select: {
-                            UserCourseProgress: true
-                        }
-                    }
+                            UserCourseProgress: true,
+                        },
+                    },
                 },
                 orderBy: {
-                    createdAt: 'asc'
-                }
+                    createdAt: 'asc',
+                },
             });
             if (!(modules.length > 0)) {
                 throw new Error('No Modules found');
@@ -624,11 +648,12 @@ let CourseService = class CourseService {
                     moduleId: id,
                 },
                 include: {
-                    sections: true
+                    sections: true,
+                    quizzes: true,
                 },
                 orderBy: {
-                    createdAt: 'desc'
-                }
+                    createdAt: 'desc',
+                },
             });
             if (!(chapters.length > 0)) {
                 throw new Error('No Chapters found');
@@ -655,8 +680,8 @@ let CourseService = class CourseService {
                     chapterId: id,
                 },
                 orderBy: {
-                    createdAt: 'desc'
-                }
+                    createdAt: 'desc',
+                },
             });
             if (!(sections.length > 0)) {
                 throw new Error('No Sections found');
@@ -832,9 +857,11 @@ let CourseService = class CourseService {
                 throw new Error('wrong keys');
             }
             let updateChapter = {};
+            console.log({ body });
             for (const [key, value] of Object.entries(body)) {
                 updateChapter[key] = value;
             }
+            console.log({ updateChapter });
             const updatedChapter = await this.prisma.chapter.update({
                 where: { id },
                 data: updateChapter,
