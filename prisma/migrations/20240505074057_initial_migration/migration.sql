@@ -205,6 +205,9 @@ CREATE UNIQUE INDEX "courses_title_key" ON "courses"("title");
 CREATE UNIQUE INDEX "chapters_quizId_key" ON "chapters"("quizId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "PoliciesAndProcedures_policiesId_key" ON "PoliciesAndProcedures"("policiesId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "UserCourseProgress_userId_courseId_chapterId_sectionId_key" ON "UserCourseProgress"("userId", "courseId", "chapterId", "sectionId");
 
 -- CreateIndex

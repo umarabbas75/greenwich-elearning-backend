@@ -93,6 +93,16 @@ export class CourseController {
   createPolicies(@GetUser() user: User, @Body() body: any): Promise<any> {
     return this.appService.createPolicies(user?.id, body);
   }
+  // @UseGuards(AuthGuard('cJwt'))
+  @Delete('/policies/delete')
+  deletePolicies(): Promise<any> {
+    return this.appService.deletePolicies();
+  }
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('/getUserPolicies')
+  getUserPolicies(@GetUser() user: User): Promise<any> {
+    return this.appService.getUserPolicies(user?.id);
+  }
 
   @UseGuards(AuthGuard('cJwt'))
   @Put('/post/:id')

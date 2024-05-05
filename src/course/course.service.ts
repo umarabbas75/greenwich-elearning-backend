@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { Course, Module, Chapter, Section, User } from '@prisma/client';
+import { Course, Module, Chapter, Section } from '@prisma/client';
 import {
   // AssignCourseDto,
   CourseDto,
@@ -9,7 +9,6 @@ import {
   UpdateCourseProgress,
 } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { where } from 'sequelize';
 interface ExtendedCourse extends Course {
   totalSections?: number;
   percentage?: number;
@@ -347,6 +346,13 @@ export class CourseService {
   }
   async createPolicies(userId: any, body: any): Promise<ResponseDto> {
     try {
+      const isCourseExist: any = await this.prisma.policiesAndProcedures.findUnique({
+        where: { policiesId: body.policiesId },
+      });
+      if (isCourseExist) {
+        throw new Error('Course already exist with specified title');
+      }
+
       const policiesAndProcedures =
         await this.prisma.policiesAndProcedures.create({
           data: {
@@ -358,6 +364,55 @@ export class CourseService {
         message: 'Successfully updated record',
         statusCode: 200,
         data: policiesAndProcedures,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+  async getUserPolicies(userId: any): Promise<ResponseDto> {
+    try {
+      console.log({userId})
+      const policiesAndProcedures =
+        await this.prisma.policiesAndProcedures.findMany({
+          where: {
+            userId,
+          },
+        });
+      return {
+        message: 'Record fetched successfully',
+        statusCode: 200,
+        data: policiesAndProcedures,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+  async deletePolicies(): Promise<ResponseDto> {
+    try {
+      const user = await this.prisma.policiesAndProcedures.deleteMany();
+
+      return {
+        message: 'Successfully deleted policies record',
+        statusCode: 200,
+        data: user,
       };
     } catch (error) {
       throw new HttpException(
@@ -715,7 +770,7 @@ export class CourseService {
   }
   async getAllUserModules(id: string): Promise<ResponseDto> {
     try {
-      let modules = await this.prisma.module.findMany({
+      const modules = await this.prisma.module.findMany({
         where: {
           courseId: id,
         },
@@ -896,6 +951,7 @@ export class CourseService {
           where: { userId_chapterId: { userId, chapterId: id } },
         }),
       ]);
+      console.log('quizzes',chapter?.quizzes)
 
       const allSections = sections?.length > 0 ? [...sections] : [];
       const completedSections =
@@ -958,7 +1014,7 @@ export class CourseService {
       if (Object.entries(body).length === 0) {
         throw new Error('wrong keys');
       }
-      let updateCourse = {};
+      const updateCourse = {};
 
       for (const [key, value] of Object.entries(body)) {
         updateCourse[key] = value;
@@ -999,7 +1055,7 @@ export class CourseService {
       if (Object.entries(body).length === 0) {
         throw new Error('wrong keys');
       }
-      let updateModule = {};
+      const updateModule = {};
 
       for (const [key, value] of Object.entries(body)) {
         updateModule[key] = value;
@@ -1041,7 +1097,7 @@ export class CourseService {
       if (Object.entries(body).length === 0) {
         throw new Error('wrong keys');
       }
-      let updateChapter = {};
+      const updateChapter = {};
       console.log({ body });
 
       for (const [key, value] of Object.entries(body)) {
@@ -1084,7 +1140,7 @@ export class CourseService {
       if (Object.entries(body).length === 0) {
         throw new Error('wrong keys');
       }
-      let updateSection = {};
+      const updateSection = {};
 
       for (const [key, value] of Object.entries(body)) {
         updateSection[key] = value;
@@ -1289,7 +1345,7 @@ export class CourseService {
 
   async getAllAssignedCourses(userId: string): Promise<ResponseDto> {
     try {
-      let user = await this.prisma.user.findUnique({
+      const user = await this.prisma.user.findUnique({
         where: { id: userId },
         include: { courses: true }, // Include the courses relation
       });
@@ -1302,7 +1358,7 @@ export class CourseService {
       }));
 
       for (let i = 0; i < extendedCourses.length; i++) {
-        let modules = await this.prisma.module.findMany({
+        const modules = await this.prisma.module.findMany({
           where: { courseId: extendedCourses[i].id },
           include: {
             chapters: {
@@ -1312,19 +1368,20 @@ export class CourseService {
             },
           },
         });
-        let sections = modules.flatMap((module) =>
+        const sections = modules.flatMap((module) =>
           module.chapters.flatMap((chapter) => chapter.sections),
         );
         extendedCourses[i].totalSections = sections.length;
 
-        let userCourseProgress = await this.prisma.userCourseProgress.findMany({
-          where: {
-            userId,
-            courseId: extendedCourses[i].id,
-          },
-        });
+        const userCourseProgress =
+          await this.prisma.userCourseProgress.findMany({
+            where: {
+              userId,
+              courseId: extendedCourses[i].id,
+            },
+          });
         if (extendedCourses[i].totalSections > 0) {
-          let percentage =
+          const percentage =
             (userCourseProgress.length / extendedCourses[i].totalSections) *
             100;
           extendedCourses[i].percentage = percentage;
@@ -1421,7 +1478,7 @@ export class CourseService {
     chapterId: string,
   ): Promise<ResponseDto> {
     try {
-      let userCourseProgress = await this.prisma.userCourseProgress.findMany({
+      const userCourseProgress = await this.prisma.userCourseProgress.findMany({
         where: {
           userId,
           courseId,
@@ -1429,12 +1486,12 @@ export class CourseService {
         },
       });
 
-      let module = await this.prisma.module.findFirst({
+      const module = await this.prisma.module.findFirst({
         where: {
           courseId,
         },
       });
-      let chapter = await this.prisma.chapter.findFirst({
+      const chapter = await this.prisma.chapter.findFirst({
         where: {
           moduleId: module.id,
         },
@@ -1474,7 +1531,7 @@ export class CourseService {
     chapterId: string,
   ): Promise<ResponseDto> {
     try {
-      let getLastSeenSection = await this.prisma.lastSeenSection.findUnique({
+      const getLastSeenSection = await this.prisma.lastSeenSection.findUnique({
         where: {
           userId_chapterId: { userId, chapterId },
         },

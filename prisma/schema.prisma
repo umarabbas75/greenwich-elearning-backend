@@ -87,7 +87,7 @@ model Chapter {
 
 model PoliciesAndProcedures {
   id         String @id @default(uuid())
-  policiesId String
+  policiesId String @unique
   user       User   @relation(fields: [userId], references: [id])
   userId     String
 }
