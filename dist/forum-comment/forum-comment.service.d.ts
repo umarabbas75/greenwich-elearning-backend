@@ -11,6 +11,7 @@ export declare class ForumCommentService {
             email: string;
             phone: string;
             photo: string;
+            timezone: string;
             password: string;
             role: import(".prisma/client").$Enums.Role;
             createdAt: Date;

@@ -22,6 +22,7 @@ export class UserService {
           role: true,
           createdAt: true,
           updatedAt: true,
+          timezone: true,
         },
       });
       if (!user) {
@@ -48,8 +49,8 @@ export class UserService {
   async getAllUsers(): Promise<ResponseDto> {
     try {
       const users = await this.prisma.user.findMany({
-        orderBy : {
-          createdAt : 'desc'
+        orderBy: {
+          createdAt: 'desc',
         },
         select: {
           id: true,
@@ -62,7 +63,7 @@ export class UserService {
           createdAt: true,
           updatedAt: true,
           password: true,
-          courses : true
+          courses: true,
         },
         // offset: 10,
         // limit: 10,
@@ -162,6 +163,7 @@ export class UserService {
         data: updatedUser,
       };
     } catch (error) {
+      console.log({error})
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,

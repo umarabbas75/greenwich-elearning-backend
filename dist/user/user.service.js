@@ -31,6 +31,7 @@ let UserService = class UserService {
                     role: true,
                     createdAt: true,
                     updatedAt: true,
+                    timezone: true,
                 },
             });
             if (!user) {
@@ -55,7 +56,7 @@ let UserService = class UserService {
         try {
             const users = await this.prisma.user.findMany({
                 orderBy: {
-                    createdAt: 'desc'
+                    createdAt: 'desc',
                 },
                 select: {
                     id: true,
@@ -68,7 +69,7 @@ let UserService = class UserService {
                     createdAt: true,
                     updatedAt: true,
                     password: true,
-                    courses: true
+                    courses: true,
                 },
             });
             if (!(users.length > 0)) {
@@ -153,6 +154,7 @@ let UserService = class UserService {
             };
         }
         catch (error) {
+            console.log({ error });
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
