@@ -10,7 +10,8 @@ async function bootstrap() {
         origin: [
             'https://greenwich-elearning.vercel.app',
             'https://greenwich-elearning.vercel.app/user',
-            'http://localhost:3001'
+            'http://localhost:3001',
+            'http://localhost:3000'
         ],
         methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
         credentials: true,

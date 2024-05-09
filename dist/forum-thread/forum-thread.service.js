@@ -23,7 +23,7 @@ let ForumThreadService = class ForumThreadService {
             if (user?.role === 'user') {
                 forums = await this.prisma.forumThread.findMany({
                     orderBy: {
-                        createdAt: 'desc'
+                        createdAt: 'desc',
                     },
                     where: {
                         status: 'active',
@@ -176,12 +176,22 @@ let ForumThreadService = class ForumThreadService {
             };
         }
         catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
-            });
+            if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2003') {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: 'Cannot delete course because it is associated with other records.',
+                }, common_1.HttpStatus.FORBIDDEN);
+            }
+            else {
+                console.log({ error });
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: error?.message || 'Something went wrong',
+                }, common_1.HttpStatus.FORBIDDEN, {
+                    cause: error,
+                });
+            }
         }
     }
     async getForumThread(forumThreadId) {

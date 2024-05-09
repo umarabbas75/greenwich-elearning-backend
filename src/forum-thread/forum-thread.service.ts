@@ -16,8 +16,8 @@ export class ForumThreadService {
       let forums = {};
       if (user?.role === 'user') {
         forums = await this.prisma.forumThread.findMany({
-          orderBy : {
-            createdAt : 'desc'
+          orderBy: {
+            createdAt: 'desc',
           },
           where: {
             status: 'active',
@@ -188,16 +188,33 @@ export class ForumThreadService {
         data: {},
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        // Foreign key constraint violation
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error:
+              'Cannot delete course because it is associated with other records.',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      } else {
+        // Other errors
+        console.log({ error });
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error: error?.message || 'Something went wrong',
+          },
+          HttpStatus.FORBIDDEN,
+          {
+            cause: error,
+          },
+        );
+      }
     }
   }
 

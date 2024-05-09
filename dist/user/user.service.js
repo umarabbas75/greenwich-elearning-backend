@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UserService = void 0;
 const common_1 = require("@nestjs/common");
+const client_1 = require("@prisma/client");
 const argon2 = require("argon2");
 const prisma_service_1 = require("../prisma/prisma.service");
 let UserService = class UserService {
@@ -214,12 +215,22 @@ let UserService = class UserService {
             };
         }
         catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
-            });
+            if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2003') {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: 'Cannot delete course because it is associated with other records.',
+                }, common_1.HttpStatus.FORBIDDEN);
+            }
+            else {
+                console.log({ error });
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: error?.message || 'Something went wrong',
+                }, common_1.HttpStatus.FORBIDDEN, {
+                    cause: error,
+                });
+            }
         }
     }
 };

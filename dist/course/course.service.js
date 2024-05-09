@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CourseService = void 0;
 const common_1 = require("@nestjs/common");
+const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 let CourseService = class CourseService {
     constructor(prisma) {
@@ -69,12 +70,22 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
-            });
+            if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2003') {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: 'Cannot delete course because it is associated with other records.',
+                }, common_1.HttpStatus.FORBIDDEN);
+            }
+            else {
+                console.log({ error });
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: error?.message || 'Something went wrong',
+                }, common_1.HttpStatus.FORBIDDEN, {
+                    cause: error,
+                });
+            }
         }
     }
     async getPostComments(postId) {
@@ -184,12 +195,22 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
-            });
+            if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2003') {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: 'Cannot delete course because it is associated with other records.',
+                }, common_1.HttpStatus.FORBIDDEN);
+            }
+            else {
+                console.log({ error });
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: error?.message || 'Something went wrong',
+                }, common_1.HttpStatus.FORBIDDEN, {
+                    cause: error,
+                });
+            }
         }
     }
     async getPost(postId) {
@@ -702,9 +723,6 @@ let CourseService = class CourseService {
                     createdAt: 'desc',
                 },
             });
-            if (!(chapters.length > 0)) {
-                throw new Error('No Chapters found');
-            }
             return {
                 message: 'Successfully fetch all Chapters info against module',
                 statusCode: 200,
@@ -730,9 +748,6 @@ let CourseService = class CourseService {
                     createdAt: 'desc',
                 },
             });
-            if (!(sections.length > 0)) {
-                throw new Error('No Sections found');
-            }
             return {
                 message: 'Successfully fetch all Sections info against chapter',
                 statusCode: 200,
@@ -965,10 +980,11 @@ let CourseService = class CourseService {
     }
     async deleteCourse(id) {
         try {
-            const user = await this.prisma.course.findUnique({
+            const course = await this.prisma.course.findUnique({
                 where: { id },
             });
-            if (!user) {
+            console.log({ course });
+            if (!course) {
                 throw new Error('Course not found');
             }
             await this.prisma.course.delete({
@@ -977,16 +993,27 @@ let CourseService = class CourseService {
             return {
                 message: 'Successfully deleted course record',
                 statusCode: 200,
-                data: user,
+                data: course,
             };
         }
         catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
-            });
+            console.log({ error });
+            if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2003') {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: 'Cannot delete course because it is associated with other records.',
+                }, common_1.HttpStatus.FORBIDDEN);
+            }
+            else {
+                console.log({ error });
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: error?.message || 'Something went wrong',
+                }, common_1.HttpStatus.FORBIDDEN, {
+                    cause: error,
+                });
+            }
         }
     }
     async deleteModule(id) {
@@ -1007,12 +1034,22 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
-            });
+            if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2003') {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: 'Cannot delete course because it is associated with other records.',
+                }, common_1.HttpStatus.FORBIDDEN);
+            }
+            else {
+                console.log({ error });
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: error?.message || 'Something went wrong',
+                }, common_1.HttpStatus.FORBIDDEN, {
+                    cause: error,
+                });
+            }
         }
     }
     async deleteChapter(id) {
@@ -1033,38 +1070,67 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
-            });
+            if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2003') {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: 'Cannot delete course because it is associated with other records.',
+                }, common_1.HttpStatus.FORBIDDEN);
+            }
+            else {
+                console.log({ error });
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: error?.message || 'Something went wrong',
+                }, common_1.HttpStatus.FORBIDDEN, {
+                    cause: error,
+                });
+            }
         }
     }
     async deleteSection(id) {
         try {
-            const user = await this.prisma.section.findUnique({
+            const section = await this.prisma.section.findUnique({
                 where: { id },
             });
-            if (!user) {
+            if (!section) {
                 throw new Error('Section not found');
             }
+            const dependentRecords = await this.prisma.lastSeenSection.findMany({
+                where: { sectionId: id },
+            });
+            await Promise.all(dependentRecords.map(async (record) => {
+                await this.prisma.lastSeenSection.delete({
+                    where: { id: record.id },
+                });
+            }));
             await this.prisma.section.delete({
                 where: { id },
             });
             return {
                 message: 'Successfully deleted section record',
                 statusCode: 200,
-                data: user,
+                data: section,
             };
         }
         catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
-            });
+            console.log({ error });
+            if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2003') {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: 'Cannot delete course because it is associated with other records.',
+                }, common_1.HttpStatus.FORBIDDEN);
+            }
+            else {
+                console.log({ error });
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: error?.message || 'Something went wrong',
+                }, common_1.HttpStatus.FORBIDDEN, {
+                    cause: error,
+                });
+            }
         }
     }
     async assignCourse(userId, courseId) {
@@ -1102,6 +1168,41 @@ let CourseService = class CourseService {
             }, common_1.HttpStatus.FORBIDDEN, {
                 cause: error,
             });
+        }
+    }
+    async unAssignCourse(userId, courseId) {
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId },
+            });
+            if (!user) {
+                throw new Error('User not found');
+            }
+            const course = await this.prisma.course.findUnique({
+                where: { id: courseId },
+            });
+            if (!course) {
+                throw new Error('Course not found');
+            }
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: {
+                    courses: {
+                        disconnect: { id: courseId },
+                    },
+                },
+            });
+            return {
+                message: 'Successfully unassigned course to user',
+                statusCode: 200,
+                data: {},
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Failed to unassign course from user',
+            }, common_1.HttpStatus.FORBIDDEN);
         }
     }
     async getAllAssignedCourses(userId) {

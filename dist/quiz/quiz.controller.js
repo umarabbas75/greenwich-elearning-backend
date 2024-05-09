@@ -43,6 +43,9 @@ let QuizController = class QuizController {
     assignQuiz(params) {
         return this.appService.assignQuiz(params.quizId, params.chapterId);
     }
+    unAssignQuiz(body) {
+        return this.appService.unAssignQuiz(body.quizId, body.chapterId);
+    }
     checkQuiz(body, user) {
         return this.appService.checkQuiz(user.id, body);
     }
@@ -111,6 +114,14 @@ __decorate([
     __metadata("design:paramtypes", [dto_1.AssignQuizDto]),
     __metadata("design:returntype", Promise)
 ], QuizController.prototype, "assignQuiz", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Put)('/user/unAssignQuiz'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], QuizController.prototype, "unAssignQuiz", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('uJwt')),
     (0, common_1.Post)('/checkQuiz/'),

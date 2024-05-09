@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.QuizService = void 0;
 const common_1 = require("@nestjs/common");
+const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 let QuizService = class QuizService {
     constructor(prisma) {
@@ -53,14 +54,14 @@ let QuizService = class QuizService {
             if (role == 'admin') {
                 quizzes = await this.prisma.quiz.findMany({
                     orderBy: {
-                        createdAt: 'desc'
-                    }
+                        createdAt: 'desc',
+                    },
                 });
             }
             else if (role == 'user') {
                 quizzes = await this.prisma.quiz.findMany({
                     orderBy: {
-                        createdAt: 'desc'
+                        createdAt: 'desc',
                     },
                     select: {
                         id: true,
@@ -97,7 +98,7 @@ let QuizService = class QuizService {
                             id: true,
                             question: true,
                             options: true,
-                            answer: true
+                            answer: true,
                         },
                     },
                 },
@@ -178,13 +179,48 @@ let QuizService = class QuizService {
             });
         }
     }
+    async unAssignQuiz(quizId, chapterId) {
+        try {
+            const isQuizExist = await this.prisma.quiz.findUnique({
+                where: { id: quizId },
+            });
+            if (!isQuizExist) {
+                throw new Error('quiz not exist');
+            }
+            const isChapterExist = await this.prisma.chapter.findUnique({
+                where: { id: chapterId },
+            });
+            if (!isChapterExist) {
+                throw new Error('chapter not exist');
+            }
+            await this.prisma.chapter.update({
+                where: { id: chapterId },
+                data: {
+                    quizzes: {
+                        disconnect: { id: quizId },
+                    },
+                },
+            });
+            return {
+                message: 'Successfully unassigned quiz to module',
+                statusCode: 200,
+                data: {},
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Failed to unassign course from user',
+            }, common_1.HttpStatus.FORBIDDEN);
+        }
+    }
     async updateQuiz(id, body) {
         try {
             const isQuizExist = await this.prisma.quiz.findUnique({
                 where: { id: id },
             });
-            if (isQuizExist) {
-                throw new Error('Quizzes already exist with specified title');
+            if (!isQuizExist) {
+                throw new Error('Quizzes does not exist ');
             }
             if (Object.entries(body).length === 0) {
                 throw new Error('wrong keys');
@@ -230,12 +266,22 @@ let QuizService = class QuizService {
             };
         }
         catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
-            });
+            if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2003') {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: 'Cannot delete course because it is associated with other records.',
+                }, common_1.HttpStatus.FORBIDDEN);
+            }
+            else {
+                console.log({ error });
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: error?.message || 'Something went wrong',
+                }, common_1.HttpStatus.FORBIDDEN, {
+                    cause: error,
+                });
+            }
         }
     }
     async checkQuiz(userId, body) {

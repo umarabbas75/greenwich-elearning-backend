@@ -66,6 +66,12 @@ export class QuizController {
     return this.appService.assignQuiz(params.quizId, params.chapterId);
   }
 
+  @UseGuards(AuthGuard('jwt'))
+  @Put('/user/unAssignQuiz')
+  unAssignQuiz(@Body() body: any): Promise<ResponseDto> {
+    return this.appService.unAssignQuiz(body.quizId, body.chapterId);
+  }
+
 
  
 

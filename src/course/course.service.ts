@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { Course, Module, Chapter, Section } from '@prisma/client';
+import { Course, Module, Chapter, Section, Prisma } from '@prisma/client';
 import {
   // AssignCourseDto,
   CourseDto,
@@ -78,16 +78,33 @@ export class CourseService {
         data: post,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        // Foreign key constraint violation
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error:
+              'Cannot delete course because it is associated with other records.',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      } else {
+        // Other errors
+        console.log({ error });
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error: error?.message || 'Something went wrong',
+          },
+          HttpStatus.FORBIDDEN,
+          {
+            cause: error,
+          },
+        );
+      }
     }
   }
 
@@ -224,16 +241,33 @@ export class CourseService {
         data: post,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        // Foreign key constraint violation
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error:
+              'Cannot delete course because it is associated with other records.',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      } else {
+        // Other errors
+        console.log({ error });
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error: error?.message || 'Something went wrong',
+          },
+          HttpStatus.FORBIDDEN,
+          {
+            cause: error,
+          },
+        );
+      }
     }
   }
 
@@ -346,9 +380,10 @@ export class CourseService {
   }
   async createPolicies(userId: any, body: any): Promise<ResponseDto> {
     try {
-      const isCourseExist: any = await this.prisma.policiesAndProcedures.findUnique({
-        where: { policiesId: body.policiesId },
-      });
+      const isCourseExist: any =
+        await this.prisma.policiesAndProcedures.findUnique({
+          where: { policiesId: body.policiesId },
+        });
       if (isCourseExist) {
         throw new Error('Course already exist with specified title');
       }
@@ -380,7 +415,7 @@ export class CourseService {
   }
   async getUserPolicies(userId: any): Promise<ResponseDto> {
     try {
-      console.log({userId})
+      console.log({ userId });
       const policiesAndProcedures =
         await this.prisma.policiesAndProcedures.findMany({
           where: {
@@ -834,9 +869,7 @@ export class CourseService {
         // limit: 10,
         // offset: 10,
       });
-      if (!(chapters.length > 0)) {
-        throw new Error('No Chapters found');
-      }
+
       return {
         message: 'Successfully fetch all Chapters info against module',
         statusCode: 200,
@@ -867,9 +900,9 @@ export class CourseService {
         // limit: 10,
         // offset: 10,
       });
-      if (!(sections.length > 0)) {
-        throw new Error('No Sections found');
-      }
+      // if (!(sections.length > 0)) {
+      //   throw new Error('No Sections found');
+      // }
       return {
         message: 'Successfully fetch all Sections info against chapter',
         statusCode: 200,
@@ -951,7 +984,7 @@ export class CourseService {
           where: { userId_chapterId: { userId, chapterId: id } },
         }),
       ]);
-      console.log('quizzes',chapter?.quizzes)
+      console.log('quizzes', chapter?.quizzes);
 
       const allSections = sections?.length > 0 ? [...sections] : [];
       const completedSections =
@@ -1173,10 +1206,11 @@ export class CourseService {
 
   async deleteCourse(id: string): Promise<ResponseDto> {
     try {
-      const user = await this.prisma.course.findUnique({
+      const course = await this.prisma.course.findUnique({
         where: { id },
       });
-      if (!user) {
+      console.log({ course });
+      if (!course) {
         throw new Error('Course not found');
       }
 
@@ -1187,19 +1221,37 @@ export class CourseService {
       return {
         message: 'Successfully deleted course record',
         statusCode: 200,
-        data: user,
+        data: course,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      console.log({ error });
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        // Foreign key constraint violation
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error:
+              'Cannot delete course because it is associated with other records.',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      } else {
+        // Other errors
+        console.log({ error });
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error: error?.message || 'Something went wrong',
+          },
+          HttpStatus.FORBIDDEN,
+          {
+            cause: error,
+          },
+        );
+      }
     }
   }
 
@@ -1222,16 +1274,33 @@ export class CourseService {
         data: user,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        // Foreign key constraint violation
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error:
+              'Cannot delete course because it is associated with other records.',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      } else {
+        // Other errors
+        console.log({ error });
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error: error?.message || 'Something went wrong',
+          },
+          HttpStatus.FORBIDDEN,
+          {
+            cause: error,
+          },
+        );
+      }
     }
   }
 
@@ -1254,28 +1323,91 @@ export class CourseService {
         data: user,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        // Foreign key constraint violation
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error:
+              'Cannot delete course because it is associated with other records.',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      } else {
+        // Other errors
+        console.log({ error });
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error: error?.message || 'Something went wrong',
+          },
+          HttpStatus.FORBIDDEN,
+          {
+            cause: error,
+          },
+        );
+      }
     }
   }
 
   async deleteSection(id: string): Promise<ResponseDto> {
+    // try {
+    //   const user = await this.prisma.section.findUnique({
+    //     where: { id },
+    //   });
+    //   if (!user) {
+    //     throw new Error('Section not found');
+    //   }
+
+    //   await this.prisma.section.delete({
+    //     where: { id },
+    //   });
+
+    //   return {
+    //     message: 'Successfully deleted section record',
+    //     statusCode: 200,
+    //     data: user,
+    //   };
+    // } catch (error) {
+    //   console.log({error})
+    //   throw new HttpException(
+    //     {
+    //       status: HttpStatus.FORBIDDEN,
+    //       error: error?.message || 'Something went wrong',
+    //     },
+    //     HttpStatus.FORBIDDEN,
+    //     {
+    //       cause: error,
+    //     },
+    //   );
+    // }
+
     try {
-      const user = await this.prisma.section.findUnique({
+      const section = await this.prisma.section.findUnique({
         where: { id },
       });
-      if (!user) {
+      if (!section) {
         throw new Error('Section not found');
       }
 
+      // Find dependent records in LastSeenSection table
+      const dependentRecords = await this.prisma.lastSeenSection.findMany({
+        where: { sectionId: id },
+      });
+
+      // Delete dependent records
+      await Promise.all(
+        dependentRecords.map(async (record) => {
+          await this.prisma.lastSeenSection.delete({
+            where: { id: record.id },
+          });
+        }),
+      );
+
+      // Now that dependent records are deleted, delete the section
       await this.prisma.section.delete({
         where: { id },
       });
@@ -1283,19 +1415,37 @@ export class CourseService {
       return {
         message: 'Successfully deleted section record',
         statusCode: 200,
-        data: user,
+        data: section,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      console.log({ error });
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        // Foreign key constraint violation
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error:
+              'Cannot delete course because it is associated with other records.',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      } else {
+        // Other errors
+        console.log({ error });
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error: error?.message || 'Something went wrong',
+          },
+          HttpStatus.FORBIDDEN,
+          {
+            cause: error,
+          },
+        );
+      }
     }
   }
 
@@ -1339,6 +1489,48 @@ export class CourseService {
         {
           cause: error,
         },
+      );
+    }
+  }
+  async unAssignCourse(userId: string, courseId: string): Promise<ResponseDto> {
+    try {
+      // Check if the user exists
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      // Check if the course exists
+      const course = await this.prisma.course.findUnique({
+        where: { id: courseId },
+      });
+      if (!course) {
+        throw new Error('Course not found');
+      }
+
+      // Remove the course from the user's list of assigned courses
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          courses: {
+            disconnect: { id: courseId },
+          },
+        },
+      });
+      return {
+        message: 'Successfully unassigned course to user',
+        statusCode: 200,
+        data: {},
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Failed to unassign course from user',
+        },
+        HttpStatus.FORBIDDEN,
       );
     }
   }

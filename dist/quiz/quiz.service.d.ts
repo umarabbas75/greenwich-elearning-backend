@@ -8,6 +8,7 @@ export declare class QuizService {
     getAllAssignQuizzes(chapterId: string, role: string): Promise<ResponseDto>;
     createQuiz(body: QuizDto): Promise<ResponseDto>;
     assignQuiz(quizId: string, chapterId: string): Promise<ResponseDto>;
+    unAssignQuiz(quizId: string, chapterId: string): Promise<ResponseDto>;
     updateQuiz(id: string, body: UpdateQuizDto): Promise<ResponseDto>;
     deleteQuiz(id: string): Promise<ResponseDto>;
     checkQuiz(userId: string, body: CheckQuiz): Promise<ResponseDto>;

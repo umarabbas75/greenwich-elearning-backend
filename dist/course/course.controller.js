@@ -109,6 +109,9 @@ let CourseController = class CourseController {
     assignCourse(params) {
         return this.appService.assignCourse(params.userId, params.courseId);
     }
+    unAssignCourse(body) {
+        return this.appService.unAssignCourse(body.userId, body.courseId);
+    }
     getAllAssignedCourses(params) {
         return this.appService.getAllAssignedCourses(params.id);
     }
@@ -381,6 +384,14 @@ __decorate([
     __metadata("design:paramtypes", [dto_1.AssignCourseDto]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "assignCourse", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Put)('/unAssignCourse/user'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "unAssignCourse", null);
 __decorate([
     (0, common_1.Get)('/getAllAssignedCourses/:id'),
     __param(0, (0, common_1.Param)()),

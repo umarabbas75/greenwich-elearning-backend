@@ -215,6 +215,13 @@ export class CourseController {
   assignCourse(@Param() params: AssignCourseDto): Promise<ResponseDto> {
     return this.appService.assignCourse(params.userId, params.courseId);
   }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Put('/unAssignCourse/user')
+  unAssignCourse(@Body() body: any): Promise<ResponseDto> {
+    return this.appService.unAssignCourse(body.userId, body.courseId);
+  }
+
   @Get('/getAllAssignedCourses/:id')
   getAllAssignedCourses(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getAllAssignedCourses(params.id);
@@ -242,6 +249,7 @@ export class CourseController {
   deleteCourse(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteCourse(params.id);
   }
+
   @UseGuards(AuthGuard('jwt'))
   @Delete('/module/:id')
   deleteModule(@Param() params: ParamsDto): Promise<ResponseDto> {

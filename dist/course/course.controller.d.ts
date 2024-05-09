@@ -33,6 +33,7 @@ export declare class CourseController {
     updateChapter(body: UpdateCourseDto, params: ParamsDto): Promise<ResponseDto>;
     updateSection(body: UpdateCourseDto, params: ParamsDto): Promise<ResponseDto>;
     assignCourse(params: AssignCourseDto): Promise<ResponseDto>;
+    unAssignCourse(body: any): Promise<ResponseDto>;
     getAllAssignedCourses(params: ParamsDto): Promise<ResponseDto>;
     createModule(body: ModuleDto): Promise<ResponseDto>;
     createChapter(body: ModuleDto): Promise<ResponseDto>;

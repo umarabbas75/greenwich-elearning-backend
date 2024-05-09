@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { User } from '@prisma/client';
+import { Prisma, User } from '@prisma/client';
 import { ResponseDto, BodyDto, BodyUpdateDto, ChangePasswordDto } from '../dto';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
@@ -163,7 +163,7 @@ export class UserService {
         data: updatedUser,
       };
     } catch (error) {
-      console.log({error})
+      console.log({ error });
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -243,16 +243,33 @@ export class UserService {
         data: user,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        // Foreign key constraint violation
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error:
+              'Cannot delete course because it is associated with other records.',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      } else {
+        // Other errors
+        console.log({ error });
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error: error?.message || 'Something went wrong',
+          },
+          HttpStatus.FORBIDDEN,
+          {
+            cause: error,
+          },
+        );
+      }
     }
   }
 }
