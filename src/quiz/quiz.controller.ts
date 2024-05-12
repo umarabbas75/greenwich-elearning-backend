@@ -26,8 +26,11 @@ export class QuizController {
   constructor(private readonly appService: QuizService) {}
   @UseGuards(AuthGuard('cJwt'))
   @Get('/:id')
-  getQuiz(@Param() params: ParamsDto,@GetUser() user: User): Promise<ResponseDto> {
-    return this.appService.getQuiz(params.id,user.role);
+  getQuiz(
+    @Param() params: ParamsDto,
+    @GetUser() user: User,
+  ): Promise<ResponseDto> {
+    return this.appService.getQuiz(params.id, user.role);
   }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/')
@@ -37,8 +40,11 @@ export class QuizController {
 
   @UseGuards(AuthGuard('cJwt'))
   @Get('/getAllAssignQuizzes/:id')
-  getAllAssignQuizzes(@Param() params: ParamsDto,@GetUser() user: User): Promise<ResponseDto> {
-    return this.appService.getAllAssignQuizzes(params.id,user.role);
+  getAllAssignQuizzes(
+    @Param() params: ParamsDto,
+    @GetUser() user: User,
+  ): Promise<ResponseDto> {
+    return this.appService.getAllAssignQuizzes(params.id, user.role);
   }
 
   @UseGuards(AuthGuard('jwt'))
@@ -72,9 +78,6 @@ export class QuizController {
     return this.appService.unAssignQuiz(body.quizId, body.chapterId);
   }
 
-
- 
-
   @UseGuards(AuthGuard('uJwt'))
   @Post('/checkQuiz/')
   checkQuiz(
@@ -86,8 +89,10 @@ export class QuizController {
 
   @UseGuards(AuthGuard('uJwt'))
   @Get('/user/getQuizAnswers/:id')
-  getUserQuizAnswers(@Param() params: ParamsDto,@GetUser() user: User): Promise<ResponseDto> {
-    return this.appService.getUserQuizAnswers(user.id,params.id);
+  getUserQuizAnswers(
+    @Param() params: ParamsDto,
+    @GetUser() user: User,
+  ): Promise<ResponseDto> {
+    return this.appService.getUserQuizAnswers(user.id, params.id);
   }
-
 }

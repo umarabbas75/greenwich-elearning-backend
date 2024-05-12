@@ -9,12 +9,27 @@ CREATE TABLE "users" (
     "email" TEXT NOT NULL,
     "phone" TEXT,
     "photo" TEXT,
+    "timezone" TEXT,
     "password" TEXT NOT NULL,
     "role" "Role" NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "users_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "TodoItem" (
+    "id" TEXT NOT NULL,
+    "title" TEXT,
+    "content" TEXT NOT NULL,
+    "isCompleted" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "dueDate" TIMESTAMP(3) NOT NULL,
+    "userId" TEXT NOT NULL,
+
+    CONSTRAINT "TodoItem_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -224,6 +239,9 @@ CREATE UNIQUE INDEX "_CourseToUser_AB_unique" ON "_CourseToUser"("A", "B");
 
 -- CreateIndex
 CREATE INDEX "_CourseToUser_B_index" ON "_CourseToUser"("B");
+
+-- AddForeignKey
+ALTER TABLE "TodoItem" ADD CONSTRAINT "TodoItem_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "modules" ADD CONSTRAINT "modules_courseId_fkey" FOREIGN KEY ("courseId") REFERENCES "courses"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

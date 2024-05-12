@@ -6,26 +6,26 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AuthModule = void 0;
+exports.TodoModule = void 0;
 const common_1 = require("@nestjs/common");
-const auth_controller_1 = require("./auth.controller");
-const auth_service_1 = require("./auth.service");
+const todo_service_1 = require("./todo.service");
+const todo_controller_1 = require("./todo.controller");
 const jwt_1 = require("@nestjs/jwt");
 const strategy_1 = require("../strategy");
-let AuthModule = class AuthModule {
+let TodoModule = class TodoModule {
 };
-exports.AuthModule = AuthModule;
-exports.AuthModule = AuthModule = __decorate([
+exports.TodoModule = TodoModule;
+exports.TodoModule = TodoModule = __decorate([
     (0, common_1.Module)({
         imports: [jwt_1.JwtModule.register({})],
         providers: [
-            auth_service_1.AuthService,
+            todo_service_1.TodoService,
             strategy_1.JwtUserStrategy,
             strategy_1.JwtAdminStrategy,
             strategy_1.JwtCombineStrategy,
         ],
-        controllers: [auth_controller_1.AuthController],
-        exports: [auth_service_1.AuthService],
+        controllers: [todo_controller_1.TodoController],
+        exports: [todo_service_1.TodoService],
     })
-], AuthModule);
-//# sourceMappingURL=auth.module.js.map
+], TodoModule);
+//# sourceMappingURL=todo.module.js.map

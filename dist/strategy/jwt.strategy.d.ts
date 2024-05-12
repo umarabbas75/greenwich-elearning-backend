@@ -49,6 +49,7 @@ export declare class JwtCombineStrategy extends JwtCombineStrategy_base {
     validate(payload: {
         sub: string;
         email: string;
+        exp: number;
     }): Promise<{
         id: string;
         firstName: string;

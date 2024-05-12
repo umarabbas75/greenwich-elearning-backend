@@ -7,6 +7,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { QuizModule } from './quiz/quiz.module';
 import { ForumModule } from './forum-thread/forum.module';
 import { ForumCommentModule } from './forum-comment/forum-comment.module';
+import { TodoModule } from './todo/todo.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ForumCommentModule } from './forum-comment/forum-comment.module';
     UserModule,
     AuthModule,
     QuizModule,
+    TodoModule,
     ForumModule,
     ForumCommentModule,
   ],

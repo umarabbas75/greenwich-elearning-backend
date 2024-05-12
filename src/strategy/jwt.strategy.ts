@@ -7,7 +7,10 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class JwtAdminStrategy extends PassportStrategy(Strategy, 'jwt') {
-  constructor(config: ConfigService,  private prisma: PrismaService) {
+  constructor(
+    config: ConfigService,
+    private prisma: PrismaService,
+  ) {
     const jwt_secret = config.get('JWT_SECRET');
     const jwt_expiry = config.get('JWT_EXPIRY');
     if (!jwt_secret || !jwt_expiry) {
@@ -23,8 +26,9 @@ export class JwtAdminStrategy extends PassportStrategy(Strategy, 'jwt') {
     const user: User = await this.prisma.user.findUnique({
       where: {
         id: payload.sub,
-      }
+      },
     });
+    console.log('user 1', user);
     if (!user) {
       throw new HttpException(
         {
@@ -48,12 +52,12 @@ export class JwtAdminStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 }
 
-
-
-
 @Injectable()
 export class JwtUserStrategy extends PassportStrategy(Strategy, 'uJwt') {
-  constructor(config: ConfigService,  private prisma: PrismaService) {
+  constructor(
+    config: ConfigService,
+    private prisma: PrismaService,
+  ) {
     const jwt_secret = config.get('JWT_SECRET');
     const jwt_expiry = config.get('JWT_EXPIRY');
     if (!jwt_secret || !jwt_expiry) {
@@ -69,8 +73,10 @@ export class JwtUserStrategy extends PassportStrategy(Strategy, 'uJwt') {
     const user: User = await this.prisma.user.findUnique({
       where: {
         id: payload.sub,
-      }
+      },
     });
+    console.log('user 2', user);
+
     if (!user) {
       throw new HttpException(
         {
@@ -94,12 +100,15 @@ export class JwtUserStrategy extends PassportStrategy(Strategy, 'uJwt') {
   }
 }
 
-
 @Injectable()
 export class JwtCombineStrategy extends PassportStrategy(Strategy, 'cJwt') {
-  constructor(config: ConfigService,  private prisma: PrismaService) {
+  constructor(
+    config: ConfigService,
+    private prisma: PrismaService,
+  ) {
     const jwt_secret = config.get('JWT_SECRET');
     const jwt_expiry = config.get('JWT_EXPIRY');
+    console.log({ jwt_expiry });
     if (!jwt_secret || !jwt_expiry) {
       throw new Error('JWT_SECRET or JWT_EXPIRY is not set');
     }
@@ -109,33 +118,50 @@ export class JwtCombineStrategy extends PassportStrategy(Strategy, 'cJwt') {
     });
   }
 
-  async validate(payload: { sub: string; email: string }) {
-    const user: User = await this.prisma.user.findUnique({
-      where: {
-        id: payload.sub,
+  async validate(payload: { sub: string; email: string; exp: number }) {
+    try {
+      const now: any = Math.floor(Date.now() / 1000); // Current time in seconds
+
+      console.log({ now, payload }, payload.exp <= now);
+      // Check if token expiration is in the past
+      if (payload.exp <= now) {
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error: 'Token expiredss',
+          },
+          HttpStatus.FORBIDDEN,
+        );
       }
-    });
-    if (!user) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'User not found',
+      const user: User = await this.prisma.user.findUnique({
+        where: {
+          id: payload.sub,
         },
-        HttpStatus.FORBIDDEN,
-      );
+      });
+      console.log('user 4', user);
+
+      if (!user) {
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error: 'User not found',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+      if (user.role !== 'user' && user.role !== 'admin') {
+        throw new HttpException(
+          {
+            status: HttpStatus.FORBIDDEN,
+            error: 'Forbidden',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+      delete user.password;
+      return user;
+    } catch (error) {
+      console.log({ error });
     }
-    if (user.role !== 'user' && user.role !== 'admin') {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: 'Forbidden',
-        },
-        HttpStatus.FORBIDDEN,
-      );
-    }
-    delete user.password;
-    return user;
   }
 }
-
-

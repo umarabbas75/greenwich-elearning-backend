@@ -1,21 +1,22 @@
 import { Module } from '@nestjs/common';
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
+import { TodoService } from './todo.service';
+import { TodoController } from './todo.controller';
 import { JwtModule } from '@nestjs/jwt';
 import {
-  JwtUserStrategy,
   JwtAdminStrategy,
   JwtCombineStrategy,
+  JwtUserStrategy,
 } from '../strategy';
+
 @Module({
   imports: [JwtModule.register({})],
   providers: [
-    AuthService,
+    TodoService,
     JwtUserStrategy,
     JwtAdminStrategy,
     JwtCombineStrategy,
   ],
-  controllers: [AuthController],
-  exports: [AuthService],
+  controllers: [TodoController],
+  exports: [TodoService],
 })
-export class AuthModule {}
+export class TodoModule {}

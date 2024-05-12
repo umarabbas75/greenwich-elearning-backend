@@ -26,9 +26,22 @@ model User {
   Post                  Post[]
   Comment               Comment[]
   PoliciesAndProcedures PoliciesAndProcedures[]
+  todos                 TodoItem[]
 
   @@index([email])
   @@map("users")
+}
+
+model TodoItem {
+  id          String   @id @default(uuid())
+  title       String?
+  content     String
+  isCompleted Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  dueDate     DateTime
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
 }
 
 model Course {

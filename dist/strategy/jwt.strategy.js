@@ -32,8 +32,9 @@ let JwtAdminStrategy = class JwtAdminStrategy extends (0, passport_1.PassportStr
         const user = await this.prisma.user.findUnique({
             where: {
                 id: payload.sub,
-            }
+            },
         });
+        console.log('user 1', user);
         if (!user) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
@@ -53,7 +54,8 @@ let JwtAdminStrategy = class JwtAdminStrategy extends (0, passport_1.PassportStr
 exports.JwtAdminStrategy = JwtAdminStrategy;
 exports.JwtAdminStrategy = JwtAdminStrategy = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [config_1.ConfigService, prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [config_1.ConfigService,
+        prisma_service_1.PrismaService])
 ], JwtAdminStrategy);
 let JwtUserStrategy = class JwtUserStrategy extends (0, passport_1.PassportStrategy)(passport_jwt_1.Strategy, 'uJwt') {
     constructor(config, prisma) {
@@ -72,8 +74,9 @@ let JwtUserStrategy = class JwtUserStrategy extends (0, passport_1.PassportStrat
         const user = await this.prisma.user.findUnique({
             where: {
                 id: payload.sub,
-            }
+            },
         });
+        console.log('user 2', user);
         if (!user) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
@@ -93,12 +96,14 @@ let JwtUserStrategy = class JwtUserStrategy extends (0, passport_1.PassportStrat
 exports.JwtUserStrategy = JwtUserStrategy;
 exports.JwtUserStrategy = JwtUserStrategy = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [config_1.ConfigService, prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [config_1.ConfigService,
+        prisma_service_1.PrismaService])
 ], JwtUserStrategy);
 let JwtCombineStrategy = class JwtCombineStrategy extends (0, passport_1.PassportStrategy)(passport_jwt_1.Strategy, 'cJwt') {
     constructor(config, prisma) {
         const jwt_secret = config.get('JWT_SECRET');
         const jwt_expiry = config.get('JWT_EXPIRY');
+        console.log({ jwt_expiry });
         if (!jwt_secret || !jwt_expiry) {
             throw new Error('JWT_SECRET or JWT_EXPIRY is not set');
         }
@@ -109,30 +114,45 @@ let JwtCombineStrategy = class JwtCombineStrategy extends (0, passport_1.Passpor
         this.prisma = prisma;
     }
     async validate(payload) {
-        const user = await this.prisma.user.findUnique({
-            where: {
-                id: payload.sub,
+        try {
+            const now = Math.floor(Date.now() / 1000);
+            console.log({ now, payload }, payload.exp <= now);
+            if (payload.exp <= now) {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: 'Token expiredss',
+                }, common_1.HttpStatus.FORBIDDEN);
             }
-        });
-        if (!user) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: 'User not found',
-            }, common_1.HttpStatus.FORBIDDEN);
+            const user = await this.prisma.user.findUnique({
+                where: {
+                    id: payload.sub,
+                },
+            });
+            console.log('user 4', user);
+            if (!user) {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: 'User not found',
+                }, common_1.HttpStatus.FORBIDDEN);
+            }
+            if (user.role !== 'user' && user.role !== 'admin') {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.FORBIDDEN,
+                    error: 'Forbidden',
+                }, common_1.HttpStatus.FORBIDDEN);
+            }
+            delete user.password;
+            return user;
         }
-        if (user.role !== 'user' && user.role !== 'admin') {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: 'Forbidden',
-            }, common_1.HttpStatus.FORBIDDEN);
+        catch (error) {
+            console.log({ error });
         }
-        delete user.password;
-        return user;
     }
 };
 exports.JwtCombineStrategy = JwtCombineStrategy;
 exports.JwtCombineStrategy = JwtCombineStrategy = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [config_1.ConfigService, prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [config_1.ConfigService,
+        prisma_service_1.PrismaService])
 ], JwtCombineStrategy);
 //# sourceMappingURL=jwt.strategy.js.map

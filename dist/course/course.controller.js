@@ -194,6 +194,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "deletePostComment", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/post/:id'),
     __param(0, (0, common_1.Param)('id')),
     __metadata("design:type", Function),
@@ -201,6 +202,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getPost", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/posts/:courseId'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -227,6 +229,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "createPolicies", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Delete)('/policies/delete'),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
@@ -258,6 +261,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "deletePost", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/:id'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -265,6 +269,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getCourse", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/module/:id'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -272,6 +277,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getModule", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/chapter/:id'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -279,6 +285,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getChapter", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/section/:id'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -286,12 +293,14 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getSection", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/'),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getAllCourses", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/allModules/:id'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -299,6 +308,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getAllModules", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/user/allModules/:id'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -306,6 +316,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getAllUserModules", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/module/allChapters/:id'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -313,6 +324,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getAllChapters", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/module/chapter/allSections/:id'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -393,6 +405,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "unAssignCourse", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/getAllAssignedCourses/:id'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -465,6 +478,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "updateUserChapterProgress", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/getUserChapterProgress/:userId/:courseId/:chapterId'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -472,6 +486,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getUserChapterProgress", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/section/getLastSeen/:userId/:chapterId'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
