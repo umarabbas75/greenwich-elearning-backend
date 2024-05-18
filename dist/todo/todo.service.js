@@ -19,16 +19,21 @@ let TodoService = class TodoService {
     }
     async getTodos(userId) {
         try {
-            const todos = await this.prisma.todoItem.findMany({
-                orderBy: {
-                    createdAt: 'desc',
-                },
-                where: { userId: userId },
-            });
+            const [todos, totalCount] = await Promise.all([
+                this.prisma.todoItem.findMany({
+                    orderBy: {
+                        createdAt: 'desc',
+                    },
+                    where: { userId: userId },
+                }),
+                this.prisma.todoItem.count({
+                    where: { userId: userId },
+                }),
+            ]);
             return {
                 message: 'Successfully fetch all todos info',
                 statusCode: 200,
-                data: todos,
+                data: { todos, totalCount },
             };
         }
         catch (error) {

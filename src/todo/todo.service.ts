@@ -7,19 +7,31 @@ import { PrismaService } from '../prisma/prisma.service';
 export class TodoService {
   constructor(private prisma: PrismaService) {}
 
-  async getTodos(userId: string): Promise<ResponseDto> {
+  async getTodos(
+    userId: string,
+    // pageSize: number,
+    // page: number,
+  ): Promise<ResponseDto> {
     try {
-      const todos = await this.prisma.todoItem.findMany({
-        orderBy: {
-          createdAt: 'desc',
-        },
-        where: { userId: userId },
-      });
+      // const skip = pageSize * (page - 1);
+      const [todos, totalCount] = await Promise.all([
+        this.prisma.todoItem.findMany({
+          orderBy: {
+            createdAt: 'desc',
+          },
+          where: { userId: userId },
+          // skip: skip,
+          // take: pageSize,
+        }),
+        this.prisma.todoItem.count({
+          where: { userId: userId },
+        }),
+      ]);
 
       return {
         message: 'Successfully fetch all todos info',
         statusCode: 200,
-        data: todos,
+        data: { todos, totalCount },
       };
     } catch (error) {
       throw new HttpException(
