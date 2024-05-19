@@ -34,7 +34,6 @@ let JwtAdminStrategy = class JwtAdminStrategy extends (0, passport_1.PassportStr
                 id: payload.sub,
             },
         });
-        console.log('user 1', user);
         if (!user) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
@@ -76,7 +75,6 @@ let JwtUserStrategy = class JwtUserStrategy extends (0, passport_1.PassportStrat
                 id: payload.sub,
             },
         });
-        console.log('user 2', user);
         if (!user) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
@@ -103,7 +101,6 @@ let JwtCombineStrategy = class JwtCombineStrategy extends (0, passport_1.Passpor
     constructor(config, prisma) {
         const jwt_secret = config.get('JWT_SECRET');
         const jwt_expiry = config.get('JWT_EXPIRY');
-        console.log({ jwt_expiry });
         if (!jwt_secret || !jwt_expiry) {
             throw new Error('JWT_SECRET or JWT_EXPIRY is not set');
         }
@@ -116,7 +113,6 @@ let JwtCombineStrategy = class JwtCombineStrategy extends (0, passport_1.Passpor
     async validate(payload) {
         try {
             const now = Math.floor(Date.now() / 1000);
-            console.log({ now, payload }, payload.exp <= now);
             if (payload.exp <= now) {
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
@@ -128,7 +124,6 @@ let JwtCombineStrategy = class JwtCombineStrategy extends (0, passport_1.Passpor
                     id: payload.sub,
                 },
             });
-            console.log('user 4', user);
             if (!user) {
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,

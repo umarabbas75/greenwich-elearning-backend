@@ -78,7 +78,6 @@ let CourseService = class CourseService {
                 }, common_1.HttpStatus.FORBIDDEN);
             }
             else {
-                console.log({ error });
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
                     error: error?.message || 'Something went wrong',
@@ -203,7 +202,6 @@ let CourseService = class CourseService {
                 }, common_1.HttpStatus.FORBIDDEN);
             }
             else {
-                console.log({ error });
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
                     error: error?.message || 'Something went wrong',
@@ -335,7 +333,6 @@ let CourseService = class CourseService {
     }
     async getUserPolicies(userId) {
         try {
-            console.log({ userId });
             const policiesAndProcedures = await this.prisma.policiesAndProcedures.findMany({
                 where: {
                     userId,
@@ -806,10 +803,10 @@ let CourseService = class CourseService {
                     where: { userId_chapterId: { userId, chapterId: id } },
                 }),
             ]);
-            console.log('quizzes', chapter?.quizzes);
+            console.log({ quizAnswer }, chapter.quizzes);
             const allSections = sections?.length > 0 ? [...sections] : [];
             const completedSections = userCourseProgress?.length > 0 ? [...userCourseProgress] : [];
-            const assignedQuizzesList = chapter?.quizzes?.length > 0 ? [...chapter?.quizzes] : [];
+            let assignedQuizzesList = chapter?.quizzes?.length > 0 ? [...chapter?.quizzes] : [];
             const quizAnsweredList = quizAnswer?.length > 0 ? [...quizAnswer] : [];
             allSections?.forEach((section) => {
                 const isCompleted = completedSections?.some((completedSection) => completedSection.sectionId === section.id);
@@ -818,9 +815,13 @@ let CourseService = class CourseService {
                 section.isCompleted = isCompleted;
             });
             assignedQuizzesList?.forEach((quiz) => {
-                const isCorrect = quizAnsweredList?.some((completedQuestion) => completedQuestion.quizId === quiz.id);
+                const isCorrect = quizAnsweredList?.some((completedQuestion) => completedQuestion.quizId === quiz.id &&
+                    completedQuestion?.isAnswerCorrect === true
+                    ? true
+                    : false);
                 quiz.isCorrect = isCorrect;
             });
+            assignedQuizzesList = assignedQuizzesList.filter((item) => !item?.isCorrect);
             const mergedArray = insertQuizzes(allSections, assignedQuizzesList);
             if (!(sections.length > 0)) {
                 throw new Error('No Sections found');
@@ -829,6 +830,7 @@ let CourseService = class CourseService {
                 message: 'Successfully fetch all Sections info against chapter',
                 statusCode: 200,
                 data: mergedArray,
+                chapter: chapter,
             };
         }
         catch (error) {
@@ -920,11 +922,9 @@ let CourseService = class CourseService {
                 throw new Error('wrong keys');
             }
             const updateChapter = {};
-            console.log({ body });
             for (const [key, value] of Object.entries(body)) {
                 updateChapter[key] = value;
             }
-            console.log({ updateChapter });
             const updatedChapter = await this.prisma.chapter.update({
                 where: { id },
                 data: updateChapter,
@@ -983,7 +983,6 @@ let CourseService = class CourseService {
             const course = await this.prisma.course.findUnique({
                 where: { id },
             });
-            console.log({ course });
             if (!course) {
                 throw new Error('Course not found');
             }
@@ -997,7 +996,6 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
-            console.log({ error });
             if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
                 error.code === 'P2003') {
                 throw new common_1.HttpException({
@@ -1006,7 +1004,6 @@ let CourseService = class CourseService {
                 }, common_1.HttpStatus.FORBIDDEN);
             }
             else {
-                console.log({ error });
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
                     error: error?.message || 'Something went wrong',
@@ -1042,7 +1039,6 @@ let CourseService = class CourseService {
                 }, common_1.HttpStatus.FORBIDDEN);
             }
             else {
-                console.log({ error });
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
                     error: error?.message || 'Something went wrong',
@@ -1078,7 +1074,6 @@ let CourseService = class CourseService {
                 }, common_1.HttpStatus.FORBIDDEN);
             }
             else {
-                console.log({ error });
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
                     error: error?.message || 'Something went wrong',
@@ -1114,7 +1109,6 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
-            console.log({ error });
             if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
                 error.code === 'P2003') {
                 throw new common_1.HttpException({
@@ -1123,7 +1117,6 @@ let CourseService = class CourseService {
                 }, common_1.HttpStatus.FORBIDDEN);
             }
             else {
-                console.log({ error });
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
                     error: error?.message || 'Something went wrong',

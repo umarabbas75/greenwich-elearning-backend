@@ -155,7 +155,6 @@ let UserService = class UserService {
             };
         }
         catch (error) {
-            console.log({ error });
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
@@ -223,7 +222,6 @@ let UserService = class UserService {
                 }, common_1.HttpStatus.FORBIDDEN);
             }
             else {
-                console.log({ error });
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
                     error: error?.message || 'Something went wrong',

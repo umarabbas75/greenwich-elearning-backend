@@ -31,7 +31,6 @@ let UserController = class UserController {
         return this.appService.createUser(body);
     }
     updateUser(params, body) {
-        console.log('body update user', body);
         return this.appService.updateUser(params.id, body);
     }
     changePassword(params, body) {

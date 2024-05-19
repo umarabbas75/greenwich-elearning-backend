@@ -29,7 +29,7 @@ export declare class CourseService {
     getAllUserModules(id: string): Promise<ResponseDto>;
     getAllChapters(id: string): Promise<ResponseDto>;
     getAllSections(id: string): Promise<ResponseDto>;
-    getAllUserSections(id: string, userId: string, courseId: string): Promise<ResponseDto>;
+    getAllUserSections(id: string, userId: string, courseId: string): Promise<any>;
     updateCourse(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateModule(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateChapter(id: string, body: UpdateCourseDto): Promise<ResponseDto>;

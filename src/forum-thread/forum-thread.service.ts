@@ -203,7 +203,6 @@ export class ForumThreadService {
         );
       } else {
         // Other errors
-        console.log({ error });
         throw new HttpException(
           {
             status: HttpStatus.FORBIDDEN,

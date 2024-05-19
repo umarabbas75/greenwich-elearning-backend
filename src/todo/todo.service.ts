@@ -95,7 +95,6 @@ export class TodoService {
         data: newTodo,
       };
     } catch (error) {
-      console.log('create error', error);
       throw new HttpException(
         {
           status: HttpStatus.INTERNAL_SERVER_ERROR,
@@ -135,7 +134,6 @@ export class TodoService {
         data: {},
       };
     } catch (error) {
-      console.log({ error });
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -182,7 +180,6 @@ export class TodoService {
         );
       } else {
         // Other errors
-        console.log({ error });
         throw new HttpException(
           {
             status: HttpStatus.FORBIDDEN,

@@ -287,7 +287,7 @@ export class QuizService {
       if (Object.entries(body).length === 0) {
         throw new Error('wrong keys');
       }
-      let updateQuiz = {};
+      const updateQuiz = {};
 
       for (const [key, value] of Object.entries(body)) {
         updateQuiz[key] = value;
@@ -351,7 +351,6 @@ export class QuizService {
         );
       } else {
         // Other errors
-        console.log({ error });
         throw new HttpException(
           {
             status: HttpStatus.FORBIDDEN,
@@ -433,7 +432,7 @@ export class QuizService {
     chapterId: string,
   ): Promise<ResponseDto> {
     try {
-      let quizAnswer = await this.prisma.quizAnswer.findMany({
+      const quizAnswer = await this.prisma.quizAnswer.findMany({
         where: {
           userId: userId,
           chapterId: chapterId,

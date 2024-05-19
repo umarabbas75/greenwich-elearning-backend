@@ -93,7 +93,6 @@ export class CourseService {
         );
       } else {
         // Other errors
-        console.log({ error });
         throw new HttpException(
           {
             status: HttpStatus.FORBIDDEN,
@@ -256,7 +255,6 @@ export class CourseService {
         );
       } else {
         // Other errors
-        console.log({ error });
         throw new HttpException(
           {
             status: HttpStatus.FORBIDDEN,
@@ -415,7 +413,6 @@ export class CourseService {
   }
   async getUserPolicies(userId: any): Promise<ResponseDto> {
     try {
-      console.log({ userId });
       const policiesAndProcedures =
         await this.prisma.policiesAndProcedures.findMany({
           where: {
@@ -925,7 +922,7 @@ export class CourseService {
     id: string,
     userId: string,
     courseId: string,
-  ): Promise<ResponseDto> {
+  ): Promise<any> {
     function insertQuizzes(sections: any, quizzes: any) {
       // Remove first and last indexes for quiz placement
       const availableIndexes = [];
@@ -984,12 +981,12 @@ export class CourseService {
           where: { userId_chapterId: { userId, chapterId: id } },
         }),
       ]);
-      console.log('quizzes', chapter?.quizzes);
+      console.log({ quizAnswer }, chapter.quizzes);
 
       const allSections = sections?.length > 0 ? [...sections] : [];
       const completedSections =
         userCourseProgress?.length > 0 ? [...userCourseProgress] : [];
-      const assignedQuizzesList =
+      let assignedQuizzesList =
         chapter?.quizzes?.length > 0 ? [...chapter?.quizzes] : [];
       const quizAnsweredList = quizAnswer?.length > 0 ? [...quizAnswer] : [];
       allSections?.forEach((section: any) => {
@@ -1005,12 +1002,19 @@ export class CourseService {
 
       assignedQuizzesList?.forEach((quiz: any) => {
         // Check if the section ID exists in completedSections
-        const isCorrect = quizAnsweredList?.some(
-          (completedQuestion: any) => completedQuestion.quizId === quiz.id,
+        const isCorrect = quizAnsweredList?.some((completedQuestion: any) =>
+          completedQuestion.quizId === quiz.id &&
+          completedQuestion?.isAnswerCorrect === true
+            ? true
+            : false,
         );
         // Insert the boolean value into the section object
         quiz.isCorrect = isCorrect;
       });
+
+      assignedQuizzesList = assignedQuizzesList.filter(
+        (item: any) => !item?.isCorrect,
+      );
 
       const mergedArray = insertQuizzes(allSections, assignedQuizzesList);
 
@@ -1021,6 +1025,7 @@ export class CourseService {
         message: 'Successfully fetch all Sections info against chapter',
         statusCode: 200,
         data: mergedArray,
+        chapter: chapter,
       };
     } catch (error) {
       throw new HttpException(
@@ -1131,12 +1136,10 @@ export class CourseService {
         throw new Error('wrong keys');
       }
       const updateChapter = {};
-      console.log({ body });
 
       for (const [key, value] of Object.entries(body)) {
         updateChapter[key] = value;
       }
-      console.log({ updateChapter });
 
       // Save the updated user
       const updatedChapter = await this.prisma.chapter.update({
@@ -1209,7 +1212,6 @@ export class CourseService {
       const course = await this.prisma.course.findUnique({
         where: { id },
       });
-      console.log({ course });
       if (!course) {
         throw new Error('Course not found');
       }
@@ -1224,7 +1226,6 @@ export class CourseService {
         data: course,
       };
     } catch (error) {
-      console.log({ error });
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2003'
@@ -1240,7 +1241,6 @@ export class CourseService {
         );
       } else {
         // Other errors
-        console.log({ error });
         throw new HttpException(
           {
             status: HttpStatus.FORBIDDEN,
@@ -1289,7 +1289,6 @@ export class CourseService {
         );
       } else {
         // Other errors
-        console.log({ error });
         throw new HttpException(
           {
             status: HttpStatus.FORBIDDEN,
@@ -1338,7 +1337,6 @@ export class CourseService {
         );
       } else {
         // Other errors
-        console.log({ error });
         throw new HttpException(
           {
             status: HttpStatus.FORBIDDEN,
@@ -1372,7 +1370,6 @@ export class CourseService {
     //     data: user,
     //   };
     // } catch (error) {
-    //   console.log({error})
     //   throw new HttpException(
     //     {
     //       status: HttpStatus.FORBIDDEN,
@@ -1418,7 +1415,6 @@ export class CourseService {
         data: section,
       };
     } catch (error) {
-      console.log({ error });
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2003'
@@ -1434,7 +1430,6 @@ export class CourseService {
         );
       } else {
         // Other errors
-        console.log({ error });
         throw new HttpException(
           {
             status: HttpStatus.FORBIDDEN,

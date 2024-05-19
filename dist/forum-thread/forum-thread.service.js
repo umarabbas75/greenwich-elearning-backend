@@ -184,7 +184,6 @@ let ForumThreadService = class ForumThreadService {
                 }, common_1.HttpStatus.FORBIDDEN);
             }
             else {
-                console.log({ error });
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
                     error: error?.message || 'Something went wrong',

@@ -225,7 +225,7 @@ let QuizService = class QuizService {
             if (Object.entries(body).length === 0) {
                 throw new Error('wrong keys');
             }
-            let updateQuiz = {};
+            const updateQuiz = {};
             for (const [key, value] of Object.entries(body)) {
                 updateQuiz[key] = value;
             }
@@ -274,7 +274,6 @@ let QuizService = class QuizService {
                 }, common_1.HttpStatus.FORBIDDEN);
             }
             else {
-                console.log({ error });
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
                     error: error?.message || 'Something went wrong',
@@ -343,7 +342,7 @@ let QuizService = class QuizService {
     }
     async getUserQuizAnswers(userId, chapterId) {
         try {
-            let quizAnswer = await this.prisma.quizAnswer.findMany({
+            const quizAnswer = await this.prisma.quizAnswer.findMany({
                 where: {
                     userId: userId,
                     chapterId: chapterId,

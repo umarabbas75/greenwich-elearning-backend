@@ -88,7 +88,6 @@ let TodoService = class TodoService {
             };
         }
         catch (error) {
-            console.log('create error', error);
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.INTERNAL_SERVER_ERROR,
                 error: error?.message || 'Failed to create todo',
@@ -121,7 +120,6 @@ let TodoService = class TodoService {
             };
         }
         catch (error) {
-            console.log({ error });
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
@@ -156,7 +154,6 @@ let TodoService = class TodoService {
                 }, common_1.HttpStatus.FORBIDDEN);
             }
             else {
-                console.log({ error });
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
                     error: error?.message || 'Something went wrong',
