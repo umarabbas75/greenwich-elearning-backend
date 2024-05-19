@@ -19,7 +19,6 @@ import {
   ResponseDto,
   UpdateCourseDto,
   UpdateCourseProgress,
-  UpdateLastSeen,
 } from '../dto';
 import { User } from '@prisma/client';
 import { GetUser } from '../decorator';
@@ -298,11 +297,12 @@ export class CourseController {
   }
   @UseGuards(AuthGuard('uJwt'))
   @Post('/section/updateLastSeen/')
-  updateLastSeen(@Body() body: UpdateLastSeen, @GetUser() user: User) {
+  updateLastSeen(@Body() body: any, @GetUser() user: User) {
     return this.appService.updateLastSeenSection(
       user.id,
       body.chapterId,
       body.sectionId,
+      body.moduleId,
     );
   }
 }

@@ -40,9 +40,9 @@ export declare class CourseService {
     deleteSection(id: string): Promise<ResponseDto>;
     assignCourse(userId: string, courseId: string): Promise<ResponseDto>;
     unAssignCourse(userId: string, courseId: string): Promise<ResponseDto>;
-    getAllAssignedCourses(userId: string): Promise<ResponseDto>;
+    getAllAssignedCourses(userId: string): Promise<any>;
     updateUserChapterProgress(userId: string, body: UpdateCourseProgress): Promise<ResponseDto>;
     getUserChapterProgress(userId: string, courseId: string, chapterId: string): Promise<ResponseDto>;
     getLastSeenSection(userId: string, chapterId: string): Promise<ResponseDto>;
-    updateLastSeenSection(userId: string, chapterId: string, sectionId: string): Promise<ResponseDto>;
+    updateLastSeenSection(userId: string, chapterId: string, sectionId: string, moduleId: string): Promise<ResponseDto>;
 }

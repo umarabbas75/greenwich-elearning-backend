@@ -146,7 +146,7 @@ let CourseController = class CourseController {
         return this.appService.getLastSeenSection(param.userId, param.chapterId);
     }
     updateLastSeen(body, user) {
-        return this.appService.updateLastSeenSection(user.id, body.chapterId, body.sectionId);
+        return this.appService.updateLastSeenSection(user.id, body.chapterId, body.sectionId, body.moduleId);
     }
 };
 exports.CourseController = CourseController;
@@ -499,7 +499,7 @@ __decorate([
     __param(0, (0, common_1.Body)()),
     __param(1, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.UpdateLastSeen, Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", void 0)
 ], CourseController.prototype, "updateLastSeen", null);
 exports.CourseController = CourseController = __decorate([

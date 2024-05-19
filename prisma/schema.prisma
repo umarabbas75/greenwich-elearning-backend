@@ -165,6 +165,7 @@ model LastSeenSection {
   id        String   @id @default(uuid())
   userId    String
   chapterId String
+  moduleId  String
   sectionId String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
