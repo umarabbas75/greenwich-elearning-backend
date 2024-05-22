@@ -10,6 +10,7 @@ async function bootstrap() {
       'https://greenwich-elearning.vercel.app/user',
       'https://www.greenwichtc-elearning.com',
       'https://greenwichtc-elearning.com',
+      'https://www.greenwichtc-elearning.com/',
       'http://localhost:3001',
       'http://localhost:3000',
     ], // Specify the origin of your frontend
