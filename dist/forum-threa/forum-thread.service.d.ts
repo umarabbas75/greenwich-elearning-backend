@@ -2,8 +2,6 @@ import { PrismaService } from '../prisma/prisma.service';
 export declare class ForumThreadService {
     private prisma;
     constructor(prisma: PrismaService);
-    createFavoriteForumThread(body: any, userId: string): Promise<any>;
-    unFavoriteForumThread(params: any, userId: string): Promise<any>;
     getAllForumThreads(user: any): Promise<any>;
     createForumThread(body: any, userId: string): Promise<any>;
     updateForumThread(forumThreadId: string, body: any): Promise<any>;

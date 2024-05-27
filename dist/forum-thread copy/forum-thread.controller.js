@@ -21,12 +21,6 @@ let ForumThreadController = class ForumThreadController {
     constructor(forumThreadService) {
         this.forumThreadService = forumThreadService;
     }
-    createFavoriteForumThread(body, user) {
-        return this.forumThreadService.createFavoriteForumThread(body, user.id);
-    }
-    unFavoriteForumThread(params, user) {
-        return this.forumThreadService.unFavoriteForumThread(params, user.id);
-    }
     createForumThread(body, user) {
         return this.forumThreadService.createForumThread(body, user.id);
     }
@@ -44,24 +38,6 @@ let ForumThreadController = class ForumThreadController {
     }
 };
 exports.ForumThreadController = ForumThreadController;
-__decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
-    (0, common_1.Post)('/favorite'),
-    __param(0, (0, common_1.Body)()),
-    __param(1, (0, decorator_1.GetUser)()),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
-    __metadata("design:returntype", Promise)
-], ForumThreadController.prototype, "createFavoriteForumThread", null);
-__decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
-    (0, common_1.Delete)('/favorite/:id'),
-    __param(0, (0, common_1.Param)()),
-    __param(1, (0, decorator_1.GetUser)()),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
-    __metadata("design:returntype", Promise)
-], ForumThreadController.prototype, "unFavoriteForumThread", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Post)('/'),

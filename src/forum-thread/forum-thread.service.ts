@@ -11,77 +11,133 @@ import { ForumThread, Prisma } from '@prisma/client';
 export class ForumThreadService {
   constructor(private prisma: PrismaService) {}
 
+  async createFavoriteForumThread(body: any, userId: string): Promise<any> {
+    try {
+      const favorite = await this.prisma.favoriteForumThread.create({
+        data: {
+          userId,
+          threadId: body.threadId,
+        },
+      });
+      return {
+        message: 'Successfully favorite the thread for user',
+        statusCode: 200,
+        data: favorite,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async unFavoriteForumThread(params: any, userId: string): Promise<any> {
+    try {
+      const favorite = await this.prisma.favoriteForumThread.delete({
+        where: {
+          userId_threadId: {
+            userId,
+            threadId: params.id,
+          },
+        },
+      });
+      return {
+        message: 'Successfully unfavorite the thread for user',
+        statusCode: 200,
+        data: favorite,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
   async getAllForumThreads(user: any): Promise<any> {
     try {
-      let forums = {};
-      if (user?.role === 'user') {
-        forums = await this.prisma.forumThread.findMany({
-          orderBy: {
-            createdAt: 'desc',
-          },
-          where: {
-            status: 'active',
-          },
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-              },
+      // Step 1: Fetch favorite thread IDs for the user
+      const favoriteThreads = user
+        ? await this.prisma.favoriteForumThread.findMany({
+            where: {
+              userId: user.id,
             },
-            ForumComment: {
-              select: {
-                id: true,
-                user: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                  },
+            select: {
+              threadId: true,
+            },
+          })
+        : [];
+
+      const favoriteThreadIds = new Set(
+        favoriteThreads.map((fav) => fav.threadId),
+      );
+
+      // Step 2: Fetch all forum threads
+      const forums = await this.prisma.forumThread.findMany({
+        orderBy: {
+          createdAt: 'desc',
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+          ForumComment: {
+            select: {
+              id: true,
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
                 },
-                createdAt: true,
               },
-              orderBy: {
-                createdAt: Prisma.SortOrder.desc, // Order comments by createdAt in descending order
-              },
+              createdAt: true,
+            },
+            orderBy: {
+              createdAt: Prisma.SortOrder.desc,
             },
           },
+        },
+        where: user?.role === 'user' ? { status: 'active' } : undefined,
+      });
+
+      // Step 3: Add `isFavorite` property to each thread and sort favorite threads on top
+      const sortedForums = forums
+        .map((thread) => ({
+          ...thread,
+          isFavorite: favoriteThreadIds.has(thread.id),
+        }))
+        .sort((a, b) => {
+          if (a.isFavorite && !b.isFavorite) {
+            return -1;
+          }
+          if (!a.isFavorite && b.isFavorite) {
+            return 1;
+          }
+          return 0;
         });
-      } else {
-        forums = await this.prisma.forumThread.findMany({
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-              },
-            },
-            ForumComment: {
-              select: {
-                id: true,
-                user: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                  },
-                },
-                createdAt: true,
-              },
-              orderBy: {
-                createdAt: Prisma.SortOrder.desc, // Order comments by createdAt in descending order
-              },
-            },
-          },
-        });
-      }
 
       return {
-        message: 'Successfully fetch all forum threads',
+        message: 'Successfully fetched all forum threads',
         statusCode: 200,
-        data: forums,
+        data: sortedForums,
       };
     } catch (error) {
       throw new HttpException(

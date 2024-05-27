@@ -17,116 +17,77 @@ let ForumThreadService = class ForumThreadService {
     constructor(prisma) {
         this.prisma = prisma;
     }
-    async createFavoriteForumThread(body, userId) {
-        try {
-            const favorite = await this.prisma.favoriteForumThread.create({
-                data: {
-                    userId,
-                    threadId: body.threadId,
-                },
-            });
-            return {
-                message: 'Successfully favorite the thread for user',
-                statusCode: 200,
-                data: favorite,
-            };
-        }
-        catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
-            });
-        }
-    }
-    async unFavoriteForumThread(params, userId) {
-        try {
-            const favorite = await this.prisma.favoriteForumThread.delete({
-                where: {
-                    userId_threadId: {
-                        userId,
-                        threadId: params.id,
-                    },
-                },
-            });
-            return {
-                message: 'Successfully unfavorite the thread for user',
-                statusCode: 200,
-                data: favorite,
-            };
-        }
-        catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
-            });
-        }
-    }
     async getAllForumThreads(user) {
         try {
-            const favoriteThreads = user
-                ? await this.prisma.favoriteForumThread.findMany({
+            let forums = {};
+            if (user?.role === 'user') {
+                forums = await this.prisma.forumThread.findMany({
+                    orderBy: {
+                        createdAt: 'desc',
+                    },
                     where: {
-                        userId: user.id,
+                        status: 'active',
                     },
-                    select: {
-                        threadId: true,
-                    },
-                })
-                : [];
-            const favoriteThreadIds = new Set(favoriteThreads.map((fav) => fav.threadId));
-            const forums = await this.prisma.forumThread.findMany({
-                orderBy: {
-                    createdAt: 'desc',
-                },
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            firstName: true,
-                            lastName: true,
-                        },
-                    },
-                    ForumComment: {
-                        select: {
-                            id: true,
-                            user: {
-                                select: {
-                                    id: true,
-                                    firstName: true,
-                                    lastName: true,
-                                },
+                    include: {
+                        user: {
+                            select: {
+                                id: true,
+                                firstName: true,
+                                lastName: true,
                             },
-                            createdAt: true,
                         },
-                        orderBy: {
-                            createdAt: client_1.Prisma.SortOrder.desc,
+                        ForumComment: {
+                            select: {
+                                id: true,
+                                user: {
+                                    select: {
+                                        id: true,
+                                        firstName: true,
+                                        lastName: true,
+                                    },
+                                },
+                                createdAt: true,
+                            },
+                            orderBy: {
+                                createdAt: client_1.Prisma.SortOrder.desc,
+                            },
                         },
                     },
-                },
-                where: user?.role === 'user' ? { status: 'active' } : undefined,
-            });
-            const sortedForums = forums
-                .map((thread) => ({
-                ...thread,
-                isFavorite: favoriteThreadIds.has(thread.id),
-            }))
-                .sort((a, b) => {
-                if (a.isFavorite && !b.isFavorite) {
-                    return -1;
-                }
-                if (!a.isFavorite && b.isFavorite) {
-                    return 1;
-                }
-                return 0;
-            });
+                });
+            }
+            else {
+                forums = await this.prisma.forumThread.findMany({
+                    include: {
+                        user: {
+                            select: {
+                                id: true,
+                                firstName: true,
+                                lastName: true,
+                            },
+                        },
+                        ForumComment: {
+                            select: {
+                                id: true,
+                                user: {
+                                    select: {
+                                        id: true,
+                                        firstName: true,
+                                        lastName: true,
+                                    },
+                                },
+                                createdAt: true,
+                            },
+                            orderBy: {
+                                createdAt: client_1.Prisma.SortOrder.desc,
+                            },
+                        },
+                    },
+                });
+            }
             return {
-                message: 'Successfully fetched all forum threads',
+                message: 'Successfully fetch all forum threads',
                 statusCode: 200,
-                data: sortedForums,
+                data: forums,
             };
         }
         catch (error) {
