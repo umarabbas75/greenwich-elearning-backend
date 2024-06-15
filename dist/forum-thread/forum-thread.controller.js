@@ -21,6 +21,12 @@ let ForumThreadController = class ForumThreadController {
     constructor(forumThreadService) {
         this.forumThreadService = forumThreadService;
     }
+    subscribeForumThread(body, user) {
+        return this.forumThreadService.subscribeForumThread(body, user.id);
+    }
+    unSubscribeForumThread(params, user) {
+        return this.forumThreadService.unSubscribeForumThread(params, user.id);
+    }
     createFavoriteForumThread(body, user) {
         return this.forumThreadService.createFavoriteForumThread(body, user.id);
     }
@@ -36,14 +42,32 @@ let ForumThreadController = class ForumThreadController {
     async getForumThread(params) {
         return this.forumThreadService.getForumThread(params.forumThreadId);
     }
-    updateForumThread(params, body) {
-        return this.forumThreadService.updateForumThread(params.forumThreadId, body);
+    updateForumThread(params, body, user) {
+        return this.forumThreadService.updateForumThread(params.forumThreadId, body, user?.id);
     }
     deleteForumThread(params) {
         return this.forumThreadService.deleteForumThread(params.forumThreadId);
     }
 };
 exports.ForumThreadController = ForumThreadController;
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Post)('/subscribe'),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], ForumThreadController.prototype, "subscribeForumThread", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Delete)('/subscribe/:id'),
+    __param(0, (0, common_1.Param)()),
+    __param(1, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], ForumThreadController.prototype, "unSubscribeForumThread", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Post)('/favorite'),
@@ -92,8 +116,9 @@ __decorate([
     (0, common_1.Put)('/update/:forumThreadId'),
     __param(0, (0, common_1.Param)()),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object, Object, Object]),
     __metadata("design:returntype", void 0)
 ], ForumThreadController.prototype, "updateForumThread", null);
 __decorate([

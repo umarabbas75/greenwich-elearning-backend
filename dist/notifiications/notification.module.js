@@ -6,26 +6,26 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ForumModule = void 0;
+exports.NotificationModule = void 0;
 const common_1 = require("@nestjs/common");
-const forum_thread_service_1 = require("./forum-thread.service");
-const forum_thread_controller_1 = require("./forum-thread.controller");
+const notification_service_1 = require("./notification.service");
+const notification_controller_1 = require("./notification.controller");
 const jwt_1 = require("@nestjs/jwt");
 const strategy_1 = require("../strategy");
-let ForumModule = class ForumModule {
+let NotificationModule = class NotificationModule {
 };
-exports.ForumModule = ForumModule;
-exports.ForumModule = ForumModule = __decorate([
+exports.NotificationModule = NotificationModule;
+exports.NotificationModule = NotificationModule = __decorate([
     (0, common_1.Module)({
         imports: [jwt_1.JwtModule.register({})],
         providers: [
-            forum_thread_service_1.ForumThreadService,
+            notification_service_1.NotificationService,
             strategy_1.JwtUserStrategy,
             strategy_1.JwtAdminStrategy,
             strategy_1.JwtCombineStrategy,
         ],
-        controllers: [forum_thread_controller_1.ForumThreadController],
-        exports: [forum_thread_service_1.ForumThreadService],
+        controllers: [notification_controller_1.NotificationController],
+        exports: [notification_service_1.NotificationService],
     })
-], ForumModule);
-//# sourceMappingURL=forum.module.js.map
+], NotificationModule);
+//# sourceMappingURL=notification.module.js.map

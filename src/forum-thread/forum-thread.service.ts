@@ -6,10 +6,70 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 // } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ForumThread, Prisma } from '@prisma/client';
+// import { NotificationService } from 'src/notifiications/notification.service';
 
 @Injectable()
 export class ForumThreadService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    // private notificationService: NotificationService,
+  ) {}
+
+  async subscribeForumThread(body: any, userId: string): Promise<any> {
+    try {
+      const subscribe = await this.prisma.threadSubscription.create({
+        data: {
+          userId,
+          threadId: body.threadId,
+        },
+      });
+      return {
+        message: 'Successfully subscribe the thread for user',
+        statusCode: 200,
+        data: subscribe,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async unSubscribeForumThread(params: any, userId: string): Promise<any> {
+    try {
+      const subscribe = await this.prisma.threadSubscription.delete({
+        where: {
+          userId_threadId: {
+            userId,
+            threadId: params.id,
+          },
+        },
+      });
+      return {
+        message: 'Successfully unsubscribe the thread for user',
+        statusCode: 200,
+        data: subscribe,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
 
   async createFavoriteForumThread(body: any, userId: string): Promise<any> {
     try {
@@ -85,7 +145,23 @@ export class ForumThreadService {
         favoriteThreads.map((fav) => fav.threadId),
       );
 
-      // Step 2: Fetch all forum threads
+      // Step 2: Fetch subscribed thread IDs for the user
+      const subscribedThreads = user
+        ? await this.prisma.threadSubscription.findMany({
+            where: {
+              userId: user.id,
+            },
+            select: {
+              threadId: true,
+            },
+          })
+        : [];
+
+      const subscribedThreadIds = new Set(
+        subscribedThreads.map((sub) => sub.threadId),
+      );
+
+      // Step 3: Fetch all forum threads
       const forums = await this.prisma.forumThread.findMany({
         orderBy: {
           createdAt: 'desc',
@@ -118,11 +194,12 @@ export class ForumThreadService {
         where: user?.role === 'user' ? { status: 'active' } : undefined,
       });
 
-      // Step 3: Add `isFavorite` property to each thread and sort favorite threads on top
+      // Step 4: Add `isFavorite` and `isSubscribed` properties to each thread and sort favorite threads on top
       const sortedForums = forums
         .map((thread) => ({
           ...thread,
           isFavorite: favoriteThreadIds.has(thread.id),
+          isSubscribed: subscribedThreadIds.has(thread.id),
         }))
         .sort((a, b) => {
           if (a.isFavorite && !b.isFavorite) {
@@ -155,7 +232,7 @@ export class ForumThreadService {
 
   async createForumThread(body: any, userId: string): Promise<any> {
     try {
-      await this.prisma.forumThread.create({
+      const newThread = await this.prisma.forumThread.create({
         data: {
           title: body.title,
           content: body.content,
@@ -163,6 +240,15 @@ export class ForumThreadService {
           status: 'inActive',
         },
       });
+      console.log({ newThread });
+
+      //Notify all users if the thread is created by an admin
+
+      // await this.notificationService.notifyAllUsersForNewThread(
+      //   newThread.id,
+      //   userId,
+      // );
+
       return {
         message: 'Successfully create quiz record',
         statusCode: 200,
@@ -182,7 +268,11 @@ export class ForumThreadService {
     }
   }
 
-  async updateForumThread(forumThreadId: string, body: any): Promise<any> {
+  async updateForumThread(
+    forumThreadId: string,
+    body: any,
+    userId: any,
+  ): Promise<any> {
     try {
       const existingForumThread: ForumThread =
         await this.prisma.forumThread.findUnique({
@@ -200,11 +290,55 @@ export class ForumThreadService {
         updateForumThread[key] = value;
       }
 
+      // Check if status is being changed from 'inactive' to 'active' and if notification has not been sent
+      const statusChangingToActive =
+        existingForumThread.status === 'inActive' &&
+        updateForumThread['status'] === 'active';
+
+      const shouldSendNotification =
+        statusChangingToActive && !existingForumThread.notificationSent;
+
+      if (shouldSendNotification) {
+        updateForumThread['notificationSent'] = true;
+      }
       // Save the updated user
       const updatedForumThread = await this.prisma.forumThread.update({
         where: { id: forumThreadId }, // Specify the unique identifier for the user you want to update
         data: updateForumThread, // Pass the modified user object
       });
+
+      //If status is changing to active, notify users
+      if (shouldSendNotification) {
+        // Call a method to notify users about the thread becoming active
+        try {
+          const users = await this.prisma.user.findMany({
+            select: {
+              id: true,
+            },
+          });
+          const notifications = users.map((user) => ({
+            userId: user.id,
+            threadId: forumThreadId,
+            commenterId: userId, // Include the commenterId
+            message: 'A new thread has been created by the admin.',
+          }));
+          console.log({ notifications });
+          await this.prisma.notification.createMany({
+            data: notifications,
+          });
+        } catch (error) {
+          throw new HttpException(
+            {
+              status: HttpStatus.FORBIDDEN,
+              error: error.message || 'Something went wrong',
+            },
+            HttpStatus.FORBIDDEN,
+            {
+              cause: error,
+            },
+          );
+        }
+      }
 
       return {
         message: 'Successfully updated forum record',

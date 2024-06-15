@@ -35,6 +35,30 @@ export class ForumCommentService {
           thread: { connect: { id: body.threadId } }, // Connects the thread by threadId
         },
       });
+
+      // Fetch all subscribed users except the commenter
+      const subscribedUsers = await this.prisma.threadSubscription.findMany({
+        where: {
+          threadId: body.threadId,
+          userId: { not: userId },
+        },
+        select: {
+          userId: true,
+        },
+      });
+
+      // Prepare notifications
+      const notifications = subscribedUsers.map((sub) => ({
+        userId: sub.userId,
+        threadId: body.threadId,
+        message: body.content,
+        commenterId: userId,
+      }));
+      console.log({ notifications, subscribedUsers });
+
+      await this.prisma.notification.createMany({
+        data: notifications,
+      });
       return {
         message: 'Successfully create quiz record',
         statusCode: 200,
@@ -56,8 +80,8 @@ export class ForumCommentService {
 
   async getForumCommentsByThreadId(threadId: string) {
     return this.prisma.forumComment.findMany({
-      orderBy : {
-        createdAt : 'desc'
+      orderBy: {
+        createdAt: 'desc',
       },
       where: {
         threadId,
@@ -71,8 +95,8 @@ export class ForumCommentService {
   async getAllForumThreads(): Promise<any> {
     try {
       const forums = await this.prisma.forumThread.findMany({
-        orderBy : {
-          createdAt : 'desc'
+        orderBy: {
+          createdAt: 'desc',
         },
         include: {
           user: {

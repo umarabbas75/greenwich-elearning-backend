@@ -21,6 +21,21 @@ export class ForumThreadController {
   constructor(private readonly forumThreadService: ForumThreadService) {}
 
   @UseGuards(AuthGuard('cJwt'))
+  @Post('/subscribe')
+  subscribeForumThread(@Body() body: any, @GetUser() user: User): Promise<any> {
+    return this.forumThreadService.subscribeForumThread(body, user.id);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Delete('/subscribe/:id')
+  unSubscribeForumThread(
+    @Param() params: any,
+    @GetUser() user: User,
+  ): Promise<any> {
+    return this.forumThreadService.unSubscribeForumThread(params, user.id);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
   @Post('/favorite')
   createFavoriteForumThread(
     @Body() body: any,
@@ -56,10 +71,15 @@ export class ForumThreadController {
   }
   @UseGuards(AuthGuard('cJwt'))
   @Put('/update/:forumThreadId')
-  updateForumThread(@Param() params: any, @Body() body: any) {
+  updateForumThread(
+    @Param() params: any,
+    @Body() body: any,
+    @GetUser() user: User,
+  ) {
     return this.forumThreadService.updateForumThread(
       params.forumThreadId,
       body,
+      user?.id,
     );
   }
 

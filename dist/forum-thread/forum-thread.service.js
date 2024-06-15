@@ -17,6 +17,54 @@ let ForumThreadService = class ForumThreadService {
     constructor(prisma) {
         this.prisma = prisma;
     }
+    async subscribeForumThread(body, userId) {
+        try {
+            const subscribe = await this.prisma.threadSubscription.create({
+                data: {
+                    userId,
+                    threadId: body.threadId,
+                },
+            });
+            return {
+                message: 'Successfully subscribe the thread for user',
+                statusCode: 200,
+                data: subscribe,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async unSubscribeForumThread(params, userId) {
+        try {
+            const subscribe = await this.prisma.threadSubscription.delete({
+                where: {
+                    userId_threadId: {
+                        userId,
+                        threadId: params.id,
+                    },
+                },
+            });
+            return {
+                message: 'Successfully unsubscribe the thread for user',
+                statusCode: 200,
+                data: subscribe,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
     async createFavoriteForumThread(body, userId) {
         try {
             const favorite = await this.prisma.favoriteForumThread.create({
@@ -78,6 +126,17 @@ let ForumThreadService = class ForumThreadService {
                 })
                 : [];
             const favoriteThreadIds = new Set(favoriteThreads.map((fav) => fav.threadId));
+            const subscribedThreads = user
+                ? await this.prisma.threadSubscription.findMany({
+                    where: {
+                        userId: user.id,
+                    },
+                    select: {
+                        threadId: true,
+                    },
+                })
+                : [];
+            const subscribedThreadIds = new Set(subscribedThreads.map((sub) => sub.threadId));
             const forums = await this.prisma.forumThread.findMany({
                 orderBy: {
                     createdAt: 'desc',
@@ -113,6 +172,7 @@ let ForumThreadService = class ForumThreadService {
                 .map((thread) => ({
                 ...thread,
                 isFavorite: favoriteThreadIds.has(thread.id),
+                isSubscribed: subscribedThreadIds.has(thread.id),
             }))
                 .sort((a, b) => {
                 if (a.isFavorite && !b.isFavorite) {
@@ -140,7 +200,7 @@ let ForumThreadService = class ForumThreadService {
     }
     async createForumThread(body, userId) {
         try {
-            await this.prisma.forumThread.create({
+            const newThread = await this.prisma.forumThread.create({
                 data: {
                     title: body.title,
                     content: body.content,
@@ -148,6 +208,7 @@ let ForumThreadService = class ForumThreadService {
                     status: 'inActive',
                 },
             });
+            console.log({ newThread });
             return {
                 message: 'Successfully create quiz record',
                 statusCode: 200,
@@ -163,7 +224,7 @@ let ForumThreadService = class ForumThreadService {
             });
         }
     }
-    async updateForumThread(forumThreadId, body) {
+    async updateForumThread(forumThreadId, body, userId) {
         try {
             const existingForumThread = await this.prisma.forumThread.findUnique({
                 where: { id: forumThreadId },
@@ -178,10 +239,43 @@ let ForumThreadService = class ForumThreadService {
             for (const [key, value] of Object.entries(body)) {
                 updateForumThread[key] = value;
             }
+            const statusChangingToActive = existingForumThread.status === 'inActive' &&
+                updateForumThread['status'] === 'active';
+            const shouldSendNotification = statusChangingToActive && !existingForumThread.notificationSent;
+            if (shouldSendNotification) {
+                updateForumThread['notificationSent'] = true;
+            }
             const updatedForumThread = await this.prisma.forumThread.update({
                 where: { id: forumThreadId },
                 data: updateForumThread,
             });
+            if (shouldSendNotification) {
+                try {
+                    const users = await this.prisma.user.findMany({
+                        select: {
+                            id: true,
+                        },
+                    });
+                    const notifications = users.map((user) => ({
+                        userId: user.id,
+                        threadId: forumThreadId,
+                        commenterId: userId,
+                        message: 'A new thread has been created by the admin.',
+                    }));
+                    console.log({ notifications });
+                    await this.prisma.notification.createMany({
+                        data: notifications,
+                    });
+                }
+                catch (error) {
+                    throw new common_1.HttpException({
+                        status: common_1.HttpStatus.FORBIDDEN,
+                        error: error.message || 'Something went wrong',
+                    }, common_1.HttpStatus.FORBIDDEN, {
+                        cause: error,
+                    });
+                }
+            }
             return {
                 message: 'Successfully updated forum record',
                 statusCode: 200,

@@ -37,6 +37,25 @@ let ForumCommentService = class ForumCommentService {
                     thread: { connect: { id: body.threadId } },
                 },
             });
+            const subscribedUsers = await this.prisma.threadSubscription.findMany({
+                where: {
+                    threadId: body.threadId,
+                    userId: { not: userId },
+                },
+                select: {
+                    userId: true,
+                },
+            });
+            const notifications = subscribedUsers.map((sub) => ({
+                userId: sub.userId,
+                threadId: body.threadId,
+                message: body.content,
+                commenterId: userId,
+            }));
+            console.log({ notifications, subscribedUsers });
+            await this.prisma.notification.createMany({
+                data: notifications,
+            });
             return {
                 message: 'Successfully create quiz record',
                 statusCode: 200,
@@ -55,7 +74,7 @@ let ForumCommentService = class ForumCommentService {
     async getForumCommentsByThreadId(threadId) {
         return this.prisma.forumComment.findMany({
             orderBy: {
-                createdAt: 'desc'
+                createdAt: 'desc',
             },
             where: {
                 threadId,
@@ -69,7 +88,7 @@ let ForumCommentService = class ForumCommentService {
         try {
             const forums = await this.prisma.forumThread.findMany({
                 orderBy: {
-                    createdAt: 'desc'
+                    createdAt: 'desc',
                 },
                 include: {
                     user: {

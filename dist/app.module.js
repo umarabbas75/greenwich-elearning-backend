@@ -17,6 +17,7 @@ const quiz_module_1 = require("./quiz/quiz.module");
 const forum_module_1 = require("./forum-thread/forum.module");
 const forum_comment_module_1 = require("./forum-comment/forum-comment.module");
 const todo_module_1 = require("./todo/todo.module");
+const notification_module_1 = require("./notifiications/notification.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -31,6 +32,7 @@ exports.AppModule = AppModule = __decorate([
             quiz_module_1.QuizModule,
             todo_module_1.TodoModule,
             forum_module_1.ForumModule,
+            notification_module_1.NotificationModule,
             forum_comment_module_1.ForumCommentModule,
         ],
     })

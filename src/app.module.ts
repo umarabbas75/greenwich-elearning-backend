@@ -8,6 +8,7 @@ import { QuizModule } from './quiz/quiz.module';
 import { ForumModule } from './forum-thread/forum.module';
 import { ForumCommentModule } from './forum-comment/forum-comment.module';
 import { TodoModule } from './todo/todo.module';
+import { NotificationModule } from './notifiications/notification.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { TodoModule } from './todo/todo.module';
     QuizModule,
     TodoModule,
     ForumModule,
+    NotificationModule,
     ForumCommentModule,
   ],
 })
