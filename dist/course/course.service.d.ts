@@ -26,7 +26,7 @@ export declare class CourseService {
     getSection(id: string): Promise<ResponseDto>;
     getAllCourses(): Promise<ResponseDto>;
     getAllModules(id: string): Promise<ResponseDto>;
-    getAllUserModules(id: string): Promise<ResponseDto>;
+    getAllUserModules(id: string, userId: string): Promise<ResponseDto>;
     getAllChapters(id: string): Promise<ResponseDto>;
     getAllSections(id: string): Promise<ResponseDto>;
     getAllUserSections(id: string, userId: string, courseId: string): Promise<any>;

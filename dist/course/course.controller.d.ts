@@ -23,7 +23,7 @@ export declare class CourseController {
     getSection(params: ParamsDto): Promise<ResponseDto>;
     getAllCourses(): Promise<ResponseDto>;
     getAllModules(params: ParamsDto): Promise<ResponseDto>;
-    getAllUserModules(params: ParamsDto): Promise<ResponseDto>;
+    getAllUserModules(params: ParamsDto, user: User): Promise<ResponseDto>;
     getAllChapters(params: ParamsDto): Promise<ResponseDto>;
     getAllSections(params: ParamsDto): Promise<ResponseDto>;
     getAllUserSections(params: ParamsDto1, user: User): Promise<ResponseDto>;

@@ -147,8 +147,11 @@ export class CourseController {
   }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/user/allModules/:id')
-  getAllUserModules(@Param() params: ParamsDto): Promise<ResponseDto> {
-    return this.appService.getAllUserModules(params.id);
+  getAllUserModules(
+    @Param() params: ParamsDto,
+    @GetUser() user: User,
+  ): Promise<ResponseDto> {
+    return this.appService.getAllUserModules(params.id, user.id);
   }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/module/allChapters/:id')

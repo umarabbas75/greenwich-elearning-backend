@@ -642,7 +642,7 @@ let CourseService = class CourseService {
                     },
                 },
                 orderBy: {
-                    createdAt: 'desc',
+                    createdAt: 'asc',
                 },
             });
             if (!(modules.length > 0)) {
@@ -663,7 +663,7 @@ let CourseService = class CourseService {
             });
         }
     }
-    async getAllUserModules(id) {
+    async getAllUserModules(id, userId) {
         try {
             const modules = await this.prisma.module.findMany({
                 where: {
@@ -691,10 +691,20 @@ let CourseService = class CourseService {
             if (!(modules.length > 0)) {
                 throw new Error('No Modules found');
             }
+            const filteredModules = modules.map((module) => {
+                const filteredCourse = {
+                    ...module.course,
+                    UserCourseProgress: module.course.UserCourseProgress.filter((progress) => progress.userId === userId),
+                };
+                return {
+                    ...module,
+                    course: filteredCourse,
+                };
+            });
             return {
                 message: 'Successfully fetch all Modules info against course',
                 statusCode: 200,
-                data: modules,
+                data: filteredModules,
             };
         }
         catch (error) {
@@ -717,7 +727,7 @@ let CourseService = class CourseService {
                     quizzes: true,
                 },
                 orderBy: {
-                    createdAt: 'desc',
+                    createdAt: 'asc',
                 },
             });
             return {
@@ -742,7 +752,7 @@ let CourseService = class CourseService {
                     chapterId: id,
                 },
                 orderBy: {
-                    createdAt: 'desc',
+                    createdAt: 'asc',
                 },
             });
             return {
@@ -779,6 +789,9 @@ let CourseService = class CourseService {
             const [sections, userCourseProgress, chapter, quizAnswer, lastSeenLesson,] = await Promise.all([
                 this.prisma.section.findMany({
                     where: { chapterId: id },
+                    orderBy: {
+                        createdAt: 'asc',
+                    },
                 }),
                 this.prisma.userCourseProgress.findMany({
                     where: { userId, courseId, chapterId: id },
@@ -803,7 +816,6 @@ let CourseService = class CourseService {
                     where: { userId_chapterId: { userId, chapterId: id } },
                 }),
             ]);
-            console.log({ quizAnswer }, chapter.quizzes);
             const allSections = sections?.length > 0 ? [...sections] : [];
             const completedSections = userCourseProgress?.length > 0 ? [...userCourseProgress] : [];
             let assignedQuizzesList = chapter?.quizzes?.length > 0 ? [...chapter?.quizzes] : [];
@@ -1233,9 +1245,9 @@ let CourseService = class CourseService {
                             return (chapterAcc + (chapter.sections ? chapter.sections.length : 0));
                         }, 0));
                 }, 0);
-                const userCourseProgress = course.UserCourseProgress.length;
+                const userCourseProgress = course.UserCourseProgress.filter((progress) => progress.userId === userId).length;
                 const percentage = totalSections > 0 ? (userCourseProgress * 100) / totalSections : 0;
-                const allLastSeenSections = course.modules.flatMap((module) => module.chapters.flatMap((chapter) => chapter.LastSeenSection));
+                const allLastSeenSections = course.modules.flatMap((module) => module.chapters.flatMap((chapter) => chapter.LastSeenSection.filter((lastSeen) => lastSeen.userId === userId)));
                 const latestLastSeenSection = allLastSeenSections.reduce((latest, current) => {
                     return !latest ||
                         new Date(current.updatedAt) > new Date(latest.updatedAt)
@@ -1262,7 +1274,6 @@ let CourseService = class CourseService {
                     },
                 };
             });
-            console.log({ coursesWithProgress });
             return {
                 message: 'Successfully retrieved assigned courses',
                 statusCode: 200,

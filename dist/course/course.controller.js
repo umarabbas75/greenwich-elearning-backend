@@ -79,8 +79,8 @@ let CourseController = class CourseController {
     getAllModules(params) {
         return this.appService.getAllModules(params.id);
     }
-    getAllUserModules(params) {
-        return this.appService.getAllUserModules(params.id);
+    getAllUserModules(params, user) {
+        return this.appService.getAllUserModules(params.id, user.id);
     }
     getAllChapters(params) {
         return this.appService.getAllChapters(params.id);
@@ -311,8 +311,9 @@ __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/user/allModules/:id'),
     __param(0, (0, common_1.Param)()),
+    __param(1, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.ParamsDto]),
+    __metadata("design:paramtypes", [dto_1.ParamsDto, Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getAllUserModules", null);
 __decorate([

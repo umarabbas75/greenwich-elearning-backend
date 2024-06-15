@@ -774,7 +774,7 @@ export class CourseService {
           },
         },
         orderBy: {
-          createdAt: 'desc',
+          createdAt: 'asc',
         },
         // limit: 10,
         // offset: 10,
@@ -800,7 +800,7 @@ export class CourseService {
       );
     }
   }
-  async getAllUserModules(id: string): Promise<ResponseDto> {
+  async getAllUserModules(id: string, userId: string): Promise<ResponseDto> {
     try {
       const modules = await this.prisma.module.findMany({
         where: {
@@ -831,11 +831,24 @@ export class CourseService {
       if (!(modules.length > 0)) {
         throw new Error('No Modules found');
       }
+      // Filter the UserCourseProgress to include only the logged-in user's progress
+      const filteredModules = modules.map((module) => {
+        const filteredCourse = {
+          ...module.course,
+          UserCourseProgress: module.course.UserCourseProgress.filter(
+            (progress) => progress.userId === userId,
+          ),
+        };
+        return {
+          ...module,
+          course: filteredCourse,
+        };
+      });
 
       return {
         message: 'Successfully fetch all Modules info against course',
         statusCode: 200,
-        data: modules,
+        data: filteredModules,
       };
     } catch (error) {
       throw new HttpException(
@@ -861,7 +874,7 @@ export class CourseService {
           quizzes: true,
         },
         orderBy: {
-          createdAt: 'desc',
+          createdAt: 'asc',
         },
         // limit: 10,
         // offset: 10,
@@ -892,7 +905,7 @@ export class CourseService {
           chapterId: id,
         },
         orderBy: {
-          createdAt: 'desc',
+          createdAt: 'asc',
         },
         // limit: 10,
         // offset: 10,
@@ -957,6 +970,9 @@ export class CourseService {
       ] = await Promise.all([
         this.prisma.section.findMany({
           where: { chapterId: id },
+          orderBy: {
+            createdAt: 'asc',
+          },
         }),
         this.prisma.userCourseProgress.findMany({
           where: { userId, courseId, chapterId: id },
@@ -981,7 +997,6 @@ export class CourseService {
           where: { userId_chapterId: { userId, chapterId: id } },
         }),
       ]);
-      console.log({ quizAnswer }, chapter.quizzes);
 
       const allSections = sections?.length > 0 ? [...sections] : [];
       const completedSections =
@@ -1598,8 +1613,6 @@ export class CourseService {
   //       };
   //     });
 
-  //     console.log({ coursesWithProgress });
-
   //     return {
   //       message: 'Successfully retrieved assigned courses',
   //       statusCode: 200,
@@ -1661,13 +1674,20 @@ export class CourseService {
           );
         }, 0);
 
-        const userCourseProgress = course.UserCourseProgress.length;
+        // Filter UserCourseProgress by userId
+        const userCourseProgress = course.UserCourseProgress.filter(
+          (progress) => progress.userId === userId,
+        ).length;
         const percentage =
           totalSections > 0 ? (userCourseProgress * 100) / totalSections : 0;
 
-        // Find the latest LastSeenSection
+        // Find the latest LastSeenSection for the specific user
         const allLastSeenSections = course.modules.flatMap((module) =>
-          module.chapters.flatMap((chapter) => chapter.LastSeenSection),
+          module.chapters.flatMap((chapter) =>
+            chapter.LastSeenSection.filter(
+              (lastSeen) => lastSeen.userId === userId,
+            ),
+          ),
         );
         const latestLastSeenSection = allLastSeenSections.reduce(
           (latest, current) => {
@@ -1702,8 +1722,6 @@ export class CourseService {
         };
       });
 
-      console.log({ coursesWithProgress });
-
       return {
         message: 'Successfully retrieved assigned courses',
         statusCode: 200,
@@ -1722,6 +1740,72 @@ export class CourseService {
       );
     }
   }
+
+  // async getAllAssignedCourses(userId: string): Promise<ResponseDto> {
+  //   try {
+  //     const user = await this.prisma.user.findUnique({
+  //       where: { id: userId },
+  //       include: { courses: true }, // Include the courses relation
+  //     });
+  //     if (!user) {
+  //       throw new Error('User not found');
+  //     }
+
+  //     const extendedCourses: ExtendedCourse[] = user.courses.map((course) => ({
+  //       ...course,
+  //     }));
+
+  //     for (let i = 0; i < extendedCourses.length; i++) {
+  //       const modules = await this.prisma.module.findMany({
+  //         where: { courseId: extendedCourses[i].id },
+  //         include: {
+  //           chapters: {
+  //             include: {
+  //               sections: true,
+  //             },
+  //           },
+  //         },
+  //       });
+  //       const sections = modules.flatMap((module) =>
+  //         module.chapters.flatMap((chapter) => chapter.sections),
+  //       );
+  //       extendedCourses[i].totalSections = sections.length;
+
+  //       const userCourseProgress =
+  //         await this.prisma.userCourseProgress.findMany({
+  //           where: {
+  //             userId,
+  //             courseId: extendedCourses[i].id,
+  //           },
+  //         });
+  //       if (extendedCourses[i].totalSections > 0) {
+  //         const percentage =
+  //           (userCourseProgress.length / extendedCourses[i].totalSections) *
+  //           100;
+  //         extendedCourses[i].percentage = percentage;
+  //       } else {
+  //         extendedCourses[i].percentage = 0;
+  //       }
+  //     }
+
+  //     return {
+  //       message: 'Successfully retrieved assigned courses',
+  //       statusCode: 200,
+  //       data: extendedCourses,
+  //     };
+  //   } catch (error) {
+  //     throw new HttpException(
+  //       {
+  //         status: HttpStatus.FORBIDDEN,
+  //         error: error?.message || 'Something went wrong',
+  //       },
+  //       HttpStatus.FORBIDDEN,
+  //       {
+  //         cause: error,
+  //       },
+  //     );
+  //   }
+  // }
 
   async updateUserChapterProgress(
     userId: string,
