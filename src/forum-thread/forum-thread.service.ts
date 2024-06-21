@@ -161,7 +161,7 @@ export class ForumThreadService {
         subscribedThreads.map((sub) => sub.threadId),
       );
 
-      // Step 3: Fetch all forum threads
+      // Step 3: Fetch all forum threads with comments and commenters
       const forums = await this.prisma.forumThread.findMany({
         orderBy: {
           createdAt: 'desc',
@@ -194,12 +194,45 @@ export class ForumThreadService {
         where: user?.role === 'user' ? { status: 'active' } : undefined,
       });
 
-      // Step 4: Add `isFavorite` and `isSubscribed` properties to each thread and sort favorite threads on top
+      // Step 4: Fetch all unique commenters for each thread
+      const threadIds = forums.map((forum) => forum.id);
+      const allComments = await this.prisma.forumComment.findMany({
+        where: {
+          threadId: {
+            in: threadIds,
+          },
+        },
+        select: {
+          threadId: true,
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+
+      // Group commenters by threadId
+      const commentersByThread: Record<
+        string,
+        Set<{ id: string; firstName: string; lastName: string }>
+      > = {};
+      allComments.forEach((comment) => {
+        if (!commentersByThread[comment.threadId]) {
+          commentersByThread[comment.threadId] = new Set();
+        }
+        commentersByThread[comment.threadId].add(comment.user);
+      });
+
+      // Step 5: Add `isFavorite`, `isSubscribed`, and `commenters` properties to each thread and sort favorite threads on top
       const sortedForums = forums
         .map((thread) => ({
           ...thread,
           isFavorite: favoriteThreadIds.has(thread.id),
           isSubscribed: subscribedThreadIds.has(thread.id),
+          commenters: Array.from(commentersByThread[thread.id] || []),
         }))
         .sort((a, b) => {
           if (a.isFavorite && !b.isFavorite) {

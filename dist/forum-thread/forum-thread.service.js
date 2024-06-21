@@ -168,11 +168,37 @@ let ForumThreadService = class ForumThreadService {
                 },
                 where: user?.role === 'user' ? { status: 'active' } : undefined,
             });
+            const threadIds = forums.map((forum) => forum.id);
+            const allComments = await this.prisma.forumComment.findMany({
+                where: {
+                    threadId: {
+                        in: threadIds,
+                    },
+                },
+                select: {
+                    threadId: true,
+                    user: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                        },
+                    },
+                },
+            });
+            const commentersByThread = {};
+            allComments.forEach((comment) => {
+                if (!commentersByThread[comment.threadId]) {
+                    commentersByThread[comment.threadId] = new Set();
+                }
+                commentersByThread[comment.threadId].add(comment.user);
+            });
             const sortedForums = forums
                 .map((thread) => ({
                 ...thread,
                 isFavorite: favoriteThreadIds.has(thread.id),
                 isSubscribed: subscribedThreadIds.has(thread.id),
+                commenters: Array.from(commentersByThread[thread.id] || []),
             }))
                 .sort((a, b) => {
                 if (a.isFavorite && !b.isFavorite) {
