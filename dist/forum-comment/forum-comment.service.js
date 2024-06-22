@@ -72,7 +72,8 @@ let ForumCommentService = class ForumCommentService {
         }
     }
     async getForumCommentsByThreadId(threadId) {
-        return this.prisma.forumComment.findMany({
+        console.log({ threadId });
+        const comments = await this.prisma.forumComment.findMany({
             orderBy: {
                 createdAt: 'desc',
             },
@@ -83,6 +84,11 @@ let ForumCommentService = class ForumCommentService {
                 user: true,
             },
         });
+        return {
+            message: 'Successfully fetch all forum comments',
+            statusCode: 200,
+            data: comments,
+        };
     }
     async getAllForumThreads() {
         try {

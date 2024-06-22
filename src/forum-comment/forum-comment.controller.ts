@@ -33,7 +33,9 @@ export class ForumCommentController {
   @UseGuards(AuthGuard('cJwt'))
   @Get('/:forumThreadId')
   async getForumCommentsByThreadId(@Param() params: any) {
-    return this.forumThreadService.getForumCommentsByThreadId(params?.threadId);
+    return this.forumThreadService.getForumCommentsByThreadId(
+      params?.forumThreadId,
+    );
   }
 
   @UseGuards(AuthGuard('cJwt'))

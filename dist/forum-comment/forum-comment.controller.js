@@ -25,7 +25,7 @@ let ForumCommentController = class ForumCommentController {
         return this.forumThreadService.createForumThreadComment(body, user.id);
     }
     async getForumCommentsByThreadId(params) {
-        return this.forumThreadService.getForumCommentsByThreadId(params?.threadId);
+        return this.forumThreadService.getForumCommentsByThreadId(params?.forumThreadId);
     }
     async updateForumThreadComment(params, body) {
         return this.forumThreadService.updateForumThreadComment(params?.forumThreadId, body);
