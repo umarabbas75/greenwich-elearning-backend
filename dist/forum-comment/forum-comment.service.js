@@ -72,7 +72,6 @@ let ForumCommentService = class ForumCommentService {
         }
     }
     async getForumCommentsByThreadId(threadId) {
-        console.log({ threadId });
         const comments = await this.prisma.forumComment.findMany({
             orderBy: {
                 createdAt: 'desc',
