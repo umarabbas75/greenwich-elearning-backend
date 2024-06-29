@@ -212,7 +212,7 @@ export class CourseController {
   @UseGuards(AuthGuard('jwt'))
   @Put('/section/update/:id')
   updateSection(
-    @Body() body: UpdateCourseDto,
+    @Body() body: any,
     @Param() params: ParamsDto,
   ): Promise<ResponseDto> {
     return this.appService.updateSection(params.id, body);
@@ -248,7 +248,7 @@ export class CourseController {
 
   @UseGuards(AuthGuard('jwt'))
   @Post('/section')
-  createSection(@Body() body: ModuleDto): Promise<ResponseDto> {
+  createSection(@Body() body: any): Promise<ResponseDto> {
     return this.appService.createSection(body);
   }
 

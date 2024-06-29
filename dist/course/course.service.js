@@ -498,6 +498,7 @@ let CourseService = class CourseService {
                 data: {
                     title: body.title,
                     description: body.description,
+                    shortDescription: body?.shortDescription ?? '',
                     chapterId: body.id,
                 },
             });
@@ -604,7 +605,11 @@ let CourseService = class CourseService {
         try {
             const courses = await this.prisma.course.findMany({
                 include: {
-                    modules: true,
+                    _count: {
+                        select: {
+                            modules: true,
+                        },
+                    },
                 },
                 orderBy: {
                     createdAt: 'desc',
@@ -635,9 +640,9 @@ let CourseService = class CourseService {
                     courseId: id,
                 },
                 include: {
-                    chapters: {
-                        include: {
-                            sections: true,
+                    _count: {
+                        select: {
+                            chapters: true,
                         },
                     },
                 },
@@ -655,6 +660,7 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
+            console.log({ error });
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
@@ -723,8 +729,12 @@ let CourseService = class CourseService {
                     moduleId: id,
                 },
                 include: {
-                    sections: true,
-                    quizzes: true,
+                    _count: {
+                        select: {
+                            sections: true,
+                            quizzes: true,
+                        },
+                    },
                 },
                 orderBy: {
                     createdAt: 'asc',
@@ -753,6 +763,14 @@ let CourseService = class CourseService {
                 },
                 orderBy: {
                     createdAt: 'asc',
+                },
+                select: {
+                    id: true,
+                    title: true,
+                    shortDescription: true,
+                    chapterId: true,
+                    createdAt: true,
+                    updatedAt: true,
                 },
             });
             return {

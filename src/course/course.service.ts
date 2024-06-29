@@ -9,10 +9,7 @@ import {
   UpdateCourseProgress,
 } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
-interface ExtendedCourse extends Course {
-  totalSections?: number;
-  percentage?: number;
-}
+
 @Injectable()
 export class CourseService {
   constructor(private prisma: PrismaService) {}
@@ -598,13 +595,13 @@ export class CourseService {
       );
     }
   }
-  async createSection(body: ModuleDto): Promise<ResponseDto> {
+  async createSection(body: any): Promise<ResponseDto> {
     try {
       const section: Section = await this.prisma.section.create({
         data: {
           title: body.title,
           description: body.description,
-
+          shortDescription: body?.shortDescription ?? '',
           chapterId: body.id,
         },
       });
@@ -730,8 +727,13 @@ export class CourseService {
     try {
       const courses = await this.prisma.course.findMany({
         include: {
-          modules: true,
+          _count: {
+            select: {
+              modules: true,
+            },
+          },
         },
+
         orderBy: {
           createdAt: 'desc',
         },
@@ -767,11 +769,14 @@ export class CourseService {
           courseId: id,
         },
         include: {
-          chapters: {
-            include: {
-              sections: true,
+          _count: {
+            select: {
+              chapters: true,
             },
           },
+          // chapters: {
+
+          // },
         },
         orderBy: {
           createdAt: 'asc',
@@ -788,6 +793,7 @@ export class CourseService {
         data: modules,
       };
     } catch (error) {
+      console.log({ error });
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -870,8 +876,12 @@ export class CourseService {
           moduleId: id,
         },
         include: {
-          sections: true,
-          quizzes: true,
+          _count: {
+            select: {
+              sections: true,
+              quizzes: true,
+            },
+          },
         },
         orderBy: {
           createdAt: 'asc',
@@ -906,6 +916,17 @@ export class CourseService {
         },
         orderBy: {
           createdAt: 'asc',
+        },
+        select: {
+          // Add select object to specify desired fields
+          id: true,
+          // Include other fields you want to fetch (replace with actual field names)
+          title: true,
+          shortDescription: true,
+          chapterId: true,
+          createdAt: true,
+          updatedAt: true,
+          // ...other fields
         },
         // limit: 10,
         // offset: 10,

@@ -385,8 +385,7 @@ __decorate([
     __param(0, (0, common_1.Body)()),
     __param(1, (0, common_1.Param)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.UpdateCourseDto,
-        dto_1.ParamsDto]),
+    __metadata("design:paramtypes", [Object, dto_1.ParamsDto]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "updateSection", null);
 __decorate([
@@ -434,7 +433,7 @@ __decorate([
     (0, common_1.Post)('/section'),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.ModuleDto]),
+    __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "createSection", null);
 __decorate([

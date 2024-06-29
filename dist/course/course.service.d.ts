@@ -19,7 +19,7 @@ export declare class CourseService {
     createCourse(body: CourseDto): Promise<ResponseDto>;
     createModule(body: ModuleDto): Promise<ResponseDto>;
     createChapter(body: ModuleDto): Promise<ResponseDto>;
-    createSection(body: ModuleDto): Promise<ResponseDto>;
+    createSection(body: any): Promise<ResponseDto>;
     getCourse(id: string): Promise<ResponseDto>;
     getModule(id: string): Promise<ResponseDto>;
     getChapter(id: string): Promise<ResponseDto>;
