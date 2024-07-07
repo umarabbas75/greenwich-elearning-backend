@@ -109,9 +109,7 @@ export class UserService {
           password,
           phone: body.phone,
           role: body.role,
-          photo:
-            body?.photo ??
-            'https://avatar.iran.liara.run/public/boy?username=Ash',
+          photo: body?.photo ?? null,
         },
       });
       delete user.password;
@@ -145,7 +143,7 @@ export class UserService {
       if (Object.entries(body).length === 0) {
         throw new Error('wrong keys');
       }
-      let updateUser = {};
+      const updateUser = {};
 
       for (const [key, value] of Object.entries(body)) {
         updateUser[key] = value;

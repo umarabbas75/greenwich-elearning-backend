@@ -1233,69 +1233,66 @@ let CourseService = class CourseService {
             const user = await this.prisma.user.findUnique({
                 where: { id: userId },
                 include: {
-                    courses: {
-                        include: {
-                            modules: {
-                                include: {
-                                    chapters: {
-                                        include: {
-                                            LastSeenSection: true,
-                                            sections: true,
+                    courses: true,
+                },
+            });
+            if (!user) {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.NOT_FOUND,
+                    error: 'User not found',
+                }, common_1.HttpStatus.NOT_FOUND);
+            }
+            const courseIds = user.courses.map((course) => course.id);
+            const [sectionCounts, progressCounts] = await Promise.all([
+                this.prisma.course.findMany({
+                    where: {
+                        id: { in: courseIds },
+                    },
+                    select: {
+                        id: true,
+                        modules: {
+                            select: {
+                                chapters: {
+                                    select: {
+                                        _count: {
+                                            select: { sections: true },
                                         },
                                     },
                                 },
                             },
-                            UserCourseProgress: true,
                         },
                     },
-                },
-            });
-            if (!user) {
-                throw new Error('User not found or no courses assigned');
-            }
-            if (!user.courses || user.courses.length === 0) {
-                throw new Error('No courses found for the user');
-            }
-            const coursesWithProgress = user.courses.map((course) => {
-                const totalSections = course.modules.reduce((acc, module) => {
-                    return (acc +
-                        module.chapters.reduce((chapterAcc, chapter) => {
-                            return (chapterAcc + (chapter.sections ? chapter.sections.length : 0));
-                        }, 0));
-                }, 0);
-                const userCourseProgress = course.UserCourseProgress.filter((progress) => progress.userId === userId).length;
-                const percentage = totalSections > 0 ? (userCourseProgress * 100) / totalSections : 0;
-                const allLastSeenSections = course.modules.flatMap((module) => module.chapters.flatMap((chapter) => chapter.LastSeenSection.filter((lastSeen) => lastSeen.userId === userId)));
-                const latestLastSeenSection = allLastSeenSections.reduce((latest, current) => {
-                    return !latest ||
-                        new Date(current.updatedAt) > new Date(latest.updatedAt)
-                        ? current
-                        : latest;
-                }, null);
-                let latestLastSeenSectionTitle = '';
-                if (latestLastSeenSection) {
-                    const correspondingSection = course.modules
-                        .flatMap((module) => module.chapters)
-                        .flatMap((chapter) => chapter.sections)
-                        .find((section) => section.id === latestLastSeenSection.sectionId);
-                    if (correspondingSection) {
-                        latestLastSeenSectionTitle = correspondingSection.title;
-                    }
-                }
+                }),
+                this.prisma.userCourseProgress.groupBy({
+                    by: ['courseId'],
+                    where: {
+                        courseId: { in: courseIds },
+                    },
+                    _count: {
+                        courseId: true,
+                    },
+                }),
+            ]);
+            const coursesWithCounts = user.courses.map((course) => {
+                const sectionsCount = sectionCounts
+                    .find((sc) => sc.id === course.id)
+                    ?.modules.flatMap((module) => module.chapters)
+                    .reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
+                const userCourseProgressCount = progressCounts.find((pc) => pc.courseId === course.id)?._count
+                    .courseId || 0;
                 return {
                     ...course,
-                    totalSections,
-                    percentage,
-                    latestLastSeenSection: {
-                        ...latestLastSeenSection,
-                        title: latestLastSeenSectionTitle,
+                    percentage: (userCourseProgressCount * 100) / sectionsCount ?? 0,
+                    _count: {
+                        totalSections: sectionsCount,
+                        userCourseProgress: userCourseProgressCount,
                     },
                 };
             });
             return {
                 message: 'Successfully retrieved assigned courses',
                 statusCode: 200,
-                data: coursesWithProgress,
+                data: coursesWithCounts,
             };
         }
         catch (error) {
