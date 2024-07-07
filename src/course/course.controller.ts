@@ -306,6 +306,7 @@ export class CourseController {
       body.chapterId,
       body.sectionId,
       body.moduleId,
+      body.courseId,
     );
   }
 }

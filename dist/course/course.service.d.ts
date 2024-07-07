@@ -44,5 +44,5 @@ export declare class CourseService {
     updateUserChapterProgress(userId: string, body: UpdateCourseProgress): Promise<ResponseDto>;
     getUserChapterProgress(userId: string, courseId: string, chapterId: string): Promise<ResponseDto>;
     getLastSeenSection(userId: string, chapterId: string): Promise<ResponseDto>;
-    updateLastSeenSection(userId: string, chapterId: string, sectionId: string, moduleId: string): Promise<ResponseDto>;
+    updateLastSeenSection(userId: string, chapterId: string, sectionId: string, moduleId: string, courseId: string): Promise<ResponseDto>;
 }

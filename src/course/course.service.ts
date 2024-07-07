@@ -1574,7 +1574,7 @@ export class CourseService {
           courses: true,
         },
       });
-
+  
       if (!user) {
         throw new HttpException(
           {
@@ -1584,11 +1584,11 @@ export class CourseService {
           HttpStatus.NOT_FOUND,
         );
       }
-
+  
       const courseIds = user.courses.map((course) => course.id);
-
-      // Fetch section counts and progress counts concurrently
-      const [sectionCounts, progressCounts] = await Promise.all([
+  
+      // Fetch section counts, progress counts, and latest last seen sections concurrently
+      const [sectionCounts, progressCounts, latestLastSeenSections] = await Promise.all([
         this.prisma.course.findMany({
           where: {
             id: { in: courseIds },
@@ -1617,8 +1617,25 @@ export class CourseService {
             courseId: true,
           },
         }),
+        this.prisma.lastSeenSection.findMany({
+          where: {
+            userId: userId,
+            courseId: { in: courseIds },
+          },
+          orderBy: {
+            updatedAt: 'desc',
+          },
+          distinct: ['courseId'],
+          include: {
+            section: {
+              select: {
+                title: true,
+              },
+            },
+          },
+        }),
       ]);
-
+  
       // Map over courses and combine counts
       const coursesWithCounts = user.courses.map((course) => {
         const sectionsCount =
@@ -1626,21 +1643,36 @@ export class CourseService {
             .find((sc) => sc.id === course.id)
             ?.modules.flatMap((module) => module.chapters)
             .reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
-
+  
         const userCourseProgressCount =
-          progressCounts.find((pc) => pc.courseId === course.id)?._count
-            .courseId || 0;
-
+          progressCounts.find((pc) => pc.courseId === course.id)?._count.courseId || 0;
+  
+        const latestLastSeenSection = latestLastSeenSections.find(
+          (lss) => lss.courseId === course.id,
+        );
+  
         return {
           ...course,
-          percentage: (userCourseProgressCount * 100) / sectionsCount ?? 0,
+          percentage: (userCourseProgressCount * 100) / sectionsCount || 0,
           _count: {
             totalSections: sectionsCount,
             userCourseProgress: userCourseProgressCount,
           },
+          latestLastSeenSection: latestLastSeenSection
+            ? {
+                id: latestLastSeenSection.id,
+                userId: latestLastSeenSection.userId,
+                chapterId: latestLastSeenSection.chapterId,
+                moduleId: latestLastSeenSection.moduleId,
+                sectionId: latestLastSeenSection.sectionId,
+                createdAt: latestLastSeenSection.createdAt,
+                updatedAt: latestLastSeenSection.updatedAt,
+                title: latestLastSeenSection.section.title,
+              }
+            : null,
         };
       });
-
+  
       return {
         message: 'Successfully retrieved assigned courses',
         statusCode: 200,
@@ -1659,6 +1691,7 @@ export class CourseService {
       );
     }
   }
+  
 
   //   {
   //     "id": "043d1d75-fc97-4159-a54b-24bae79b798c",
@@ -1981,6 +2014,7 @@ export class CourseService {
     chapterId: string,
     sectionId: string,
     moduleId: string,
+    courseId: string,
   ): Promise<ResponseDto> {
     try {
       await this.prisma.lastSeenSection.upsert({
@@ -1995,6 +2029,7 @@ export class CourseService {
           chapterId,
           sectionId,
           moduleId,
+          courseId,
         },
       });
 

@@ -19,18 +19,18 @@ model User {
   role                  Role
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
-  courses               Course[]                @relation("CourseToUser")
   LastSeenSection       LastSeenSection[]
-  ForumThread           ForumThread[]
-  ForumComment          ForumComment[]
-  Post                  Post[]
-  Comment               Comment[]
   PoliciesAndProcedures PoliciesAndProcedures[]
   todos                 TodoItem[]
-  Notification          Notification[]
-  commentsMade          Notification[] @relation("Commenter")
+  Comment               Comment[]
   favoriteThreads       FavoriteForumThread[]   @relation("UserFavoriteThreads")
+  ForumComment          ForumComment[]
+  ForumThread           ForumThread[]
+  commentsMade          Notification[]          @relation("Commenter")
+  Notification          Notification[]
+  Post                  Post[]
   threadSubscriptions   ThreadSubscription[]    @relation("UserThreadSubscriptions")
+  courses               Course[]                @relation("CourseToUser")
 
   @@index([email])
   @@map("users")
@@ -58,15 +58,16 @@ model Course {
   assessment         String
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
-  modules            Module[]
-  users              User[]               @relation("CourseToUser")
-  Post               Post[]
   syllabusOverview   String
   resourcesOverview  String
   assessments        Json[]
   resources          Json[]
   syllabus           Json[]
   UserCourseProgress UserCourseProgress[]
+  modules            Module[]
+  Post               Post[]
+  users              User[]               @relation("CourseToUser")
+  LastSeenSection    LastSeenSection[]
 
   @@map("courses")
 }
@@ -93,12 +94,12 @@ model Chapter {
   quizId             String?              @unique
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
+  LastSeenSection    LastSeenSection[]
+  UserCourseProgress UserCourseProgress[]
   module             Module               @relation(fields: [moduleId], references: [id])
+  QuizAnswer         QuizAnswer[]
   quizzes            Quiz[]
   sections           Section[]
-  LastSeenSection    LastSeenSection[]
-  QuizAnswer         QuizAnswer[]
-  UserCourseProgress UserCourseProgress[]
 
   @@map("chapters")
 }
@@ -106,20 +107,20 @@ model Chapter {
 model PoliciesAndProcedures {
   id         String @id @default(uuid())
   policiesId String @unique
-  user       User   @relation(fields: [userId], references: [id])
   userId     String
+  user       User   @relation(fields: [userId], references: [id])
 }
 
 model Section {
-  id              String            @id @default(uuid())
-  title           String
-  description     String
-  shortDescription     String?
-  chapterId       String
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  chapter         Chapter           @relation(fields: [chapterId], references: [id])
-  LastSeenSection LastSeenSection[]
+  id               String            @id @default(uuid())
+  title            String
+  description      String
+  chapterId        String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  shortDescription String?
+  LastSeenSection  LastSeenSection[]
+  chapter          Chapter           @relation(fields: [chapterId], references: [id])
 
   @@map("sections")
 }
@@ -172,12 +173,13 @@ model LastSeenSection {
   chapterId String
   moduleId  String
   sectionId String
+  courseId  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  user    User    @relation(fields: [userId], references: [id])
-  chapter Chapter @relation(fields: [chapterId], references: [id])
-  section Section @relation(fields: [sectionId], references: [id])
+  chapter   Chapter  @relation(fields: [chapterId], references: [id])
+  section   Section  @relation(fields: [sectionId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+  course    Course   @relation(fields: [courseId], references: [id])
 
   @@unique([userId, chapterId])
 }
@@ -188,14 +190,14 @@ model ForumThread {
   content             String
   userId              String
   status              String
-  notificationSent  Boolean    @default(false)
-  user                User                  @relation(fields: [userId], references: [id])
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
-  ForumComment        ForumComment[]
+  notificationSent    Boolean               @default(false)
   FavoriteForumThread FavoriteForumThread[]
-  ThreadSubscription  ThreadSubscription[]
+  ForumComment        ForumComment[]
+  user                User                  @relation(fields: [userId], references: [id])
   Notification        Notification[]
+  ThreadSubscription  ThreadSubscription[]
 
   @@map("forum_threads")
 }
@@ -204,72 +206,68 @@ model ForumComment {
   id        String      @id @default(uuid())
   content   String
   userId    String
-  user      User        @relation(fields: [userId], references: [id])
   threadId  String
-  thread    ForumThread @relation(fields: [threadId], references: [id])
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+  thread    ForumThread @relation(fields: [threadId], references: [id])
+  user      User        @relation(fields: [userId], references: [id])
 
   @@map("forum_comments")
 }
 
 model FavoriteForumThread {
-  id        String   @id @default(uuid())
+  id        String      @id @default(uuid())
   userId    String
   threadId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user   User        @relation("UserFavoriteThreads", fields: [userId], references: [id])
-  thread ForumThread @relation(fields: [threadId], references: [id])
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  thread    ForumThread @relation(fields: [threadId], references: [id])
+  user      User        @relation("UserFavoriteThreads", fields: [userId], references: [id])
 
   @@unique([userId, threadId])
   @@map("favorite_forum_threads")
 }
 
 model ThreadSubscription {
-  id        String   @id @default(uuid())
+  id        String      @id @default(uuid())
   userId    String
   threadId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user   User        @relation("UserThreadSubscriptions", fields: [userId], references: [id])
-  thread ForumThread @relation(fields: [threadId], references: [id])
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  thread    ForumThread @relation(fields: [threadId], references: [id])
+  user      User        @relation("UserThreadSubscriptions", fields: [userId], references: [id])
 
   @@unique([userId, threadId])
   @@map("thread_subscriptions")
 }
 
 model Notification {
-  id          String   @id @default(uuid())
+  id          String      @id @default(uuid())
   userId      String
   threadId    String
   message     String
-  isRead      Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  commenterId String?  // Add this field
-
-  user        User      @relation(fields: [userId], references: [id])
+  isRead      Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  commenterId String?
+  commenter   User?       @relation("Commenter", fields: [commenterId], references: [id])
   thread      ForumThread @relation(fields: [threadId], references: [id])
-  commenter   User?     @relation("Commenter", fields: [commenterId], references: [id])  // Add this relation
+  user        User        @relation(fields: [userId], references: [id])
 
   @@map("notifications")
 }
-
 
 model Post {
   id        String    @id @default(uuid())
   title     String
   content   String
   courseId  String
-  course    Course    @relation(fields: [courseId], references: [id])
   userId    String
-  user      User      @relation(fields: [userId], references: [id])
-  comments  Comment[] // Each post can have multiple comments
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  comments  Comment[]
+  course    Course    @relation(fields: [courseId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
 
   @@map("posts")
 }
@@ -278,11 +276,11 @@ model Comment {
   id        String   @id @default(uuid())
   content   String
   postId    String
-  post      Post     @relation(fields: [postId], references: [id])
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  post      Post     @relation(fields: [postId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
 
   @@map("comments")
 }

@@ -1243,7 +1243,7 @@ let CourseService = class CourseService {
                 }, common_1.HttpStatus.NOT_FOUND);
             }
             const courseIds = user.courses.map((course) => course.id);
-            const [sectionCounts, progressCounts] = await Promise.all([
+            const [sectionCounts, progressCounts, latestLastSeenSections] = await Promise.all([
                 this.prisma.course.findMany({
                     where: {
                         id: { in: courseIds },
@@ -1272,21 +1272,50 @@ let CourseService = class CourseService {
                         courseId: true,
                     },
                 }),
+                this.prisma.lastSeenSection.findMany({
+                    where: {
+                        userId: userId,
+                        courseId: { in: courseIds },
+                    },
+                    orderBy: {
+                        updatedAt: 'desc',
+                    },
+                    distinct: ['courseId'],
+                    include: {
+                        section: {
+                            select: {
+                                title: true,
+                            },
+                        },
+                    },
+                }),
             ]);
             const coursesWithCounts = user.courses.map((course) => {
                 const sectionsCount = sectionCounts
                     .find((sc) => sc.id === course.id)
                     ?.modules.flatMap((module) => module.chapters)
                     .reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
-                const userCourseProgressCount = progressCounts.find((pc) => pc.courseId === course.id)?._count
-                    .courseId || 0;
+                const userCourseProgressCount = progressCounts.find((pc) => pc.courseId === course.id)?._count.courseId || 0;
+                const latestLastSeenSection = latestLastSeenSections.find((lss) => lss.courseId === course.id);
                 return {
                     ...course,
-                    percentage: (userCourseProgressCount * 100) / sectionsCount ?? 0,
+                    percentage: (userCourseProgressCount * 100) / sectionsCount || 0,
                     _count: {
                         totalSections: sectionsCount,
                         userCourseProgress: userCourseProgressCount,
                     },
+                    latestLastSeenSection: latestLastSeenSection
+                        ? {
+                            id: latestLastSeenSection.id,
+                            userId: latestLastSeenSection.userId,
+                            chapterId: latestLastSeenSection.chapterId,
+                            moduleId: latestLastSeenSection.moduleId,
+                            sectionId: latestLastSeenSection.sectionId,
+                            createdAt: latestLastSeenSection.createdAt,
+                            updatedAt: latestLastSeenSection.updatedAt,
+                            title: latestLastSeenSection.section.title,
+                        }
+                        : null,
                 };
             });
             return {
@@ -1421,7 +1450,7 @@ let CourseService = class CourseService {
             });
         }
     }
-    async updateLastSeenSection(userId, chapterId, sectionId, moduleId) {
+    async updateLastSeenSection(userId, chapterId, sectionId, moduleId, courseId) {
         try {
             await this.prisma.lastSeenSection.upsert({
                 where: {
@@ -1435,6 +1464,7 @@ let CourseService = class CourseService {
                     chapterId,
                     sectionId,
                     moduleId,
+                    courseId,
                 },
             });
             return {

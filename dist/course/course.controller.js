@@ -146,7 +146,7 @@ let CourseController = class CourseController {
         return this.appService.getLastSeenSection(param.userId, param.chapterId);
     }
     updateLastSeen(body, user) {
-        return this.appService.updateLastSeenSection(user.id, body.chapterId, body.sectionId, body.moduleId);
+        return this.appService.updateLastSeenSection(user.id, body.chapterId, body.sectionId, body.moduleId, body.courseId);
     }
 };
 exports.CourseController = CourseController;
