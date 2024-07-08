@@ -808,53 +808,52 @@ export class CourseService {
   }
   async getAllUserModules(id: string, userId: string): Promise<ResponseDto> {
     try {
-      const modules = await this.prisma.module.findMany({
-        where: {
-          courseId: id,
-        },
-        include: {
-          chapters: {
-            orderBy: {
-              createdAt: 'asc', // Order chapters by createdAt in ascending order
-            },
-            include: {
-              sections: true, // Include sections for each chapter
-            },
-          },
-          course: {
+      const courses : any = await this.prisma.course.findFirst({
+        where: { id },
+        select: {
+          id: true,
+          title: true,
+          modules: {
             select: {
-              UserCourseProgress: true,
+              id: true,
+              title: true,
+              chapters: {
+                select: { id: true, title: true, _count: {
+                  select: {
+                    UserCourseProgress: {
+                      where: { userId }, // Filter by userId
+                    },
+                    sections : true
+                  },
+                }, },
+              },
+              // Get the count of user course progress for each module
+              _count: {
+                select: {
+                  UserCourseProgress: {
+                    where: { userId }, // Filter by userId
+                  },
+                },
+              },
             },
           },
         },
-        orderBy: {
-          createdAt: 'asc',
-        },
-        // limit: 10,
-        // offset: 10,
       });
-
-      if (!(modules.length > 0)) {
-        throw new Error('No Modules found');
-      }
-      // Filter the UserCourseProgress to include only the logged-in user's progress
-      const filteredModules = modules.map((module) => {
-        const filteredCourse = {
-          ...module.course,
-          UserCourseProgress: module.course.UserCourseProgress.filter(
-            (progress) => progress.userId === userId,
-          ),
-        };
-        return {
-          ...module,
-          course: filteredCourse,
-        };
-      });
-
+  
+      // if (courses?.modules?.length === 0) {
+      //   throw new HttpException(
+      //     {
+      //       status: HttpStatus.NOT_FOUND,
+      //       error: 'No Modules found',
+      //     },
+      //     HttpStatus.NOT_FOUND,
+      //   );
+      // }
+      console.log('modules',courses,courses?.modules)
       return {
-        message: 'Successfully fetch all Modules info against course',
+        message: 'Successfully fetched all Modules info against course',
         statusCode: 200,
-        data: filteredModules,
+        data: courses?.modules,
       };
     } catch (error) {
       throw new HttpException(
@@ -869,6 +868,7 @@ export class CourseService {
       );
     }
   }
+
   async getAllChapters(id: string): Promise<ResponseDto> {
     try {
       const chapters = await this.prisma.chapter.findMany({
@@ -1864,7 +1864,7 @@ export class CourseService {
 
   async updateUserChapterProgress(
     userId: string,
-    body: UpdateCourseProgress,
+    body: any,
   ): Promise<ResponseDto> {
     try {
       // Get total modules in the course
@@ -1891,6 +1891,7 @@ export class CourseService {
           courseId: body.courseId,
           chapterId: body.chapterId,
           sectionId: body.sectionId,
+          moduleId: body.moduleId,
         },
       });
       if (!userCourseProgress) {
@@ -1900,6 +1901,7 @@ export class CourseService {
             courseId: body.courseId,
             chapterId: body.chapterId,
             sectionId: body.sectionId,
+            moduleId: body.moduleId,
           },
         });
       }

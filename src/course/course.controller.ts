@@ -277,7 +277,7 @@ export class CourseController {
   @UseGuards(AuthGuard('uJwt'))
   @Put('/updateUserChapter/progress')
   updateUserChapterProgress(
-    @Body() body: UpdateCourseProgress,
+    @Body() body: any,
     @GetUser() user: User,
   ): Promise<ResponseDto> {
     return this.appService.updateUserChapterProgress(user.id, body);

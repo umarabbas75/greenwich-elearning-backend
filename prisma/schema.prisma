@@ -73,14 +73,15 @@ model Course {
 }
 
 model Module {
-  id          String    @id @default(uuid())
-  title       String
-  description String
-  courseId    String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  chapters    Chapter[]
-  course      Course    @relation(fields: [courseId], references: [id])
+  id                 String               @id @default(uuid())
+  title              String
+  description        String
+  courseId           String
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  chapters           Chapter[]
+  course             Course               @relation(fields: [courseId], references: [id])
+  UserCourseProgress UserCourseProgress[] // Added this line
 
   @@map("modules")
 }
@@ -131,10 +132,12 @@ model UserCourseProgress {
   courseId  String
   chapterId String
   sectionId String
+  moduleId  String // Added this line
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   Chapter   Chapter  @relation(fields: [chapterId], references: [id])
   Course    Course   @relation(fields: [courseId], references: [id])
+  Module    Module   @relation(fields: [moduleId], references: [id]) // Added this line
 
   @@unique([userId, courseId, chapterId, sectionId])
 }

@@ -671,46 +671,41 @@ let CourseService = class CourseService {
     }
     async getAllUserModules(id, userId) {
         try {
-            const modules = await this.prisma.module.findMany({
-                where: {
-                    courseId: id,
-                },
-                include: {
-                    chapters: {
-                        orderBy: {
-                            createdAt: 'asc',
-                        },
-                        include: {
-                            sections: true,
-                        },
-                    },
-                    course: {
+            const courses = await this.prisma.course.findFirst({
+                where: { id },
+                select: {
+                    id: true,
+                    title: true,
+                    modules: {
                         select: {
-                            UserCourseProgress: true,
+                            id: true,
+                            title: true,
+                            chapters: {
+                                select: { id: true, title: true, _count: {
+                                        select: {
+                                            UserCourseProgress: {
+                                                where: { userId },
+                                            },
+                                            sections: true
+                                        },
+                                    }, },
+                            },
+                            _count: {
+                                select: {
+                                    UserCourseProgress: {
+                                        where: { userId },
+                                    },
+                                },
+                            },
                         },
                     },
                 },
-                orderBy: {
-                    createdAt: 'asc',
-                },
             });
-            if (!(modules.length > 0)) {
-                throw new Error('No Modules found');
-            }
-            const filteredModules = modules.map((module) => {
-                const filteredCourse = {
-                    ...module.course,
-                    UserCourseProgress: module.course.UserCourseProgress.filter((progress) => progress.userId === userId),
-                };
-                return {
-                    ...module,
-                    course: filteredCourse,
-                };
-            });
+            console.log('modules', courses, courses?.modules);
             return {
-                message: 'Successfully fetch all Modules info against course',
+                message: 'Successfully fetched all Modules info against course',
                 statusCode: 200,
-                data: filteredModules,
+                data: courses?.modules,
             };
         }
         catch (error) {
@@ -1354,6 +1349,7 @@ let CourseService = class CourseService {
                     courseId: body.courseId,
                     chapterId: body.chapterId,
                     sectionId: body.sectionId,
+                    moduleId: body.moduleId,
                 },
             });
             if (!userCourseProgress) {
@@ -1363,6 +1359,7 @@ let CourseService = class CourseService {
                         courseId: body.courseId,
                         chapterId: body.chapterId,
                         sectionId: body.sectionId,
+                        moduleId: body.moduleId,
                     },
                 });
             }

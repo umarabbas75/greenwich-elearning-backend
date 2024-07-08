@@ -1,4 +1,4 @@
-import { CourseDto, ModuleDto, ResponseDto, UpdateCourseDto, UpdateCourseProgress } from '../dto';
+import { CourseDto, ModuleDto, ResponseDto, UpdateCourseDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 export declare class CourseService {
     private prisma;
@@ -41,7 +41,7 @@ export declare class CourseService {
     assignCourse(userId: string, courseId: string): Promise<ResponseDto>;
     unAssignCourse(userId: string, courseId: string): Promise<ResponseDto>;
     getAllAssignedCourses(userId: string): Promise<any>;
-    updateUserChapterProgress(userId: string, body: UpdateCourseProgress): Promise<ResponseDto>;
+    updateUserChapterProgress(userId: string, body: any): Promise<ResponseDto>;
     getUserChapterProgress(userId: string, courseId: string, chapterId: string): Promise<ResponseDto>;
     getLastSeenSection(userId: string, chapterId: string): Promise<ResponseDto>;
     updateLastSeenSection(userId: string, chapterId: string, sectionId: string, moduleId: string, courseId: string): Promise<ResponseDto>;
