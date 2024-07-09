@@ -18,7 +18,6 @@ import {
   ParamsDto1,
   ResponseDto,
   UpdateCourseDto,
-  UpdateCourseProgress,
 } from '../dto';
 import { User } from '@prisma/client';
 import { GetUser } from '../decorator';
@@ -30,8 +29,8 @@ export class CourseController {
 
   @UseGuards(AuthGuard('cJwt'))
   @Get('/report/:courseId')
-  getCourseReport(@Param() params: any): Promise<any> {
-    return this.appService.getCourseReport(params.courseId);
+  getCourseReport(@Param() params: any, @GetUser() user: User): Promise<any> {
+    return this.appService.getCourseReport(params.courseId, user.id);
   }
 
   @UseGuards(AuthGuard('cJwt'))

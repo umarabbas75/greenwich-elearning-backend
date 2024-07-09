@@ -17,30 +17,60 @@ let CourseService = class CourseService {
     constructor(prisma) {
         this.prisma = prisma;
     }
-    async getCourseReport(courseId) {
+    async getCourseReport(courseId, userId) {
         try {
-            const report = await this.prisma.module.findMany({
-                where: {
-                    courseId: courseId,
-                },
-                include: {
-                    chapters: {
+            const course = await this.prisma.course.findUnique({
+                where: { id: courseId },
+                select: {
+                    id: true,
+                    title: true,
+                    modules: {
                         select: {
                             id: true,
                             title: true,
-                            quizzes: true,
-                            QuizAnswer: true,
-                            UserCourseProgress: true,
-                            LastSeenSection: true,
-                            sections: true,
+                            chapters: {
+                                select: {
+                                    id: true,
+                                    title: true,
+                                    _count: {
+                                        select: {
+                                            UserCourseProgress: {
+                                                where: { userId },
+                                            },
+                                            sections: true,
+                                            quizzes: true,
+                                            QuizAnswer: {
+                                                where: { isAnswerCorrect: true },
+                                            },
+                                            LastSeenSection: true,
+                                        },
+                                    },
+                                },
+                            },
                         },
                     },
                 },
             });
+            let totalSectionsInCourse = 0;
+            course.modules.forEach((module) => {
+                module.chapters.forEach((chapter) => {
+                    totalSectionsInCourse += chapter._count.sections;
+                });
+            });
+            course.modules.forEach((module) => {
+                module.chapters.forEach((chapter) => {
+                    const userCourseProgress = chapter._count.UserCourseProgress;
+                    const totalSectionsInChapter = chapter._count.sections;
+                    const progress = (userCourseProgress * 100) / totalSectionsInChapter;
+                    const contribution = (userCourseProgress * 100) / totalSectionsInCourse;
+                    chapter.progress = progress.toFixed(2);
+                    chapter.contribution = contribution.toFixed(2);
+                });
+            });
             return {
                 message: 'Successfully retrieved data',
                 statusCode: 200,
-                data: report,
+                data: course.modules,
             };
         }
         catch (error) {
@@ -1264,6 +1294,7 @@ let CourseService = class CourseService {
                     error: 'User not found',
                 }, common_1.HttpStatus.NOT_FOUND);
             }
+            console.log('data', user.courses);
             const coursesWithCounts = user.courses.map((course) => {
                 const sectionsCount = course.modules
                     .flatMap((module) => module.chapters)
@@ -1295,6 +1326,7 @@ let CourseService = class CourseService {
                 message: 'Successfully retrieved assigned courses',
                 statusCode: 200,
                 data: coursesWithCounts,
+                courses: user.courses,
             };
         }
         catch (error) {

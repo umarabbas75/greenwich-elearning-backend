@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 export declare class CourseService {
     private prisma;
     constructor(prisma: PrismaService);
-    getCourseReport(courseId: any): Promise<any>;
+    getCourseReport(courseId: any, userId: any): Promise<any>;
     deletePostComment(postId: any, commentId: any): Promise<ResponseDto>;
     getPostComments(postId: any): Promise<any>;
     createPostComment(postId: any, userId: any, body: any): Promise<ResponseDto>;

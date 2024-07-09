@@ -22,8 +22,8 @@ let CourseController = class CourseController {
     constructor(appService) {
         this.appService = appService;
     }
-    getCourseReport(params) {
-        return this.appService.getCourseReport(params.courseId);
+    getCourseReport(params, user) {
+        return this.appService.getCourseReport(params.courseId, user.id);
     }
     createPostComment(params, user, body) {
         return this.appService.createPostComment(params.postId, user?.id, body);
@@ -154,8 +154,9 @@ __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/report/:courseId'),
     __param(0, (0, common_1.Param)()),
+    __param(1, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getCourseReport", null);
 __decorate([

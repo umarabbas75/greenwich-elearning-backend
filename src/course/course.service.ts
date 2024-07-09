@@ -6,41 +6,100 @@ import {
   ModuleDto,
   ResponseDto,
   UpdateCourseDto,
-  UpdateCourseProgress,
 } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class CourseService {
   constructor(private prisma: PrismaService) {}
-  async getCourseReport(courseId: any): Promise<any> {
+  async getCourseReport(courseId: any, userId): Promise<any> {
     try {
-      const report = await this.prisma.module.findMany({
-        where: {
-          courseId: courseId,
-        },
-        include: {
-          chapters: {
+      //   where: {
+      //     courseId: courseId,
+      //   },
+      //   include: {
+      //     chapters: {
+      //       select: {
+      //         id: true,
+      //         title: true,
+      //         quizzes: true,
+      //         QuizAnswer: true,
+      //         UserCourseProgress: true,
+      //         LastSeenSection: true,
+      //         sections: true,
+      //         // quizzes : true,
+
+      //         // Add other fields you want to include here
+      //       },
+      //     },
+      //   },
+      // });
+
+      const course: any = await this.prisma.course.findUnique({
+        where: { id: courseId },
+        select: {
+          id: true,
+          title: true,
+          modules: {
             select: {
               id: true,
               title: true,
-              quizzes: true,
-              QuizAnswer: true,
-              UserCourseProgress: true,
-              LastSeenSection: true,
-              sections: true,
-              // quizzes : true,
-
-              // Add other fields you want to include here
+              chapters: {
+                select: {
+                  id: true,
+                  title: true,
+                  _count: {
+                    select: {
+                      UserCourseProgress: {
+                        where: { userId }, // Filter by userId
+                      },
+                      sections: true,
+                      quizzes: true,
+                      QuizAnswer: {
+                        where: { isAnswerCorrect: true }, // Count correct answers
+                      },
+                      LastSeenSection: true,
+                    },
+                  },
+                },
+              },
+              // Get the count of user course progress for each module
             },
           },
         },
       });
 
+      // Step 1: Calculate total number of sections in the entire course
+      let totalSectionsInCourse = 0;
+      course.modules.forEach((module) => {
+        module.chapters.forEach((chapter) => {
+          totalSectionsInCourse += chapter._count.sections;
+        });
+      });
+
+      // Step 2: Calculate progress and contribution for each chapter
+      course.modules.forEach((module) => {
+        module.chapters.forEach((chapter) => {
+          const userCourseProgress = chapter._count.UserCourseProgress;
+          const totalSectionsInChapter = chapter._count.sections;
+
+          // Calculate progress percentage
+          const progress = (userCourseProgress * 100) / totalSectionsInChapter;
+
+          // Calculate contribution percentage
+          const contribution =
+            (userCourseProgress * 100) / totalSectionsInCourse;
+
+          // Add progress and contribution to chapter
+          chapter.progress = progress.toFixed(2); // Optional: format to 2 decimal places
+          chapter.contribution = contribution.toFixed(2); // Optional: format to 2 decimal places
+        });
+      });
+
       return {
         message: 'Successfully retrieved data',
         statusCode: 200,
-        data: report,
+        data: course.modules,
       };
     } catch (error) {
       throw new HttpException(
@@ -847,15 +906,6 @@ export class CourseService {
         },
       });
 
-      // if (courses?.modules?.length === 0) {
-      //   throw new HttpException(
-      //     {
-      //       status: HttpStatus.NOT_FOUND,
-      //       error: 'No Modules found',
-      //     },
-      //     HttpStatus.NOT_FOUND,
-      //   );
-      // }
       console.log('modules', courses, courses?.modules);
       return {
         message: 'Successfully fetched all Modules info against course',
@@ -1610,6 +1660,7 @@ export class CourseService {
           HttpStatus.NOT_FOUND,
         );
       }
+      console.log('data', user.courses);
 
       const coursesWithCounts = user.courses.map((course) => {
         // Calculate the total sections count
@@ -1650,6 +1701,7 @@ export class CourseService {
         message: 'Successfully retrieved assigned courses',
         statusCode: 200,
         data: coursesWithCounts,
+        courses: user.courses,
       };
     } catch (error) {
       throw new HttpException(
