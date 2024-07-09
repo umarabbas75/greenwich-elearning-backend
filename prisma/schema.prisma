@@ -81,7 +81,8 @@ model Module {
   updatedAt          DateTime             @updatedAt
   chapters           Chapter[]
   course             Course               @relation(fields: [courseId], references: [id])
-  UserCourseProgress UserCourseProgress[] // Added this line
+  UserCourseProgress UserCourseProgress[]
+  sections           Section[] // Added this line
 
   @@map("modules")
 }
@@ -117,11 +118,13 @@ model Section {
   title            String
   description      String
   chapterId        String
+  moduleId         String? // Added this line
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   shortDescription String?
   LastSeenSection  LastSeenSection[]
   chapter          Chapter           @relation(fields: [chapterId], references: [id])
+  module           Module?            @relation(fields: [moduleId], references: [id]) // Added this line
 
   @@map("sections")
 }

@@ -500,6 +500,7 @@ let CourseService = class CourseService {
                     description: body.description,
                     shortDescription: body?.shortDescription ?? '',
                     chapterId: body.id,
+                    moduleId: body.moduleId,
                 },
             });
             return {
@@ -593,6 +594,7 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
+            console.log({ error });
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
@@ -681,20 +683,25 @@ let CourseService = class CourseService {
                             id: true,
                             title: true,
                             chapters: {
-                                select: { id: true, title: true, _count: {
+                                select: {
+                                    id: true,
+                                    title: true,
+                                    _count: {
                                         select: {
                                             UserCourseProgress: {
                                                 where: { userId },
                                             },
-                                            sections: true
+                                            sections: true,
                                         },
-                                    }, },
+                                    },
+                                },
                             },
                             _count: {
                                 select: {
                                     UserCourseProgress: {
                                         where: { userId },
                                     },
+                                    sections: true,
                                 },
                             },
                         },
@@ -1228,7 +1235,27 @@ let CourseService = class CourseService {
             const user = await this.prisma.user.findUnique({
                 where: { id: userId },
                 include: {
-                    courses: true,
+                    courses: {
+                        include: {
+                            modules: {
+                                select: {
+                                    chapters: {
+                                        select: {
+                                            _count: { select: { sections: true } },
+                                        },
+                                    },
+                                },
+                            },
+                            _count: { select: { UserCourseProgress: true } },
+                            LastSeenSection: {
+                                take: 1,
+                                orderBy: { updatedAt: 'desc' },
+                                include: {
+                                    section: { select: { title: true } },
+                                },
+                            },
+                        },
+                    },
                 },
             });
             if (!user) {
@@ -1237,61 +1264,12 @@ let CourseService = class CourseService {
                     error: 'User not found',
                 }, common_1.HttpStatus.NOT_FOUND);
             }
-            const courseIds = user.courses.map((course) => course.id);
-            const [sectionCounts, progressCounts, latestLastSeenSections] = await Promise.all([
-                this.prisma.course.findMany({
-                    where: {
-                        id: { in: courseIds },
-                    },
-                    select: {
-                        id: true,
-                        modules: {
-                            select: {
-                                chapters: {
-                                    select: {
-                                        _count: {
-                                            select: { sections: true },
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                }),
-                this.prisma.userCourseProgress.groupBy({
-                    by: ['courseId'],
-                    where: {
-                        courseId: { in: courseIds },
-                    },
-                    _count: {
-                        courseId: true,
-                    },
-                }),
-                this.prisma.lastSeenSection.findMany({
-                    where: {
-                        userId: userId,
-                        courseId: { in: courseIds },
-                    },
-                    orderBy: {
-                        updatedAt: 'desc',
-                    },
-                    distinct: ['courseId'],
-                    include: {
-                        section: {
-                            select: {
-                                title: true,
-                            },
-                        },
-                    },
-                }),
-            ]);
             const coursesWithCounts = user.courses.map((course) => {
-                const sectionsCount = sectionCounts
-                    .find((sc) => sc.id === course.id)
-                    ?.modules.flatMap((module) => module.chapters)
+                const sectionsCount = course.modules
+                    .flatMap((module) => module.chapters)
                     .reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
-                const userCourseProgressCount = progressCounts.find((pc) => pc.courseId === course.id)?._count.courseId || 0;
-                const latestLastSeenSection = latestLastSeenSections.find((lss) => lss.courseId === course.id);
+                const userCourseProgressCount = course._count.UserCourseProgress || 0;
+                const latestLastSeenSection = course.LastSeenSection[0];
                 return {
                     ...course,
                     percentage: (userCourseProgressCount * 100) / sectionsCount || 0,
