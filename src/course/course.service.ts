@@ -12,29 +12,8 @@ import { PrismaService } from '../prisma/prisma.service';
 @Injectable()
 export class CourseService {
   constructor(private prisma: PrismaService) {}
-  async getCourseReport(courseId: any, userId): Promise<any> {
+  async getCourseReport(courseId: any, userId: any): Promise<any> {
     try {
-      //   where: {
-      //     courseId: courseId,
-      //   },
-      //   include: {
-      //     chapters: {
-      //       select: {
-      //         id: true,
-      //         title: true,
-      //         quizzes: true,
-      //         QuizAnswer: true,
-      //         UserCourseProgress: true,
-      //         LastSeenSection: true,
-      //         sections: true,
-      //         // quizzes : true,
-
-      //         // Add other fields you want to include here
-      //       },
-      //     },
-      //   },
-      // });
-
       const course: any = await this.prisma.course.findUnique({
         where: { id: courseId },
         select: {

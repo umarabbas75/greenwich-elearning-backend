@@ -28,9 +28,9 @@ export class CourseController {
   // comments
 
   @UseGuards(AuthGuard('cJwt'))
-  @Get('/report/:courseId')
-  getCourseReport(@Param() params: any, @GetUser() user: User): Promise<any> {
-    return this.appService.getCourseReport(params.courseId, user.id);
+  @Get('/report/:courseId/:userId')
+  getCourseReport(@Param() params: any): Promise<any> {
+    return this.appService.getCourseReport(params.courseId, params.userId);
   }
 
   @UseGuards(AuthGuard('cJwt'))

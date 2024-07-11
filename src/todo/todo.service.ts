@@ -14,24 +14,17 @@ export class TodoService {
   ): Promise<ResponseDto> {
     try {
       // const skip = pageSize * (page - 1);
-      const [todos, totalCount] = await Promise.all([
-        this.prisma.todoItem.findMany({
-          orderBy: {
-            createdAt: 'desc',
-          },
-          where: { userId: userId },
-          // skip: skip,
-          // take: pageSize,
-        }),
-        this.prisma.todoItem.count({
-          where: { userId: userId },
-        }),
-      ]);
+      const todos = await this.prisma.todoItem.findMany({
+        orderBy: {
+          createdAt: 'desc',
+        },
+        where: { userId: userId },
+      });
 
       return {
         message: 'Successfully fetch all todos info',
         statusCode: 200,
-        data: { todos, totalCount },
+        data: { todos, totalCount: todos?.length },
       };
     } catch (error) {
       throw new HttpException(

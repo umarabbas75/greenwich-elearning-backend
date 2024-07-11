@@ -4,7 +4,7 @@ import { User } from '@prisma/client';
 export declare class CourseController {
     private readonly appService;
     constructor(appService: CourseService);
-    getCourseReport(params: any, user: User): Promise<any>;
+    getCourseReport(params: any): Promise<any>;
     createPostComment(params: any, user: User, body: any): Promise<any>;
     getPostComments(params: any): Promise<any>;
     updatePostComment(params: any, body: any): Promise<any>;

@@ -9,7 +9,7 @@ import {
   Delete,
 } from '@nestjs/common';
 import { TodoService } from './todo.service';
-import { ParamsDto, ResponseDto } from '../dto';
+import { ResponseDto } from '../dto';
 import { AuthGuard } from '@nestjs/passport';
 import { GetUser } from '../decorator';
 import { User } from '@prisma/client';
