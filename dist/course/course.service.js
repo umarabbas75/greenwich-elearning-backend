@@ -1276,7 +1276,7 @@ let CourseService = class CourseService {
                                     },
                                 },
                             },
-                            _count: { select: { UserCourseProgress: true } },
+                            _count: { select: { UserCourseProgress: { where: { userId } } } },
                             LastSeenSection: {
                                 take: 1,
                                 orderBy: { updatedAt: 'desc' },

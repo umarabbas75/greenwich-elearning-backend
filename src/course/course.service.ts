@@ -8,6 +8,7 @@ import {
   UpdateCourseDto,
 } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { where } from 'sequelize';
 
 @Injectable()
 export class CourseService {
@@ -1617,7 +1618,7 @@ export class CourseService {
                   },
                 },
               },
-              _count: { select: { UserCourseProgress: true } },
+              _count: { select: { UserCourseProgress: { where: { userId } } } },
               LastSeenSection: {
                 take: 1,
                 orderBy: { updatedAt: 'desc' },
