@@ -129,102 +129,65 @@ export class ForumThreadService {
 
   async getAllForumThreads(user: any): Promise<any> {
     try {
-      // Step 1: Fetch favorite thread IDs for the user
-      const favoriteThreads = user
-        ? await this.prisma.favoriteForumThread.findMany({
-            where: {
-              userId: user.id,
+      const [favoriteThreads, subscribedThreads, forums] = await Promise.all([
+        this.prisma.favoriteForumThread.findMany({
+          where: {
+            userId: user.id,
+          },
+          select: {
+            threadId: true,
+          },
+        }),
+        this.prisma.threadSubscription.findMany({
+          where: {
+            userId: user.id,
+          },
+          select: {
+            threadId: true,
+          },
+        }),
+        this.prisma.forumThread.findMany({
+          orderBy: {
+            createdAt: 'desc',
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+              },
             },
-            select: {
-              threadId: true,
+            ForumComment: {
+              select: {
+                id: true,
+                user: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                  },
+                },
+                createdAt: true,
+              },
+              orderBy: {
+                createdAt: Prisma.SortOrder.desc,
+              },
             },
-          })
-        : [];
+          },
+          where: user?.role === 'user' ? { status: 'active' } : undefined,
+        }),
+      ]);
 
       const favoriteThreadIds = new Set(
         favoriteThreads.map((fav) => fav.threadId),
       );
 
-      // Step 2: Fetch subscribed thread IDs for the user
-      const subscribedThreads = user
-        ? await this.prisma.threadSubscription.findMany({
-            where: {
-              userId: user.id,
-            },
-            select: {
-              threadId: true,
-            },
-          })
-        : [];
-
       const subscribedThreadIds = new Set(
         subscribedThreads.map((sub) => sub.threadId),
       );
 
-      // Step 3: Fetch all forum threads with comments and commenters
-      const forums = await this.prisma.forumThread.findMany({
-        orderBy: {
-          createdAt: 'desc',
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-            },
-          },
-          ForumComment: {
-            select: {
-              id: true,
-              user: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                },
-              },
-              createdAt: true,
-            },
-            orderBy: {
-              createdAt: Prisma.SortOrder.desc,
-            },
-          },
-        },
-        where: user?.role === 'user' ? { status: 'active' } : undefined,
-      });
-
-      // Step 4: Fetch all unique commenters for each thread
-      const threadIds = forums.map((forum) => forum.id);
-      const allComments = await this.prisma.forumComment.findMany({
-        where: {
-          threadId: {
-            in: threadIds,
-          },
-        },
-        select: {
-          threadId: true,
-          user: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-            },
-          },
-        },
-      });
-
-      // Group commenters by threadId
-      const commentersByThread: Record<
-        string,
-        Set<{ id: string; firstName: string; lastName: string }>
-      > = {};
-      allComments.forEach((comment) => {
-        if (!commentersByThread[comment.threadId]) {
-          commentersByThread[comment.threadId] = new Set();
-        }
-        commentersByThread[comment.threadId].add(comment.user);
-      });
+      console.log({ forums });
 
       // Step 5: Add `isFavorite`, `isSubscribed`, and `commenters` properties to each thread and sort favorite threads on top
       const sortedForums = forums
@@ -232,7 +195,6 @@ export class ForumThreadService {
           ...thread,
           isFavorite: favoriteThreadIds.has(thread.id),
           isSubscribed: subscribedThreadIds.has(thread.id),
-          commenters: Array.from(commentersByThread[thread.id] || []),
         }))
         .sort((a, b) => {
           if (a.isFavorite && !b.isFavorite) {

@@ -115,90 +115,63 @@ let ForumThreadService = class ForumThreadService {
     }
     async getAllForumThreads(user) {
         try {
-            const favoriteThreads = user
-                ? await this.prisma.favoriteForumThread.findMany({
+            const [favoriteThreads, subscribedThreads, forums] = await Promise.all([
+                this.prisma.favoriteForumThread.findMany({
                     where: {
                         userId: user.id,
                     },
                     select: {
                         threadId: true,
                     },
-                })
-                : [];
-            const favoriteThreadIds = new Set(favoriteThreads.map((fav) => fav.threadId));
-            const subscribedThreads = user
-                ? await this.prisma.threadSubscription.findMany({
+                }),
+                this.prisma.threadSubscription.findMany({
                     where: {
                         userId: user.id,
                     },
                     select: {
                         threadId: true,
                     },
-                })
-                : [];
-            const subscribedThreadIds = new Set(subscribedThreads.map((sub) => sub.threadId));
-            const forums = await this.prisma.forumThread.findMany({
-                orderBy: {
-                    createdAt: 'desc',
-                },
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            firstName: true,
-                            lastName: true,
-                        },
+                }),
+                this.prisma.forumThread.findMany({
+                    orderBy: {
+                        createdAt: 'desc',
                     },
-                    ForumComment: {
-                        select: {
-                            id: true,
-                            user: {
-                                select: {
-                                    id: true,
-                                    firstName: true,
-                                    lastName: true,
-                                },
+                    include: {
+                        user: {
+                            select: {
+                                id: true,
+                                firstName: true,
+                                lastName: true,
                             },
-                            createdAt: true,
                         },
-                        orderBy: {
-                            createdAt: client_1.Prisma.SortOrder.desc,
-                        },
-                    },
-                },
-                where: user?.role === 'user' ? { status: 'active' } : undefined,
-            });
-            const threadIds = forums.map((forum) => forum.id);
-            const allComments = await this.prisma.forumComment.findMany({
-                where: {
-                    threadId: {
-                        in: threadIds,
-                    },
-                },
-                select: {
-                    threadId: true,
-                    user: {
-                        select: {
-                            id: true,
-                            firstName: true,
-                            lastName: true,
+                        ForumComment: {
+                            select: {
+                                id: true,
+                                user: {
+                                    select: {
+                                        id: true,
+                                        firstName: true,
+                                        lastName: true,
+                                    },
+                                },
+                                createdAt: true,
+                            },
+                            orderBy: {
+                                createdAt: client_1.Prisma.SortOrder.desc,
+                            },
                         },
                     },
-                },
-            });
-            const commentersByThread = {};
-            allComments.forEach((comment) => {
-                if (!commentersByThread[comment.threadId]) {
-                    commentersByThread[comment.threadId] = new Set();
-                }
-                commentersByThread[comment.threadId].add(comment.user);
-            });
+                    where: user?.role === 'user' ? { status: 'active' } : undefined,
+                }),
+            ]);
+            const favoriteThreadIds = new Set(favoriteThreads.map((fav) => fav.threadId));
+            const subscribedThreadIds = new Set(subscribedThreads.map((sub) => sub.threadId));
+            console.log({ forums });
             const sortedForums = forums
                 .map((thread) => ({
                 ...thread,
                 isFavorite: favoriteThreadIds.has(thread.id),
                 isSubscribed: subscribedThreadIds.has(thread.id),
-                commenters: Array.from(commentersByThread[thread.id] || []),
             }))
                 .sort((a, b) => {
                 if (a.isFavorite && !b.isFavorite) {
