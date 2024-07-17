@@ -87,7 +87,20 @@ export class ForumCommentService {
         threadId,
       },
       include: {
-        user: true, // Include user details for each comment
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            photo: true,
+            timezone: true,
+            createdAt: true,
+            updatedAt: true,
+            role: true,
+          },
+        }, // Include user details for each comment
       },
     });
 

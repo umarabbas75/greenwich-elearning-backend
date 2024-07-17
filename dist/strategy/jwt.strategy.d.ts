@@ -14,6 +14,7 @@ export declare class JwtAdminStrategy extends JwtAdminStrategy_base {
         email: string;
         phone: string;
         photo: string;
+        photoBase64: string;
         timezone: string;
         password: string;
         role: import(".prisma/client").$Enums.Role;
@@ -35,6 +36,7 @@ export declare class JwtUserStrategy extends JwtUserStrategy_base {
         email: string;
         phone: string;
         photo: string;
+        photoBase64: string;
         timezone: string;
         password: string;
         role: import(".prisma/client").$Enums.Role;
@@ -57,6 +59,7 @@ export declare class JwtCombineStrategy extends JwtCombineStrategy_base {
         email: string;
         phone: string;
         photo: string;
+        photoBase64: string;
         timezone: string;
         password: string;
         role: import(".prisma/client").$Enums.Role;

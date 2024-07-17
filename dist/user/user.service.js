@@ -110,6 +110,7 @@ let UserService = class UserService {
                     phone: body.phone,
                     role: body.role,
                     photo: body?.photo ?? null,
+                    photoBase64: body?.photoBase64 ?? null,
                 },
             });
             delete user.password;

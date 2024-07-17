@@ -37,6 +37,10 @@ export class BodyDto {
   @IsString()
   @IsOptional()
   photo?: string;
+
+  @IsString()
+  @IsOptional()
+  photoBase64?: string;
 }
 export class BodyUpdateDto {
   @IsOptional()
@@ -96,7 +100,6 @@ export class CourseDto {
   @IsString()
   @IsNotEmpty()
   image: string;
-
 
   @IsString()
   @IsOptional()

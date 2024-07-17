@@ -7,6 +7,7 @@ export declare class BodyDto {
     phone: string;
     role: Role;
     photo?: string;
+    photoBase64?: string;
 }
 export declare class BodyUpdateDto {
     firstName?: string;

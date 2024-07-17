@@ -80,7 +80,20 @@ let ForumCommentService = class ForumCommentService {
                 threadId,
             },
             include: {
-                user: true,
+                user: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        email: true,
+                        phone: true,
+                        photo: true,
+                        timezone: true,
+                        createdAt: true,
+                        updatedAt: true,
+                        role: true,
+                    },
+                },
             },
         });
         return {
