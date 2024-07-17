@@ -250,7 +250,7 @@ export class UserService {
           {
             status: HttpStatus.FORBIDDEN,
             error:
-              'Cannot delete course because it is associated with other records.',
+              'Cannot delete it because it is associated with other records.',
           },
           HttpStatus.FORBIDDEN,
         );

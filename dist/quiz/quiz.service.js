@@ -270,7 +270,7 @@ let QuizService = class QuizService {
                 error.code === 'P2003') {
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
-                    error: 'Cannot delete course because it is associated with other records.',
+                    error: 'Cannot delete it because it is associated with other records.',
                 }, common_1.HttpStatus.FORBIDDEN);
             }
             else {
