@@ -24,6 +24,11 @@ let CourseService = class CourseService {
                 select: {
                     id: true,
                     title: true,
+                    users: {
+                        where: {
+                            id: userId,
+                        },
+                    },
                     modules: {
                         select: {
                             id: true,
@@ -51,6 +56,7 @@ let CourseService = class CourseService {
                     },
                 },
             });
+            console.log({ course });
             let totalSectionsInCourse = 0;
             course.modules.forEach((module) => {
                 module.chapters.forEach((chapter) => {
@@ -71,6 +77,7 @@ let CourseService = class CourseService {
                 message: 'Successfully retrieved data',
                 statusCode: 200,
                 data: course.modules,
+                user: course?.users?.[0],
             };
         }
         catch (error) {
@@ -724,6 +731,9 @@ let CourseService = class CourseService {
                                             sections: true,
                                         },
                                     },
+                                },
+                                orderBy: {
+                                    createdAt: 'asc',
                                 },
                             },
                             _count: {
