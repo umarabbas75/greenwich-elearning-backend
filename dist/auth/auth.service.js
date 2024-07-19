@@ -25,6 +25,19 @@ let AuthService = class AuthService {
         try {
             const user = await this.prisma.user.findUnique({
                 where: { email: body.email },
+                select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true,
+                    phone: true,
+                    photo: true,
+                    role: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    timezone: true,
+                    password: true,
+                },
             });
             if (!user) {
                 throw new Error('User not found');
@@ -41,6 +54,7 @@ let AuthService = class AuthService {
             };
         }
         catch (error) {
+            console.log([error]);
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',

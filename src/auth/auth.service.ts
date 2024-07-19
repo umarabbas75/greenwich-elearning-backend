@@ -4,7 +4,6 @@ import {
   HttpStatus,
   Injectable,
 } from '@nestjs/common';
-import { User } from '@prisma/client';
 import { ResponseDto, LoginDto } from '../dto';
 import * as argon2 from 'argon2';
 import { JwtService } from '@nestjs/jwt';
@@ -21,8 +20,21 @@ export class AuthService {
 
   async loginUser(body: LoginDto): Promise<ResponseDto> {
     try {
-      const user: User = await this.prisma.user.findUnique({
+      const user: any = await this.prisma.user.findUnique({
         where: { email: body.email },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          photo: true,
+          role: true,
+          createdAt: true,
+          updatedAt: true,
+          timezone: true,
+          password: true,
+        },
       });
       if (!user) {
         throw new Error('User not found');
@@ -38,6 +50,7 @@ export class AuthService {
         data: { jwt, user },
       };
     } catch (error) {
+      console.log([error]);
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
