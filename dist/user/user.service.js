@@ -197,6 +197,35 @@ let UserService = class UserService {
             });
         }
     }
+    async updatePassword(userId, body) {
+        try {
+            const existingUser = await this.prisma.user.findUnique({
+                where: { id: userId },
+            });
+            if (!existingUser) {
+                throw new Error('User not found');
+            }
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: {
+                    password: await argon2.hash(body.password),
+                },
+            });
+            return {
+                message: 'Successfully updated user password',
+                statusCode: 200,
+                data: {},
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
     async deleteUser(id) {
         try {
             const user = await this.prisma.user.findUnique({

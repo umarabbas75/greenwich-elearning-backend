@@ -223,6 +223,42 @@ export class UserService {
     }
   }
 
+  async updatePassword(userId: string, body: any): Promise<ResponseDto> {
+    try {
+      const existingUser = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+      if (!existingUser) {
+        throw new Error('User not found');
+      }
+
+      // Save the updated user with new password
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          password: await argon2.hash(body.password),
+        },
+      });
+
+      return {
+        message: 'Successfully updated user password',
+        statusCode: 200,
+        data: {},
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
   async deleteUser(id: string): Promise<ResponseDto> {
     try {
       const user = await this.prisma.user.findUnique({

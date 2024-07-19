@@ -8,16 +8,16 @@ export declare class ForumCommentService {
         statusCode: number;
         data: ({
             user: {
-                id: string;
                 firstName: string;
                 lastName: string;
                 email: string;
                 phone: string;
-                photo: string;
-                timezone: string;
                 role: import(".prisma/client").$Enums.Role;
+                photo: string;
+                id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                timezone: string;
             };
         } & {
             id: string;

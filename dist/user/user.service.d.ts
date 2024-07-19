@@ -8,5 +8,6 @@ export declare class UserService {
     createUser(body: BodyDto): Promise<ResponseDto>;
     updateUser(userId: string, body: BodyUpdateDto): Promise<ResponseDto>;
     changePassword(userId: string, body: ChangePasswordDto): Promise<ResponseDto>;
+    updatePassword(userId: string, body: any): Promise<ResponseDto>;
     deleteUser(id: string): Promise<ResponseDto>;
 }

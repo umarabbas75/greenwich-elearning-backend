@@ -36,6 +36,9 @@ let UserController = class UserController {
     changePassword(params, body) {
         return this.appService.changePassword(params.id, body);
     }
+    updatePassword(params, body) {
+        return this.appService.updatePassword(params.userId, body);
+    }
     deleteUser(params) {
         return this.appService.deleteUser(params.id);
     }
@@ -82,6 +85,15 @@ __decorate([
         dto_1.ChangePasswordDto]),
     __metadata("design:returntype", Promise)
 ], UserController.prototype, "changePassword", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Put)('/updatePassword/:userId'),
+    __param(0, (0, common_1.Param)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], UserController.prototype, "updatePassword", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Delete)('/:id'),

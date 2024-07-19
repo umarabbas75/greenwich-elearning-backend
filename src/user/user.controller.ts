@@ -51,6 +51,15 @@ export class UserController {
   }
 
   @UseGuards(AuthGuard('cJwt'))
+  @Put('/updatePassword/:userId')
+  updatePassword(
+    @Param() params: any,
+    @Body() body: any,
+  ): Promise<ResponseDto> {
+    return this.appService.updatePassword(params.userId, body);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
   @Delete('/:id')
   deleteUser(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteUser(params.id);
