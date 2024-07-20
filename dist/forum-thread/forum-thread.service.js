@@ -142,6 +142,7 @@ let ForumThreadService = class ForumThreadService {
                                 id: true,
                                 firstName: true,
                                 lastName: true,
+                                photo: true,
                             },
                         },
                         ForumComment: {
@@ -152,6 +153,7 @@ let ForumThreadService = class ForumThreadService {
                                         id: true,
                                         firstName: true,
                                         lastName: true,
+                                        photo: true,
                                     },
                                 },
                                 createdAt: true,
@@ -335,6 +337,7 @@ let ForumThreadService = class ForumThreadService {
                             id: true,
                             firstName: true,
                             lastName: true,
+                            photo: true,
                         },
                     },
                 },

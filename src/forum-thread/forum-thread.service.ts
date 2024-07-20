@@ -156,6 +156,7 @@ export class ForumThreadService {
                 id: true,
                 firstName: true,
                 lastName: true,
+                photo: true,
               },
             },
             ForumComment: {
@@ -166,6 +167,7 @@ export class ForumThreadService {
                     id: true,
                     firstName: true,
                     lastName: true,
+                    photo: true,
                   },
                 },
                 createdAt: true,
@@ -412,6 +414,7 @@ export class ForumThreadService {
               id: true,
               firstName: true,
               lastName: true,
+              photo: true,
             },
           },
         },
