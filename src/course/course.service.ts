@@ -47,6 +47,9 @@ export class CourseService {
                     },
                   },
                 },
+                orderBy: {
+                  createdAt: 'asc',
+                },
               },
               // Get the count of user course progress for each module
             },

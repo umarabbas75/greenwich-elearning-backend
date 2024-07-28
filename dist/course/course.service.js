@@ -51,6 +51,9 @@ let CourseService = class CourseService {
                                         },
                                     },
                                 },
+                                orderBy: {
+                                    createdAt: 'asc',
+                                },
                             },
                         },
                     },
