@@ -262,6 +262,71 @@ let UserService = class UserService {
             }
         }
     }
+    async createUserMessage(body, user) {
+        try {
+            const contactUsMessage = await this.prisma.contactMessage.create({
+                data: {
+                    userId: user.id,
+                    message: body.message,
+                    isSeen: false,
+                },
+            });
+            return {
+                message: 'Successfully sent a message to admin',
+                statusCode: 200,
+                data: contactUsMessage,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async getAllUserMessages(userId, role) {
+        try {
+            const users = await this.prisma.contactMessage.findMany({
+                ...(role === 'user' && {
+                    where: {
+                        userId: userId,
+                    },
+                }),
+                select: {
+                    id: true,
+                    createdAt: true,
+                    isSeen: true,
+                    message: true,
+                    user: {
+                        select: {
+                            firstName: true,
+                            lastName: true,
+                            email: true,
+                            phone: true,
+                        },
+                    },
+                },
+            });
+            if (!(users.length > 0)) {
+                throw new Error('No Userssdsds found');
+            }
+            return {
+                message: 'Successfully fetch all users info',
+                statusCode: 200,
+                data: users,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
 };
 exports.UserService = UserService;
 exports.UserService = UserService = __decorate([

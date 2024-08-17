@@ -11,10 +11,18 @@ import {
 import { UserService } from './user.service';
 import { BodyDto, ParamsDto, ResponseDto, ChangePasswordDto } from '../dto';
 import { AuthGuard } from '@nestjs/passport';
+import { GetUser } from 'src/decorator';
+import { User } from '@prisma/client';
 
 @Controller('/users')
 export class UserController {
   constructor(private readonly appService: UserService) {}
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('/contact-message')
+  getAllUserMessages(@GetUser() user: User): Promise<ResponseDto> {
+    return this.appService.getAllUserMessages(user.id, user.role);
+  }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/')
   getAllUser(): Promise<ResponseDto> {
@@ -63,5 +71,12 @@ export class UserController {
   @Delete('/:id')
   deleteUser(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteUser(params.id);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/contact-us-message')
+  createUserMessage(@Body() body: any, @GetUser() user: User): Promise<any> {
+    console.log('user 0', user);
+    return this.appService.createUserMessage(body, user);
   }
 }

@@ -40,7 +40,7 @@ let AuthService = class AuthService {
                 },
             });
             if (!user) {
-                throw new Error('User not found');
+                throw new Error('User not found 34');
             }
             const pwMatches = await argon2.verify(user.password, body.password);
             if (!pwMatches)

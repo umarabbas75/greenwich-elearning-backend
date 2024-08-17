@@ -32,6 +32,7 @@ model User {
   Post                  Post[]
   threadSubscriptions   ThreadSubscription[]    @relation("UserThreadSubscriptions")
   courses               Course[]                @relation("CourseToUser")
+  ContactMessage        ContactMessage[]
 
   @@index([email])
   @@map("users")
@@ -290,6 +291,18 @@ model Comment {
   user      User     @relation(fields: [userId], references: [id])
 
   @@map("comments")
+}
+
+model ContactMessage {
+  id        String   @id @default(uuid())
+  userId    String
+  message   String
+  isSeen    Boolean  @default(false) // New field to track if the message has been seen by admin
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("contact_messages")
 }
 
 enum Role {
