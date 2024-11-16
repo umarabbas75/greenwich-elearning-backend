@@ -59,27 +59,31 @@ let UserService = class UserService {
                 orderBy: {
                     createdAt: 'desc',
                 },
-                select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    email: true,
-                    phone: true,
-                    photo: true,
-                    role: true,
-                    createdAt: true,
-                    updatedAt: true,
-                    password: true,
-                    courses: true,
+                include: {
+                    UserCourse: {
+                        include: {
+                            course: {
+                                select: {
+                                    id: true,
+                                    title: true,
+                                    description: true,
+                                },
+                            },
+                        },
+                    },
                 },
             });
-            if (!(users.length > 0)) {
-                throw new Error('No Users found');
+            if (users.length === 0) {
+                throw new Error('No users found');
             }
+            const transformedUsers = users.map((user) => ({
+                ...user,
+                courses: user.UserCourse.map((userCourse) => userCourse.course),
+            }));
             return {
-                message: 'Successfully fetch all users info',
+                message: 'Successfully fetched all users info',
                 statusCode: 200,
-                data: users,
+                data: transformedUsers,
             };
         }
         catch (error) {
@@ -97,7 +101,7 @@ let UserService = class UserService {
                 where: { email: body?.email },
             });
             if (isUserExist) {
-                throw new Error('credentials already taken');
+                throw new Error('User already exists in the system');
             }
             const password = await argon2.hash(body.password);
             delete body.password;
@@ -155,7 +159,6 @@ let UserService = class UserService {
             };
         }
         catch (error) {
-            console.log({ error });
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
@@ -252,7 +255,6 @@ let UserService = class UserService {
                 }, common_1.HttpStatus.FORBIDDEN);
             }
             else {
-                console.log({ error });
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
                     error: error?.message || 'Something went wrong',

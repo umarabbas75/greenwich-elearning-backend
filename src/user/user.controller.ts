@@ -28,7 +28,7 @@ export class UserController {
   getAllUser(): Promise<ResponseDto> {
     return this.appService.getAllUsers();
   }
-  @UseGuards(AuthGuard('cJwt'))
+  // @UseGuards(AuthGuard('cJwt'))
   @Get('/:id')
   getUser(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getUser(params.id);
@@ -76,7 +76,6 @@ export class UserController {
   @UseGuards(AuthGuard('cJwt'))
   @Post('/contact-us-message')
   createUserMessage(@Body() body: any, @GetUser() user: User): Promise<any> {
-    console.log('user 0', user);
     return this.appService.createUserMessage(body, user);
   }
 }

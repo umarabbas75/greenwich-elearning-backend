@@ -27,6 +27,15 @@ export class CourseController {
   constructor(private readonly appService: CourseService) {}
   // comments
 
+  @Get('/public')
+  getAllPublicCourses(): Promise<ResponseDto> {
+    return this.appService.getAllPublicCourses();
+  }
+
+  @Get('/public/:id')
+  getCourseDetailPublic(@Param() params: any): Promise<any> {
+    return this.appService.getCourseDetailPublic(params.id);
+  }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/report/:courseId/:userId')
   getCourseReport(@Param() params: any): Promise<any> {
@@ -223,15 +232,39 @@ export class CourseController {
     return this.appService.assignCourse(params.userId, params.courseId);
   }
 
+  @Put('/assignCourse/public/:userId/:courseId')
+  assignCoursePublic(@Param() params: any): Promise<ResponseDto> {
+    return this.appService.assignCoursePublic(params.userId, params.courseId);
+  }
+
   @UseGuards(AuthGuard('jwt'))
   @Put('/unAssignCourse/user')
   unAssignCourse(@Body() body: any): Promise<ResponseDto> {
     return this.appService.unAssignCourse(body.userId, body.courseId);
   }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Put('/updateStatus/user')
+  toggleCourseStatus(@Body() body: any): Promise<ResponseDto> {
+    return this.appService.toggleCourseStatus(body.userId, body.courseId, body.isActive);
+  } 
+  
+  @UseGuards(AuthGuard('jwt'))
+  @Put('/updatePayment/user')
+  toggleCoursePaymentStatus(@Body() body: any): Promise<ResponseDto> {
+    return this.appService.toggleCoursePaymentStatus(body.userId, body.courseId, body.isPaid);
+  }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/getAllAssignedCourses/:id')
-  getAllAssignedCourses(@Param() params: ParamsDto): Promise<ResponseDto> {
-    return this.appService.getAllAssignedCourses(params.id);
+  getAllAssignedCourses(@Param() params: ParamsDto, @GetUser() user: User,): Promise<ResponseDto> {
+    return this.appService.getAllAssignedCourses(params.id,user.role);
+  }
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('/getAllAssignedCourses/public/:id')
+  getAllAssignedCoursesPublic(
+    @Param() params: ParamsDto,
+  ): Promise<ResponseDto> {
+    return this.appService.getAllAssignedCoursesPublic(params.id);
   }
 
   @UseGuards(AuthGuard('jwt'))

@@ -52,7 +52,6 @@ let ForumCommentService = class ForumCommentService {
                 message: body.content,
                 commenterId: userId,
             }));
-            console.log({ notifications, subscribedUsers });
             await this.prisma.notification.createMany({
                 data: notifications,
             });

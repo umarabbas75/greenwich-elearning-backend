@@ -21,10 +21,12 @@ export declare class CourseService {
     createChapter(body: ModuleDto): Promise<ResponseDto>;
     createSection(body: any): Promise<ResponseDto>;
     getCourse(id: string): Promise<ResponseDto>;
+    getCourseDetailPublic(id: string): Promise<ResponseDto>;
     getModule(id: string): Promise<ResponseDto>;
     getChapter(id: string): Promise<ResponseDto>;
     getSection(id: string): Promise<ResponseDto>;
     getAllCourses(): Promise<ResponseDto>;
+    getAllPublicCourses(): Promise<ResponseDto>;
     getAllModules(id: string): Promise<ResponseDto>;
     getAllUserModules(id: string, userId: string): Promise<ResponseDto>;
     getAllChapters(id: string): Promise<ResponseDto>;
@@ -39,8 +41,12 @@ export declare class CourseService {
     deleteChapter(id: string): Promise<ResponseDto>;
     deleteSection(id: string): Promise<ResponseDto>;
     assignCourse(userId: string, courseId: string): Promise<ResponseDto>;
+    assignCoursePublic(userId: string, courseId: string): Promise<ResponseDto>;
     unAssignCourse(userId: string, courseId: string): Promise<ResponseDto>;
-    getAllAssignedCourses(userId: string): Promise<any>;
+    toggleCourseStatus(userId: string, courseId: string, isActive: boolean): Promise<ResponseDto>;
+    toggleCoursePaymentStatus(userId: string, courseId: string, isPaid: boolean): Promise<ResponseDto>;
+    getAllAssignedCourses(userId: string, role: string): Promise<any>;
+    getAllAssignedCoursesPublic(userId: string): Promise<any>;
     updateUserChapterProgress(userId: string, body: any): Promise<ResponseDto>;
     getUserChapterProgress(userId: string, courseId: string, chapterId: string): Promise<ResponseDto>;
     getLastSeenSection(userId: string, chapterId: string): Promise<ResponseDto>;

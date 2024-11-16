@@ -4,6 +4,8 @@ import { User } from '@prisma/client';
 export declare class CourseController {
     private readonly appService;
     constructor(appService: CourseService);
+    getAllPublicCourses(): Promise<ResponseDto>;
+    getCourseDetailPublic(params: any): Promise<any>;
     getCourseReport(params: any): Promise<any>;
     createPostComment(params: any, user: User, body: any): Promise<any>;
     getPostComments(params: any): Promise<any>;
@@ -33,8 +35,12 @@ export declare class CourseController {
     updateChapter(body: UpdateCourseDto, params: ParamsDto): Promise<ResponseDto>;
     updateSection(body: any, params: ParamsDto): Promise<ResponseDto>;
     assignCourse(params: AssignCourseDto): Promise<ResponseDto>;
+    assignCoursePublic(params: any): Promise<ResponseDto>;
     unAssignCourse(body: any): Promise<ResponseDto>;
-    getAllAssignedCourses(params: ParamsDto): Promise<ResponseDto>;
+    toggleCourseStatus(body: any): Promise<ResponseDto>;
+    toggleCoursePaymentStatus(body: any): Promise<ResponseDto>;
+    getAllAssignedCourses(params: ParamsDto, user: User): Promise<ResponseDto>;
+    getAllAssignedCoursesPublic(params: ParamsDto): Promise<ResponseDto>;
     createModule(body: ModuleDto): Promise<ResponseDto>;
     createChapter(body: ModuleDto): Promise<ResponseDto>;
     createSection(body: any): Promise<ResponseDto>;

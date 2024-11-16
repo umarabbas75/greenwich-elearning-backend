@@ -37,12 +37,16 @@ let AuthService = class AuthService {
                     updatedAt: true,
                     timezone: true,
                     password: true,
+                    status: true,
                 },
             });
             if (!user) {
                 throw new Error('User not found 34');
             }
             const pwMatches = await argon2.verify(user.password, body.password);
+            if (user?.status === 'inactive') {
+                throw new common_1.ForbiddenException('Account is inactive, kindly contact admin for activation at +92-312-5343061');
+            }
             if (!pwMatches)
                 throw new common_1.ForbiddenException('Credentials incorrect');
             delete body.password;
@@ -54,7 +58,6 @@ let AuthService = class AuthService {
             };
         }
         catch (error) {
-            console.log([error]);
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',

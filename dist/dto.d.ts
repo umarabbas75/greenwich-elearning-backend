@@ -15,6 +15,7 @@ export declare class BodyUpdateDto {
     email?: string;
     phone?: string;
     photo?: string;
+    status?: string;
 }
 export declare class ChangePasswordDto {
     password: string;

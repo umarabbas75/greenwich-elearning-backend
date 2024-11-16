@@ -52,29 +52,35 @@ export class UserService {
         orderBy: {
           createdAt: 'desc',
         },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          phone: true,
-          photo: true,
-          role: true,
-          createdAt: true,
-          updatedAt: true,
-          password: true,
-          courses: true,
+        include: {
+          UserCourse: {
+            include: {
+              course: {
+                select: {
+                  id: true,
+                  title: true,
+                  description: true,
+                },
+              },
+            },
+          },
         },
-        // offset: 10,
-        // limit: 10,
       });
-      if (!(users.length > 0)) {
-        throw new Error('No Users found');
+
+      if (users.length === 0) {
+        throw new Error('No users found');
       }
+
+      // Transform data to make it more user-friendly (optional)
+      const transformedUsers = users.map((user) => ({
+        ...user,
+        courses: user.UserCourse.map((userCourse) => userCourse.course),
+      }));
+
       return {
-        message: 'Successfully fetch all users info',
+        message: 'Successfully fetched all users info',
         statusCode: 200,
-        data: users,
+        data: transformedUsers,
       };
     } catch (error) {
       throw new HttpException(
@@ -96,7 +102,7 @@ export class UserService {
         where: { email: body?.email },
       });
       if (isUserExist) {
-        throw new Error('credentials already taken');
+        throw new Error('User already exists in the system');
       }
       const password = await argon2.hash(body.password);
       delete body.password;
@@ -162,7 +168,6 @@ export class UserService {
         data: updatedUser,
       };
     } catch (error) {
-      console.log({ error });
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -293,7 +298,6 @@ export class UserService {
         );
       } else {
         // Other errors
-        console.log({ error });
         throw new HttpException(
           {
             status: HttpStatus.FORBIDDEN,

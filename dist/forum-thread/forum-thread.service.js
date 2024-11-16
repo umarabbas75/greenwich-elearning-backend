@@ -168,7 +168,6 @@ let ForumThreadService = class ForumThreadService {
             ]);
             const favoriteThreadIds = new Set(favoriteThreads.map((fav) => fav.threadId));
             const subscribedThreadIds = new Set(subscribedThreads.map((sub) => sub.threadId));
-            console.log({ forums });
             const sortedForums = forums
                 .map((thread) => ({
                 ...thread,
@@ -263,7 +262,6 @@ let ForumThreadService = class ForumThreadService {
                         commenterId: userId,
                         message: 'A new thread has been created by the admin.',
                     }));
-                    console.log({ notifications });
                     await this.prisma.notification.createMany({
                         data: notifications,
                     });

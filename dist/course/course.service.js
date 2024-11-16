@@ -59,7 +59,6 @@ let CourseService = class CourseService {
                     },
                 },
             });
-            console.log({ course });
             let totalSectionsInCourse = 0;
             course.modules.forEach((module) => {
                 module.chapters.forEach((chapter) => {
@@ -579,6 +578,43 @@ let CourseService = class CourseService {
             });
         }
     }
+    async getCourseDetailPublic(id) {
+        try {
+            const course = await this.prisma.course.findUnique({
+                where: { id },
+                select: {
+                    id: true,
+                    title: true,
+                    description: true,
+                    image: true,
+                    modules: {
+                        select: {
+                            id: true,
+                            title: true,
+                            chapters: true,
+                            _count: true,
+                        },
+                    },
+                },
+            });
+            if (!course) {
+                throw new Error('course not found');
+            }
+            return {
+                message: 'Successfully fetch Course info',
+                statusCode: 200,
+                data: course,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
     async getModule(id) {
         try {
             const module = await this.prisma.module.findUnique({ where: { id } });
@@ -634,7 +670,6 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
-            console.log({ error });
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
@@ -659,6 +694,42 @@ let CourseService = class CourseService {
             });
             if (!(courses.length > 0)) {
                 throw new Error('No Courses found');
+            }
+            return {
+                message: 'Successfully fetch all Courses info',
+                statusCode: 200,
+                data: courses,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async getAllPublicCourses() {
+        try {
+            const courses = await this.prisma.course.findMany({
+                include: {
+                    _count: {
+                        select: {
+                            modules: true,
+                        },
+                    },
+                },
+                orderBy: {
+                    createdAt: 'desc',
+                },
+            });
+            if (!(courses.length > 0)) {
+                return {
+                    message: 'Successfully fetch all Courses info',
+                    statusCode: 200,
+                    data: [],
+                };
             }
             return {
                 message: 'Successfully fetch all Courses info',
@@ -702,7 +773,6 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
-            console.log({ error });
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
@@ -751,7 +821,6 @@ let CourseService = class CourseService {
                     },
                 },
             });
-            console.log('modules', courses, courses?.modules);
             return {
                 message: 'Successfully fetched all Modules info against course',
                 statusCode: 200,
@@ -834,22 +903,8 @@ let CourseService = class CourseService {
         }
     }
     async getAllUserSections(id, userId, courseId) {
-        function insertQuizzes(sections, quizzes) {
-            const availableIndexes = [];
-            if (sections.length > 2) {
-                for (let i = 1; i < sections.length - 1; i++) {
-                    availableIndexes.push(i);
-                }
-            }
-            const shuffledQuizzes = quizzes.sort(() => Math.random() - 0.5);
-            for (let i = 0; i < shuffledQuizzes.length; i++) {
-                const randomIndex = availableIndexes.splice(Math.floor(Math.random() * availableIndexes.length), 1)[0];
-                sections.splice(randomIndex, 0, shuffledQuizzes[i]);
-            }
-            return sections;
-        }
         try {
-            const [sections, userCourseProgress, chapter, quizAnswer, lastSeenLesson,] = await Promise.all([
+            const [sections, userCourseProgress, chapter, lastSeenLesson,] = await Promise.all([
                 this.prisma.section.findMany({
                     where: { chapterId: id },
                     orderBy: {
@@ -872,39 +927,25 @@ let CourseService = class CourseService {
                         },
                     },
                 }),
-                this.prisma.quizAnswer.findMany({
-                    where: { userId, chapterId: id },
-                }),
                 this.prisma.lastSeenSection.findUnique({
                     where: { userId_chapterId: { userId, chapterId: id } },
                 }),
             ]);
             const allSections = sections?.length > 0 ? [...sections] : [];
             const completedSections = userCourseProgress?.length > 0 ? [...userCourseProgress] : [];
-            let assignedQuizzesList = chapter?.quizzes?.length > 0 ? [...chapter?.quizzes] : [];
-            const quizAnsweredList = quizAnswer?.length > 0 ? [...quizAnswer] : [];
             allSections?.forEach((section) => {
                 const isCompleted = completedSections?.some((completedSection) => completedSection.sectionId === section.id);
                 section.isLastSeen =
                     lastSeenLesson?.sectionId === section.id ? true : false;
                 section.isCompleted = isCompleted;
             });
-            assignedQuizzesList?.forEach((quiz) => {
-                const isCorrect = quizAnsweredList?.some((completedQuestion) => completedQuestion.quizId === quiz.id &&
-                    completedQuestion?.isAnswerCorrect === true
-                    ? true
-                    : false);
-                quiz.isCorrect = isCorrect;
-            });
-            assignedQuizzesList = assignedQuizzesList.filter((item) => !item?.isCorrect);
-            const mergedArray = insertQuizzes(allSections, assignedQuizzesList);
             if (!(sections.length > 0)) {
                 throw new Error('No Sections found');
             }
             return {
                 message: 'Successfully fetch all Sections info against chapter',
                 statusCode: 200,
-                data: mergedArray,
+                data: allSections,
                 chapter: chapter,
             };
         }
@@ -1207,6 +1248,54 @@ let CourseService = class CourseService {
                 where: { id: courseId },
             });
             if (!course) {
+                throw new Error('Course not found');
+            }
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId },
+            });
+            if (!user) {
+                throw new Error('User not found');
+            }
+            const existingAssignment = await this.prisma.userCourse.findUnique({
+                where: {
+                    userId_courseId: {
+                        userId,
+                        courseId,
+                    },
+                },
+            });
+            if (existingAssignment) {
+                throw new Error('Course already assigned to the user');
+            }
+            await this.prisma.userCourse.create({
+                data: {
+                    userId,
+                    courseId,
+                    isActive: false,
+                    isPaid: false,
+                },
+            });
+            return {
+                message: 'Successfully assigned course to user',
+                statusCode: 200,
+                data: {},
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async assignCoursePublic(userId, courseId) {
+        try {
+            const course = await this.prisma.course.findUnique({
+                where: { id: courseId },
+            });
+            if (!course) {
                 throw new Error('course not found');
             }
             const user = await this.prisma.user.findUnique({
@@ -1215,12 +1304,12 @@ let CourseService = class CourseService {
             if (!user) {
                 throw new Error('user not found');
             }
-            await this.prisma.user.update({
-                where: { id: userId },
+            await this.prisma.userCourse.create({
                 data: {
-                    courses: {
-                        connect: { id: courseId },
-                    },
+                    userId,
+                    courseId,
+                    isActive: false,
+                    isPaid: false,
                 },
             });
             return {
@@ -1252,16 +1341,19 @@ let CourseService = class CourseService {
             if (!course) {
                 throw new Error('Course not found');
             }
-            await this.prisma.user.update({
-                where: { id: userId },
-                data: {
-                    courses: {
-                        disconnect: { id: courseId },
-                    },
+            const userCourse = await this.prisma.userCourse.findFirst({
+                where: { userId, courseId },
+            });
+            if (!userCourse) {
+                throw new Error('User is not assigned to this course');
+            }
+            await this.prisma.userCourse.delete({
+                where: {
+                    id: userCourse.id,
                 },
             });
             return {
-                message: 'Successfully unassigned course to user',
+                message: 'Successfully unassigned course from user',
                 statusCode: 200,
                 data: {},
             };
@@ -1273,12 +1365,95 @@ let CourseService = class CourseService {
             }, common_1.HttpStatus.FORBIDDEN);
         }
     }
-    async getAllAssignedCourses(userId) {
+    async toggleCourseStatus(userId, courseId, isActive) {
         try {
             const user = await this.prisma.user.findUnique({
                 where: { id: userId },
+            });
+            if (!user) {
+                throw new Error('User not found');
+            }
+            const course = await this.prisma.course.findUnique({
+                where: { id: courseId },
+            });
+            if (!course) {
+                throw new Error('Course not found');
+            }
+            const userCourse = await this.prisma.userCourse.findFirst({
+                where: { userId, courseId },
+            });
+            if (!userCourse) {
+                throw new Error('User is not assigned to this course');
+            }
+            await this.prisma.userCourse.update({
+                where: { id: userCourse.id },
+                data: { isActive },
+            });
+            return {
+                message: `Successfully ${isActive ? 'activated' : 'deactivated'} course status for user`,
+                statusCode: 200,
+                data: {
+                    userId,
+                    courseId,
+                    isActive,
+                },
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || `Failed to ${isActive ? 'activate' : 'deactivate'} course status`,
+            }, common_1.HttpStatus.FORBIDDEN);
+        }
+    }
+    async toggleCoursePaymentStatus(userId, courseId, isPaid) {
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId },
+            });
+            if (!user) {
+                throw new Error('User not found');
+            }
+            const course = await this.prisma.course.findUnique({
+                where: { id: courseId },
+            });
+            if (!course) {
+                throw new Error('Course not found');
+            }
+            const userCourse = await this.prisma.userCourse.findFirst({
+                where: { userId, courseId },
+            });
+            if (!userCourse) {
+                throw new Error('User is not assigned to this course');
+            }
+            await this.prisma.userCourse.update({
+                where: { id: userCourse.id },
+                data: { isPaid },
+            });
+            return {
+                message: `Successfully ${isPaid ? 'activated' : 'deactivated'} course payment status for user`,
+                statusCode: 200,
+                data: {
+                    userId,
+                    courseId,
+                    isPaid,
+                },
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || `Failed to ${isPaid ? 'activate' : 'deactivate'} course payment status`,
+            }, common_1.HttpStatus.FORBIDDEN);
+        }
+    }
+    async getAllAssignedCourses(userId, role) {
+        try {
+            const whereCondition = role === 'user' ? { userId, isActive: true } : { userId };
+            const assignedCourses = await this.prisma.userCourse.findMany({
+                where: whereCondition,
                 include: {
-                    courses: {
+                    course: {
                         include: {
                             modules: {
                                 select: {
@@ -1301,14 +1476,14 @@ let CourseService = class CourseService {
                     },
                 },
             });
-            if (!user) {
+            if (!assignedCourses.length) {
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.NOT_FOUND,
-                    error: 'User not found',
+                    error: 'No courses assigned to this user',
                 }, common_1.HttpStatus.NOT_FOUND);
             }
-            console.log('data', user.courses);
-            const coursesWithCounts = user.courses.map((course) => {
+            const coursesWithDetails = assignedCourses.map((userCourse) => {
+                const { course, isActive, isPaid } = userCourse;
                 const sectionsCount = course.modules
                     .flatMap((module) => module.chapters)
                     .reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
@@ -1316,6 +1491,8 @@ let CourseService = class CourseService {
                 const latestLastSeenSection = course.LastSeenSection[0];
                 return {
                     ...course,
+                    isActive,
+                    isPaid,
                     percentage: (userCourseProgressCount * 100) / sectionsCount || 0,
                     _count: {
                         totalSections: sectionsCount,
@@ -1338,17 +1515,47 @@ let CourseService = class CourseService {
             return {
                 message: 'Successfully retrieved assigned courses',
                 statusCode: 200,
-                data: coursesWithCounts,
-                courses: user.courses,
+                data: coursesWithDetails,
             };
         }
         catch (error) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
+            }, common_1.HttpStatus.FORBIDDEN);
+        }
+    }
+    async getAllAssignedCoursesPublic(userId) {
+        try {
+            const assignedCourses = await this.prisma.userCourse.findMany({
+                where: { userId },
+                select: {
+                    course: {
+                        select: {
+                            id: true,
+                            title: true,
+                        },
+                    },
+                },
             });
+            if (!assignedCourses.length) {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.NOT_FOUND,
+                    error: 'No courses assigned to this user',
+                }, common_1.HttpStatus.NOT_FOUND);
+            }
+            const courses = assignedCourses.map((userCourse) => userCourse.course);
+            return {
+                message: 'Successfully retrieved assigned courses',
+                statusCode: 200,
+                data: courses,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN);
         }
     }
     async updateUserChapterProgress(userId, body) {

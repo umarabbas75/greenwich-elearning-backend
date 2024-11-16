@@ -34,12 +34,19 @@ export class AuthService {
           updatedAt: true,
           timezone: true,
           password: true,
+          status: true,
         },
       });
       if (!user) {
         throw new Error('User not found 34');
       }
       const pwMatches = await argon2.verify(user.password, body.password);
+      if (user?.status === 'inactive') {
+        throw new ForbiddenException(
+          'Account is inactive, kindly contact admin for activation at +92-312-5343061',
+        );
+      }
+
       // if password incorrect throw exception
       if (!pwMatches) throw new ForbiddenException('Credentials incorrect');
       delete body.password;
@@ -50,7 +57,6 @@ export class AuthService {
         data: { jwt, user },
       };
     } catch (error) {
-      console.log([error]);
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,

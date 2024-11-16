@@ -22,6 +22,12 @@ let CourseController = class CourseController {
     constructor(appService) {
         this.appService = appService;
     }
+    getAllPublicCourses() {
+        return this.appService.getAllPublicCourses();
+    }
+    getCourseDetailPublic(params) {
+        return this.appService.getCourseDetailPublic(params.id);
+    }
     getCourseReport(params) {
         return this.appService.getCourseReport(params.courseId, params.userId);
     }
@@ -109,11 +115,23 @@ let CourseController = class CourseController {
     assignCourse(params) {
         return this.appService.assignCourse(params.userId, params.courseId);
     }
+    assignCoursePublic(params) {
+        return this.appService.assignCoursePublic(params.userId, params.courseId);
+    }
     unAssignCourse(body) {
         return this.appService.unAssignCourse(body.userId, body.courseId);
     }
-    getAllAssignedCourses(params) {
-        return this.appService.getAllAssignedCourses(params.id);
+    toggleCourseStatus(body) {
+        return this.appService.toggleCourseStatus(body.userId, body.courseId, body.isActive);
+    }
+    toggleCoursePaymentStatus(body) {
+        return this.appService.toggleCoursePaymentStatus(body.userId, body.courseId, body.isPaid);
+    }
+    getAllAssignedCourses(params, user) {
+        return this.appService.getAllAssignedCourses(params.id, user.role);
+    }
+    getAllAssignedCoursesPublic(params) {
+        return this.appService.getAllAssignedCoursesPublic(params.id);
     }
     createModule(body) {
         return this.appService.createModule(body);
@@ -150,6 +168,19 @@ let CourseController = class CourseController {
     }
 };
 exports.CourseController = CourseController;
+__decorate([
+    (0, common_1.Get)('/public'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "getAllPublicCourses", null);
+__decorate([
+    (0, common_1.Get)('/public/:id'),
+    __param(0, (0, common_1.Param)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "getCourseDetailPublic", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/report/:courseId/:userId'),
@@ -397,6 +428,13 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "assignCourse", null);
 __decorate([
+    (0, common_1.Put)('/assignCourse/public/:userId/:courseId'),
+    __param(0, (0, common_1.Param)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "assignCoursePublic", null);
+__decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Put)('/unAssignCourse/user'),
     __param(0, (0, common_1.Body)()),
@@ -405,13 +443,38 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "unAssignCourse", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Put)('/updateStatus/user'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "toggleCourseStatus", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Put)('/updatePayment/user'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "toggleCoursePaymentStatus", null);
+__decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/getAllAssignedCourses/:id'),
+    __param(0, (0, common_1.Param)()),
+    __param(1, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [dto_1.ParamsDto, Object]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "getAllAssignedCourses", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Get)('/getAllAssignedCourses/public/:id'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [dto_1.ParamsDto]),
     __metadata("design:returntype", Promise)
-], CourseController.prototype, "getAllAssignedCourses", null);
+], CourseController.prototype, "getAllAssignedCoursesPublic", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('/module'),

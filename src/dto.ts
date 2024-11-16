@@ -62,6 +62,10 @@ export class BodyUpdateDto {
   @IsOptional()
   @IsString()
   photo?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
 }
 export class ChangePasswordDto {
   @IsString()

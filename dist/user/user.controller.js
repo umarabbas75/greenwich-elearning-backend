@@ -47,7 +47,6 @@ let UserController = class UserController {
         return this.appService.deleteUser(params.id);
     }
     createUserMessage(body, user) {
-        console.log('user 0', user);
         return this.appService.createUserMessage(body, user);
     }
 };
@@ -68,7 +67,6 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], UserController.prototype, "getAllUser", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/:id'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),

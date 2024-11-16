@@ -8,7 +8,6 @@ import {
   UpdateCourseDto,
 } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { where } from 'sequelize';
 
 @Injectable()
 export class CourseService {
@@ -57,7 +56,6 @@ export class CourseService {
         },
       });
 
-      console.log({ course });
       // Step 1: Calculate total number of sections in the entire course
       let totalSectionsInCourse = 0;
       course.modules.forEach((module) => {
@@ -698,6 +696,46 @@ export class CourseService {
       );
     }
   }
+  async getCourseDetailPublic(id: string): Promise<ResponseDto> {
+    try {
+      const course = await this.prisma.course.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          image: true,
+          modules: {
+            select: {
+              id: true,
+              title: true,
+              chapters: true,
+              _count: true,
+            },
+          },
+        },
+      });
+      if (!course) {
+        throw new Error('course not found');
+      }
+      return {
+        message: 'Successfully fetch Course info',
+        statusCode: 200,
+        data: course,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
 
   async getModule(id: string): Promise<ResponseDto> {
     try {
@@ -761,7 +799,6 @@ export class CourseService {
         data: section,
       };
     } catch (error) {
-      console.log({ error });
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -813,6 +850,46 @@ export class CourseService {
       );
     }
   }
+  async getAllPublicCourses(): Promise<ResponseDto> {
+    try {
+      const courses = await this.prisma.course.findMany({
+        include: {
+          _count: {
+            select: {
+              modules: true,
+            },
+          },
+        },
+
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+      if (!(courses.length > 0)) {
+        return {
+          message: 'Successfully fetch all Courses info',
+          statusCode: 200,
+          data: [],
+        };
+      }
+      return {
+        message: 'Successfully fetch all Courses info',
+        statusCode: 200,
+        data: courses,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
   async getAllModules(id: string): Promise<ResponseDto> {
     try {
       const modules = await this.prisma.module.findMany({
@@ -844,7 +921,6 @@ export class CourseService {
         data: modules,
       };
     } catch (error) {
-      console.log({ error });
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -899,7 +975,6 @@ export class CourseService {
         },
       });
 
-      console.log('modules', courses, courses?.modules);
       return {
         message: 'Successfully fetched all Modules info against course',
         statusCode: 200,
@@ -1007,36 +1082,13 @@ export class CourseService {
     userId: string,
     courseId: string,
   ): Promise<any> {
-    function insertQuizzes(sections: any, quizzes: any) {
-      // Remove first and last indexes for quiz placement
-      const availableIndexes = [];
-      if (sections.length > 2) {
-        for (let i = 1; i < sections.length - 1; i++) {
-          availableIndexes.push(i);
-        }
-      }
 
-      // Shuffle quizzes to randomize placement
-      const shuffledQuizzes = quizzes.sort(() => Math.random() - 0.5);
-
-      // Insert quizzes into available indexes
-      for (let i = 0; i < shuffledQuizzes.length; i++) {
-        const randomIndex = availableIndexes.splice(
-          Math.floor(Math.random() * availableIndexes.length),
-          1,
-        )[0];
-        sections.splice(randomIndex, 0, shuffledQuizzes[i]);
-      }
-
-      return sections;
-    }
 
     try {
       const [
         sections,
         userCourseProgress,
         chapter,
-        quizAnswer,
         lastSeenLesson,
       ] = await Promise.all([
         this.prisma.section.findMany({
@@ -1061,9 +1113,7 @@ export class CourseService {
             },
           },
         }),
-        this.prisma.quizAnswer.findMany({
-          where: { userId, chapterId: id },
-        }),
+       
         this.prisma.lastSeenSection.findUnique({
           where: { userId_chapterId: { userId, chapterId: id } },
         }),
@@ -1072,9 +1122,7 @@ export class CourseService {
       const allSections = sections?.length > 0 ? [...sections] : [];
       const completedSections =
         userCourseProgress?.length > 0 ? [...userCourseProgress] : [];
-      let assignedQuizzesList =
-        chapter?.quizzes?.length > 0 ? [...chapter?.quizzes] : [];
-      const quizAnsweredList = quizAnswer?.length > 0 ? [...quizAnswer] : [];
+ 
       allSections?.forEach((section: any) => {
         // Check if the section ID exists in completedSections
         const isCompleted = completedSections?.some(
@@ -1086,23 +1134,7 @@ export class CourseService {
         section.isCompleted = isCompleted;
       });
 
-      assignedQuizzesList?.forEach((quiz: any) => {
-        // Check if the section ID exists in completedSections
-        const isCorrect = quizAnsweredList?.some((completedQuestion: any) =>
-          completedQuestion.quizId === quiz.id &&
-          completedQuestion?.isAnswerCorrect === true
-            ? true
-            : false,
-        );
-        // Insert the boolean value into the section object
-        quiz.isCorrect = isCorrect;
-      });
-
-      assignedQuizzesList = assignedQuizzesList.filter(
-        (item: any) => !item?.isCorrect,
-      );
-
-      const mergedArray = insertQuizzes(allSections, assignedQuizzesList);
+ 
 
       if (!(sections.length > 0)) {
         throw new Error('No Sections found');
@@ -1110,7 +1142,7 @@ export class CourseService {
       return {
         message: 'Successfully fetch all Sections info against chapter',
         statusCode: 200,
-        data: mergedArray,
+        data: allSections,
         chapter: chapter,
       };
     } catch (error) {
@@ -1530,7 +1562,114 @@ export class CourseService {
     }
   }
 
+  // async assignCourse(userId: string, courseId: string): Promise<ResponseDto> {
+  //   try {
+  //     const course = await this.prisma.course.findUnique({
+  //       where: { id: courseId },
+  //     });
+  //     if (!course) {
+  //       throw new Error('course not found');
+  //     }
+  //     const user = await this.prisma.user.findUnique({
+  //       where: { id: userId },
+  //     });
+  //     if (!user) {
+  //       throw new Error('user not found');
+  //     }
+
+  //     // Assign the course to the user
+  //     await this.prisma.user.update({
+  //       where: { id: userId },
+  //       data: {
+  //         courses: {
+  //           connect: { id: courseId },
+  //         },
+  //       },
+  //     });
+
+  //     return {
+  //       message: 'Successfully assigned course to user',
+  //       statusCode: 200,
+  //       data: {},
+  //     };
+  //   } catch (error) {
+  //     throw new HttpException(
+  //       {
+  //         status: HttpStatus.FORBIDDEN,
+  //         error: error?.message || 'Something went wrong',
+  //       },
+  //       HttpStatus.FORBIDDEN,
+  //       {
+  //         cause: error,
+  //       },
+  //     );
+  //   }
+  // }
+
   async assignCourse(userId: string, courseId: string): Promise<ResponseDto> {
+    try {
+      // Check if the course exists
+      const course = await this.prisma.course.findUnique({
+        where: { id: courseId },
+      });
+      if (!course) {
+        throw new Error('Course not found');
+      }
+
+      // Check if the user exists
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      // Check if the course is already assigned to the user
+      const existingAssignment = await this.prisma.userCourse.findUnique({
+        where: {
+          userId_courseId: {
+            userId,
+            courseId,
+          },
+        },
+      });
+      if (existingAssignment) {
+        throw new Error('Course already assigned to the user');
+      }
+
+      // Assign the course to the user by creating a new entry in UserCourse table
+      await this.prisma.userCourse.create({
+        data: {
+          userId,
+          courseId,
+          isActive: false, // Default status as inactive
+          isPaid: false, // Default payment status as unpaid
+        },
+      });
+
+      return {
+        message: 'Successfully assigned course to user',
+        statusCode: 200,
+        data: {},
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async assignCoursePublic(
+    userId: string,
+    courseId: string,
+  ): Promise<ResponseDto> {
     try {
       const course = await this.prisma.course.findUnique({
         where: { id: courseId },
@@ -1546,12 +1685,12 @@ export class CourseService {
       }
 
       // Assign the course to the user
-      await this.prisma.user.update({
-        where: { id: userId },
+      await this.prisma.userCourse.create({
         data: {
-          courses: {
-            connect: { id: courseId },
-          },
+          userId,
+          courseId,
+          isActive: false, // Default status as inactive
+          isPaid: false, // Default payment status as unpaid
         },
       });
 
@@ -1582,7 +1721,7 @@ export class CourseService {
       if (!user) {
         throw new Error('User not found');
       }
-
+  
       // Check if the course exists
       const course = await this.prisma.course.findUnique({
         where: { id: courseId },
@@ -1590,18 +1729,24 @@ export class CourseService {
       if (!course) {
         throw new Error('Course not found');
       }
-
-      // Remove the course from the user's list of assigned courses
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: {
-          courses: {
-            disconnect: { id: courseId },
-          },
+  
+      // Check if the user-course relation exists
+      const userCourse = await this.prisma.userCourse.findFirst({
+        where: { userId, courseId },
+      });
+      if (!userCourse) {
+        throw new Error('User is not assigned to this course');
+      }
+  
+      // Remove the relation from the UserCourse table
+      await this.prisma.userCourse.delete({
+        where: {
+          id: userCourse.id,
         },
       });
+  
       return {
-        message: 'Successfully unassigned course to user',
+        message: 'Successfully unassigned course from user',
         statusCode: 200,
         data: {},
       };
@@ -1615,12 +1760,121 @@ export class CourseService {
       );
     }
   }
-  async getAllAssignedCourses(userId: string): Promise<any> {
+
+  async toggleCourseStatus(userId: string, courseId: string, isActive: boolean): Promise<ResponseDto> {
     try {
+      // Check if the user exists
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
+      });
+      if (!user) {
+        throw new Error('User not found');
+      }
+  
+      // Check if the course exists
+      const course = await this.prisma.course.findUnique({
+        where: { id: courseId },
+      });
+      if (!course) {
+        throw new Error('Course not found');
+      }
+  
+      // Check if the user-course relation exists
+      const userCourse = await this.prisma.userCourse.findFirst({
+        where: { userId, courseId },
+      });
+      if (!userCourse) {
+        throw new Error('User is not assigned to this course');
+      }
+  
+      // Update the isActive status for the user-course relation
+      await this.prisma.userCourse.update({
+        where: { id: userCourse.id },
+        data: { isActive },
+      });
+  
+      return {
+        message: `Successfully ${isActive ? 'activated' : 'deactivated'} course status for user`,
+        statusCode: 200,
+        data: {
+          userId,
+          courseId,
+          isActive,
+        },
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || `Failed to ${isActive ? 'activate' : 'deactivate'} course status`,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+
+  async toggleCoursePaymentStatus(userId: string, courseId: string, isPaid: boolean): Promise<ResponseDto> {
+    try {
+      // Check if the user exists
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+      if (!user) {
+        throw new Error('User not found');
+      }
+  
+      // Check if the course exists
+      const course = await this.prisma.course.findUnique({
+        where: { id: courseId },
+      });
+      if (!course) {
+        throw new Error('Course not found');
+      }
+  
+      // Check if the user-course relation exists
+      const userCourse = await this.prisma.userCourse.findFirst({
+        where: { userId, courseId },
+      });
+      if (!userCourse) {
+        throw new Error('User is not assigned to this course');
+      }
+  
+      // Update the isActive status for the user-course relation
+      await this.prisma.userCourse.update({
+        where: { id: userCourse.id },
+        data: { isPaid },
+      });
+  
+      return {
+        message: `Successfully ${isPaid ? 'activated' : 'deactivated'} course payment status for user`,
+        statusCode: 200,
+        data: {
+          userId,
+          courseId,
+          isPaid,
+        },
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || `Failed to ${isPaid ? 'activate' : 'deactivate'} course payment status`,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+  
+  async getAllAssignedCourses(userId: string,role : string): Promise<any> {
+    try {
+
+      // Define the condition based on the user's role
+    const whereCondition = role === 'user' ? { userId, isActive: true } : { userId };
+      // Fetch the assigned courses for the user from the UserCourse table
+      const assignedCourses = await this.prisma.userCourse.findMany({
+        where: whereCondition,
         include: {
-          courses: {
+          course: {
             include: {
               modules: {
                 select: {
@@ -1643,33 +1897,37 @@ export class CourseService {
           },
         },
       });
-
-      if (!user) {
+  
+      if (!assignedCourses.length) {
         throw new HttpException(
           {
             status: HttpStatus.NOT_FOUND,
-            error: 'User not found',
+            error: 'No courses assigned to this user',
           },
           HttpStatus.NOT_FOUND,
         );
       }
-      console.log('data', user.courses);
-
-      const coursesWithCounts = user.courses.map((course) => {
+  
+      // Map the assigned courses to include additional details
+      const coursesWithDetails = assignedCourses.map((userCourse) => {
+        const { course, isActive ,isPaid} = userCourse;
+  
         // Calculate the total sections count
         const sectionsCount =
           course.modules
             .flatMap((module) => module.chapters)
             .reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
-
+  
         // Get user course progress count
         const userCourseProgressCount = course._count.UserCourseProgress || 0;
-
+  
         // Get the latest last seen section
         const latestLastSeenSection = course.LastSeenSection[0];
-
+  
         return {
           ...course,
+          isActive, // Include the isActive field
+          isPaid, // Include the isPaid field
           percentage: (userCourseProgressCount * 100) / sectionsCount || 0,
           _count: {
             totalSections: sectionsCount,
@@ -1689,12 +1947,11 @@ export class CourseService {
             : null,
         };
       });
-
+  
       return {
         message: 'Successfully retrieved assigned courses',
         statusCode: 200,
-        data: coursesWithCounts,
-        courses: user.courses,
+        data: coursesWithDetails,
       };
     } catch (error) {
       throw new HttpException(
@@ -1703,308 +1960,55 @@ export class CourseService {
           error: error?.message || 'Something went wrong',
         },
         HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
       );
     }
   }
-  // async getAllAssignedCourses(userId: string): Promise<any> {
-  //   try {
-  //     const user = await this.prisma.user.findUnique({
-  //       where: { id: userId },
-  //       include: {
-  //         courses: true,
-  //       },
-  //     });
+  
 
-  //     if (!user) {
-  //       throw new HttpException(
-  //         {
-  //           status: HttpStatus.NOT_FOUND,
-  //           error: 'User not found',
-  //         },
-  //         HttpStatus.NOT_FOUND,
-  //       );
-  //     }
-
-  //     const courseIds = user.courses.map((course) => course.id);
-
-  //     // Fetch section counts, progress counts, and latest last seen sections concurrently
-  //     const [sectionCounts, progressCounts, latestLastSeenSections] =
-  //       await Promise.all([
-  //         this.prisma.course.findMany({
-  //           where: {
-  //             id: { in: courseIds },
-  //           },
-  //           select: {
-  //             id: true,
-  //             modules: {
-  //               select: {
-  //                 chapters: {
-  //                   select: {
-  //                     _count: {
-  //                       select: { sections: true },
-  //                     },
-  //                   },
-  //                 },
-  //               },
-  //             },
-  //           },
-  //         }),
-  //         this.prisma.userCourseProgress.groupBy({
-  //           by: ['courseId'],
-  //           where: {
-  //             courseId: { in: courseIds },
-  //           },
-  //           _count: {
-  //             courseId: true,
-  //           },
-  //         }),
-  //         this.prisma.lastSeenSection.findMany({
-  //           where: {
-  //             userId: userId,
-  //             courseId: { in: courseIds },
-  //           },
-  //           orderBy: {
-  //             updatedAt: 'desc',
-  //           },
-  //           distinct: ['courseId'],
-  //           include: {
-  //             section: {
-  //               select: {
-  //                 title: true,
-  //               },
-  //             },
-  //           },
-  //         }),
-  //       ]);
-
-  //     // Map over courses and combine counts
-  //     const coursesWithCounts = user.courses.map((course) => {
-  //       const sectionsCount =
-  //         sectionCounts
-  //           .find((sc) => sc.id === course.id)
-  //           ?.modules.flatMap((module) => module.chapters)
-  //           .reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
-
-  //       const userCourseProgressCount =
-  //         progressCounts.find((pc) => pc.courseId === course.id)?._count
-  //           .courseId || 0;
-
-  //       const latestLastSeenSection = latestLastSeenSections.find(
-  //         (lss) => lss.courseId === course.id,
-  //       );
-
-  //       return {
-  //         ...course,
-  //         percentage: (userCourseProgressCount * 100) / sectionsCount || 0,
-  //         _count: {
-  //           totalSections: sectionsCount,
-  //           userCourseProgress: userCourseProgressCount,
-  //         },
-  //         latestLastSeenSection: latestLastSeenSection
-  //           ? {
-  //               id: latestLastSeenSection.id,
-  //               userId: latestLastSeenSection.userId,
-  //               chapterId: latestLastSeenSection.chapterId,
-  //               moduleId: latestLastSeenSection.moduleId,
-  //               sectionId: latestLastSeenSection.sectionId,
-  //               createdAt: latestLastSeenSection.createdAt,
-  //               updatedAt: latestLastSeenSection.updatedAt,
-  //               title: latestLastSeenSection.section.title,
-  //             }
-  //           : null,
-  //       };
-  //     });
-
-  //     return {
-  //       message: 'Successfully retrieved assigned courses',
-  //       statusCode: 200,
-  //       data: coursesWithCounts,
-  //     };
-  //   } catch (error) {
-  //     throw new HttpException(
-  //       {
-  //         status: HttpStatus.FORBIDDEN,
-  //         error: error?.message || 'Something went wrong',
-  //       },
-  //       HttpStatus.FORBIDDEN,
-  //       {
-  //         cause: error,
-  //       },
-  //     );
-  //   }
-  // }
-
-  //   {
-  //     "id": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //     "title": "Nebosh",
-  //     "description": "test",
-  //     "image": cloud",
-  //     "overview": "<p>testing</p>",
-  //     "duration": "Nebosh",
-  //     "assessment": "<p>trd</p>",
-  //     "createdAt": "2024-06-15T10:35:45.162Z",
-  //     "updatedAt": "2024-06-22T14:45:07.710Z",
-  //     "syllabusOverview": "<p>test423423</p>",
-  //     "resourcesOverview": "<p>test</p>",
-  //     "assessments": [
-  //         {
-  //             "id": "18d7e202-0981-4d7a-a053-1bcc539d371f",
-  //             "file": "test",
-  //             "name": "test",
-  //             "type": "t"
-  //         }
-  //     ],
-  //     "resources": [
-  //         {
-  //             "id": "aea5f6aa-bca0-4e43-8cc7-3052b6a19221",
-  //             "file": "test",
-  //             "name": "test",
-  //             "type": "t"
-  //         }
-  //     ],
-  //     "syllabus": [
-  //         {
-  //             "id": "dca9b953-3ade-45a5-9e63-32046e999294",
-  //             "file": "test",
-  //             "name": "test",
-  //             "type": "t"
-  //         }
-  //     ],
-  //     "UserCourseProgress": [
-  //         {
-  //             "id": "ebf9c08b-32ec-4547-9e9f-78fcbfdb5b94",
-  //             "userId": "df70edfe-9155-4b01-a3f5-c2f035b03f32",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "cc36a05e-a79e-41cc-9dc7-daf00f0ba1fe",
-  //             "createdAt": "2024-06-15T10:48:16.301Z",
-  //             "updatedAt": "2024-06-15T10:48:16.301Z"
-  //         },
-  //         {
-  //             "id": "0fddfad1-ed4d-4ab5-b7cb-2c10a1af4f2e",
-  //             "userId": "df70edfe-9155-4b01-a3f5-c2f035b03f32",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "fd10498e-6b92-46f6-b553-170bfe3640ad",
-  //             "createdAt": "2024-06-15T17:21:29.444Z",
-  //             "updatedAt": "2024-06-15T17:21:29.444Z"
-  //         },
-  //         {
-  //             "id": "87c3b32a-d98c-4f67-b4dd-90d437368e5a",
-  //             "userId": "df70edfe-9155-4b01-a3f5-c2f035b03f32",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "dddb1981-0891-45ee-8679-a7966cbf396f",
-  //             "createdAt": "2024-06-15T17:21:33.437Z",
-  //             "updatedAt": "2024-06-15T17:21:33.437Z"
-  //         },
-  //         {
-  //             "id": "ff767c36-0893-4da9-93d0-0296152ae035",
-  //             "userId": "0ebee5cd-1e46-4bfe-9d4d-534568af87dd",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "cc36a05e-a79e-41cc-9dc7-daf00f0ba1fe",
-  //             "createdAt": "2024-06-15T17:21:46.826Z",
-  //             "updatedAt": "2024-06-15T17:21:46.826Z"
-  //         },
-  //         {
-  //             "id": "15ae3253-c809-4821-876a-1dbb84560b04",
-  //             "userId": "df70edfe-9155-4b01-a3f5-c2f035b03f32",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "b1cb4bec-4bfd-4225-9b4b-e474f4215059",
-  //             "createdAt": "2024-06-15T19:52:27.183Z",
-  //             "updatedAt": "2024-06-15T19:52:27.183Z"
-  //         },
-  //         {
-  //             "id": "72166c0e-1716-4636-883d-9919eeb6b289",
-  //             "userId": "df70edfe-9155-4b01-a3f5-c2f035b03f32",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "2e9e0168-414b-442d-a322-c147b220834f",
-  //             "createdAt": "2024-06-15T19:52:35.443Z",
-  //             "updatedAt": "2024-06-15T19:52:35.443Z"
-  //         },
-  //         {
-  //             "id": "b63e72c4-7c2f-4c07-87f6-196d2c98d7b3",
-  //             "userId": "0ebee5cd-1e46-4bfe-9d4d-534568af87dd",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "fd10498e-6b92-46f6-b553-170bfe3640ad",
-  //             "createdAt": "2024-06-22T16:32:01.863Z",
-  //             "updatedAt": "2024-06-22T16:32:01.863Z"
-  //         },
-  //         {
-  //             "id": "683a3718-e484-4029-aba9-a2b80fa82b08",
-  //             "userId": "0ebee5cd-1e46-4bfe-9d4d-534568af87dd",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "dddb1981-0891-45ee-8679-a7966cbf396f",
-  //             "createdAt": "2024-06-22T16:34:08.061Z",
-  //             "updatedAt": "2024-06-22T16:34:08.061Z"
-  //         },
-  //         {
-  //             "id": "135ff032-2a44-4fd4-b9bf-80bc7f7eb90d",
-  //             "userId": "0ebee5cd-1e46-4bfe-9d4d-534568af87dd",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "b1cb4bec-4bfd-4225-9b4b-e474f4215059",
-  //             "createdAt": "2024-06-22T19:23:45.318Z",
-  //             "updatedAt": "2024-06-22T19:23:45.318Z"
-  //         },
-  //         {
-  //             "id": "9db4d967-0ab4-4a32-9572-3670ea9fdf0f",
-  //             "userId": "0ebee5cd-1e46-4bfe-9d4d-534568af87dd",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "4d8d91d1-71bb-4a7d-a207-58ce5df78754",
-  //             "createdAt": "2024-06-22T19:23:49.607Z",
-  //             "updatedAt": "2024-06-22T19:23:49.607Z"
-  //         },
-  //         {
-  //             "id": "fe36e457-e36f-4843-87a1-3514f3fae035",
-  //             "userId": "0ebee5cd-1e46-4bfe-9d4d-534568af87dd",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "385d63d9-ad00-4d01-83d3-ccda8cb5f119",
-  //             "createdAt": "2024-06-22T19:23:54.858Z",
-  //             "updatedAt": "2024-06-22T19:23:54.858Z"
-  //         },
-  //         {
-  //             "id": "bc76f093-03bc-4e52-9be1-520c0552b687",
-  //             "userId": "0ebee5cd-1e46-4bfe-9d4d-534568af87dd",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "371f0b39-3f78-48c2-8d8b-f45f7b9878b3",
-  //             "createdAt": "2024-06-22T19:23:59.100Z",
-  //             "updatedAt": "2024-06-22T19:23:59.100Z"
-  //         },
-  //         {
-  //             "id": "f2b6de88-538d-4957-8b9d-66fc08254019",
-  //             "userId": "0ebee5cd-1e46-4bfe-9d4d-534568af87dd",
-  //             "courseId": "043d1d75-fc97-4159-a54b-24bae79b798c",
-  //             "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //             "sectionId": "433ebc6a-da57-4913-9f06-76766632e867",
-  //             "createdAt": "2024-06-22T19:25:14.659Z",
-  //             "updatedAt": "2024-06-22T19:25:14.659Z"
-  //         }
-  //     ],
-  //     "totalSections": 21,
-  //     "percentage": 38.095238095238095,
-  //     "latestLastSeenSection": {
-  //         "id": "28de77ba-3834-4b13-af73-6c94df0263b7",
-  //         "userId": "0ebee5cd-1e46-4bfe-9d4d-534568af87dd",
-  //         "chapterId": "deb63c2d-1eee-466c-9eb6-13d5dc93b433",
-  //         "moduleId": "3ebe4e27-b1d3-4e03-9457-47bb03e6b3c3",
-  //         "sectionId": "dddb1981-0891-45ee-8679-a7966cbf396f",
-  //         "createdAt": "2024-06-15T17:21:22.971Z",
-  //         "updatedAt": "2024-06-22T19:23:40.689Z",
-  //         "title": "Lesson 3"
-  //     }
-  // }
+  async getAllAssignedCoursesPublic(userId: string): Promise<any> {
+    try {
+      // Fetch assigned courses from UserCourse table
+      const assignedCourses = await this.prisma.userCourse.findMany({
+        where: { userId },
+        select: {
+          course: {
+            select: {
+              id: true,
+              title: true,
+            },
+          },
+        },
+      });
+  
+      // Check if no courses are assigned
+      if (!assignedCourses.length) {
+        throw new HttpException(
+          {
+            status: HttpStatus.NOT_FOUND,
+            error: 'No courses assigned to this user',
+          },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+  
+      // Map courses to extract only public fields
+      const courses = assignedCourses.map((userCourse) => userCourse.course);
+  
+      return {
+        message: 'Successfully retrieved assigned courses',
+        statusCode: 200,
+        data: courses,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
 
   async updateUserChapterProgress(
     userId: string,

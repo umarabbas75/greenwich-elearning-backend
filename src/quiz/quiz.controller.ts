@@ -39,7 +39,7 @@ export class QuizController {
   }
 
   @UseGuards(AuthGuard('cJwt'))
-  @Get('/getAllAssignQuizzes/:id')
+  @Get('quizzes/getAllAssignQuizzes/:id')
   getAllAssignQuizzes(
     @Param() params: ParamsDto,
     @GetUser() user: User,

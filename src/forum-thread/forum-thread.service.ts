@@ -189,8 +189,6 @@ export class ForumThreadService {
         subscribedThreads.map((sub) => sub.threadId),
       );
 
-      console.log({ forums });
-
       // Step 5: Add `isFavorite`, `isSubscribed`, and `commenters` properties to each thread and sort favorite threads on top
       const sortedForums = forums
         .map((thread) => ({
@@ -319,7 +317,6 @@ export class ForumThreadService {
             commenterId: userId, // Include the commenterId
             message: 'A new thread has been created by the admin.',
           }));
-          console.log({ notifications });
           await this.prisma.notification.createMany({
             data: notifications,
           });
