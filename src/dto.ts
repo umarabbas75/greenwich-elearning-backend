@@ -91,6 +91,9 @@ export class CourseDto {
   title: string;
 
   @IsString()
+  price: string;
+
+  @IsString()
   @IsOptional()
   duration: string;
 
@@ -173,6 +176,10 @@ export class UpdateCourseDto {
   @IsOptional()
   @IsString()
   pdfFile?: string;
+
+  @IsOptional()
+  @IsString()
+  price?: string;
 
   @IsOptional()
   @IsString()

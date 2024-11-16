@@ -566,6 +566,7 @@ export class CourseService {
           assessments: body.assessments,
           resources: body.resources,
           syllabus: body.syllabus,
+          price: body.price,
         },
       });
       return {
@@ -705,6 +706,7 @@ export class CourseService {
           title: true,
           description: true,
           image: true,
+          price : true,
           modules: {
             select: {
               id: true,
@@ -865,6 +867,7 @@ export class CourseService {
           createdAt: 'desc',
         },
       });
+      console.log({courses})
       if (!(courses.length > 0)) {
         return {
           message: 'Successfully fetch all Courses info',
@@ -1082,47 +1085,41 @@ export class CourseService {
     userId: string,
     courseId: string,
   ): Promise<any> {
-
-
     try {
-      const [
-        sections,
-        userCourseProgress,
-        chapter,
-        lastSeenLesson,
-      ] = await Promise.all([
-        this.prisma.section.findMany({
-          where: { chapterId: id },
-          orderBy: {
-            createdAt: 'asc',
-          },
-        }),
-        this.prisma.userCourseProgress.findMany({
-          where: { userId, courseId, chapterId: id },
-        }),
-        this.prisma.chapter.findUnique({
-          where: { id },
-          include: {
-            quizzes: {
-              select: {
-                id: true,
-                question: true,
-                options: true,
-                answer: true,
+      const [sections, userCourseProgress, chapter, lastSeenLesson] =
+        await Promise.all([
+          this.prisma.section.findMany({
+            where: { chapterId: id },
+            orderBy: {
+              createdAt: 'asc',
+            },
+          }),
+          this.prisma.userCourseProgress.findMany({
+            where: { userId, courseId, chapterId: id },
+          }),
+          this.prisma.chapter.findUnique({
+            where: { id },
+            include: {
+              quizzes: {
+                select: {
+                  id: true,
+                  question: true,
+                  options: true,
+                  answer: true,
+                },
               },
             },
-          },
-        }),
-       
-        this.prisma.lastSeenSection.findUnique({
-          where: { userId_chapterId: { userId, chapterId: id } },
-        }),
-      ]);
+          }),
+
+          this.prisma.lastSeenSection.findUnique({
+            where: { userId_chapterId: { userId, chapterId: id } },
+          }),
+        ]);
 
       const allSections = sections?.length > 0 ? [...sections] : [];
       const completedSections =
         userCourseProgress?.length > 0 ? [...userCourseProgress] : [];
- 
+
       allSections?.forEach((section: any) => {
         // Check if the section ID exists in completedSections
         const isCompleted = completedSections?.some(
@@ -1133,8 +1130,6 @@ export class CourseService {
         // Insert the boolean value into the section object
         section.isCompleted = isCompleted;
       });
-
- 
 
       if (!(sections.length > 0)) {
         throw new Error('No Sections found');
@@ -1721,7 +1716,7 @@ export class CourseService {
       if (!user) {
         throw new Error('User not found');
       }
-  
+
       // Check if the course exists
       const course = await this.prisma.course.findUnique({
         where: { id: courseId },
@@ -1729,7 +1724,7 @@ export class CourseService {
       if (!course) {
         throw new Error('Course not found');
       }
-  
+
       // Check if the user-course relation exists
       const userCourse = await this.prisma.userCourse.findFirst({
         where: { userId, courseId },
@@ -1737,14 +1732,14 @@ export class CourseService {
       if (!userCourse) {
         throw new Error('User is not assigned to this course');
       }
-  
+
       // Remove the relation from the UserCourse table
       await this.prisma.userCourse.delete({
         where: {
           id: userCourse.id,
         },
       });
-  
+
       return {
         message: 'Successfully unassigned course from user',
         statusCode: 200,
@@ -1761,7 +1756,11 @@ export class CourseService {
     }
   }
 
-  async toggleCourseStatus(userId: string, courseId: string, isActive: boolean): Promise<ResponseDto> {
+  async toggleCourseStatus(
+    userId: string,
+    courseId: string,
+    isActive: boolean,
+  ): Promise<ResponseDto> {
     try {
       // Check if the user exists
       const user = await this.prisma.user.findUnique({
@@ -1770,7 +1769,7 @@ export class CourseService {
       if (!user) {
         throw new Error('User not found');
       }
-  
+
       // Check if the course exists
       const course = await this.prisma.course.findUnique({
         where: { id: courseId },
@@ -1778,7 +1777,7 @@ export class CourseService {
       if (!course) {
         throw new Error('Course not found');
       }
-  
+
       // Check if the user-course relation exists
       const userCourse = await this.prisma.userCourse.findFirst({
         where: { userId, courseId },
@@ -1786,15 +1785,17 @@ export class CourseService {
       if (!userCourse) {
         throw new Error('User is not assigned to this course');
       }
-  
+
       // Update the isActive status for the user-course relation
       await this.prisma.userCourse.update({
         where: { id: userCourse.id },
         data: { isActive },
       });
-  
+
       return {
-        message: `Successfully ${isActive ? 'activated' : 'deactivated'} course status for user`,
+        message: `Successfully ${
+          isActive ? 'activated' : 'deactivated'
+        } course status for user`,
         statusCode: 200,
         data: {
           userId,
@@ -1806,14 +1807,20 @@ export class CourseService {
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
-          error: error?.message || `Failed to ${isActive ? 'activate' : 'deactivate'} course status`,
+          error:
+            error?.message ||
+            `Failed to ${isActive ? 'activate' : 'deactivate'} course status`,
         },
         HttpStatus.FORBIDDEN,
       );
     }
   }
 
-  async toggleCoursePaymentStatus(userId: string, courseId: string, isPaid: boolean): Promise<ResponseDto> {
+  async toggleCoursePaymentStatus(
+    userId: string,
+    courseId: string,
+    isPaid: boolean,
+  ): Promise<ResponseDto> {
     try {
       // Check if the user exists
       const user = await this.prisma.user.findUnique({
@@ -1822,7 +1829,7 @@ export class CourseService {
       if (!user) {
         throw new Error('User not found');
       }
-  
+
       // Check if the course exists
       const course = await this.prisma.course.findUnique({
         where: { id: courseId },
@@ -1830,7 +1837,7 @@ export class CourseService {
       if (!course) {
         throw new Error('Course not found');
       }
-  
+
       // Check if the user-course relation exists
       const userCourse = await this.prisma.userCourse.findFirst({
         where: { userId, courseId },
@@ -1838,15 +1845,17 @@ export class CourseService {
       if (!userCourse) {
         throw new Error('User is not assigned to this course');
       }
-  
+
       // Update the isActive status for the user-course relation
       await this.prisma.userCourse.update({
         where: { id: userCourse.id },
         data: { isPaid },
       });
-  
+
       return {
-        message: `Successfully ${isPaid ? 'activated' : 'deactivated'} course payment status for user`,
+        message: `Successfully ${
+          isPaid ? 'activated' : 'deactivated'
+        } course payment status for user`,
         statusCode: 200,
         data: {
           userId,
@@ -1858,18 +1867,22 @@ export class CourseService {
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
-          error: error?.message || `Failed to ${isPaid ? 'activate' : 'deactivate'} course payment status`,
+          error:
+            error?.message ||
+            `Failed to ${
+              isPaid ? 'activate' : 'deactivate'
+            } course payment status`,
         },
         HttpStatus.FORBIDDEN,
       );
     }
   }
-  
-  async getAllAssignedCourses(userId: string,role : string): Promise<any> {
-    try {
 
+  async getAllAssignedCourses(userId: string, role: string): Promise<any> {
+    try {
       // Define the condition based on the user's role
-    const whereCondition = role === 'user' ? { userId, isActive: true } : { userId };
+      const whereCondition =
+        role === 'user' ? { userId, isActive: true } : { userId };
       // Fetch the assigned courses for the user from the UserCourse table
       const assignedCourses = await this.prisma.userCourse.findMany({
         where: whereCondition,
@@ -1897,7 +1910,7 @@ export class CourseService {
           },
         },
       });
-  
+
       if (!assignedCourses.length) {
         throw new HttpException(
           {
@@ -1907,23 +1920,23 @@ export class CourseService {
           HttpStatus.NOT_FOUND,
         );
       }
-  
+
       // Map the assigned courses to include additional details
       const coursesWithDetails = assignedCourses.map((userCourse) => {
-        const { course, isActive ,isPaid} = userCourse;
-  
+        const { course, isActive, isPaid } = userCourse;
+
         // Calculate the total sections count
         const sectionsCount =
           course.modules
             .flatMap((module) => module.chapters)
             .reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
-  
+
         // Get user course progress count
         const userCourseProgressCount = course._count.UserCourseProgress || 0;
-  
+
         // Get the latest last seen section
         const latestLastSeenSection = course.LastSeenSection[0];
-  
+
         return {
           ...course,
           isActive, // Include the isActive field
@@ -1947,7 +1960,7 @@ export class CourseService {
             : null,
         };
       });
-  
+
       return {
         message: 'Successfully retrieved assigned courses',
         statusCode: 200,
@@ -1963,7 +1976,6 @@ export class CourseService {
       );
     }
   }
-  
 
   async getAllAssignedCoursesPublic(userId: string): Promise<any> {
     try {
@@ -1975,11 +1987,12 @@ export class CourseService {
             select: {
               id: true,
               title: true,
+              price : true
             },
           },
         },
       });
-  
+
       // Check if no courses are assigned
       if (!assignedCourses.length) {
         throw new HttpException(
@@ -1990,10 +2003,10 @@ export class CourseService {
           HttpStatus.NOT_FOUND,
         );
       }
-  
+
       // Map courses to extract only public fields
       const courses = assignedCourses.map((userCourse) => userCourse.course);
-  
+
       return {
         message: 'Successfully retrieved assigned courses',
         statusCode: 200,

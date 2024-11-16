@@ -465,6 +465,7 @@ let CourseService = class CourseService {
                     assessments: body.assessments,
                     resources: body.resources,
                     syllabus: body.syllabus,
+                    price: body.price,
                 },
             });
             return {
@@ -587,6 +588,7 @@ let CourseService = class CourseService {
                     title: true,
                     description: true,
                     image: true,
+                    price: true,
                     modules: {
                         select: {
                             id: true,
@@ -724,6 +726,7 @@ let CourseService = class CourseService {
                     createdAt: 'desc',
                 },
             });
+            console.log({ courses });
             if (!(courses.length > 0)) {
                 return {
                     message: 'Successfully fetch all Courses info',
@@ -904,7 +907,7 @@ let CourseService = class CourseService {
     }
     async getAllUserSections(id, userId, courseId) {
         try {
-            const [sections, userCourseProgress, chapter, lastSeenLesson,] = await Promise.all([
+            const [sections, userCourseProgress, chapter, lastSeenLesson] = await Promise.all([
                 this.prisma.section.findMany({
                     where: { chapterId: id },
                     orderBy: {
@@ -1402,7 +1405,8 @@ let CourseService = class CourseService {
         catch (error) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || `Failed to ${isActive ? 'activate' : 'deactivate'} course status`,
+                error: error?.message ||
+                    `Failed to ${isActive ? 'activate' : 'deactivate'} course status`,
             }, common_1.HttpStatus.FORBIDDEN);
         }
     }
@@ -1443,7 +1447,8 @@ let CourseService = class CourseService {
         catch (error) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || `Failed to ${isPaid ? 'activate' : 'deactivate'} course payment status`,
+                error: error?.message ||
+                    `Failed to ${isPaid ? 'activate' : 'deactivate'} course payment status`,
             }, common_1.HttpStatus.FORBIDDEN);
         }
     }
@@ -1534,6 +1539,7 @@ let CourseService = class CourseService {
                         select: {
                             id: true,
                             title: true,
+                            price: true
                         },
                     },
                 },

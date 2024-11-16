@@ -27,6 +27,7 @@ export declare class LoginDto {
 }
 export declare class CourseDto {
     title: string;
+    price: string;
     duration: string;
     description: string;
     assessment: string;
@@ -64,6 +65,7 @@ export declare class AssignQuizDto {
 export declare class UpdateCourseDto {
     title?: string;
     pdfFile?: string;
+    price?: string;
     description?: string;
     assessment?: string;
     image?: string;
