@@ -29,7 +29,7 @@ let QuizController = class QuizController {
         return this.appService.getAllQuizzes(user.role);
     }
     getAllAssignQuizzes(params, user) {
-        return this.appService.getAllAssignQuizzes(params.id, user.role);
+        return this.appService.getAllAssignQuizzes(params.id, user.role, user.id);
     }
     createQuiz(body) {
         return this.appService.createQuiz(body);
@@ -73,7 +73,7 @@ __decorate([
 ], QuizController.prototype, "getAllQuizzes", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
-    (0, common_1.Get)('quizzes/getAllAssignQuizzes/:id'),
+    (0, common_1.Get)('/getAllAssignQuizzes/:id'),
     __param(0, (0, common_1.Param)()),
     __param(1, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),

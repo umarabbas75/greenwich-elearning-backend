@@ -1,12 +1,6 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { Chapter, Prisma, Quiz } from '@prisma/client';
-import {
-  AssignQuizDto,
-  CheckQuiz,
-  QuizDto,
-  ResponseDto,
-  UpdateQuizDto,
-} from '../dto';
+import { CheckQuiz, QuizDto, ResponseDto, UpdateQuizDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -94,39 +88,11 @@ export class QuizService {
   async getAllAssignQuizzes(
     chapterId: string,
     role: string,
+    userId: string,
   ): Promise<ResponseDto> {
+    console.log({ role });
     try {
-      let chapter;
-      // if (role == 'admin') {
-      //   chapter = await this.prisma.chapter.findUnique({
-      //     where: {
-      //       id: chapterId,
-      //     },
-
-      //     // limit: 10,
-      //     // offset: 10,
-      //   });
-      // } else if (role == 'user') {
-      //   chapter = await this.prisma.chapter.findUnique({
-      //     where: {
-      //       id: chapterId,
-      //     },
-
-      //     include: {
-      //       quizzes: {
-      //         select: {
-      //           id: true,
-      //           question: true,
-      //           options: true,
-      //         },
-      //       },
-      //     },
-
-      //     // limit: 10,
-      //     // offset: 10,
-      //   });
-      // }
-      chapter = await this.prisma.chapter.findUnique({
+      const chapter = await this.prisma.chapter.findUnique({
         where: {
           id: chapterId,
         },
@@ -141,15 +107,32 @@ export class QuizService {
             },
           },
         },
-
-        // limit: 10,
-        // offset: 10,
       });
+
+      const userAnswers = await this.prisma.quizAnswer.findMany({
+        where: {
+          userId,
+          chapterId,
+        },
+      });
+
+      const updatedUserQuizData = chapter?.quizzes?.map((item) => {
+        const userAnswer = userAnswers.find(
+          (userAnswer) => userAnswer.quizId === item.id,
+        );
+        return {
+          ...item,
+          userAnswered: userAnswer?.answer ? true : false,
+          isAnswerCorrect: userAnswer?.isAnswerCorrect,
+        };
+      });
+
+      console.log({ userAnswers, updatedUserQuizData }, chapter.quizzes);
 
       return {
         message: 'Successfully fetch all Quizzes info related to chapter',
         statusCode: 200,
-        data: chapter?.quizzes || [],
+        data: updatedUserQuizData?.length > 0 ? updatedUserQuizData : [],
       };
     } catch (error) {
       throw new HttpException(

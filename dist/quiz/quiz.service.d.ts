@@ -5,7 +5,7 @@ export declare class QuizService {
     constructor(prisma: PrismaService);
     getQuiz(id: string, role: string): Promise<ResponseDto>;
     getAllQuizzes(role: string): Promise<ResponseDto>;
-    getAllAssignQuizzes(chapterId: string, role: string): Promise<ResponseDto>;
+    getAllAssignQuizzes(chapterId: string, role: string, userId: string): Promise<ResponseDto>;
     createQuiz(body: QuizDto): Promise<ResponseDto>;
     assignQuiz(quizId: string, chapterId: string): Promise<ResponseDto>;
     unAssignQuiz(quizId: string, chapterId: string): Promise<ResponseDto>;

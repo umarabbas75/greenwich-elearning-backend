@@ -706,7 +706,7 @@ export class CourseService {
           title: true,
           description: true,
           image: true,
-          price : true,
+          price: true,
           modules: {
             select: {
               id: true,
@@ -867,7 +867,7 @@ export class CourseService {
           createdAt: 'desc',
         },
       });
-      console.log({courses})
+      console.log({ courses });
       if (!(courses.length > 0)) {
         return {
           message: 'Successfully fetch all Courses info',
@@ -1987,7 +1987,7 @@ export class CourseService {
             select: {
               id: true,
               title: true,
-              price : true
+              price: true,
             },
           },
         },

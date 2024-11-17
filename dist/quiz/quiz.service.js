@@ -85,10 +85,10 @@ let QuizService = class QuizService {
             });
         }
     }
-    async getAllAssignQuizzes(chapterId, role) {
+    async getAllAssignQuizzes(chapterId, role, userId) {
+        console.log({ role });
         try {
-            let chapter;
-            chapter = await this.prisma.chapter.findUnique({
+            const chapter = await this.prisma.chapter.findUnique({
                 where: {
                     id: chapterId,
                 },
@@ -103,10 +103,25 @@ let QuizService = class QuizService {
                     },
                 },
             });
+            const userAnswers = await this.prisma.quizAnswer.findMany({
+                where: {
+                    userId,
+                    chapterId,
+                },
+            });
+            const updatedUserQuizData = chapter?.quizzes?.map((item) => {
+                const userAnswer = userAnswers.find((userAnswer) => userAnswer.quizId === item.id);
+                return {
+                    ...item,
+                    userAnswered: userAnswer?.answer ? true : false,
+                    isAnswerCorrect: userAnswer?.isAnswerCorrect,
+                };
+            });
+            console.log({ userAnswers, updatedUserQuizData }, chapter.quizzes);
             return {
                 message: 'Successfully fetch all Quizzes info related to chapter',
                 statusCode: 200,
-                data: chapter?.quizzes || [],
+                data: updatedUserQuizData?.length > 0 ? updatedUserQuizData : [],
             };
         }
         catch (error) {

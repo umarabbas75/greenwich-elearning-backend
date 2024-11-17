@@ -39,12 +39,12 @@ export class QuizController {
   }
 
   @UseGuards(AuthGuard('cJwt'))
-  @Get('quizzes/getAllAssignQuizzes/:id')
+  @Get('/getAllAssignQuizzes/:id')
   getAllAssignQuizzes(
     @Param() params: ParamsDto,
     @GetUser() user: User,
   ): Promise<ResponseDto> {
-    return this.appService.getAllAssignQuizzes(params.id, user.role);
+    return this.appService.getAllAssignQuizzes(params.id, user.role, user.id);
   }
 
   @UseGuards(AuthGuard('jwt'))

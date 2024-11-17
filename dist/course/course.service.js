@@ -1539,7 +1539,7 @@ let CourseService = class CourseService {
                         select: {
                             id: true,
                             title: true,
-                            price: true
+                            price: true,
                         },
                     },
                 },
