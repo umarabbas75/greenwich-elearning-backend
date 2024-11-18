@@ -47,6 +47,46 @@ export class QuizController {
     return this.appService.getAllAssignQuizzes(params.id, user.role, user.id);
   }
 
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('/getChapterQuizzesReport/:chapterId')
+  getChapterQuizzesReport(
+    @Param() params: any,
+    @GetUser() user: User,
+  ): Promise<ResponseDto> {
+    return this.appService.getChapterQuizzesReport(params.chapterId, user.id);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('/getAllQuizReport')
+  getAllQuizReport(): Promise<ResponseDto> {
+    return this.appService.getAllQuizReport();
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/createChapterQuizzesReport')
+  createChapterQuizzesReport(
+    @Body() body: any,
+    @GetUser() user: User,
+  ): Promise<ResponseDto> {
+    return this.appService.createChapterQuizzesReport(
+      user.id,
+      body.chapterId,
+      body.totalAttempts,
+      body.isPassed,
+      body.score,
+      body.passingCriteria,
+    );
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/retakeChapterQuiz')
+  retakeChapterQuiz(
+    @Body() body: any,
+    @GetUser() user: User,
+  ): Promise<ResponseDto> {
+    return this.appService.retakeChapterQuiz(user.id, body.chapterId);
+  }
+
   @UseGuards(AuthGuard('jwt'))
   @Post('/')
   createQuiz(@Body() body: QuizDto): Promise<ResponseDto> {

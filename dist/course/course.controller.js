@@ -31,6 +31,9 @@ let CourseController = class CourseController {
     getCourseReport(params) {
         return this.appService.getCourseReport(params.courseId, params.userId);
     }
+    getCourseDates(params) {
+        return this.appService.getCourseDates(params.courseId, params.userId);
+    }
     createPostComment(params, user, body) {
         return this.appService.createPostComment(params.postId, user?.id, body);
     }
@@ -189,6 +192,14 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getCourseReport", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Get)('/report/dates/:courseId/:userId'),
+    __param(0, (0, common_1.Param)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "getCourseDates", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Post)('/postComment/:postId'),

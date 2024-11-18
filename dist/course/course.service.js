@@ -19,46 +19,53 @@ let CourseService = class CourseService {
     }
     async getCourseReport(courseId, userId) {
         try {
-            const course = await this.prisma.course.findUnique({
-                where: { id: courseId },
-                select: {
-                    id: true,
-                    title: true,
-                    users: {
-                        where: {
-                            id: userId,
+            const [course, userDetails] = await Promise.all([
+                this.prisma.course.findUnique({
+                    where: { id: courseId },
+                    select: {
+                        id: true,
+                        title: true,
+                        users: {
+                            where: {
+                                id: userId,
+                            },
                         },
-                    },
-                    modules: {
-                        select: {
-                            id: true,
-                            title: true,
-                            chapters: {
-                                select: {
-                                    id: true,
-                                    title: true,
-                                    _count: {
-                                        select: {
-                                            UserCourseProgress: {
-                                                where: { userId },
+                        modules: {
+                            select: {
+                                id: true,
+                                title: true,
+                                chapters: {
+                                    select: {
+                                        id: true,
+                                        title: true,
+                                        _count: {
+                                            select: {
+                                                UserCourseProgress: {
+                                                    where: { userId },
+                                                },
+                                                sections: true,
+                                                quizzes: true,
+                                                QuizAnswer: {
+                                                    where: { isAnswerCorrect: true },
+                                                },
+                                                LastSeenSection: true,
                                             },
-                                            sections: true,
-                                            quizzes: true,
-                                            QuizAnswer: {
-                                                where: { isAnswerCorrect: true },
-                                            },
-                                            LastSeenSection: true,
                                         },
                                     },
-                                },
-                                orderBy: {
-                                    createdAt: 'asc',
+                                    orderBy: {
+                                        createdAt: 'asc',
+                                    },
                                 },
                             },
                         },
                     },
-                },
-            });
+                }),
+                this.prisma.user.findUnique({
+                    where: {
+                        id: userId,
+                    },
+                }),
+            ]);
             let totalSectionsInCourse = 0;
             course.modules.forEach((module) => {
                 module.chapters.forEach((chapter) => {
@@ -76,10 +83,37 @@ let CourseService = class CourseService {
                 });
             });
             return {
-                message: 'Successfully retrieved data',
+                message: 'Successfully retrieved datas',
                 statusCode: 200,
                 data: course.modules,
-                user: course?.users?.[0],
+                user: userDetails,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async getCourseDates(courseId, userId) {
+        try {
+            const allProgressItem = await this.prisma.UserCourseProgress.findMany({
+                where: {
+                    courseId,
+                    userId,
+                },
+                orderBy: {
+                    createdAt: 'asc',
+                },
+            });
+            const courseStartDate = allProgressItem?.[0]?.createdAt;
+            return {
+                message: 'Successfully retrieved datas',
+                statusCode: 200,
+                data: { courseStartDate },
             };
         }
         catch (error) {
@@ -807,6 +841,9 @@ let CourseService = class CourseService {
                                             sections: true,
                                         },
                                     },
+                                    QuizProgress: {
+                                        where: { userId },
+                                    },
                                 },
                                 orderBy: {
                                     createdAt: 'asc',
@@ -824,6 +861,7 @@ let CourseService = class CourseService {
                     },
                 },
             });
+            console.log({ courses });
             return {
                 message: 'Successfully fetched all Modules info against course',
                 statusCode: 200,

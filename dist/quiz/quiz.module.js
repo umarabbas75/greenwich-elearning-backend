@@ -18,7 +18,12 @@ exports.QuizModule = QuizModule;
 exports.QuizModule = QuizModule = __decorate([
     (0, common_1.Module)({
         imports: [jwt_1.JwtModule.register({})],
-        providers: [quiz_service_1.QuizService, strategy_1.JwtUserStrategy, strategy_1.JwtAdminStrategy, strategy_1.JwtCombineStrategy],
+        providers: [
+            quiz_service_1.QuizService,
+            strategy_1.JwtUserStrategy,
+            strategy_1.JwtAdminStrategy,
+            strategy_1.JwtCombineStrategy,
+        ],
         controllers: [quiz_controller_1.QuizController],
         exports: [quiz_service_1.QuizService],
     })

@@ -7,6 +7,7 @@ export declare class CourseController {
     getAllPublicCourses(): Promise<ResponseDto>;
     getCourseDetailPublic(params: any): Promise<any>;
     getCourseReport(params: any): Promise<any>;
+    getCourseDates(params: any): Promise<any>;
     createPostComment(params: any, user: User, body: any): Promise<any>;
     getPostComments(params: any): Promise<any>;
     updatePostComment(params: any, body: any): Promise<any>;

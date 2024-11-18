@@ -117,11 +117,132 @@ let QuizService = class QuizService {
                     isAnswerCorrect: userAnswer?.isAnswerCorrect,
                 };
             });
-            console.log({ userAnswers, updatedUserQuizData }, chapter.quizzes);
             return {
                 message: 'Successfully fetch all Quizzes info related to chapter',
                 statusCode: 200,
                 data: updatedUserQuizData?.length > 0 ? updatedUserQuizData : [],
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async getChapterQuizzesReport(chapterId, userId) {
+        try {
+            const quizReport = await this.prisma.quizProgress.findUnique({
+                where: {
+                    userId_chapterId: {
+                        userId,
+                        chapterId,
+                    },
+                },
+            });
+            console.log({ quizReport });
+            return {
+                message: 'Successfully fetch all Quizzes info related to chapter',
+                statusCode: 200,
+                data: quizReport,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async getAllQuizReport() {
+        try {
+            const quizReport = await this.prisma.quizProgress.findMany();
+            console.log({ quizReport });
+            return {
+                message: 'Successfully fetch all Quizzes info related to chapter',
+                statusCode: 200,
+                data: quizReport,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async createChapterQuizzesReport(userId, chapterId, totalAttempts, isPassed, score, passingCriteria) {
+        try {
+            const quizReport = await this.prisma.quizProgress.findUnique({
+                where: {
+                    userId_chapterId: {
+                        userId,
+                        chapterId,
+                    },
+                },
+            });
+            let newQuizProgress = null;
+            if (!quizReport) {
+                newQuizProgress = await this.prisma.quizProgress.create({
+                    data: {
+                        userId: userId,
+                        chapterId: chapterId,
+                        totalAttempts: totalAttempts,
+                        isPassed: isPassed,
+                        score: score,
+                        passingCriteria: passingCriteria,
+                    },
+                });
+            }
+            else {
+                newQuizProgress = await this.prisma.quizProgress.update({
+                    where: {
+                        userId_chapterId: {
+                            userId,
+                            chapterId,
+                        },
+                    },
+                    data: {
+                        totalAttempts: (quizReport.totalAttempts ?? 0) + totalAttempts,
+                        isPassed: isPassed,
+                        score: score,
+                    },
+                });
+            }
+            console.log({ newQuizProgress });
+            return {
+                message: 'Successfully fetch all Quizzes info related to chapter',
+                statusCode: 200,
+                data: newQuizProgress,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async retakeChapterQuiz(userId, chapterId) {
+        try {
+            await this.prisma.quizAnswer.deleteMany({
+                where: {
+                    userId,
+                    chapterId,
+                },
+            });
+            return {
+                message: 'all entries deleted successfully',
+                statusCode: 200,
+                data: null,
             };
         }
         catch (error) {
@@ -300,34 +421,21 @@ let QuizService = class QuizService {
     }
     async checkQuiz(userId, body) {
         try {
-            const quiz = await this.prisma.quiz.findUnique({
-                where: { id: body.quizId },
-            });
-            const user = await this.prisma.user.findUnique({
-                where: { id: userId },
-            });
+            const [quiz, user, existingQuizAnswer] = await Promise.all([
+                this.prisma.quiz.findUnique({ where: { id: body.quizId } }),
+                this.prisma.user.findUnique({ where: { id: userId } }),
+                this.prisma.quizAnswer.findFirst({
+                    where: {
+                        quizId: body.quizId,
+                        userId: userId,
+                    },
+                }),
+            ]);
             if (!quiz || !user) {
                 throw new Error('Quiz or user not found');
             }
-            let quizAnswer = await this.prisma.quizAnswer.findFirst({
-                where: {
-                    quizId: body.quizId,
-                    userId: userId,
-                },
-            });
-            if (!quizAnswer) {
-                quizAnswer = await this.prisma.quizAnswer.create({
-                    data: {
-                        quizId: body.quizId,
-                        chapterId: body.chapterId,
-                        userId: userId,
-                        answer: body.answer,
-                        isAnswerCorrect: body.answer == quiz.answer,
-                    },
-                });
-            }
-            else {
-                quizAnswer = await this.prisma.quizAnswer.update({
+            const quizAnswerPromise = existingQuizAnswer
+                ? this.prisma.quizAnswer.update({
                     where: {
                         userId_quizId: {
                             userId: userId,
@@ -338,8 +446,17 @@ let QuizService = class QuizService {
                         answer: body.answer,
                         isAnswerCorrect: body.answer == quiz.answer,
                     },
+                })
+                : this.prisma.quizAnswer.create({
+                    data: {
+                        quizId: body.quizId,
+                        chapterId: body.chapterId,
+                        userId: userId,
+                        answer: body.answer,
+                        isAnswerCorrect: body.answer == quiz.answer,
+                    },
                 });
-            }
+            const quizAnswer = await quizAnswerPromise;
             return {
                 message: 'Success',
                 statusCode: 200,

@@ -43,6 +43,12 @@ export class CourseController {
   }
 
   @UseGuards(AuthGuard('cJwt'))
+  @Get('/report/dates/:courseId/:userId')
+  getCourseDates(@Param() params: any): Promise<any> {
+    return this.appService.getCourseDates(params.courseId, params.userId);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
   @Post('/postComment/:postId')
   createPostComment(
     @Param() params: any,
@@ -246,18 +252,29 @@ export class CourseController {
   @UseGuards(AuthGuard('jwt'))
   @Put('/updateStatus/user')
   toggleCourseStatus(@Body() body: any): Promise<ResponseDto> {
-    return this.appService.toggleCourseStatus(body.userId, body.courseId, body.isActive);
-  } 
-  
+    return this.appService.toggleCourseStatus(
+      body.userId,
+      body.courseId,
+      body.isActive,
+    );
+  }
+
   @UseGuards(AuthGuard('jwt'))
   @Put('/updatePayment/user')
   toggleCoursePaymentStatus(@Body() body: any): Promise<ResponseDto> {
-    return this.appService.toggleCoursePaymentStatus(body.userId, body.courseId, body.isPaid);
+    return this.appService.toggleCoursePaymentStatus(
+      body.userId,
+      body.courseId,
+      body.isPaid,
+    );
   }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/getAllAssignedCourses/:id')
-  getAllAssignedCourses(@Param() params: ParamsDto, @GetUser() user: User,): Promise<ResponseDto> {
-    return this.appService.getAllAssignedCourses(params.id,user.role);
+  getAllAssignedCourses(
+    @Param() params: ParamsDto,
+    @GetUser() user: User,
+  ): Promise<ResponseDto> {
+    return this.appService.getAllAssignedCourses(params.id, user.role);
   }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/getAllAssignedCourses/public/:id')

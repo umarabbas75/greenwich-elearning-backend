@@ -31,6 +31,18 @@ let QuizController = class QuizController {
     getAllAssignQuizzes(params, user) {
         return this.appService.getAllAssignQuizzes(params.id, user.role, user.id);
     }
+    getChapterQuizzesReport(params, user) {
+        return this.appService.getChapterQuizzesReport(params.chapterId, user.id);
+    }
+    getAllQuizReport() {
+        return this.appService.getAllQuizReport();
+    }
+    createChapterQuizzesReport(body, user) {
+        return this.appService.createChapterQuizzesReport(user.id, body.chapterId, body.totalAttempts, body.isPassed, body.score, body.passingCriteria);
+    }
+    retakeChapterQuiz(body, user) {
+        return this.appService.retakeChapterQuiz(user.id, body.chapterId);
+    }
     createQuiz(body) {
         return this.appService.createQuiz(body);
     }
@@ -80,6 +92,40 @@ __decorate([
     __metadata("design:paramtypes", [dto_1.ParamsDto, Object]),
     __metadata("design:returntype", Promise)
 ], QuizController.prototype, "getAllAssignQuizzes", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Get)('/getChapterQuizzesReport/:chapterId'),
+    __param(0, (0, common_1.Param)()),
+    __param(1, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], QuizController.prototype, "getChapterQuizzesReport", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Get)('/getAllQuizReport'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], QuizController.prototype, "getAllQuizReport", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Post)('/createChapterQuizzesReport'),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], QuizController.prototype, "createChapterQuizzesReport", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Post)('/retakeChapterQuiz'),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], QuizController.prototype, "retakeChapterQuiz", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('/'),

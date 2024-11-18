@@ -14,47 +14,54 @@ export class CourseService {
   constructor(private prisma: PrismaService) {}
   async getCourseReport(courseId: any, userId: any): Promise<any> {
     try {
-      const course: any = await this.prisma.course.findUnique({
-        where: { id: courseId },
-        select: {
-          id: true,
-          title: true,
-          users: {
-            where: {
-              id: userId,
+      const [course, userDetails]: any = await Promise.all([
+        this.prisma.course.findUnique({
+          where: { id: courseId },
+          select: {
+            id: true,
+            title: true,
+            users: {
+              where: {
+                id: userId,
+              },
             },
-          },
-          modules: {
-            select: {
-              id: true,
-              title: true,
-              chapters: {
-                select: {
-                  id: true,
-                  title: true,
-                  _count: {
-                    select: {
-                      UserCourseProgress: {
-                        where: { userId }, // Filter by userId
+            modules: {
+              select: {
+                id: true,
+                title: true,
+                chapters: {
+                  select: {
+                    id: true,
+                    title: true,
+                    _count: {
+                      select: {
+                        UserCourseProgress: {
+                          where: { userId }, // Filter by userId
+                        },
+                        sections: true,
+                        quizzes: true,
+                        QuizAnswer: {
+                          where: { isAnswerCorrect: true }, // Count correct answers
+                        },
+                        LastSeenSection: true,
                       },
-                      sections: true,
-                      quizzes: true,
-                      QuizAnswer: {
-                        where: { isAnswerCorrect: true }, // Count correct answers
-                      },
-                      LastSeenSection: true,
                     },
                   },
+                  orderBy: {
+                    createdAt: 'asc',
+                  },
                 },
-                orderBy: {
-                  createdAt: 'asc',
-                },
+                // Get the count of user course progress for each module
               },
-              // Get the count of user course progress for each module
             },
           },
-        },
-      });
+        }),
+        this.prisma.user.findUnique({
+          where: {
+            id: userId,
+          },
+        }),
+      ]);
 
       // Step 1: Calculate total number of sections in the entire course
       let totalSectionsInCourse = 0;
@@ -84,10 +91,43 @@ export class CourseService {
       });
 
       return {
-        message: 'Successfully retrieved data',
+        message: 'Successfully retrieved datas',
         statusCode: 200,
         data: course.modules,
-        user: course?.users?.[0],
+        user: userDetails,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async getCourseDates(courseId: any, userId: any): Promise<any> {
+    try {
+      const allProgressItem = await this.prisma.UserCourseProgress.findMany({
+        where: {
+          courseId,
+          userId,
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      });
+
+      const courseStartDate = allProgressItem?.[0]?.createdAt;
+
+      return {
+        message: 'Successfully retrieved datas',
+        statusCode: 200,
+        data: { courseStartDate },
       };
     } catch (error) {
       throw new HttpException(
@@ -936,7 +976,7 @@ export class CourseService {
       );
     }
   }
-  async getAllUserModules(id: string, userId: string): Promise<ResponseDto> {
+  async getAllUserModules(id: string, userId: string): Promise<any> {
     try {
       const courses: any = await this.prisma.course.findFirst({
         where: { id },
@@ -959,6 +999,9 @@ export class CourseService {
                       sections: true,
                     },
                   },
+                  QuizProgress: {
+                    where: { userId },
+                  },
                 },
                 orderBy: {
                   createdAt: 'asc',
@@ -977,6 +1020,8 @@ export class CourseService {
           },
         },
       });
+
+      console.log({ courses });
 
       return {
         message: 'Successfully fetched all Modules info against course',

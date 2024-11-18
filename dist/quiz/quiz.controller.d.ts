@@ -7,6 +7,10 @@ export declare class QuizController {
     getQuiz(params: ParamsDto, user: User): Promise<ResponseDto>;
     getAllQuizzes(user: User): Promise<ResponseDto>;
     getAllAssignQuizzes(params: ParamsDto, user: User): Promise<ResponseDto>;
+    getChapterQuizzesReport(params: any, user: User): Promise<ResponseDto>;
+    getAllQuizReport(): Promise<ResponseDto>;
+    createChapterQuizzesReport(body: any, user: User): Promise<ResponseDto>;
+    retakeChapterQuiz(body: any, user: User): Promise<ResponseDto>;
     createQuiz(body: QuizDto): Promise<ResponseDto>;
     updateQuiz(body: UpdateQuizDto, params: ParamsDto): Promise<ResponseDto>;
     deleteQuiz(params: ParamsDto): Promise<ResponseDto>;

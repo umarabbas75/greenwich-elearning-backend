@@ -4,6 +4,7 @@ export declare class CourseService {
     private prisma;
     constructor(prisma: PrismaService);
     getCourseReport(courseId: any, userId: any): Promise<any>;
+    getCourseDates(courseId: any, userId: any): Promise<any>;
     deletePostComment(postId: any, commentId: any): Promise<ResponseDto>;
     getPostComments(postId: any): Promise<any>;
     createPostComment(postId: any, userId: any, body: any): Promise<ResponseDto>;
@@ -28,7 +29,7 @@ export declare class CourseService {
     getAllCourses(): Promise<ResponseDto>;
     getAllPublicCourses(): Promise<ResponseDto>;
     getAllModules(id: string): Promise<ResponseDto>;
-    getAllUserModules(id: string, userId: string): Promise<ResponseDto>;
+    getAllUserModules(id: string, userId: string): Promise<any>;
     getAllChapters(id: string): Promise<ResponseDto>;
     getAllSections(id: string): Promise<ResponseDto>;
     getAllUserSections(id: string, userId: string, courseId: string): Promise<any>;
