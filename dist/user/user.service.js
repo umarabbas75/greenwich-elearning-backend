@@ -247,6 +247,7 @@ let UserService = class UserService {
             };
         }
         catch (error) {
+            console.log({ error });
             if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
                 error.code === 'P2003') {
                 throw new common_1.HttpException({

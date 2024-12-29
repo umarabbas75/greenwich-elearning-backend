@@ -907,7 +907,6 @@ export class CourseService {
           createdAt: 'desc',
         },
       });
-      console.log({ courses });
       if (!(courses.length > 0)) {
         return {
           message: 'Successfully fetch all Courses info',
@@ -1020,8 +1019,6 @@ export class CourseService {
           },
         },
       });
-
-      console.log({ courses });
 
       return {
         message: 'Successfully fetched all Modules info against course',
@@ -1957,13 +1954,18 @@ export class CourseService {
       });
 
       if (!assignedCourses.length) {
-        throw new HttpException(
-          {
-            status: HttpStatus.NOT_FOUND,
-            error: 'No courses assigned to this user',
-          },
-          HttpStatus.NOT_FOUND,
-        );
+        // throw new HttpException(
+        //   {
+        //     status: HttpStatus.NOT_FOUND,
+        //     error: 'No courses assigned to this user',
+        //   },
+        //   HttpStatus.NOT_FOUND,
+        // );
+        return {
+          message: 'Successfully retrieved assigned courses',
+          statusCode: 200,
+          data: [],
+        };
       }
 
       // Map the assigned courses to include additional details
@@ -2006,12 +2008,15 @@ export class CourseService {
         };
       });
 
+      console.log({ whereCondition });
+
       return {
         message: 'Successfully retrieved assigned courses',
         statusCode: 200,
         data: coursesWithDetails,
       };
     } catch (error) {
+      console.log({ error });
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -2027,7 +2032,7 @@ export class CourseService {
       // Fetch assigned courses from UserCourse table
       const assignedCourses = await this.prisma.userCourse.findMany({
         where: { userId },
-        select: {
+        include: {
           course: {
             select: {
               id: true,
@@ -2036,26 +2041,35 @@ export class CourseService {
             },
           },
         },
+        // select: {
+        //   course: {
+        //     select: {
+        //       id: true,
+        //       title: true,
+        //       price: true,
+        //       // isActive: true,
+        //     },
+        //   },
+        // },
       });
-
       // Check if no courses are assigned
-      if (!assignedCourses.length) {
-        throw new HttpException(
-          {
-            status: HttpStatus.NOT_FOUND,
-            error: 'No courses assigned to this user',
-          },
-          HttpStatus.NOT_FOUND,
-        );
-      }
+      // if (!assignedCourses.length) {
+      //   throw new HttpException(
+      //     {
+      //       status: HttpStatus.NOT_FOUND,
+      //       error: 'No courses assigned to this user',
+      //     },
+      //     HttpStatus.NOT_FOUND,
+      //   );
+      // }
 
       // Map courses to extract only public fields
-      const courses = assignedCourses.map((userCourse) => userCourse.course);
+      // const courses = assignedCourses.map((userCourse) => userCourse.course);
 
       return {
         message: 'Successfully retrieved assigned courses',
         statusCode: 200,
-        data: courses,
+        data: assignedCourses,
       };
     } catch (error) {
       throw new HttpException(

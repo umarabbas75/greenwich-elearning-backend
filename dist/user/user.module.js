@@ -18,7 +18,12 @@ exports.UserModule = UserModule;
 exports.UserModule = UserModule = __decorate([
     (0, common_1.Module)({
         imports: [jwt_1.JwtModule.register({})],
-        providers: [user_service_1.UserService, strategy_1.JwtUserStrategy, strategy_1.JwtAdminStrategy, strategy_1.JwtCombineStrategy],
+        providers: [
+            user_service_1.UserService,
+            strategy_1.JwtUserStrategy,
+            strategy_1.JwtAdminStrategy,
+            strategy_1.JwtCombineStrategy,
+        ],
         controllers: [user_controller_1.UserController],
         exports: [user_service_1.UserService],
     })

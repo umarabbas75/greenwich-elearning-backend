@@ -760,7 +760,6 @@ let CourseService = class CourseService {
                     createdAt: 'desc',
                 },
             });
-            console.log({ courses });
             if (!(courses.length > 0)) {
                 return {
                     message: 'Successfully fetch all Courses info',
@@ -861,7 +860,6 @@ let CourseService = class CourseService {
                     },
                 },
             });
-            console.log({ courses });
             return {
                 message: 'Successfully fetched all Modules info against course',
                 statusCode: 200,
@@ -1520,10 +1518,11 @@ let CourseService = class CourseService {
                 },
             });
             if (!assignedCourses.length) {
-                throw new common_1.HttpException({
-                    status: common_1.HttpStatus.NOT_FOUND,
-                    error: 'No courses assigned to this user',
-                }, common_1.HttpStatus.NOT_FOUND);
+                return {
+                    message: 'Successfully retrieved assigned courses',
+                    statusCode: 200,
+                    data: [],
+                };
             }
             const coursesWithDetails = assignedCourses.map((userCourse) => {
                 const { course, isActive, isPaid } = userCourse;
@@ -1555,6 +1554,7 @@ let CourseService = class CourseService {
                         : null,
                 };
             });
+            console.log({ whereCondition });
             return {
                 message: 'Successfully retrieved assigned courses',
                 statusCode: 200,
@@ -1562,6 +1562,7 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
+            console.log({ error });
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
@@ -1572,7 +1573,7 @@ let CourseService = class CourseService {
         try {
             const assignedCourses = await this.prisma.userCourse.findMany({
                 where: { userId },
-                select: {
+                include: {
                     course: {
                         select: {
                             id: true,
@@ -1582,17 +1583,10 @@ let CourseService = class CourseService {
                     },
                 },
             });
-            if (!assignedCourses.length) {
-                throw new common_1.HttpException({
-                    status: common_1.HttpStatus.NOT_FOUND,
-                    error: 'No courses assigned to this user',
-                }, common_1.HttpStatus.NOT_FOUND);
-            }
-            const courses = assignedCourses.map((userCourse) => userCourse.course);
             return {
                 message: 'Successfully retrieved assigned courses',
                 statusCode: 200,
-                data: courses,
+                data: assignedCourses,
             };
         }
         catch (error) {

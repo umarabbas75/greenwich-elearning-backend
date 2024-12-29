@@ -283,6 +283,7 @@ export class UserService {
         data: user,
       };
     } catch (error) {
+      console.log({ error });
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2003'
