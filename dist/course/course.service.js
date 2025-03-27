@@ -1507,6 +1507,7 @@ let CourseService = class CourseService {
                             },
                             _count: { select: { UserCourseProgress: { where: { userId } } } },
                             LastSeenSection: {
+                                where: { userId },
                                 take: 1,
                                 orderBy: { updatedAt: 'desc' },
                                 include: {
