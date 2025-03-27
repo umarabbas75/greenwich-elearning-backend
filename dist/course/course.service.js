@@ -46,9 +46,11 @@ let CourseService = class CourseService {
                                                 sections: true,
                                                 quizzes: true,
                                                 QuizAnswer: {
-                                                    where: { isAnswerCorrect: true },
+                                                    where: { isAnswerCorrect: true, userId },
                                                 },
-                                                LastSeenSection: true,
+                                                LastSeenSection: {
+                                                    where: { userId },
+                                                },
                                             },
                                         },
                                     },

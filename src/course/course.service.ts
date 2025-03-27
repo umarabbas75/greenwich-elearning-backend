@@ -41,9 +41,11 @@ export class CourseService {
                         sections: true,
                         quizzes: true,
                         QuizAnswer: {
-                          where: { isAnswerCorrect: true }, // Count correct answers
+                          where: { isAnswerCorrect: true, userId }, // Count correct answers
                         },
-                        LastSeenSection: true,
+                        LastSeenSection: {
+                          where: { userId }, // 👈 Filter count by userId
+                        },
                       },
                     },
                   },
