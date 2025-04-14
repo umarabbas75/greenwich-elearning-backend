@@ -25,7 +25,18 @@ import { AuthGuard } from '@nestjs/passport';
 @Controller('courses')
 export class CourseController {
   constructor(private readonly appService: CourseService) {}
-  // comments
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/markFormComplete')
+  markFormComplete(@GetUser() user: User, @Body() body: any): Promise<any> {
+    return this.appService.markFormComplete(
+      user?.id,
+      body.courseId,
+      body.formId,
+      body?.metaData,
+      body.courseFormId,
+    );
+  }
 
   @Get('/public')
   getAllPublicCourses(): Promise<ResponseDto> {
@@ -133,6 +144,15 @@ export class CourseController {
   @Get('/:id')
   getCourse(@Param() params: any): Promise<any> {
     return this.appService.getCourse(params.id);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('/canAccessCourseContent/:id')
+  canAccessCourseContent(
+    @GetUser() user: User,
+    @Param() params: any,
+  ): Promise<any> {
+    return this.appService.canAccessCourseContent(user.id, params.id);
   }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/module/:id')

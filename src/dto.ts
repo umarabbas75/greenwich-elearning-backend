@@ -132,6 +132,14 @@ export class CourseDto {
   @IsArray()
   @IsOptional()
   syllabus: Array<{ file: string; isSeen: boolean }>;
+
+  @IsOptional()
+  @IsArray()
+  courseForms?: Array<{
+    value: string;
+    label: string;
+    isRequired?: boolean; // default true
+  }>;
 }
 export class QuizDto {
   @IsNotEmpty()
@@ -196,6 +204,14 @@ export class UpdateCourseDto {
   @IsOptional()
   @IsString()
   overview?: string;
+
+  @IsOptional()
+  @IsArray()
+  courseForms?: Array<{
+    value: string;
+    label: string;
+    isRequired?: boolean; // default true
+  }>;
 }
 export class UpdateCourseProgress {
   @IsString()

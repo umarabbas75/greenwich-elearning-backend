@@ -35,6 +35,7 @@ model User {
   ContactMessage        ContactMessage[]
   status                UserStatus              @default(inactive)
   QuizProgress          QuizProgress[]
+  formCompletions       UserFormCompletion[]
 
   @@index([email])
   @@map("users")
@@ -45,17 +46,7 @@ enum UserStatus {
   inactive
 }
 
-model TodoItem {
-  id          String   @id @default(uuid())
-  title       String?
-  content     String
-  isCompleted Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  dueDate     DateTime
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-}
+
 
 model Course {
   id                 String               @id @default(uuid())
@@ -78,6 +69,8 @@ model Course {
   Post               Post[]
   users              UserCourse[]
   LastSeenSection    LastSeenSection[]
+  courseForms        CourseForm[]
+  formCompletions    UserFormCompletion[]
 
   @@map("courses")
 }
@@ -98,6 +91,50 @@ model UserCourse {
   @@map("user_courses")
 }
 
+model CourseForm {
+  id                  String               @id @default(uuid())
+  courseId            String
+  formId              String
+  formName            String
+  isRequired          Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  userFormCompletions UserFormCompletion[] @relation("FormCompletions")
+  course              Course               @relation(fields: [courseId], references: [id])
+
+  @@unique([courseId, formId])
+  @@map("course_forms")
+}
+
+model UserFormCompletion {
+  id           String     @id @default(uuid())
+  userId       String
+  courseId     String
+  formId       String
+  isComplete   Boolean    @default(false)
+  completedAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  metadata     Json? // New field for storing form metadata
+  courseFormId String
+  courseForm   CourseForm @relation(fields: [courseFormId], references: [id], name: "FormCompletions")
+  user         User       @relation(fields: [userId], references: [id])
+  course       Course     @relation(fields: [courseId], references: [id])
+
+  @@unique([userId, courseId, formId])
+  @@map("user_form_completions")
+}
+model TodoItem {
+  id          String   @id @default(uuid())
+  title       String?
+  content     String
+  isCompleted Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  dueDate     DateTime
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+}
 model Module {
   id                 String               @id @default(uuid())
   title              String

@@ -12,6 +12,41 @@ import { PrismaService } from '../prisma/prisma.service';
 @Injectable()
 export class CourseService {
   constructor(private prisma: PrismaService) {}
+
+  async markFormComplete(
+    userId: string,
+    courseId: string,
+    formId: string,
+    metadata: any, // More specific type for Prisma JSON fields
+    courseFormId: string, // Added required field from your schema
+  ): Promise<any> {
+    return this.prisma.userFormCompletion.upsert({
+      where: {
+        userId_courseId_formId: {
+          userId,
+          courseId,
+          formId,
+        },
+      },
+      create: {
+        userId,
+        courseId,
+        formId,
+        courseFormId, // Added required relation field
+        isComplete: true,
+        completedAt: new Date(),
+        metadata: metadata ?? {}, // Ensure metadata is always an object
+      },
+      update: {
+        isComplete: true,
+        completedAt: new Date(),
+        metadata: metadata ?? {},
+        // You might want to update the courseForm relation if it can change
+        // courseFormId: courseFormId
+      },
+    });
+  }
+
   async getCourseReport(courseId: any, userId: any): Promise<any> {
     try {
       const [course, userDetails]: any = await Promise.all([
@@ -589,32 +624,54 @@ export class CourseService {
 
   async createCourse(body: CourseDto): Promise<ResponseDto> {
     try {
+      // Check if course exists
       const isCourseExist: Course = await this.prisma.course.findUnique({
         where: { title: body.title },
       });
+
       if (isCourseExist) {
         throw new Error('Course already exist with specified title');
       }
-      const course: Course = await this.prisma.course.create({
-        data: {
-          title: body.title,
-          description: body.description,
-          assessment: body.assessment,
-          duration: body.duration,
-          overview: body.overview,
-          image: body.image,
-          syllabusOverview: body.syllabusOverview,
-          resourcesOverview: body.resourcesOverview,
-          assessments: body.assessments,
-          resources: body.resources,
-          syllabus: body.syllabus,
-          price: body.price,
-        },
+
+      // Create transaction for atomic operations
+      const result = await this.prisma.$transaction(async (prisma) => {
+        // 1. Create the course
+        const course: Course = await prisma.course.create({
+          data: {
+            title: body.title,
+            description: body.description,
+            assessment: body.assessment,
+            duration: body.duration,
+            overview: body.overview,
+            image: body.image,
+            syllabusOverview: body.syllabusOverview,
+            resourcesOverview: body.resourcesOverview,
+            assessments: body.assessments,
+            resources: body.resources,
+            syllabus: body.syllabus,
+            price: body.price,
+          },
+        });
+
+        // 2. Add required forms if specified
+        if (body.courseForms && body.courseForms.length > 0) {
+          await prisma.courseForm.createMany({
+            data: body.courseForms.map((form) => ({
+              courseId: course.id,
+              formId: form.value,
+              formName: form.label,
+              isRequired: true, // default to true if not specified
+            })),
+          });
+        }
+
+        return course;
       });
+
       return {
-        message: 'Successfully create course record',
+        message: 'Successfully created course record with forms',
         statusCode: 200,
-        data: course,
+        data: result,
       };
     } catch (error) {
       throw new HttpException(
@@ -717,7 +774,12 @@ export class CourseService {
 
   async getCourse(id: string): Promise<ResponseDto> {
     try {
-      const course = await this.prisma.course.findUnique({ where: { id } });
+      const course = await this.prisma.course.findUnique({
+        where: { id },
+        include: {
+          courseForms: true, // Include the associated course forms
+        },
+      });
       if (!course) {
         throw new Error('course not found');
       }
@@ -733,6 +795,88 @@ export class CourseService {
           error: error?.message || 'Something went wrong',
         },
         HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async canAccessCourseContent(
+    userId: string,
+    courseId: string,
+  ): Promise<ResponseDto> {
+    try {
+      // 1. Get the course with its forms and completion status
+      const course = await this.prisma.course.findUnique({
+        where: { id: courseId },
+        include: {
+          courseForms: {
+            where: { isRequired: true },
+            include: {
+              userFormCompletions: {
+                where: { userId },
+                select: { isComplete: true },
+              },
+            },
+          },
+          users: {
+            where: { userId },
+          },
+        },
+      });
+
+      if (!course) {
+        throw new Error('Course not found');
+      }
+
+      // 2. Check if user is assigned to this course
+      if (course.users.length === 0) {
+        return {
+          message: 'User is not assigned to this course',
+          statusCode: 403,
+          data: { canAccessContent: false },
+        };
+      }
+
+      // 3. Check form completion status
+      let canAccess = true;
+      let completedForms = 0;
+      const totalRequiredForms = course.courseForms.length;
+
+      for (const form of course.courseForms) {
+        const completion = form.userFormCompletions[0];
+        if (completion?.isComplete) {
+          completedForms++;
+        } else {
+          canAccess = false;
+        }
+      }
+
+      return {
+        message: 'Course access status retrieved',
+        statusCode: 200,
+        data: {
+          canAccessContent: canAccess,
+          formStatus: {
+            completedForms,
+            totalForms: totalRequiredForms,
+            forms: course.courseForms.map((form) => ({
+              formId: form.formId,
+              formName: form.formName,
+              isRequired: form.isRequired,
+              isComplete: form.userFormCompletions[0]?.isComplete || false,
+            })),
+          },
+        },
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.INTERNAL_SERVER_ERROR,
+          error: error?.message || 'Failed to check course access',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
         {
           cause: error,
         },
@@ -865,19 +1009,17 @@ export class CourseService {
             },
           },
         },
-
         orderBy: {
           createdAt: 'desc',
         },
-
-        // limit: 10,
-        // offset: 10,
       });
+
       if (!(courses.length > 0)) {
         throw new Error('No Courses found');
       }
+
       return {
-        message: 'Successfully fetch all Courses info',
+        message: 'Successfully fetched all Courses with form information',
         statusCode: 200,
         data: courses,
       };
@@ -1203,27 +1345,58 @@ export class CourseService {
       const isCourseExist: Course = await this.prisma.course.findUnique({
         where: { id: id },
       });
+
       if (!isCourseExist) {
         throw new Error('Course does not exist');
       }
-      if (Object.entries(body).length === 0) {
-        throw new Error('wrong keys');
-      }
-      const updateCourse = {};
 
-      for (const [key, value] of Object.entries(body)) {
-        updateCourse[key] = value;
+      if (Object.entries(body).length === 0) {
+        throw new Error('No update data provided');
       }
-      // Save the updated user
-      const updatedCourse = await this.prisma.course.update({
-        where: { id }, // Specify the unique identifier for the user you want to update
-        data: updateCourse, // Pass the modified user object
+
+      // Create transaction for atomic operations
+      const result = await this.prisma.$transaction(async (prisma) => {
+        // 1. Update the course
+        const updateCourse = {};
+        for (const [key, value] of Object.entries(body)) {
+          if (key !== 'courseForms') {
+            // Exclude courseForms from regular update
+            updateCourse[key] = value;
+          }
+        }
+
+        const updatedCourse = await prisma.course.update({
+          where: { id },
+          data: updateCourse,
+        });
+
+        // 2. Handle course forms update if specified
+        if (body.courseForms && Array.isArray(body.courseForms)) {
+          // First, delete all existing forms for this course
+          await prisma.courseForm.deleteMany({
+            where: { courseId: id },
+          });
+
+          // Then add the new forms
+          if (body.courseForms.length > 0) {
+            await prisma.courseForm.createMany({
+              data: body.courseForms.map((form) => ({
+                courseId: id,
+                formId: form.value,
+                formName: form.label,
+                isRequired: true, // default to true if not specified
+              })),
+            });
+          }
+        }
+
+        return updatedCourse;
       });
 
       return {
-        message: 'Successfully updated course record',
+        message: 'Successfully updated course record with forms',
         statusCode: 200,
-        data: updatedCourse,
+        data: result,
       };
     } catch (error) {
       throw new HttpException(
@@ -1924,15 +2097,23 @@ export class CourseService {
 
   async getAllAssignedCourses(userId: string, role: string): Promise<any> {
     try {
-      // Define the condition based on the user's role
       const whereCondition =
         role === 'user' ? { userId, isActive: true } : { userId };
-      // Fetch the assigned courses for the user from the UserCourse table
+
       const assignedCourses = await this.prisma.userCourse.findMany({
         where: whereCondition,
         include: {
           course: {
             include: {
+              courseForms: {
+                include: {
+                  userFormCompletions: {
+                    // Changed from userCompletions
+                    where: { userId },
+                    select: { isComplete: true },
+                  },
+                },
+              },
               modules: {
                 select: {
                   chapters: {
@@ -1957,13 +2138,6 @@ export class CourseService {
       });
 
       if (!assignedCourses.length) {
-        // throw new HttpException(
-        //   {
-        //     status: HttpStatus.NOT_FOUND,
-        //     error: 'No courses assigned to this user',
-        //   },
-        //   HttpStatus.NOT_FOUND,
-        // );
         return {
           message: 'Successfully retrieved assigned courses',
           statusCode: 200,
@@ -1971,31 +2145,52 @@ export class CourseService {
         };
       }
 
-      // Map the assigned courses to include additional details
       const coursesWithDetails = assignedCourses.map((userCourse) => {
-        const { course, isActive, isPaid } = userCourse;
+        // Proper destructuring
+        const { course, isActive, isPaid } = userCourse as any; // Temporary any to bypass type check
 
-        // Calculate the total sections count
+        // Calculate form completion status
+        const formStatus = {
+          totalForms: course.courseForms?.length || 0,
+          completedForms:
+            course.courseForms?.filter(
+              (form) => form.userFormCompletions?.some((uc) => uc.isComplete),
+            ).length || 0,
+          forms:
+            course.courseForms?.map((form) => ({
+              courseFormId: form.id,
+              formId: form.formId,
+              formName: form.formName,
+              isRequired: form.isRequired,
+              isComplete:
+                form.userFormCompletions?.some((uc) => uc.isComplete) || false,
+            })) || [],
+        };
+
+        // Rest of your calculations
         const sectionsCount =
           course.modules
-            .flatMap((module) => module.chapters)
-            .reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
+            ?.flatMap((module) => module.chapters)
+            ?.reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
 
-        // Get user course progress count
-        const userCourseProgressCount = course._count.UserCourseProgress || 0;
+        const userCourseProgressCount = course._count?.UserCourseProgress || 0;
 
-        // Get the latest last seen section
-        const latestLastSeenSection = course.LastSeenSection[0];
+        const latestLastSeenSection = course.LastSeenSection?.[0];
 
         return {
           ...course,
-          isActive, // Include the isActive field
-          isPaid, // Include the isPaid field
-          percentage: (userCourseProgressCount * 100) / sectionsCount || 0,
+          isActive,
+          isPaid,
+          percentage:
+            sectionsCount > 0
+              ? (userCourseProgressCount * 100) / sectionsCount
+              : 0,
           _count: {
             totalSections: sectionsCount,
             userCourseProgress: userCourseProgressCount,
           },
+          formStatus,
+          canAccessContent: formStatus.totalForms === formStatus.completedForms,
           latestLastSeenSection: latestLastSeenSection
             ? {
                 id: latestLastSeenSection.id,
@@ -2011,15 +2206,13 @@ export class CourseService {
         };
       });
 
-      console.log({ whereCondition });
-
       return {
-        message: 'Successfully retrieved assigned courses',
+        message: 'Successfully retrieved assigned courses with form status',
         statusCode: 200,
         data: coursesWithDetails,
       };
     } catch (error) {
-      console.log({ error });
+      console.error(error);
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
