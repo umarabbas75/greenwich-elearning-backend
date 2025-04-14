@@ -12,34 +12,85 @@ export class UserService {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          phone: true,
-          photo: true,
-          role: true,
-          createdAt: true,
-          updatedAt: true,
-          timezone: true,
+        include: {
+          UserCourse: {
+            include: {
+              course: {
+                include: {
+                  courseForms: {
+                    include: {
+                      userFormCompletions: {
+                        where: { userId: id },
+                        select: {
+                          isComplete: true,
+                          completedAt: true,
+                          metadata: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       });
+
       if (!user) {
         throw new Error('User not found');
       }
+
+      // Transform data to group by courses
+      const coursesWithForms = user.UserCourse.map((userCourse) => {
+        const course = userCourse.course;
+        const totalForms = course.courseForms.length;
+        const completedForms = course.courseForms.filter(
+          (form) =>
+            form.userFormCompletions.length > 0 &&
+            form.userFormCompletions[0].isComplete,
+        ).length;
+
+        return {
+          courseId: course.id,
+          courseTitle: course.title,
+          courseImage: course.image,
+          totalForms,
+          completedForms,
+          forms: course.courseForms.map((form) => ({
+            formId: form.formId,
+            formName: form.formName,
+            isRequired: form.isRequired,
+            isComplete: form.userFormCompletions[0]?.isComplete || false,
+            completedAt: form.userFormCompletions[0]?.completedAt || null,
+            metadata: form.userFormCompletions[0]?.metadata || null,
+          })),
+        };
+      });
+
+      const response = {
+        userInfo: {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          photo: user.photo,
+          role: user.role,
+        },
+        courses: coursesWithForms,
+      };
+
       return {
-        message: 'Successfully fetch user info',
+        message: 'Successfully fetched user info with course forms',
         statusCode: 200,
-        data: user,
+        data: response,
       };
     } catch (error) {
       throw new HttpException(
         {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
+          status: HttpStatus.INTERNAL_SERVER_ERROR,
+          error: error?.message || 'Failed to fetch user information',
         },
-        HttpStatus.FORBIDDEN,
+        HttpStatus.INTERNAL_SERVER_ERROR,
         {
           cause: error,
         },
