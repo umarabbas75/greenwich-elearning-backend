@@ -117,7 +117,7 @@ model UserFormCompletion {
   updatedAt    DateTime   @updatedAt
   metadata     Json? // New field for storing form metadata
   courseFormId String
-  courseForm   CourseForm @relation(fields: [courseFormId], references: [id], name: "FormCompletions")
+  courseForm   CourseForm @relation(fields: [courseFormId], references: [id], name: "FormCompletions",onDelete: Cascade)
   user         User       @relation(fields: [userId], references: [id])
   course       Course     @relation(fields: [courseId], references: [id])
 
