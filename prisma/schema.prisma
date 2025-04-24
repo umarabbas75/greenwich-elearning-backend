@@ -36,6 +36,7 @@ model User {
   status                UserStatus              @default(inactive)
   QuizProgress          QuizProgress[]
   formCompletions       UserFormCompletion[]
+  UserPolicyCompletion  UserPolicyCompletion[]
 
   @@index([email])
   @@map("users")
@@ -46,31 +47,31 @@ enum UserStatus {
   inactive
 }
 
-
-
 model Course {
-  id                 String               @id @default(uuid())
-  title              String               @unique
-  description        String
-  image              String
-  overview           String
-  duration           String
-  price              String?
-  assessment         String
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  syllabusOverview   String
-  resourcesOverview  String
-  assessments        Json[]
-  resources          Json[]
-  syllabus           Json[]
-  UserCourseProgress UserCourseProgress[]
-  modules            Module[]
-  Post               Post[]
-  users              UserCourse[]
-  LastSeenSection    LastSeenSection[]
-  courseForms        CourseForm[]
-  formCompletions    UserFormCompletion[]
+  id                   String                 @id @default(uuid())
+  title                String                 @unique
+  description          String
+  image                String
+  overview             String
+  duration             String
+  price                String?
+  assessment           String
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  syllabusOverview     String
+  resourcesOverview    String
+  assessments          Json[]
+  resources            Json[]
+  syllabus             Json[]
+  UserCourseProgress   UserCourseProgress[]
+  modules              Module[]
+  Post                 Post[]
+  users                UserCourse[]
+  LastSeenSection      LastSeenSection[]
+  courseForms          CourseForm[]
+  formCompletions      UserFormCompletion[]
+  CoursePolicy         CoursePolicy[]
+  UserPolicyCompletion UserPolicyCompletion[]
 
   @@map("courses")
 }
@@ -117,13 +118,47 @@ model UserFormCompletion {
   updatedAt    DateTime   @updatedAt
   metadata     Json? // New field for storing form metadata
   courseFormId String
-  courseForm   CourseForm @relation(fields: [courseFormId], references: [id], name: "FormCompletions",onDelete: Cascade)
+  courseForm   CourseForm @relation(fields: [courseFormId], references: [id], name: "FormCompletions", onDelete: Cascade)
   user         User       @relation(fields: [userId], references: [id])
   course       Course     @relation(fields: [courseId], references: [id])
 
   @@unique([userId, courseId, formId])
   @@map("user_form_completions")
 }
+
+model CoursePolicy {
+  id          String                 @id @default(uuid())
+  courseId    String
+  title       String
+  description String?
+  link        String
+  isRequired  Boolean                @default(true)
+  order       Int
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  course      Course                 @relation(fields: [courseId], references: [id])
+  completions UserPolicyCompletion[]
+
+  @@map("course_policies")
+}
+
+model UserPolicyCompletion {
+  id          String       @id @default(uuid())
+  userId      String
+  courseId    String
+  policyId    String
+  isComplete  Boolean      @default(false)
+  completedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  user        User         @relation(fields: [userId], references: [id])
+  course      Course       @relation(fields: [courseId], references: [id])
+  policy      CoursePolicy @relation(fields: [policyId], references: [id])
+
+  @@unique([userId, courseId, policyId])
+  @@map("user_policy_completions")
+}
+
 model TodoItem {
   id          String   @id @default(uuid())
   title       String?
@@ -135,6 +170,7 @@ model TodoItem {
   userId      String
   user        User     @relation(fields: [userId], references: [id])
 }
+
 model Module {
   id                 String               @id @default(uuid())
   title              String

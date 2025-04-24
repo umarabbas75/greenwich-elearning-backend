@@ -183,6 +183,11 @@ __decorate([
     (0, class_validator_1.IsArray)(),
     __metadata("design:type", Array)
 ], CourseDto.prototype, "courseForms", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    __metadata("design:type", Array)
+], CourseDto.prototype, "coursePolicies", void 0);
 class QuizDto {
 }
 exports.QuizDto = QuizDto;
@@ -275,6 +280,11 @@ __decorate([
     (0, class_validator_1.IsArray)(),
     __metadata("design:type", Array)
 ], UpdateCourseDto.prototype, "courseForms", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    __metadata("design:type", Array)
+], UpdateCourseDto.prototype, "coursePolicies", void 0);
 class UpdateCourseProgress {
 }
 exports.UpdateCourseProgress = UpdateCourseProgress;

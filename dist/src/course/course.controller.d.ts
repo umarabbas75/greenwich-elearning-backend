@@ -5,6 +5,7 @@ export declare class CourseController {
     private readonly appService;
     constructor(appService: CourseService);
     markFormComplete(user: User, body: any): Promise<any>;
+    markPolicyAsComplete(user: User, body: any): Promise<any>;
     getAllPublicCourses(): Promise<ResponseDto>;
     getCourseDetailPublic(params: any): Promise<any>;
     getCourseReport(params: any): Promise<any>;
@@ -19,6 +20,7 @@ export declare class CourseController {
     createPolicies(user: User, body: any): Promise<any>;
     deletePolicies(): Promise<any>;
     getUserPolicies(user: User): Promise<any>;
+    getUserPolicyCompletions(user: User, params: any): Promise<any>;
     updatePost(body: any, id: string): Promise<any>;
     deletePost(id: string): Promise<any>;
     getCourse(params: any): Promise<any>;

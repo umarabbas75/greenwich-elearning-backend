@@ -25,6 +25,13 @@ let CourseController = class CourseController {
     markFormComplete(user, body) {
         return this.appService.markFormComplete(user?.id, body.courseId, body.formId, body?.metaData, body.courseFormId);
     }
+    markPolicyAsComplete(user, body) {
+        return this.appService.markPolicyAsComplete({
+            userId: user?.id,
+            courseId: body.courseId,
+            policyId: body.policyId,
+        });
+    }
     getAllPublicCourses() {
         return this.appService.getAllPublicCourses();
     }
@@ -66,6 +73,12 @@ let CourseController = class CourseController {
     }
     getUserPolicies(user) {
         return this.appService.getUserPolicies(user?.id);
+    }
+    getUserPolicyCompletions(user, params) {
+        return this.appService.getUserPolicyCompletions({
+            userId: user?.id,
+            courseId: params?.courseId,
+        });
     }
     updatePost(body, id) {
         return this.appService.updatePost(id, body);
@@ -187,6 +200,15 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "markFormComplete", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Post)('/markPolicyComplete'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "markPolicyAsComplete", null);
+__decorate([
     (0, common_1.Get)('/public'),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
@@ -300,6 +322,15 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getUserPolicies", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Get)('/getUserPolicyCompletions/:courseId'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "getUserPolicyCompletions", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Put)('/post/:id'),

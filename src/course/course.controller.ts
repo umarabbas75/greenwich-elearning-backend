@@ -38,6 +38,16 @@ export class CourseController {
     );
   }
 
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/markPolicyComplete')
+  markPolicyAsComplete(@GetUser() user: User, @Body() body: any): Promise<any> {
+    return this.appService.markPolicyAsComplete({
+      userId: user?.id,
+      courseId: body.courseId,
+      policyId: body.policyId,
+    });
+  }
+
   @Get('/public')
   getAllPublicCourses(): Promise<ResponseDto> {
     return this.appService.getAllPublicCourses();
@@ -127,6 +137,18 @@ export class CourseController {
   @Get('/getUserPolicies')
   getUserPolicies(@GetUser() user: User): Promise<any> {
     return this.appService.getUserPolicies(user?.id);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('/getUserPolicyCompletions/:courseId')
+  getUserPolicyCompletions(
+    @GetUser() user: User,
+    @Param() params: any,
+  ): Promise<any> {
+    return this.appService.getUserPolicyCompletions({
+      userId: user?.id,
+      courseId: params?.courseId,
+    });
   }
 
   @UseGuards(AuthGuard('cJwt'))

@@ -140,6 +140,10 @@ export class CourseDto {
     label: string;
     isRequired?: boolean; // default true
   }>;
+
+  @IsOptional()
+  @IsArray()
+  coursePolicies?: Array<any>;
 }
 export class QuizDto {
   @IsNotEmpty()
@@ -212,6 +216,10 @@ export class UpdateCourseDto {
     label: string;
     isRequired?: boolean; // default true
   }>;
+
+  @IsOptional()
+  @IsArray()
+  coursePolicies?: Array<any>;
 }
 export class UpdateCourseProgress {
   @IsString()

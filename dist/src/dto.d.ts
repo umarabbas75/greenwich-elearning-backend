@@ -52,6 +52,7 @@ export declare class CourseDto {
         label: string;
         isRequired?: boolean;
     }>;
+    coursePolicies?: Array<any>;
 }
 export declare class QuizDto {
     question: string;
@@ -80,6 +81,7 @@ export declare class UpdateCourseDto {
         label: string;
         isRequired?: boolean;
     }>;
+    coursePolicies?: Array<any>;
 }
 export declare class UpdateCourseProgress {
     courseId: string;
