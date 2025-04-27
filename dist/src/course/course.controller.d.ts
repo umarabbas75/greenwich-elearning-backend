@@ -5,7 +5,7 @@ export declare class CourseController {
     private readonly appService;
     constructor(appService: CourseService);
     markFormComplete(user: User, body: any): Promise<any>;
-    markPolicyAsComplete(user: User, body: any): Promise<any>;
+    markPolicyItemAsComplete(user: User, body: any): Promise<any>;
     getAllPublicCourses(): Promise<ResponseDto>;
     getCourseDetailPublic(params: any): Promise<any>;
     getCourseReport(params: any): Promise<any>;

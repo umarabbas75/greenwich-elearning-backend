@@ -18,7 +18,12 @@ exports.CourseModule = CourseModule;
 exports.CourseModule = CourseModule = __decorate([
     (0, common_1.Module)({
         imports: [jwt_1.JwtModule.register({})],
-        providers: [course_service_1.CourseService, strategy_1.JwtUserStrategy, strategy_1.JwtAdminStrategy, strategy_1.JwtCombineStrategy],
+        providers: [
+            course_service_1.CourseService,
+            strategy_1.JwtUserStrategy,
+            strategy_1.JwtAdminStrategy,
+            strategy_1.JwtCombineStrategy,
+        ],
         controllers: [course_controller_1.CourseController],
         exports: [course_service_1.CourseService],
     })

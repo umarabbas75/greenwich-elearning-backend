@@ -1,24 +1,15 @@
-import { HttpStatus } from '@nestjs/common';
 import { CourseDto, ModuleDto, ResponseDto, UpdateCourseDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 export declare class CourseService {
     private prisma;
     constructor(prisma: PrismaService);
     markFormComplete(userId: string, courseId: string, formId: string, metadata: any, courseFormId: string): Promise<any>;
-    markPolicyAsComplete({ userId, courseId, policyId }: any): Promise<{
-        message: string;
-        statusCode: HttpStatus;
-        data: {
-            id: string;
-            userId: string;
-            courseId: string;
-            policyId: string;
-            isComplete: boolean;
-            completedAt: Date;
-            createdAt: Date;
-            updatedAt: Date;
-        };
-    }>;
+    markPolicyItemAsComplete({ userId, courseId, policyId, policyItemId, }: {
+        userId: string;
+        courseId: string;
+        policyId: string;
+        policyItemId: string;
+    }): Promise<ResponseDto>;
     getUserPolicyCompletions({ courseId, userId }: {
         courseId: any;
         userId: any;

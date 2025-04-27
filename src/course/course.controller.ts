@@ -40,11 +40,15 @@ export class CourseController {
 
   @UseGuards(AuthGuard('cJwt'))
   @Post('/markPolicyComplete')
-  markPolicyAsComplete(@GetUser() user: User, @Body() body: any): Promise<any> {
-    return this.appService.markPolicyAsComplete({
+  markPolicyItemAsComplete(
+    @GetUser() user: User,
+    @Body() body: any,
+  ): Promise<any> {
+    return this.appService.markPolicyItemAsComplete({
       userId: user?.id,
       courseId: body.courseId,
       policyId: body.policyId,
+      policyItemId: body.policyItemId,
     });
   }
 

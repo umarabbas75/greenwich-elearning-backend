@@ -143,7 +143,7 @@ export class CourseDto {
 
   @IsOptional()
   @IsArray()
-  coursePolicies?: Array<any>;
+  policies?: Array<any>;
 }
 export class QuizDto {
   @IsNotEmpty()
@@ -219,7 +219,7 @@ export class UpdateCourseDto {
 
   @IsOptional()
   @IsArray()
-  coursePolicies?: Array<any>;
+  policies?: Array<any>;
 }
 export class UpdateCourseProgress {
   @IsString()

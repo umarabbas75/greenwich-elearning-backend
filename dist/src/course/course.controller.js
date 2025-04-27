@@ -25,11 +25,12 @@ let CourseController = class CourseController {
     markFormComplete(user, body) {
         return this.appService.markFormComplete(user?.id, body.courseId, body.formId, body?.metaData, body.courseFormId);
     }
-    markPolicyAsComplete(user, body) {
-        return this.appService.markPolicyAsComplete({
+    markPolicyItemAsComplete(user, body) {
+        return this.appService.markPolicyItemAsComplete({
             userId: user?.id,
             courseId: body.courseId,
             policyId: body.policyId,
+            policyItemId: body.policyItemId,
         });
     }
     getAllPublicCourses() {
@@ -207,7 +208,7 @@ __decorate([
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
-], CourseController.prototype, "markPolicyAsComplete", null);
+], CourseController.prototype, "markPolicyItemAsComplete", null);
 __decorate([
     (0, common_1.Get)('/public'),
     __metadata("design:type", Function),

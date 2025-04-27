@@ -8,35 +8,36 @@ datasource db {
 }
 
 model User {
-  id                    String                  @id @default(uuid())
-  firstName             String
-  lastName              String
-  email                 String                  @unique
-  phone                 String?
-  photo                 String?
-  photoBase64           String?
-  timezone              String?
-  password              String
-  role                  Role
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
-  LastSeenSection       LastSeenSection[]
-  PoliciesAndProcedures PoliciesAndProcedures[]
-  todos                 TodoItem[]
-  Comment               Comment[]
-  favoriteThreads       FavoriteForumThread[]   @relation("UserFavoriteThreads")
-  ForumComment          ForumComment[]
-  ForumThread           ForumThread[]
-  commentsMade          Notification[]          @relation("Commenter")
-  Notification          Notification[]
-  Post                  Post[]
-  threadSubscriptions   ThreadSubscription[]    @relation("UserThreadSubscriptions")
-  UserCourse            UserCourse[]
-  ContactMessage        ContactMessage[]
-  status                UserStatus              @default(inactive)
-  QuizProgress          QuizProgress[]
-  formCompletions       UserFormCompletion[]
-  UserPolicyCompletion  UserPolicyCompletion[]
+  id                       String                     @id @default(uuid())
+  firstName                String
+  lastName                 String
+  email                    String                     @unique
+  phone                    String?
+  photo                    String?
+  photoBase64              String?
+  timezone                 String?
+  password                 String
+  role                     Role
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  LastSeenSection          LastSeenSection[]
+  PoliciesAndProcedures    PoliciesAndProcedures[]
+  todos                    TodoItem[]
+  Comment                  Comment[]
+  favoriteThreads          FavoriteForumThread[]      @relation("UserFavoriteThreads")
+  ForumComment             ForumComment[]
+  ForumThread              ForumThread[]
+  commentsMade             Notification[]             @relation("Commenter")
+  Notification             Notification[]
+  Post                     Post[]
+  threadSubscriptions      ThreadSubscription[]       @relation("UserThreadSubscriptions")
+  UserCourse               UserCourse[]
+  ContactMessage           ContactMessage[]
+  status                   UserStatus                 @default(inactive)
+  QuizProgress             QuizProgress[]
+  formCompletions          UserFormCompletion[]
+  UserPolicyCompletion     UserPolicyCompletion[]
+  UserPolicyItemCompletion UserPolicyItemCompletion[]
 
   @@index([email])
   @@map("users")
@@ -70,7 +71,7 @@ model Course {
   LastSeenSection      LastSeenSection[]
   courseForms          CourseForm[]
   formCompletions      UserFormCompletion[]
-  CoursePolicy         CoursePolicy[]
+  Policy               Policy[]
   UserPolicyCompletion UserPolicyCompletion[]
 
   @@map("courses")
@@ -126,37 +127,80 @@ model UserFormCompletion {
   @@map("user_form_completions")
 }
 
-model CoursePolicy {
+model Policy {
   id          String                 @id @default(uuid())
-  courseId    String
-  title       String
+  title       String // e.g., "NEBOSH Course Policy", "Greenwich Course Policy"
   description String?
-  link        String
-  isRequired  Boolean                @default(true)
-  order       Int
+  courseId    String
+  order       Int                    @default(0)
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
   course      Course                 @relation(fields: [courseId], references: [id])
+  items       PolicyItem[]
   completions UserPolicyCompletion[]
 
-  @@map("course_policies")
+  @@map("policies")
+  @@index([courseId])  // For finding all policies in a course
+}
+
+model PolicyItem {
+  id          String                     @id @default(uuid())
+  title       String // e.g., "Safety Guidelines", "Code of Conduct"
+  description String?
+  link        String // URL to the document
+  isRequired  Boolean                    @default(true)
+  order       Int                        @default(0)
+  policyId    String
+  policy      Policy                     @relation(fields: [policyId], references: [id])
+  completions UserPolicyItemCompletion[]
+  
+
+  @@map("policy_items")
+   @@index([policyId, isRequired])  // For finding required items
+  @@index([policyId, order])       // For ordered display
+   @@index([policyId, isRequired, order])
 }
 
 model UserPolicyCompletion {
-  id          String       @id @default(uuid())
+  id          String    @id @default(uuid())
   userId      String
   courseId    String
   policyId    String
-  isComplete  Boolean      @default(false)
+  isComplete  Boolean   @default(false)
   completedAt DateTime?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  user        User         @relation(fields: [userId], references: [id])
-  course      Course       @relation(fields: [courseId], references: [id])
-  policy      CoursePolicy @relation(fields: [policyId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id])
+  course      Course    @relation(fields: [courseId], references: [id])
+  policy      Policy    @relation(fields: [policyId], references: [id])
 
   @@unique([userId, courseId, policyId])
   @@map("user_policy_completions")
+
+   @@index([userId, courseId])      // For finding user's course completions
+  @@index([policyId, isComplete])  // For checking policy completion status
+
+  @@index([userId, policyId])
+}
+
+model UserPolicyItemCompletion {
+  id          String     @id @default(uuid())
+  userId      String
+  itemId      String
+  isComplete  Boolean    @default(false)
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  user        User       @relation(fields: [userId], references: [id])
+  item        PolicyItem @relation(fields: [itemId], references: [id])
+
+  @@map("user_policy_item_completions")
+
+    @@unique([userId, itemId])
+  @@index([userId, itemId])       // For faster lookups
+  @@index([itemId, isComplete])   // For checking completion status
+  @@index([userId, isComplete])   // For finding user's completed items
+   @@index([userId, itemId, isComplete])
 }
 
 model TodoItem {
