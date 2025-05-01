@@ -206,7 +206,8 @@ export class CourseService {
         // Policy is complete only if all required items are complete
         const isPolicyComplete =
           policy.completions[0]?.isComplete ||
-          (items.length > 0 && items.every((item) => item.isComplete));
+          (items.length > 0 &&
+            items.every((item) => !item.isRequired || item.isComplete));
 
         return {
           policyId: policy.id,
@@ -233,11 +234,20 @@ export class CourseService {
         0,
       );
 
+      // Calculate required items specific counts
+      const allItems = transformedPolicies.flatMap((policy) => policy.items);
+      const requiredItems = allItems.filter((item) => item.isRequired).length;
+      const completedRequiredItems = allItems.filter(
+        (item) => item.isRequired && item.isComplete,
+      ).length;
+
       return {
         totalPolicies,
         completedPolicies,
         totalItems,
         completedItems,
+        requiredItems, // Total number of required items
+        completedRequiredItems, // Number of completed required items
         policies: transformedPolicies,
       };
     } catch (error) {
@@ -2494,7 +2504,6 @@ export class CourseService {
                   },
                 },
               },
-              // Updated to include the new Policy structure with items and completions
               Policy: {
                 include: {
                   completions: {
@@ -2502,6 +2511,7 @@ export class CourseService {
                     select: { isComplete: true },
                   },
                   items: {
+                    where: { isRequired: true }, // Only include required items for access control
                     include: {
                       completions: {
                         where: { userId },
@@ -2563,15 +2573,31 @@ export class CourseService {
             })) || [],
         };
 
-        // Updated policy completion status with hierarchical items
+        // Policy completion status - only required policies matter for access
+        const requiredPolicies = course.Policy || [];
+
+        // Policy-level completion (all required policies must be completed)
+        const allRequiredPoliciesCompleted = requiredPolicies.every(
+          (policy) => policy.completions?.some((uc) => uc.isComplete),
+        );
+
+        // Item-level completion (all required items across all policies must be completed)
+        const allRequiredItems = requiredPolicies.flatMap(
+          (policy) => policy.items?.filter((item) => item.isRequired) || [],
+        );
+
+        const allRequiredItemsCompleted = allRequiredItems.every(
+          (item) => item.completions?.some((uc) => uc.isComplete),
+        );
+
         const policyStatus = {
-          totalPolicies: course.Policy?.length || 0,
+          totalPolicies: requiredPolicies.length,
           completedPolicies:
-            course.Policy?.filter(
+            requiredPolicies.filter(
               (policy) => policy.completions?.some((uc) => uc.isComplete),
             ).length || 0,
           policies:
-            course.Policy?.map((policy) => ({
+            requiredPolicies.map((policy) => ({
               policyId: policy.id,
               title: policy.title,
               description: policy.description,
@@ -2590,16 +2616,6 @@ export class CourseService {
             })) || [],
         };
 
-        // Calculate total and completed policy items across all policies
-        const allPolicyItems =
-          course.Policy?.flatMap((policy) => policy.items) || [];
-        const policyItemStatus = {
-          totalItems: allPolicyItems.length,
-          completedItems: allPolicyItems.filter(
-            (item) => item.completions?.some((uc) => uc.isComplete),
-          ).length,
-        };
-
         const sectionsCount =
           course.modules
             ?.flatMap((module) => module.chapters)
@@ -2611,10 +2627,13 @@ export class CourseService {
 
         const formsCompleted =
           formStatus.totalForms === formStatus.completedForms;
-        const policiesCompleted =
-          policyStatus.totalPolicies === policyStatus.completedPolicies;
-        const allPolicyItemsCompleted =
-          policyItemStatus.totalItems === policyItemStatus.completedItems;
+
+        // Updated access control logic
+        const canAccessPolicies = formsCompleted;
+        const canAccessContent =
+          formsCompleted &&
+          allRequiredPoliciesCompleted &&
+          allRequiredItemsCompleted;
 
         return {
           ...course,
@@ -2630,10 +2649,14 @@ export class CourseService {
           },
           formStatus,
           policyStatus,
-          policyItemStatus, // Added separate item-level status
-          canAccessPolicies: formsCompleted, // Can access policies only when forms are complete
-          canAccessContent:
-            formsCompleted && policiesCompleted && allPolicyItemsCompleted, // More granular access control
+          policyItemStatus: {
+            totalItems: allRequiredItems.length,
+            completedItems: allRequiredItems.filter(
+              (item) => item.completions?.some((uc) => uc.isComplete),
+            ).length,
+          },
+          canAccessPolicies,
+          canAccessContent,
           latestLastSeenSection: latestLastSeenSection
             ? {
                 id: latestLastSeenSection.id,

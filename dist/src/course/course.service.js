@@ -166,7 +166,8 @@ let CourseService = class CourseService {
                     completedAt: item.completions[0]?.completedAt || null,
                 }));
                 const isPolicyComplete = policy.completions[0]?.isComplete ||
-                    (items.length > 0 && items.every((item) => item.isComplete));
+                    (items.length > 0 &&
+                        items.every((item) => !item.isRequired || item.isComplete));
                 return {
                     policyId: policy.id,
                     title: policy.title,
@@ -180,11 +181,16 @@ let CourseService = class CourseService {
             const completedPolicies = transformedPolicies.filter((p) => p.isComplete).length;
             const totalItems = transformedPolicies.reduce((sum, policy) => sum + policy.items.length, 0);
             const completedItems = transformedPolicies.reduce((sum, policy) => sum + policy.items.filter((item) => item.isComplete).length, 0);
+            const allItems = transformedPolicies.flatMap((policy) => policy.items);
+            const requiredItems = allItems.filter((item) => item.isRequired).length;
+            const completedRequiredItems = allItems.filter((item) => item.isRequired && item.isComplete).length;
             return {
                 totalPolicies,
                 completedPolicies,
                 totalItems,
                 completedItems,
+                requiredItems,
+                completedRequiredItems,
                 policies: transformedPolicies,
             };
         }
@@ -1942,6 +1948,7 @@ let CourseService = class CourseService {
                                         select: { isComplete: true },
                                     },
                                     items: {
+                                        where: { isRequired: true },
                                         include: {
                                             completions: {
                                                 where: { userId },
@@ -1993,10 +2000,14 @@ let CourseService = class CourseService {
                         isComplete: form.userFormCompletions?.some((uc) => uc.isComplete) || false,
                     })) || [],
                 };
+                const requiredPolicies = course.Policy || [];
+                const allRequiredPoliciesCompleted = requiredPolicies.every((policy) => policy.completions?.some((uc) => uc.isComplete));
+                const allRequiredItems = requiredPolicies.flatMap((policy) => policy.items?.filter((item) => item.isRequired) || []);
+                const allRequiredItemsCompleted = allRequiredItems.every((item) => item.completions?.some((uc) => uc.isComplete));
                 const policyStatus = {
-                    totalPolicies: course.Policy?.length || 0,
-                    completedPolicies: course.Policy?.filter((policy) => policy.completions?.some((uc) => uc.isComplete)).length || 0,
-                    policies: course.Policy?.map((policy) => ({
+                    totalPolicies: requiredPolicies.length,
+                    completedPolicies: requiredPolicies.filter((policy) => policy.completions?.some((uc) => uc.isComplete)).length || 0,
+                    policies: requiredPolicies.map((policy) => ({
                         policyId: policy.id,
                         title: policy.title,
                         description: policy.description,
@@ -2011,19 +2022,16 @@ let CourseService = class CourseService {
                         })) || [],
                     })) || [],
                 };
-                const allPolicyItems = course.Policy?.flatMap((policy) => policy.items) || [];
-                const policyItemStatus = {
-                    totalItems: allPolicyItems.length,
-                    completedItems: allPolicyItems.filter((item) => item.completions?.some((uc) => uc.isComplete)).length,
-                };
                 const sectionsCount = course.modules
                     ?.flatMap((module) => module.chapters)
                     ?.reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
                 const userCourseProgressCount = course._count?.UserCourseProgress || 0;
                 const latestLastSeenSection = course.LastSeenSection?.[0];
                 const formsCompleted = formStatus.totalForms === formStatus.completedForms;
-                const policiesCompleted = policyStatus.totalPolicies === policyStatus.completedPolicies;
-                const allPolicyItemsCompleted = policyItemStatus.totalItems === policyItemStatus.completedItems;
+                const canAccessPolicies = formsCompleted;
+                const canAccessContent = formsCompleted &&
+                    allRequiredPoliciesCompleted &&
+                    allRequiredItemsCompleted;
                 return {
                     ...course,
                     isActive,
@@ -2037,9 +2045,12 @@ let CourseService = class CourseService {
                     },
                     formStatus,
                     policyStatus,
-                    policyItemStatus,
-                    canAccessPolicies: formsCompleted,
-                    canAccessContent: formsCompleted && policiesCompleted && allPolicyItemsCompleted,
+                    policyItemStatus: {
+                        totalItems: allRequiredItems.length,
+                        completedItems: allRequiredItems.filter((item) => item.completions?.some((uc) => uc.isComplete)).length,
+                    },
+                    canAccessPolicies,
+                    canAccessContent,
                     latestLastSeenSection: latestLastSeenSection
                         ? {
                             id: latestLastSeenSection.id,
