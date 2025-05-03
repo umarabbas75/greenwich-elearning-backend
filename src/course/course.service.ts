@@ -1183,7 +1183,6 @@ export class CourseService {
       // Determine access
       const canAccessContent =
         completedForms === totalRequiredForms &&
-        completedPolicies === totalRequiredPolicies &&
         completedPolicyItems === totalRequiredPolicyItems;
 
       return {
@@ -1691,7 +1690,6 @@ export class CourseService {
 
       // Separate the basic course data from relations
       const { courseForms, policies, ...courseData } = body;
-      console.log({ policies });
       // Perform all operations in a single transaction
       const [updatedCourse] = await this.prisma.$transaction([
         // 1. Update the course basic information
@@ -2632,9 +2630,14 @@ export class CourseService {
         const canAccessPolicies = formsCompleted;
         const canAccessContent =
           formsCompleted &&
-          allRequiredPoliciesCompleted &&
+          // allRequiredPoliciesCompleted &&
           allRequiredItemsCompleted;
 
+        console.log({
+          allRequiredPoliciesCompleted,
+          allRequiredItemsCompleted,
+          requiredPolicies,
+        });
         return {
           ...course,
           isActive,

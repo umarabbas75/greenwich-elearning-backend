@@ -949,7 +949,6 @@ let CourseService = class CourseService {
                 })),
             }));
             const canAccessContent = completedForms === totalRequiredForms &&
-                completedPolicies === totalRequiredPolicies &&
                 completedPolicyItems === totalRequiredPolicyItems;
             return {
                 message: 'Course access status retrieved',
@@ -1376,7 +1375,6 @@ let CourseService = class CourseService {
                 throw new Error('No update data provided');
             }
             const { courseForms, policies, ...courseData } = body;
-            console.log({ policies });
             const [updatedCourse] = await this.prisma.$transaction([
                 this.prisma.course.update({
                     where: { id },
@@ -2030,8 +2028,12 @@ let CourseService = class CourseService {
                 const formsCompleted = formStatus.totalForms === formStatus.completedForms;
                 const canAccessPolicies = formsCompleted;
                 const canAccessContent = formsCompleted &&
-                    allRequiredPoliciesCompleted &&
                     allRequiredItemsCompleted;
+                console.log({
+                    allRequiredPoliciesCompleted,
+                    allRequiredItemsCompleted,
+                    requiredPolicies,
+                });
                 return {
                     ...course,
                     isActive,
