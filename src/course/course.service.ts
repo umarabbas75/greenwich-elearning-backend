@@ -1183,7 +1183,6 @@ export class CourseService {
       // Determine access
       const canAccessContent =
         completedForms === totalRequiredForms &&
-        completedPolicies === totalRequiredPolicies &&
         completedPolicyItems === totalRequiredPolicyItems;
 
       return {
@@ -1677,11 +1676,9 @@ export class CourseService {
 
   async updateCourse(id: string, body: UpdateCourseDto): Promise<ResponseDto> {
     try {
-      const isCourseExist = await this.prisma.course.findUnique({
-        where: { id },
-      });
+      const course = await this.prisma.course.findUnique({ where: { id } });
 
-      if (!isCourseExist) {
+      if (!course) {
         throw new Error('Course does not exist');
       }
 
@@ -1689,100 +1686,70 @@ export class CourseService {
         throw new Error('No update data provided');
       }
 
-      // Separate the basic course data from relations
       const { courseForms, policies, ...courseData } = body;
-      console.log({ policies });
-      // Perform all operations in a single transaction
-      const [updatedCourse] = await this.prisma.$transaction([
-        // 1. Update the course basic information
-        this.prisma.course.update({
-          where: { id },
-          data: courseData,
-        }),
 
-        // 2. Handle course forms update if specified
-        ...(courseForms
-          ? [
-              // Delete existing forms
-              this.prisma.courseForm.deleteMany({
-                where: { courseId: id },
-              }),
-              // Add new forms if any
-              ...(courseForms.length > 0
-                ? [
-                    this.prisma.courseForm.createMany({
-                      data: courseForms.map((form) => ({
-                        courseId: id,
-                        formId: form.value,
-                        formName: form.label,
-                        isRequired: form.isRequired ?? true,
-                      })),
-                    }),
-                  ]
-                : []),
-            ]
-          : []),
+      // 1. Update basic course information
+      const updatedCourse = await this.prisma.course.update({
+        where: { id },
+        data: courseData,
+      });
 
-        // 3. Handle hierarchical policies update if specified
-        ...(policies
-          ? [
-              // Delete existing policy items completions first (due to FK constraints)
-              this.prisma.userPolicyItemCompletion.deleteMany({
-                where: {
-                  item: {
-                    policy: {
-                      courseId: id,
-                    },
-                  },
-                },
-              }),
-              // Delete existing policy completions
-              this.prisma.userPolicyCompletion.deleteMany({
-                where: {
-                  policy: {
-                    courseId: id,
-                  },
-                },
-              }),
-              // Delete existing policy items
-              this.prisma.policyItem.deleteMany({
-                where: {
-                  policy: {
-                    courseId: id,
-                  },
-                },
-              }),
-              // Delete existing policies
-              this.prisma.policy.deleteMany({
-                where: { courseId: id },
-              }),
-              // Add new policies if any
-              ...(policies.length > 0
-                ? [
-                    ...policies.map((policy) =>
-                      this.prisma.policy.create({
-                        data: {
-                          courseId: id,
-                          title: policy.title,
-                          description: policy.description,
-                          order: policy.order ?? 0,
-                          items: {
-                            create: policy.items?.map((item, itemIndex) => ({
-                              title: item.title,
-                              description: item.description ?? '',
-                              link: item.link,
-                              isRequired: item.isRequired ?? true,
-                              order: item.order ?? itemIndex,
-                            })),
-                          },
-                        },
-                      }),
-                    ),
-                  ]
-                : []),
-            ]
-          : []),
-      ]);
+      // 2. Update course forms if provided
+      if (courseForms) {
+        await this.prisma.courseForm.deleteMany({ where: { courseId: id } });
+
+        if (courseForms.length > 0) {
+          await this.prisma.courseForm.createMany({
+            data: courseForms.map((form) => ({
+              courseId: id,
+              formId: form.value,
+              formName: form.label,
+              isRequired: form.isRequired ?? true,
+            })),
+          });
+        }
+      }
+
+      // 3. Update policies and related data if provided
+      if (policies) {
+        // Step 3.1: Clean up existing related records
+        await this.prisma.userPolicyItemCompletion.deleteMany({
+          where: { item: { policy: { courseId: id } } },
+        });
+
+        await this.prisma.userPolicyCompletion.deleteMany({
+          where: { policy: { courseId: id } },
+        });
+
+        await this.prisma.policyItem.deleteMany({
+          where: { policy: { courseId: id } },
+        });
+
+        await this.prisma.policy.deleteMany({
+          where: { courseId: id },
+        });
+
+        // Step 3.2: Recreate policies and their items
+        for (const policy of policies) {
+          await this.prisma.policy.create({
+            data: {
+              courseId: id,
+              title: policy.title,
+              description: policy.description,
+              order: policy.order ?? 0,
+              items: {
+                create: policy.items?.map((item, index) => ({
+                  title: item.title,
+                  description: item.description ?? '',
+                  link: item.link,
+                  isRequired: item.isRequired ?? true,
+                  order: item.order ?? index,
+                })),
+              },
+            },
+          });
+        }
+      }
 
       return {
         message: 'Successfully updated course record with forms and policies',
@@ -1793,12 +1760,11 @@ export class CourseService {
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
+          error:
+            error?.message || 'Something went wrong while updating the course',
         },
         HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
+        { cause: error },
       );
     }
   }
@@ -2632,9 +2598,14 @@ export class CourseService {
         const canAccessPolicies = formsCompleted;
         const canAccessContent =
           formsCompleted &&
-          allRequiredPoliciesCompleted &&
+          // allRequiredPoliciesCompleted &&
           allRequiredItemsCompleted;
 
+        console.log({
+          allRequiredPoliciesCompleted,
+          allRequiredItemsCompleted,
+          requiredPolicies,
+        });
         return {
           ...course,
           isActive,
