@@ -1365,92 +1365,64 @@ let CourseService = class CourseService {
     }
     async updateCourse(id, body) {
         try {
-            const isCourseExist = await this.prisma.course.findUnique({
-                where: { id },
-            });
-            if (!isCourseExist) {
+            const course = await this.prisma.course.findUnique({ where: { id } });
+            if (!course) {
                 throw new Error('Course does not exist');
             }
             if (Object.entries(body).length === 0) {
                 throw new Error('No update data provided');
             }
             const { courseForms, policies, ...courseData } = body;
-            const [updatedCourse] = await this.prisma.$transaction([
-                this.prisma.course.update({
-                    where: { id },
-                    data: courseData,
-                }),
-                ...(courseForms
-                    ? [
-                        this.prisma.courseForm.deleteMany({
-                            where: { courseId: id },
-                        }),
-                        ...(courseForms.length > 0
-                            ? [
-                                this.prisma.courseForm.createMany({
-                                    data: courseForms.map((form) => ({
-                                        courseId: id,
-                                        formId: form.value,
-                                        formName: form.label,
-                                        isRequired: form.isRequired ?? true,
-                                    })),
-                                }),
-                            ]
-                            : []),
-                    ]
-                    : []),
-                ...(policies
-                    ? [
-                        this.prisma.userPolicyItemCompletion.deleteMany({
-                            where: {
-                                item: {
-                                    policy: {
-                                        courseId: id,
-                                    },
-                                },
-                            },
-                        }),
-                        this.prisma.userPolicyCompletion.deleteMany({
-                            where: {
-                                policy: {
-                                    courseId: id,
-                                },
-                            },
-                        }),
-                        this.prisma.policyItem.deleteMany({
-                            where: {
-                                policy: {
-                                    courseId: id,
-                                },
-                            },
-                        }),
-                        this.prisma.policy.deleteMany({
-                            where: { courseId: id },
-                        }),
-                        ...(policies.length > 0
-                            ? [
-                                ...policies.map((policy) => this.prisma.policy.create({
-                                    data: {
-                                        courseId: id,
-                                        title: policy.title,
-                                        description: policy.description,
-                                        order: policy.order ?? 0,
-                                        items: {
-                                            create: policy.items?.map((item, itemIndex) => ({
-                                                title: item.title,
-                                                description: item.description ?? '',
-                                                link: item.link,
-                                                isRequired: item.isRequired ?? true,
-                                                order: item.order ?? itemIndex,
-                                            })),
-                                        },
-                                    },
+            const updatedCourse = await this.prisma.course.update({
+                where: { id },
+                data: courseData,
+            });
+            if (courseForms) {
+                await this.prisma.courseForm.deleteMany({ where: { courseId: id } });
+                if (courseForms.length > 0) {
+                    await this.prisma.courseForm.createMany({
+                        data: courseForms.map((form) => ({
+                            courseId: id,
+                            formId: form.value,
+                            formName: form.label,
+                            isRequired: form.isRequired ?? true,
+                        })),
+                    });
+                }
+            }
+            if (policies) {
+                await this.prisma.userPolicyItemCompletion.deleteMany({
+                    where: { item: { policy: { courseId: id } } },
+                });
+                await this.prisma.userPolicyCompletion.deleteMany({
+                    where: { policy: { courseId: id } },
+                });
+                await this.prisma.policyItem.deleteMany({
+                    where: { policy: { courseId: id } },
+                });
+                await this.prisma.policy.deleteMany({
+                    where: { courseId: id },
+                });
+                for (const policy of policies) {
+                    await this.prisma.policy.create({
+                        data: {
+                            courseId: id,
+                            title: policy.title,
+                            description: policy.description,
+                            order: policy.order ?? 0,
+                            items: {
+                                create: policy.items?.map((item, index) => ({
+                                    title: item.title,
+                                    description: item.description ?? '',
+                                    link: item.link,
+                                    isRequired: item.isRequired ?? true,
+                                    order: item.order ?? index,
                                 })),
-                            ]
-                            : []),
-                    ]
-                    : []),
-            ]);
+                            },
+                        },
+                    });
+                }
+            }
             return {
                 message: 'Successfully updated course record with forms and policies',
                 statusCode: 200,
@@ -1460,10 +1432,8 @@ let CourseService = class CourseService {
         catch (error) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
-                cause: error,
-            });
+                error: error?.message || 'Something went wrong while updating the course',
+            }, common_1.HttpStatus.FORBIDDEN, { cause: error });
         }
     }
     async updateModule(id, body) {
