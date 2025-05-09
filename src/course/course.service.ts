@@ -1231,8 +1231,15 @@ export class CourseService {
             select: {
               id: true,
               title: true,
-              chapters: true,
+              chapters: {
+                orderBy: {
+                  createdAt: 'asc',
+                },
+              },
               _count: true,
+            },
+            orderBy: {
+              createdAt: 'asc',
             },
           },
         },
