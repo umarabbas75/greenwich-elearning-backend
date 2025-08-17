@@ -43,6 +43,7 @@ model User {
   reviewedSubmissions      AssignmentSubmission[]     @relation("AdminReviewedSubmissions")
   assignmentsCreated       Assignment[]               @relation("AssignmentsCreatedByAdmin")
   assignmentsToReview      Assignment[]               @relation("AssignmentReviewer")
+  feedbackSubmissions      CourseFeedbackSubmission[]
 
   @@index([email])
   @@map("users")
@@ -79,6 +80,8 @@ model Course {
   Policy               Policy[]
   UserPolicyCompletion UserPolicyCompletion[]
   Assignment           Assignment[]
+  feedbackForm         CourseFeedbackForm?
+  feedbackSubmissions  CourseFeedbackSubmission[]
 
   @@map("courses")
 }
@@ -203,6 +206,41 @@ model UserPolicyItemCompletion {
   @@index([userId, isComplete]) // For finding user's completed items
   @@index([userId, itemId, isComplete])
   @@map("user_policy_item_completions")
+}
+
+model CourseFeedbackForm {
+  id          String                    @id @default(uuid())
+  courseId    String
+  formName    String
+  formStructure Json                    // The actual form questions/structure
+  isRequired  Boolean                   @default(true)
+  isActive    Boolean                   @default(true)
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  course      Course                    @relation(fields: [courseId], references: [id])
+  submissions CourseFeedbackSubmission[]
+
+  @@unique([courseId]) // One feedback form per course
+  @@map("course_feedback_forms")
+}
+
+model CourseFeedbackSubmission {
+  id                    String              @id @default(uuid())
+  courseId              String
+  userId                String
+  feedbackFormId        String
+  responses             Json                // User's responses to the form
+  submittedAt           DateTime            @default(now())
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  course                Course              @relation(fields: [courseId], references: [id])
+  user                  User                @relation(fields: [userId], references: [id])
+  feedbackForm          CourseFeedbackForm  @relation(fields: [feedbackFormId], references: [id])
+
+  @@unique([userId, courseId]) // One submission per user per course
+  @@index([courseId])
+  @@index([userId])
+  @@map("course_feedback_submissions")
 }
 
 model TodoItem {

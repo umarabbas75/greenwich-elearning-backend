@@ -185,6 +185,10 @@ __decorate([
 ], CourseDto.prototype, "courseForms", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Object)
+], CourseDto.prototype, "feedbackForm", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsArray)(),
     __metadata("design:type", Array)
 ], CourseDto.prototype, "policies", void 0);
@@ -280,6 +284,10 @@ __decorate([
     (0, class_validator_1.IsArray)(),
     __metadata("design:type", Array)
 ], UpdateCourseDto.prototype, "courseForms", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Object)
+], UpdateCourseDto.prototype, "feedbackForm", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsArray)(),

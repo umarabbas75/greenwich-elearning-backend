@@ -55,6 +55,15 @@ let AssignmentController = class AssignmentController {
     async getAssignmentSubmissions(user, id, status) {
         return this.assignmentService.getAssignmentSubmissions(id, user.id, status);
     }
+    async submitCourseFeedback(user, courseId, body) {
+        return this.assignmentService.submitCourseFeedback(user.id, courseId, body.formData);
+    }
+    async getCourseFeedbackStatus(user, courseId) {
+        return this.assignmentService.getCourseFeedbackStatus(user.id, courseId);
+    }
+    async getCourseFeedbackSubmissions(user, courseId) {
+        return this.assignmentService.getCourseFeedbackSubmissions(courseId, user.id);
+    }
 };
 exports.AssignmentController = AssignmentController;
 __decorate([
@@ -153,6 +162,34 @@ __decorate([
     __metadata("design:paramtypes", [Object, String, String]),
     __metadata("design:returntype", Promise)
 ], AssignmentController.prototype, "getAssignmentSubmissions", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Post)('course/:courseId/feedback'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)('courseId')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, Object]),
+    __metadata("design:returntype", Promise)
+], AssignmentController.prototype, "submitCourseFeedback", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Get)('course/:courseId/feedback-status'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)('courseId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], AssignmentController.prototype, "getCourseFeedbackStatus", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Get)('course/:courseId/feedback-submissions'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)('courseId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], AssignmentController.prototype, "getCourseFeedbackSubmissions", null);
 exports.AssignmentController = AssignmentController = __decorate([
     (0, common_1.Controller)('assignments'),
     __metadata("design:paramtypes", [assignment_service_1.AssignmentService])

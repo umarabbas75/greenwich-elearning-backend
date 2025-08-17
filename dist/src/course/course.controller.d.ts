@@ -57,4 +57,9 @@ export declare class CourseController {
     getUserChapterProgress(params: AssignCourseDto): Promise<ResponseDto>;
     getLastSeen(param: GetUpdateLastSeen): Promise<ResponseDto>;
     updateLastSeen(body: any, user: User): Promise<ResponseDto>;
+    submitCourseFeedback(user: User, courseId: string, body: {
+        formData: any;
+    }): Promise<ResponseDto>;
+    getCourseFeedbackStatus(user: User, courseId: string): Promise<ResponseDto>;
+    getCourseFeedbackSubmissions(user: User, courseId: string): Promise<ResponseDto>;
 }

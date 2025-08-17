@@ -415,6 +415,152 @@ let AssignmentService = class AssignmentService {
             }, common_1.HttpStatus.FORBIDDEN);
         }
     }
+    async submitCourseFeedback(studentId, courseId, formData) {
+        try {
+            const course = await this.prisma.course.findUnique({
+                where: { id: courseId },
+            });
+            if (!course) {
+                throw new Error('Course not found');
+            }
+            const feedbackForm = await this.prisma.courseFeedbackForm.findFirst({
+                where: {
+                    courseId: courseId,
+                },
+            });
+            if (!feedbackForm) {
+                throw new Error('No feedback form found for this course');
+            }
+            const enrollment = await this.prisma.userCourse.findFirst({
+                where: {
+                    userId: studentId,
+                    courseId: courseId,
+                    isActive: true,
+                },
+            });
+            if (!enrollment) {
+                throw new Error('You are not enrolled in this course');
+            }
+            const existingCompletion = await this.prisma.courseFeedbackSubmission.findFirst({
+                where: {
+                    userId: studentId,
+                    courseId: courseId,
+                },
+            });
+            if (existingCompletion) {
+                throw new Error('You have already completed the feedback form for this course');
+            }
+            const completion = await this.prisma.courseFeedbackSubmission.create({
+                data: {
+                    userId: studentId,
+                    courseId: courseId,
+                    feedbackFormId: feedbackForm.id,
+                    responses: formData,
+                },
+            });
+            return {
+                message: 'Course feedback submitted successfully',
+                statusCode: 200,
+                data: completion,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Failed to submit feedback',
+            }, common_1.HttpStatus.FORBIDDEN);
+        }
+    }
+    async getCourseFeedbackStatus(studentId, courseId) {
+        try {
+            const feedbackForm = await this.prisma.courseFeedbackForm.findFirst({
+                where: {
+                    courseId: courseId,
+                },
+            });
+            if (!feedbackForm) {
+                return {
+                    message: 'No feedback form found for this course',
+                    statusCode: 200,
+                    data: {
+                        hasFeedbackForm: false,
+                        isCompleted: false,
+                        feedbackForm: null,
+                    },
+                };
+            }
+            const completion = await this.prisma.courseFeedbackSubmission.findFirst({
+                where: {
+                    userId: studentId,
+                    courseId: courseId,
+                },
+            });
+            return {
+                message: 'Course feedback status fetched successfully',
+                statusCode: 200,
+                data: {
+                    hasFeedbackForm: true,
+                    isCompleted: !!completion,
+                    feedbackForm: {
+                        formName: feedbackForm.formName,
+                        isRequired: feedbackForm.isRequired,
+                        submittedAt: completion?.submittedAt || null,
+                    },
+                },
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Failed to fetch feedback status',
+            }, common_1.HttpStatus.FORBIDDEN);
+        }
+    }
+    async getCourseFeedbackSubmissions(courseId, adminId) {
+        try {
+            const admin = await this.prisma.user.findUnique({
+                where: { id: adminId },
+            });
+            if (!admin || admin.role !== 'admin') {
+                throw new Error('Only admins can view feedback submissions');
+            }
+            const completions = await this.prisma.courseFeedbackSubmission.findMany({
+                where: {
+                    courseId: courseId,
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            email: true,
+                        },
+                    },
+                },
+                orderBy: { submittedAt: 'desc' },
+            });
+            return {
+                message: 'Course feedback submissions fetched successfully',
+                statusCode: 200,
+                data: {
+                    courseId,
+                    submissions: completions.map((completion) => ({
+                        user: completion.user,
+                        submittedAt: completion.submittedAt,
+                        responses: completion.responses,
+                    })),
+                    totalSubmissions: completions.length,
+                },
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Failed to fetch feedback submissions',
+            }, common_1.HttpStatus.FORBIDDEN);
+        }
+    }
 };
 exports.AssignmentService = AssignmentService;
 exports.AssignmentService = AssignmentService = __decorate([

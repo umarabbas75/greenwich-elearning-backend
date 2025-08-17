@@ -51,4 +51,9 @@ export declare class AssignmentController {
     getAssignment(id: string): Promise<ResponseDto>;
     getAssignmentStatus(user: User, id: string): Promise<ResponseDto>;
     getAssignmentSubmissions(user: User, id: string, status?: AssignmentSubmissionStatus): Promise<ResponseDto>;
+    submitCourseFeedback(user: User, courseId: string, body: {
+        formData: any;
+    }): Promise<ResponseDto>;
+    getCourseFeedbackStatus(user: User, courseId: string): Promise<ResponseDto>;
+    getCourseFeedbackSubmissions(user: User, courseId: string): Promise<ResponseDto>;
 }
