@@ -38,6 +38,11 @@ model User {
   formCompletions          UserFormCompletion[]
   UserPolicyCompletion     UserPolicyCompletion[]
   UserPolicyItemCompletion UserPolicyItemCompletion[]
+  assignmentSubmissions    AssignmentSubmission[]     @relation("StudentSubmissions")
+  assignedSubmissions      AssignmentSubmission[]     @relation("AdminAssignedSubmissions")
+  reviewedSubmissions      AssignmentSubmission[]     @relation("AdminReviewedSubmissions")
+  assignmentsCreated       Assignment[]               @relation("AssignmentsCreatedByAdmin")
+  assignmentsToReview      Assignment[]               @relation("AssignmentReviewer")
 
   @@index([email])
   @@map("users")
@@ -73,6 +78,7 @@ model Course {
   formCompletions      UserFormCompletion[]
   Policy               Policy[]
   UserPolicyCompletion UserPolicyCompletion[]
+  Assignment           Assignment[]
 
   @@map("courses")
 }
@@ -139,8 +145,8 @@ model Policy {
   items       PolicyItem[]
   completions UserPolicyCompletion[]
 
+  @@index([courseId]) // For finding all policies in a course
   @@map("policies")
-  @@index([courseId])  // For finding all policies in a course
 }
 
 model PolicyItem {
@@ -153,12 +159,11 @@ model PolicyItem {
   policyId    String
   policy      Policy                     @relation(fields: [policyId], references: [id])
   completions UserPolicyItemCompletion[]
-  
 
+  @@index([policyId, isRequired]) // For finding required items
+  @@index([policyId, order]) // For ordered display
+  @@index([policyId, isRequired, order])
   @@map("policy_items")
-   @@index([policyId, isRequired])  // For finding required items
-  @@index([policyId, order])       // For ordered display
-   @@index([policyId, isRequired, order])
 }
 
 model UserPolicyCompletion {
@@ -175,12 +180,10 @@ model UserPolicyCompletion {
   policy      Policy    @relation(fields: [policyId], references: [id])
 
   @@unique([userId, courseId, policyId])
-  @@map("user_policy_completions")
-
-   @@index([userId, courseId])      // For finding user's course completions
-  @@index([policyId, isComplete])  // For checking policy completion status
-
+  @@index([userId, courseId]) // For finding user's course completions
+  @@index([policyId, isComplete]) // For checking policy completion status
   @@index([userId, policyId])
+  @@map("user_policy_completions")
 }
 
 model UserPolicyItemCompletion {
@@ -194,13 +197,12 @@ model UserPolicyItemCompletion {
   user        User       @relation(fields: [userId], references: [id])
   item        PolicyItem @relation(fields: [itemId], references: [id])
 
+  @@unique([userId, itemId])
+  @@index([userId, itemId]) // For faster lookups
+  @@index([itemId, isComplete]) // For checking completion status
+  @@index([userId, isComplete]) // For finding user's completed items
+  @@index([userId, itemId, isComplete])
   @@map("user_policy_item_completions")
-
-    @@unique([userId, itemId])
-  @@index([userId, itemId])       // For faster lookups
-  @@index([itemId, isComplete])   // For checking completion status
-  @@index([userId, isComplete])   // For finding user's completed items
-   @@index([userId, itemId, isComplete])
 }
 
 model TodoItem {
@@ -468,4 +470,82 @@ model ContactMessage {
 enum Role {
   admin
   user
+}
+
+/// File types allowed for assignment submissions
+enum AssignmentFileType {
+  pdf
+  docx
+}
+
+/// Lifecycle state of a submission
+enum AssignmentSubmissionStatus {
+  submitted // Student uploaded, pending review
+  in_review // Admin has started reviewing
+  approved // Accepted/passed
+  rejected // Rejected/failed, may allow resubmission
+  returned // Returned with feedback, awaiting resubmission
+}
+
+/// Assignment definition linked to a course
+model Assignment {
+  id                 String    @id @default(uuid())
+  title              String
+  description        String?
+  instructions       String?
+  courseId           String // Required - assignment must belong to a course
+  dueAt              DateTime?
+  maxPoints          Int?
+  allowResubmissions Boolean   @default(true)
+  maxAttempts        Int?
+  createdByAdminId   String
+  assignedToAdminId  String    // Admin who will review submissions for this assignment
+  assignmentFileUrl  String?   // URL to the assignment file (PDF/DOCX)
+  assignmentFileName String?   // Original filename
+  assignmentFileType AssignmentFileType? // Type of assignment file
+  isActive           Boolean   @default(true) // Admin can deactivate assignments
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  course         Course                 @relation(fields: [courseId], references: [id])
+  createdByAdmin User                   @relation("AssignmentsCreatedByAdmin", fields: [createdByAdminId], references: [id])
+  submissions    AssignmentSubmission[]
+  assignedToAdmin User                  @relation("AssignmentReviewer", fields: [assignedToAdminId], references: [id])
+
+  @@index([courseId])
+  @@index([createdByAdminId])
+  @@index([assignedToAdminId])
+  @@index([isActive])
+  @@map("assignments")
+}
+
+/// A file submission by a student for a specific admin-created assignment
+model AssignmentSubmission {
+  id                String                     @id @default(uuid())
+  assignmentId      String                     // Required - must link to an admin-created assignment
+  studentId         String
+  assignedToAdminId String                     // Admin who will review this submission
+  reviewedByAdminId String?
+  fileUrl           String
+  fileName          String?
+  fileType          AssignmentFileType
+  status            AssignmentSubmissionStatus @default(submitted)
+  feedback          String?
+  score             Float?
+  submittedAt       DateTime                   @default(now())
+  gradedAt          DateTime?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  assignment      Assignment @relation(fields: [assignmentId], references: [id])
+  student         User       @relation("StudentSubmissions", fields: [studentId], references: [id])
+  assignedToAdmin User       @relation("AdminAssignedSubmissions", fields: [assignedToAdminId], references: [id])
+  reviewedByAdmin User?      @relation("AdminReviewedSubmissions", fields: [reviewedByAdminId], references: [id])
+
+  @@unique([assignmentId, studentId]) // One submission per student per assignment
+  @@index([studentId])
+  @@index([assignedToAdminId])
+  @@index([status])
+  @@index([assignmentId])
+  @@map("assignment_submissions")
 }
