@@ -683,6 +683,7 @@ let CourseService = class CourseService {
                         image: body.image,
                         syllabusOverview: body.syllabusOverview,
                         resourcesOverview: body.resourcesOverview,
+                        tutorInfo: body.tutorInfo,
                         assessments: body.assessments,
                         resources: body.resources,
                         syllabus: body.syllabus,
@@ -1418,6 +1419,11 @@ let CourseService = class CourseService {
                 }
             }
             if (feedbackForm) {
+                await this.prisma.courseFeedbackSubmission.deleteMany({
+                    where: {
+                        courseId: id,
+                    },
+                });
                 await this.prisma.courseFeedbackForm.deleteMany({
                     where: {
                         courseId: id,

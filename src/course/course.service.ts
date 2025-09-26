@@ -860,6 +860,7 @@ export class CourseService {
             image: body.image,
             syllabusOverview: body.syllabusOverview,
             resourcesOverview: body.resourcesOverview,
+            tutorInfo: body.tutorInfo,
             assessments: body.assessments,
             resources: body.resources,
             syllabus: body.syllabus,
@@ -1743,7 +1744,14 @@ export class CourseService {
 
       // 3. Update feedback form if provided
       if (feedbackForm) {
-        // Delete existing feedback form for this course
+        // First delete existing feedback submissions
+        await this.prisma.courseFeedbackSubmission.deleteMany({
+          where: {
+            courseId: id,
+          },
+        });
+
+        // Then delete existing feedback form for this course
         await this.prisma.courseFeedbackForm.deleteMany({
           where: {
             courseId: id,

@@ -35,6 +35,7 @@ export declare class CourseDto {
     overview: string;
     syllabusOverview: string;
     resourcesOverview: string;
+    tutorInfo?: string;
     assessments: Array<{
         file: string;
         isSeen: boolean;
@@ -81,6 +82,7 @@ export declare class UpdateCourseDto {
     assessment?: string;
     image?: string;
     overview?: string;
+    tutorInfo?: string;
     courseForms?: Array<{
         value: string;
         label: string;

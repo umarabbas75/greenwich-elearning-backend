@@ -67,6 +67,7 @@ model Course {
   updatedAt            DateTime               @updatedAt
   syllabusOverview     String
   resourcesOverview    String
+  tutorInfo            String? // Tutor information (name, bio, qualifications, contact, etc.)
   assessments          Json[]
   resources            Json[]
   syllabus             Json[]

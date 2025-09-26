@@ -120,6 +120,10 @@ export class CourseDto {
   @IsOptional()
   resourcesOverview: string;
 
+  @IsString()
+  @IsOptional()
+  tutorInfo?: string;
+
   // Additional fields
   @IsArray()
   @IsOptional()
@@ -215,6 +219,10 @@ export class UpdateCourseDto {
   @IsOptional()
   @IsString()
   overview?: string;
+
+  @IsOptional()
+  @IsString()
+  tutorInfo?: string;
 
   @IsOptional()
   @IsArray()
