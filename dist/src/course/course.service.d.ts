@@ -64,4 +64,7 @@ export declare class CourseService {
     getUserChapterProgress(userId: string, courseId: string, chapterId: string): Promise<ResponseDto>;
     getLastSeenSection(userId: string, chapterId: string): Promise<ResponseDto>;
     updateLastSeenSection(userId: string, chapterId: string, sectionId: string, moduleId: string, courseId: string): Promise<ResponseDto>;
+    submitCourseFeedback(studentId: string, courseId: string, formData: any): Promise<ResponseDto>;
+    getCourseFeedbackStatus(studentId: string, courseId: string): Promise<ResponseDto>;
+    getCourseFeedbackSubmissions(courseId: string, adminId: string): Promise<ResponseDto>;
 }

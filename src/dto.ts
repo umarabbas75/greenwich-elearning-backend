@@ -142,6 +142,13 @@ export class CourseDto {
   }>;
 
   @IsOptional()
+  feedbackForm?: {
+    isRequired: boolean;
+    formName: string;
+    formStructure: any; // The actual form questions/structure
+  };
+
+  @IsOptional()
   @IsArray()
   policies?: Array<any>;
 }
@@ -216,6 +223,13 @@ export class UpdateCourseDto {
     label: string;
     isRequired?: boolean; // default true
   }>;
+
+  @IsOptional()
+  feedbackForm?: {
+    isRequired: boolean;
+    formName: string;
+    formStructure: any; // The actual form questions/structure
+  };
 
   @IsOptional()
   @IsArray()

@@ -189,6 +189,15 @@ let CourseController = class CourseController {
     updateLastSeen(body, user) {
         return this.appService.updateLastSeenSection(user.id, body.chapterId, body.sectionId, body.moduleId, body.courseId);
     }
+    async submitCourseFeedback(user, courseId, body) {
+        return this.appService.submitCourseFeedback(user.id, courseId, body.formData);
+    }
+    async getCourseFeedbackStatus(user, courseId) {
+        return this.appService.getCourseFeedbackStatus(user.id, courseId);
+    }
+    async getCourseFeedbackSubmissions(user, courseId) {
+        return this.appService.getCourseFeedbackSubmissions(courseId, user.id);
+    }
 };
 exports.CourseController = CourseController;
 __decorate([
@@ -632,6 +641,34 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", void 0)
 ], CourseController.prototype, "updateLastSeen", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Post)('/:courseId/feedback'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)('courseId')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, Object]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "submitCourseFeedback", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Get)('/:courseId/feedback-status'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)('courseId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "getCourseFeedbackStatus", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Get)('/:courseId/feedback-submissions'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)('courseId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "getCourseFeedbackSubmissions", null);
 exports.CourseController = CourseController = __decorate([
     (0, common_1.Controller)('courses'),
     __metadata("design:paramtypes", [course_service_1.CourseService])

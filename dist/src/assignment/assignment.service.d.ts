@@ -53,5 +53,8 @@ export declare class AssignmentService {
     getAssignmentById(assignmentId: string): Promise<ResponseDto>;
     getAssignmentStatusForStudent(studentId: string, assignmentId: string): Promise<ResponseDto>;
     getAssignmentSubmissions(assignmentId: string, adminId: string, status?: AssignmentSubmissionStatus): Promise<ResponseDto>;
+    submitCourseFeedback(studentId: string, courseId: string, formData: any): Promise<ResponseDto>;
+    getCourseFeedbackStatus(studentId: string, courseId: string): Promise<ResponseDto>;
+    getCourseFeedbackSubmissions(courseId: string, adminId: string): Promise<ResponseDto>;
 }
 export {};

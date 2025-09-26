@@ -52,6 +52,11 @@ export declare class CourseDto {
         label: string;
         isRequired?: boolean;
     }>;
+    feedbackForm?: {
+        isRequired: boolean;
+        formName: string;
+        formStructure: any;
+    };
     policies?: Array<any>;
 }
 export declare class QuizDto {
@@ -81,6 +86,11 @@ export declare class UpdateCourseDto {
         label: string;
         isRequired?: boolean;
     }>;
+    feedbackForm?: {
+        isRequired: boolean;
+        formName: string;
+        formStructure: any;
+    };
     policies?: Array<any>;
 }
 export declare class UpdateCourseProgress {

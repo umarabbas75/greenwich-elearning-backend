@@ -404,4 +404,42 @@ export class CourseController {
       body.courseId,
     );
   }
+
+  // Student: submit course completion feedback
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/:courseId/feedback')
+  async submitCourseFeedback(
+    @GetUser() user: User,
+    @Param('courseId') courseId: string,
+    @Body()
+    body: {
+      formData: any; // User's responses to the feedback form
+    },
+  ): Promise<ResponseDto> {
+    return this.appService.submitCourseFeedback(
+      user.id,
+      courseId,
+      body.formData,
+    );
+  }
+
+  // Student: check course feedback completion status
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('/:courseId/feedback-status')
+  async getCourseFeedbackStatus(
+    @GetUser() user: User,
+    @Param('courseId') courseId: string,
+  ): Promise<ResponseDto> {
+    return this.appService.getCourseFeedbackStatus(user.id, courseId);
+  }
+
+  // Admin: get all feedback submissions for a course
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('/:courseId/feedback-submissions')
+  async getCourseFeedbackSubmissions(
+    @GetUser() user: User,
+    @Param('courseId') courseId: string,
+  ): Promise<ResponseDto> {
+    return this.appService.getCourseFeedbackSubmissions(courseId, user.id);
+  }
 }
