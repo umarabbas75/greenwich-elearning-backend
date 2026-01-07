@@ -5,7 +5,12 @@ import {
   IsString,
   IsOptional,
   IsArray,
+  IsNumber,
+  IsEnum,
+  IsBoolean,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class BodyDto {
   @IsString()
@@ -332,4 +337,161 @@ export interface ResponseDto {
   message: string;
   statusCode: number;
   data: object | object[];
+}
+
+// Section DTOs
+export enum SectionType {
+  DEFAULT = 'DEFAULT',
+  MATCH_AND_LEARN = 'MATCH_AND_LEARN',
+}
+
+export class CreateSectionDto {
+  @IsString()
+  @IsNotEmpty()
+  title: string;
+
+  @IsString()
+  @IsNotEmpty()
+  description: string;
+
+  @IsString()
+  @IsOptional()
+  shortDescription?: string;
+
+  @IsEnum(SectionType)
+  @IsOptional()
+  type?: SectionType = SectionType.DEFAULT;
+
+  @IsString()
+  @IsNotEmpty()
+  chapterId: string;
+
+  @IsString()
+  @IsOptional()
+  moduleId?: string;
+
+  @IsNumber()
+  @IsOptional()
+  orderIndex?: number; // Order within chapter (1, 2, 3, etc.)
+}
+
+export class MatchAndLearnItemDto {
+  @IsString()
+  @IsNotEmpty()
+  id: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsString()
+  @IsNotEmpty()
+  correctCategory: string;
+}
+
+export class CreateMatchAndLearnSectionDto extends CreateSectionDto {
+  @IsString()
+  @IsNotEmpty()
+  itemLabel: string;
+
+  @IsString()
+  @IsNotEmpty()
+  categoryLabel: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MatchAndLearnItemDto)
+  @IsNotEmpty()
+  items: MatchAndLearnItemDto[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  categories?: string[];
+
+  @IsNumber()
+  @IsOptional()
+  maxPerCategory?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+}
+
+export class UpdateSectionDto {
+  @IsString()
+  @IsOptional()
+  title?: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsString()
+  @IsOptional()
+  shortDescription?: string;
+
+  @IsString()
+  @IsOptional()
+  chapterId?: string;
+
+  @IsString()
+  @IsOptional()
+  moduleId?: string;
+
+  @IsNumber()
+  @IsOptional()
+  orderIndex?: number; // Order within chapter (1, 2, 3, etc.)
+}
+
+export class UpdateMatchAndLearnSectionDto extends UpdateSectionDto {
+  @IsString()
+  @IsOptional()
+  itemLabel?: string;
+
+  @IsString()
+  @IsOptional()
+  categoryLabel?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MatchAndLearnItemDto)
+  @IsOptional()
+  items?: MatchAndLearnItemDto[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  categories?: string[];
+
+  @IsNumber()
+  @IsOptional()
+  maxPerCategory?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+}
+
+// Bulk update orderIndex DTO
+export class SectionOrderItemDto {
+  @IsString()
+  @IsNotEmpty()
+  id: string;
+
+  @IsNumber()
+  @IsNotEmpty()
+  orderIndex: number;
+}
+
+export class UpdateSectionOrderDto {
+  @IsString()
+  @IsNotEmpty()
+  chapterId: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SectionOrderItemDto)
+  @IsNotEmpty()
+  sections: SectionOrderItemDto[];
 }

@@ -1,5 +1,5 @@
 import { CourseService } from './course.service';
-import { AssignCourseDto, CourseDto, GetUpdateLastSeen, ModuleDto, ParamsDto, ParamsDto1, ResponseDto, UpdateCourseDto } from '../dto';
+import { AssignCourseDto, CourseDto, GetUpdateLastSeen, ModuleDto, ParamsDto, ParamsDto1, ResponseDto, UpdateCourseDto, UpdateSectionOrderDto } from '../dto';
 import { User } from '@prisma/client';
 export declare class CourseController {
     private readonly appService;
@@ -39,6 +39,7 @@ export declare class CourseController {
     updateModule(body: UpdateCourseDto, params: ParamsDto): Promise<ResponseDto>;
     updateChapter(body: UpdateCourseDto, params: ParamsDto): Promise<ResponseDto>;
     updateSection(body: any, params: ParamsDto): Promise<ResponseDto>;
+    updateSectionOrder(body: UpdateSectionOrderDto): Promise<ResponseDto>;
     assignCourse(params: AssignCourseDto): Promise<ResponseDto>;
     assignCoursePublic(params: any): Promise<ResponseDto>;
     unAssignCourse(body: any): Promise<ResponseDto>;

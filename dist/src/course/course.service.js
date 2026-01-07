@@ -12,6 +12,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CourseService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
+const dto_1 = require("../dto");
 const prisma_service_1 = require("../prisma/prisma.service");
 let CourseService = class CourseService {
     constructor(prisma) {
@@ -778,14 +779,29 @@ let CourseService = class CourseService {
     }
     async createSection(body) {
         try {
+            const data = {
+                title: body.title,
+                description: body.description,
+                shortDescription: body.shortDescription ?? '',
+                type: body.type || dto_1.SectionType.DEFAULT,
+                chapterId: body.chapterId || body.id,
+                moduleId: body.moduleId,
+                orderIndex: body.orderIndex || null,
+            };
+            if (body.type === dto_1.SectionType.MATCH_AND_LEARN) {
+                const matchData = body;
+                const categories = matchData.categories || [
+                    ...new Set(matchData.items.map((item) => item.correctCategory)),
+                ];
+                data.itemLabel = matchData.itemLabel;
+                data.categoryLabel = matchData.categoryLabel;
+                data.categories = categories;
+                data.maxPerCategory = matchData.maxPerCategory || 1;
+                data.isActive = matchData.isActive ?? true;
+                data.items = matchData.items;
+            }
             const section = await this.prisma.section.create({
-                data: {
-                    title: body.title,
-                    description: body.description,
-                    shortDescription: body?.shortDescription ?? '',
-                    chapterId: body.id,
-                    moduleId: body.moduleId,
-                },
+                data,
             });
             return {
                 message: 'Successfully create section record',
@@ -1311,14 +1327,17 @@ let CourseService = class CourseService {
                 orderBy: {
                     createdAt: 'asc',
                 },
-                select: {
-                    id: true,
-                    title: true,
-                    shortDescription: true,
-                    chapterId: true,
-                    createdAt: true,
-                    updatedAt: true,
-                },
+            });
+            sections.sort((a, b) => {
+                const aOrder = a.orderIndex;
+                const bOrder = b.orderIndex;
+                if (aOrder === null && bOrder === null)
+                    return 0;
+                if (aOrder === null)
+                    return 1;
+                if (bOrder === null)
+                    return -1;
+                return aOrder - bOrder;
             });
             return {
                 message: 'Successfully fetch all Sections info against chapter',
@@ -1364,7 +1383,18 @@ let CourseService = class CourseService {
                     where: { userId_chapterId: { userId, chapterId: id } },
                 }),
             ]);
-            const allSections = sections?.length > 0 ? [...sections] : [];
+            const sortedSections = [...sections].sort((a, b) => {
+                const aOrder = a.orderIndex;
+                const bOrder = b.orderIndex;
+                if (aOrder === null && bOrder === null)
+                    return 0;
+                if (aOrder === null)
+                    return 1;
+                if (bOrder === null)
+                    return -1;
+                return aOrder - bOrder;
+            });
+            const allSections = sortedSections?.length > 0 ? [...sortedSections] : [];
             const completedSections = userCourseProgress?.length > 0 ? [...userCourseProgress] : [];
             allSections?.forEach((section) => {
                 const isCompleted = completedSections?.some((completedSection) => completedSection.sectionId === section.id);
@@ -1558,18 +1588,59 @@ let CourseService = class CourseService {
                 where: { id: id },
             });
             if (!isSectionExist) {
-                throw new Error('Section already exist with specified title');
+                throw new Error('Section does not exist');
             }
             if (Object.entries(body).length === 0) {
                 throw new Error('wrong keys');
             }
-            const updateSection = {};
-            for (const [key, value] of Object.entries(body)) {
-                updateSection[key] = value;
+            const updateData = {};
+            if (body.title !== undefined)
+                updateData.title = body.title;
+            if (body.description !== undefined)
+                updateData.description = body.description;
+            if (body.shortDescription !== undefined)
+                updateData.shortDescription = body.shortDescription;
+            if (body.chapterId !== undefined)
+                updateData.chapterId = body.chapterId;
+            if (body.moduleId !== undefined)
+                updateData.moduleId = body.moduleId;
+            if (body.orderIndex !== undefined)
+                updateData.orderIndex = body.orderIndex;
+            const sectionType = isSectionExist.type;
+            if (sectionType === dto_1.SectionType.MATCH_AND_LEARN ||
+                body.type === dto_1.SectionType.MATCH_AND_LEARN) {
+                const matchData = body;
+                if (matchData.itemLabel !== undefined)
+                    updateData.itemLabel = matchData.itemLabel;
+                if (matchData.categoryLabel !== undefined)
+                    updateData.categoryLabel = matchData.categoryLabel;
+                if (matchData.maxPerCategory !== undefined)
+                    updateData.maxPerCategory = matchData.maxPerCategory;
+                if (matchData.isActive !== undefined)
+                    updateData.isActive = matchData.isActive;
+                if (matchData.items !== undefined) {
+                    updateData.items = matchData.items;
+                    if (matchData.categories === undefined) {
+                        updateData.categories = [
+                            ...new Set(matchData.items.map((item) => item.correctCategory)),
+                        ];
+                    }
+                    else {
+                        updateData.categories = matchData.categories;
+                    }
+                }
+                else if (matchData.categories !== undefined) {
+                    updateData.categories = matchData.categories;
+                }
+            }
+            if (Object.keys(updateData).length === 0) {
+                for (const [key, value] of Object.entries(body)) {
+                    updateData[key] = value;
+                }
             }
             const updatedSection = await this.prisma.section.update({
                 where: { id },
-                data: updateSection,
+                data: updateData,
             });
             return {
                 message: 'Successfully update section record',
@@ -1582,6 +1653,38 @@ let CourseService = class CourseService {
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
             }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async updateSectionOrder(body) {
+        try {
+            const sectionIds = body.sections.map((s) => s.id);
+            const sections = await this.prisma.section.findMany({
+                where: {
+                    id: { in: sectionIds },
+                    chapterId: body.chapterId,
+                },
+            });
+            if (sections.length !== sectionIds.length) {
+                throw new Error('Some sections not found or do not belong to the specified chapter');
+            }
+            const updatePromises = body.sections.map((sectionOrder) => this.prisma.section.update({
+                where: { id: sectionOrder.id },
+                data: { orderIndex: sectionOrder.orderIndex },
+            }));
+            await this.prisma.$transaction(updatePromises);
+            return {
+                message: 'Successfully updated section order',
+                statusCode: 200,
+                data: { chapterId: body.chapterId, updatedCount: body.sections.length },
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.BAD_REQUEST,
+                error: error?.message || 'Failed to update section order',
+            }, common_1.HttpStatus.BAD_REQUEST, {
                 cause: error,
             });
         }

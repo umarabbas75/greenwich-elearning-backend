@@ -9,9 +9,10 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.CourseDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
+exports.UpdateSectionOrderDto = exports.SectionOrderItemDto = exports.UpdateMatchAndLearnSectionDto = exports.UpdateSectionDto = exports.CreateMatchAndLearnSectionDto = exports.MatchAndLearnItemDto = exports.CreateSectionDto = exports.SectionType = exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.CourseDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
 const client_1 = require("@prisma/client");
 const class_validator_1 = require("class-validator");
+const class_transformer_1 = require("class-transformer");
 class BodyDto {
 }
 exports.BodyDto = BodyDto;
@@ -428,4 +429,201 @@ __decorate([
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", String)
 ], UpdateLastSeen.prototype, "sectionId", void 0);
+var SectionType;
+(function (SectionType) {
+    SectionType["DEFAULT"] = "DEFAULT";
+    SectionType["MATCH_AND_LEARN"] = "MATCH_AND_LEARN";
+})(SectionType || (exports.SectionType = SectionType = {}));
+class CreateSectionDto {
+    constructor() {
+        this.type = SectionType.DEFAULT;
+    }
+}
+exports.CreateSectionDto = CreateSectionDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateSectionDto.prototype, "title", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateSectionDto.prototype, "description", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], CreateSectionDto.prototype, "shortDescription", void 0);
+__decorate([
+    (0, class_validator_1.IsEnum)(SectionType),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], CreateSectionDto.prototype, "type", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateSectionDto.prototype, "chapterId", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], CreateSectionDto.prototype, "moduleId", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Number)
+], CreateSectionDto.prototype, "orderIndex", void 0);
+class MatchAndLearnItemDto {
+}
+exports.MatchAndLearnItemDto = MatchAndLearnItemDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], MatchAndLearnItemDto.prototype, "id", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], MatchAndLearnItemDto.prototype, "name", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], MatchAndLearnItemDto.prototype, "correctCategory", void 0);
+class CreateMatchAndLearnSectionDto extends CreateSectionDto {
+}
+exports.CreateMatchAndLearnSectionDto = CreateMatchAndLearnSectionDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateMatchAndLearnSectionDto.prototype, "itemLabel", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateMatchAndLearnSectionDto.prototype, "categoryLabel", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => MatchAndLearnItemDto),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Array)
+], CreateMatchAndLearnSectionDto.prototype, "items", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.IsString)({ each: true }),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Array)
+], CreateMatchAndLearnSectionDto.prototype, "categories", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Number)
+], CreateMatchAndLearnSectionDto.prototype, "maxPerCategory", void 0);
+__decorate([
+    (0, class_validator_1.IsBoolean)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Boolean)
+], CreateMatchAndLearnSectionDto.prototype, "isActive", void 0);
+class UpdateSectionDto {
+}
+exports.UpdateSectionDto = UpdateSectionDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateSectionDto.prototype, "title", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateSectionDto.prototype, "description", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateSectionDto.prototype, "shortDescription", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateSectionDto.prototype, "chapterId", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateSectionDto.prototype, "moduleId", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Number)
+], UpdateSectionDto.prototype, "orderIndex", void 0);
+class UpdateMatchAndLearnSectionDto extends UpdateSectionDto {
+}
+exports.UpdateMatchAndLearnSectionDto = UpdateMatchAndLearnSectionDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateMatchAndLearnSectionDto.prototype, "itemLabel", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateMatchAndLearnSectionDto.prototype, "categoryLabel", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => MatchAndLearnItemDto),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Array)
+], UpdateMatchAndLearnSectionDto.prototype, "items", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.IsString)({ each: true }),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Array)
+], UpdateMatchAndLearnSectionDto.prototype, "categories", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Number)
+], UpdateMatchAndLearnSectionDto.prototype, "maxPerCategory", void 0);
+__decorate([
+    (0, class_validator_1.IsBoolean)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Boolean)
+], UpdateMatchAndLearnSectionDto.prototype, "isActive", void 0);
+class SectionOrderItemDto {
+}
+exports.SectionOrderItemDto = SectionOrderItemDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], SectionOrderItemDto.prototype, "id", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Number)
+], SectionOrderItemDto.prototype, "orderIndex", void 0);
+class UpdateSectionOrderDto {
+}
+exports.UpdateSectionOrderDto = UpdateSectionOrderDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], UpdateSectionOrderDto.prototype, "chapterId", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => SectionOrderItemDto),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Array)
+], UpdateSectionOrderDto.prototype, "sections", void 0);
 //# sourceMappingURL=dto.js.map

@@ -136,3 +136,53 @@ export interface ResponseDto {
     statusCode: number;
     data: object | object[];
 }
+export declare enum SectionType {
+    DEFAULT = "DEFAULT",
+    MATCH_AND_LEARN = "MATCH_AND_LEARN"
+}
+export declare class CreateSectionDto {
+    title: string;
+    description: string;
+    shortDescription?: string;
+    type?: SectionType;
+    chapterId: string;
+    moduleId?: string;
+    orderIndex?: number;
+}
+export declare class MatchAndLearnItemDto {
+    id: string;
+    name: string;
+    correctCategory: string;
+}
+export declare class CreateMatchAndLearnSectionDto extends CreateSectionDto {
+    itemLabel: string;
+    categoryLabel: string;
+    items: MatchAndLearnItemDto[];
+    categories?: string[];
+    maxPerCategory?: number;
+    isActive?: boolean;
+}
+export declare class UpdateSectionDto {
+    title?: string;
+    description?: string;
+    shortDescription?: string;
+    chapterId?: string;
+    moduleId?: string;
+    orderIndex?: number;
+}
+export declare class UpdateMatchAndLearnSectionDto extends UpdateSectionDto {
+    itemLabel?: string;
+    categoryLabel?: string;
+    items?: MatchAndLearnItemDto[];
+    categories?: string[];
+    maxPerCategory?: number;
+    isActive?: boolean;
+}
+export declare class SectionOrderItemDto {
+    id: string;
+    orderIndex: number;
+}
+export declare class UpdateSectionOrderDto {
+    chapterId: string;
+    sections: SectionOrderItemDto[];
+}

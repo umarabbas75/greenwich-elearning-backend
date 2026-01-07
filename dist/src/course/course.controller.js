@@ -135,6 +135,9 @@ let CourseController = class CourseController {
     updateSection(body, params) {
         return this.appService.updateSection(params.id, body);
     }
+    updateSectionOrder(body) {
+        return this.appService.updateSectionOrder(body);
+    }
     assignCourse(params) {
         return this.appService.assignCourse(params.userId, params.courseId);
     }
@@ -495,6 +498,14 @@ __decorate([
     __metadata("design:paramtypes", [Object, dto_1.ParamsDto]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "updateSection", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Put)('/sections/updateOrder'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [dto_1.UpdateSectionOrderDto]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "updateSectionOrder", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Put)('/assignCourse/:userId/:courseId'),

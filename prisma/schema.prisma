@@ -307,6 +307,22 @@ model Section {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   shortDescription String?
+  
+  // New fields for type system
+  type             SectionType       @default(DEFAULT)
+  orderIndex       Int?              // Order within chapter (1, 2, 3, etc.)
+  
+  // Match and Learn specific fields (nullable, used when type = MATCH_AND_LEARN)
+  itemLabel        String?
+  categoryLabel    String?
+  categories       String[]          @default([])
+  maxPerCategory   Int               @default(1)
+  isActive         Boolean           @default(true)
+  
+  // JSON storage for flexible data
+  items            Json?
+  config           Json?
+  
   LastSeenSection  LastSeenSection[]
   chapter          Chapter           @relation(fields: [chapterId], references: [id])
   module           Module?           @relation(fields: [moduleId], references: [id]) // Added this line
@@ -524,6 +540,13 @@ enum AssignmentSubmissionStatus {
   approved // Accepted/passed
   rejected // Rejected/failed, may allow resubmission
   returned // Returned with feedback, awaiting resubmission
+}
+
+/// Section types for different content formats
+enum SectionType {
+  DEFAULT
+  MATCH_AND_LEARN
+  @@map("section_type")
 }
 
 /// Assignment definition linked to a course

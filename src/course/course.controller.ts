@@ -18,6 +18,7 @@ import {
   ParamsDto1,
   ResponseDto,
   UpdateCourseDto,
+  UpdateSectionOrderDto,
 } from '../dto';
 import { User } from '@prisma/client';
 import { GetUser } from '../decorator';
@@ -276,6 +277,14 @@ export class CourseController {
     @Param() params: ParamsDto,
   ): Promise<ResponseDto> {
     return this.appService.updateSection(params.id, body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Put('/sections/updateOrder')
+  updateSectionOrder(
+    @Body() body: UpdateSectionOrderDto,
+  ): Promise<ResponseDto> {
+    return this.appService.updateSectionOrder(body);
   }
 
   @UseGuards(AuthGuard('jwt'))
