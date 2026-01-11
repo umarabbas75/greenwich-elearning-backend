@@ -800,6 +800,18 @@ let CourseService = class CourseService {
                 data.isActive = matchData.isActive ?? true;
                 data.items = matchData.items;
             }
+            if (body.type === dto_1.SectionType.VISUAL_ACTIVITY) {
+                const visualData = body;
+                const hasCorrectOption = visualData.options.some((option) => option.isCorrect === true);
+                if (!hasCorrectOption) {
+                    throw new Error('At least one option must be marked as correct for Visual Activity sections');
+                }
+                data.questionText = visualData.questionText;
+                data.imageUrl = visualData.imageUrl || null;
+                data.allowMultipleSelection =
+                    visualData.allowMultipleSelection ?? false;
+                data.options = visualData.options;
+            }
             const section = await this.prisma.section.create({
                 data,
             });
@@ -1631,6 +1643,23 @@ let CourseService = class CourseService {
                 }
                 else if (matchData.categories !== undefined) {
                     updateData.categories = matchData.categories;
+                }
+            }
+            if (sectionType === dto_1.SectionType.VISUAL_ACTIVITY ||
+                body.type === dto_1.SectionType.VISUAL_ACTIVITY) {
+                const visualData = body;
+                if (visualData.questionText !== undefined)
+                    updateData.questionText = visualData.questionText;
+                if (visualData.imageUrl !== undefined)
+                    updateData.imageUrl = visualData.imageUrl;
+                if (visualData.allowMultipleSelection !== undefined)
+                    updateData.allowMultipleSelection = visualData.allowMultipleSelection;
+                if (visualData.options !== undefined) {
+                    const hasCorrectOption = visualData.options.some((option) => option.isCorrect === true);
+                    if (!hasCorrectOption) {
+                        throw new Error('At least one option must be marked as correct for Visual Activity sections');
+                    }
+                    updateData.options = visualData.options;
                 }
             }
             if (Object.keys(updateData).length === 0) {

@@ -9,6 +9,7 @@ import {
   IsEnum,
   IsBoolean,
   ValidateNested,
+  ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -343,6 +344,7 @@ export interface ResponseDto {
 export enum SectionType {
   DEFAULT = 'DEFAULT',
   MATCH_AND_LEARN = 'MATCH_AND_LEARN',
+  VISUAL_ACTIVITY = 'VISUAL_ACTIVITY',
 }
 
 export class CreateSectionDto {
@@ -471,6 +473,63 @@ export class UpdateMatchAndLearnSectionDto extends UpdateSectionDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+}
+
+// Visual Activity DTOs
+export class VisualActivityOptionDto {
+  @IsString()
+  @IsNotEmpty()
+  id: string;
+
+  @IsString()
+  @IsNotEmpty()
+  text: string;
+
+  @IsBoolean()
+  @IsNotEmpty()
+  isCorrect: boolean;
+}
+
+export class CreateVisualActivitySectionDto extends CreateSectionDto {
+  @IsString()
+  @IsNotEmpty()
+  questionText: string;
+
+  @IsString()
+  @IsOptional()
+  imageUrl?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  allowMultipleSelection?: boolean;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VisualActivityOptionDto)
+  @IsNotEmpty()
+  @ArrayMinSize(2, { message: 'At least 2 options are required' })
+  options: VisualActivityOptionDto[];
+}
+
+export class UpdateVisualActivitySectionDto extends UpdateSectionDto {
+  @IsString()
+  @IsOptional()
+  questionText?: string;
+
+  @IsString()
+  @IsOptional()
+  imageUrl?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  allowMultipleSelection?: boolean;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VisualActivityOptionDto)
+  @IsOptional()
+  @ArrayMinSize(2, { message: 'At least 2 options are required' })
+  options?: VisualActivityOptionDto[];
 }
 
 // Bulk update orderIndex DTO

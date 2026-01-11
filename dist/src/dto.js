@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UpdateSectionOrderDto = exports.SectionOrderItemDto = exports.UpdateMatchAndLearnSectionDto = exports.UpdateSectionDto = exports.CreateMatchAndLearnSectionDto = exports.MatchAndLearnItemDto = exports.CreateSectionDto = exports.SectionType = exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.CourseDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
+exports.UpdateSectionOrderDto = exports.SectionOrderItemDto = exports.UpdateVisualActivitySectionDto = exports.CreateVisualActivitySectionDto = exports.VisualActivityOptionDto = exports.UpdateMatchAndLearnSectionDto = exports.UpdateSectionDto = exports.CreateMatchAndLearnSectionDto = exports.MatchAndLearnItemDto = exports.CreateSectionDto = exports.SectionType = exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.CourseDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
 const client_1 = require("@prisma/client");
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
@@ -433,6 +433,7 @@ var SectionType;
 (function (SectionType) {
     SectionType["DEFAULT"] = "DEFAULT";
     SectionType["MATCH_AND_LEARN"] = "MATCH_AND_LEARN";
+    SectionType["VISUAL_ACTIVITY"] = "VISUAL_ACTIVITY";
 })(SectionType || (exports.SectionType = SectionType = {}));
 class CreateSectionDto {
     constructor() {
@@ -598,6 +599,76 @@ __decorate([
     (0, class_validator_1.IsOptional)(),
     __metadata("design:type", Boolean)
 ], UpdateMatchAndLearnSectionDto.prototype, "isActive", void 0);
+class VisualActivityOptionDto {
+}
+exports.VisualActivityOptionDto = VisualActivityOptionDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], VisualActivityOptionDto.prototype, "id", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], VisualActivityOptionDto.prototype, "text", void 0);
+__decorate([
+    (0, class_validator_1.IsBoolean)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Boolean)
+], VisualActivityOptionDto.prototype, "isCorrect", void 0);
+class CreateVisualActivitySectionDto extends CreateSectionDto {
+}
+exports.CreateVisualActivitySectionDto = CreateVisualActivitySectionDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateVisualActivitySectionDto.prototype, "questionText", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], CreateVisualActivitySectionDto.prototype, "imageUrl", void 0);
+__decorate([
+    (0, class_validator_1.IsBoolean)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Boolean)
+], CreateVisualActivitySectionDto.prototype, "allowMultipleSelection", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => VisualActivityOptionDto),
+    (0, class_validator_1.IsNotEmpty)(),
+    (0, class_validator_1.ArrayMinSize)(2, { message: 'At least 2 options are required' }),
+    __metadata("design:type", Array)
+], CreateVisualActivitySectionDto.prototype, "options", void 0);
+class UpdateVisualActivitySectionDto extends UpdateSectionDto {
+}
+exports.UpdateVisualActivitySectionDto = UpdateVisualActivitySectionDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateVisualActivitySectionDto.prototype, "questionText", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateVisualActivitySectionDto.prototype, "imageUrl", void 0);
+__decorate([
+    (0, class_validator_1.IsBoolean)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Boolean)
+], UpdateVisualActivitySectionDto.prototype, "allowMultipleSelection", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => VisualActivityOptionDto),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.ArrayMinSize)(2, { message: 'At least 2 options are required' }),
+    __metadata("design:type", Array)
+], UpdateVisualActivitySectionDto.prototype, "options", void 0);
 class SectionOrderItemDto {
 }
 exports.SectionOrderItemDto = SectionOrderItemDto;

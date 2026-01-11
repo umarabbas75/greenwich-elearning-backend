@@ -319,8 +319,14 @@ model Section {
   maxPerCategory   Int               @default(1)
   isActive         Boolean           @default(true)
   
+  // Visual Activity specific fields (nullable, used when type = VISUAL_ACTIVITY)
+  questionText           String?
+  imageUrl               String?
+  allowMultipleSelection Boolean           @default(false)
+  
   // JSON storage for flexible data
-  items            Json?
+  items            Json?  // For MATCH_AND_LEARN
+  options          Json?  // For VISUAL_ACTIVITY (array of option objects)
   config           Json?
   
   LastSeenSection  LastSeenSection[]
@@ -546,6 +552,7 @@ enum AssignmentSubmissionStatus {
 enum SectionType {
   DEFAULT
   MATCH_AND_LEARN
+  VISUAL_ACTIVITY
   @@map("section_type")
 }
 

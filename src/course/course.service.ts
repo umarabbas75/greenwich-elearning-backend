@@ -8,8 +8,10 @@ import {
   UpdateCourseDto,
   CreateSectionDto,
   CreateMatchAndLearnSectionDto,
+  CreateVisualActivitySectionDto,
   UpdateSectionDto,
   UpdateMatchAndLearnSectionDto,
+  UpdateVisualActivitySectionDto,
   UpdateSectionOrderDto,
   SectionType,
 } from '../dto';
@@ -977,7 +979,10 @@ export class CourseService {
     }
   }
   async createSection(
-    body: CreateSectionDto | CreateMatchAndLearnSectionDto,
+    body:
+      | CreateSectionDto
+      | CreateMatchAndLearnSectionDto
+      | CreateVisualActivitySectionDto,
   ): Promise<ResponseDto> {
     try {
       const data: any = {
@@ -1005,6 +1010,27 @@ export class CourseService {
         data.maxPerCategory = matchData.maxPerCategory || 1;
         data.isActive = matchData.isActive ?? true;
         data.items = matchData.items; // Stored as JSON
+      }
+
+      // Handle Visual Activity specific fields
+      if (body.type === SectionType.VISUAL_ACTIVITY) {
+        const visualData = body as CreateVisualActivitySectionDto;
+
+        // Validate that at least one option is correct
+        const hasCorrectOption = visualData.options.some(
+          (option) => option.isCorrect === true,
+        );
+        if (!hasCorrectOption) {
+          throw new Error(
+            'At least one option must be marked as correct for Visual Activity sections',
+          );
+        }
+
+        data.questionText = visualData.questionText;
+        data.imageUrl = visualData.imageUrl || null;
+        data.allowMultipleSelection =
+          visualData.allowMultipleSelection ?? false;
+        data.options = visualData.options; // Stored as JSON
       }
 
       const section: Section = await this.prisma.section.create({
@@ -1951,7 +1977,11 @@ export class CourseService {
   }
   async updateSection(
     id: string,
-    body: UpdateSectionDto | UpdateMatchAndLearnSectionDto | any,
+    body:
+      | UpdateSectionDto
+      | UpdateMatchAndLearnSectionDto
+      | UpdateVisualActivitySectionDto
+      | any,
   ): Promise<ResponseDto> {
     try {
       const isSectionExist: Section = await this.prisma.section.findUnique({
@@ -2009,6 +2039,35 @@ export class CourseService {
           }
         } else if (matchData.categories !== undefined) {
           updateData.categories = matchData.categories;
+        }
+      }
+
+      // Handle Visual Activity specific fields if section type is VISUAL_ACTIVITY
+      if (
+        sectionType === SectionType.VISUAL_ACTIVITY ||
+        body.type === SectionType.VISUAL_ACTIVITY
+      ) {
+        const visualData = body as UpdateVisualActivitySectionDto;
+
+        if (visualData.questionText !== undefined)
+          updateData.questionText = visualData.questionText;
+        if (visualData.imageUrl !== undefined)
+          updateData.imageUrl = visualData.imageUrl;
+        if (visualData.allowMultipleSelection !== undefined)
+          updateData.allowMultipleSelection = visualData.allowMultipleSelection;
+
+        // Handle options update
+        if (visualData.options !== undefined) {
+          // Validate that at least one option is correct
+          const hasCorrectOption = visualData.options.some(
+            (option: any) => option.isCorrect === true,
+          );
+          if (!hasCorrectOption) {
+            throw new Error(
+              'At least one option must be marked as correct for Visual Activity sections',
+            );
+          }
+          updateData.options = visualData.options;
         }
       }
 

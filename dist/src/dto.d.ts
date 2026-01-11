@@ -138,7 +138,8 @@ export interface ResponseDto {
 }
 export declare enum SectionType {
     DEFAULT = "DEFAULT",
-    MATCH_AND_LEARN = "MATCH_AND_LEARN"
+    MATCH_AND_LEARN = "MATCH_AND_LEARN",
+    VISUAL_ACTIVITY = "VISUAL_ACTIVITY"
 }
 export declare class CreateSectionDto {
     title: string;
@@ -177,6 +178,23 @@ export declare class UpdateMatchAndLearnSectionDto extends UpdateSectionDto {
     categories?: string[];
     maxPerCategory?: number;
     isActive?: boolean;
+}
+export declare class VisualActivityOptionDto {
+    id: string;
+    text: string;
+    isCorrect: boolean;
+}
+export declare class CreateVisualActivitySectionDto extends CreateSectionDto {
+    questionText: string;
+    imageUrl?: string;
+    allowMultipleSelection?: boolean;
+    options: VisualActivityOptionDto[];
+}
+export declare class UpdateVisualActivitySectionDto extends UpdateSectionDto {
+    questionText?: string;
+    imageUrl?: string;
+    allowMultipleSelection?: boolean;
+    options?: VisualActivityOptionDto[];
 }
 export declare class SectionOrderItemDto {
     id: string;
