@@ -1,4 +1,4 @@
-import { Role } from '@prisma/client';
+import { Role, QuestionType, QuestionDifficulty, AssessmentMode } from '@prisma/client';
 import {
   IsEmail,
   IsNotEmpty,
@@ -10,6 +10,9 @@ import {
   IsBoolean,
   ValidateNested,
   ArrayMinSize,
+  IsObject,
+  Min,
+  Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -553,4 +556,284 @@ export class UpdateSectionOrderDto {
   @Type(() => SectionOrderItemDto)
   @IsNotEmpty()
   sections: SectionOrderItemDto[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ASSESSMENT FEATURE DTOs
+// ─────────────────────────────────────────────────────────────────────────────
+
+// --- Question Bank ---
+
+export class CreateQuestionCategoryDto {
+  @IsString()
+  @IsNotEmpty()
+  courseId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+}
+
+export class UpdateQuestionCategoryDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+}
+
+export class CreateQuestionDto {
+  @IsString()
+  @IsNotEmpty()
+  courseId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  categoryId: string;
+
+  @IsEnum(QuestionType)
+  type: QuestionType;
+
+  @IsEnum(QuestionDifficulty)
+  difficulty: QuestionDifficulty;
+
+  @IsString()
+  @IsNotEmpty()
+  text: string;
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
+  @IsObject()
+  @IsNotEmpty()
+  content: Record<string, any>;
+
+  @IsNumber()
+  @Min(0)
+  maxMarks: number;
+}
+
+export class UpdateQuestionDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsEnum(QuestionType)
+  type?: QuestionType;
+
+  @IsOptional()
+  @IsEnum(QuestionDifficulty)
+  difficulty?: QuestionDifficulty;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  text?: string;
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
+  @IsOptional()
+  @IsObject()
+  content?: Record<string, any>;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  maxMarks?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+// --- Assessment Management ---
+
+export class AutoConfigCategoryDto {
+  @IsString()
+  @IsNotEmpty()
+  categoryId: string;
+
+  @IsNumber()
+  @Min(1)
+  count: number;
+}
+
+export class AutoConfigDifficultyDto {
+  @IsEnum(QuestionDifficulty)
+  difficulty: QuestionDifficulty;
+
+  @IsNumber()
+  @Min(1)
+  count: number;
+}
+
+export class AssessmentAutoConfigDto {
+  @IsNumber()
+  @Min(1)
+  totalQuestions: number;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AutoConfigCategoryDto)
+  byCategory: AutoConfigCategoryDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AutoConfigDifficultyDto)
+  byDifficulty: AutoConfigDifficultyDto[];
+}
+
+export class CreateAssessmentDto {
+  @IsString()
+  @IsNotEmpty()
+  courseId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  title: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsEnum(AssessmentMode)
+  mode: AssessmentMode;
+
+  @IsNumber()
+  @Min(1)
+  @Max(100)
+  passingPercentage: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  timeLimitMinutes?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  maxAttempts?: number;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AssessmentAutoConfigDto)
+  autoConfig?: AssessmentAutoConfigDto;
+}
+
+export class UpdateAssessmentDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(100)
+  passingPercentage?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  timeLimitMinutes?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  maxAttempts?: number;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AssessmentAutoConfigDto)
+  autoConfig?: AssessmentAutoConfigDto;
+}
+
+// --- Manual Assessment Question Roster ---
+
+export class AddAssessmentQuestionDto {
+  @IsString()
+  @IsNotEmpty()
+  questionId: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  orderIndex?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  marksOverride?: number;
+}
+
+export class ReorderQuestionItemDto {
+  @IsString()
+  @IsNotEmpty()
+  questionId: string;
+
+  @IsNumber()
+  @Min(0)
+  orderIndex: number;
+}
+
+export class ReorderAssessmentQuestionsDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReorderQuestionItemDto)
+  @ArrayMinSize(1)
+  questions: ReorderQuestionItemDto[];
+}
+
+// --- Student Flow ---
+
+export class StartAttemptDto {
+  @IsString()
+  @IsNotEmpty()
+  courseId: string;
+}
+
+export class SaveAnswerDto {
+  @IsString()
+  @IsNotEmpty()
+  snapshotId: string;
+
+  @IsNotEmpty()
+  studentAnswer: Record<string, any>;
+}
+
+// --- Admin Grading ---
+
+export class QuestionScoreDto {
+  @IsString()
+  @IsNotEmpty()
+  snapshotId: string;
+
+  @IsNumber()
+  @Min(0)
+  adminScore: number;
+
+  @IsOptional()
+  @IsString()
+  adminFeedback?: string;
+}
+
+export class GradeAttemptDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => QuestionScoreDto)
+  @ArrayMinSize(1)
+  scores: QuestionScoreDto[];
+}
+
+export class SetCertificateDto {
+  @IsString()
+  @IsNotEmpty()
+  certificateUrl: string;
 }

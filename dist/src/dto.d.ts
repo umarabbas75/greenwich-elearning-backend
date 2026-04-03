@@ -1,4 +1,4 @@
-import { Role } from '@prisma/client';
+import { Role, QuestionType, QuestionDifficulty, AssessmentMode } from '@prisma/client';
 export declare class BodyDto {
     firstName: string;
     lastName: string;
@@ -203,4 +203,92 @@ export declare class SectionOrderItemDto {
 export declare class UpdateSectionOrderDto {
     chapterId: string;
     sections: SectionOrderItemDto[];
+}
+export declare class CreateQuestionCategoryDto {
+    courseId: string;
+    name: string;
+}
+export declare class UpdateQuestionCategoryDto {
+    name: string;
+}
+export declare class CreateQuestionDto {
+    courseId: string;
+    categoryId: string;
+    type: QuestionType;
+    difficulty: QuestionDifficulty;
+    text: string;
+    imageUrl?: string;
+    content: Record<string, any>;
+    maxMarks: number;
+}
+export declare class UpdateQuestionDto {
+    categoryId?: string;
+    type?: QuestionType;
+    difficulty?: QuestionDifficulty;
+    text?: string;
+    imageUrl?: string;
+    content?: Record<string, any>;
+    maxMarks?: number;
+    isActive?: boolean;
+}
+export declare class AutoConfigCategoryDto {
+    categoryId: string;
+    count: number;
+}
+export declare class AutoConfigDifficultyDto {
+    difficulty: QuestionDifficulty;
+    count: number;
+}
+export declare class AssessmentAutoConfigDto {
+    totalQuestions: number;
+    byCategory: AutoConfigCategoryDto[];
+    byDifficulty: AutoConfigDifficultyDto[];
+}
+export declare class CreateAssessmentDto {
+    courseId: string;
+    title: string;
+    description?: string;
+    mode: AssessmentMode;
+    passingPercentage: number;
+    timeLimitMinutes?: number;
+    maxAttempts?: number;
+    autoConfig?: AssessmentAutoConfigDto;
+}
+export declare class UpdateAssessmentDto {
+    title?: string;
+    description?: string;
+    passingPercentage?: number;
+    timeLimitMinutes?: number;
+    maxAttempts?: number;
+    autoConfig?: AssessmentAutoConfigDto;
+}
+export declare class AddAssessmentQuestionDto {
+    questionId: string;
+    orderIndex?: number;
+    marksOverride?: number;
+}
+export declare class ReorderQuestionItemDto {
+    questionId: string;
+    orderIndex: number;
+}
+export declare class ReorderAssessmentQuestionsDto {
+    questions: ReorderQuestionItemDto[];
+}
+export declare class StartAttemptDto {
+    courseId: string;
+}
+export declare class SaveAnswerDto {
+    snapshotId: string;
+    studentAnswer: Record<string, any>;
+}
+export declare class QuestionScoreDto {
+    snapshotId: string;
+    adminScore: number;
+    adminFeedback?: string;
+}
+export declare class GradeAttemptDto {
+    scores: QuestionScoreDto[];
+}
+export declare class SetCertificateDto {
+    certificateUrl: string;
 }

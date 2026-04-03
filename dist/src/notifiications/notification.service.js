@@ -82,6 +82,25 @@ let NotificationService = class NotificationService {
             });
         }
     }
+    async createAssessmentNotification(userId, type, message, referenceId) {
+        try {
+            await this.prisma.notification.create({
+                data: {
+                    userId,
+                    type,
+                    message,
+                    referenceId,
+                    threadId: null,
+                },
+            });
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Failed to create notification',
+            }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+        }
+    }
     async markNotificationAsRead(notificationId) {
         try {
             const updatedNotification = await this.prisma.notification.update({

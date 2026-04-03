@@ -19,6 +19,7 @@ const forum_comment_module_1 = require("./forum-comment/forum-comment.module");
 const todo_module_1 = require("./todo/todo.module");
 const notification_module_1 = require("./notifiications/notification.module");
 const assignment_module_1 = require("./assignment/assignment.module");
+const course_assessment_module_1 = require("./course-assessment/course-assessment.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -36,6 +37,7 @@ exports.AppModule = AppModule = __decorate([
             notification_module_1.NotificationModule,
             assignment_module_1.AssignmentModule,
             forum_comment_module_1.ForumCommentModule,
+            course_assessment_module_1.CourseAssessmentModule,
         ],
     })
 ], AppModule);

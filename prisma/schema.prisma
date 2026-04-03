@@ -44,6 +44,9 @@ model User {
   assignmentsCreated       Assignment[]               @relation("AssignmentsCreatedByAdmin")
   assignmentsToReview      Assignment[]               @relation("AssignmentReviewer")
   feedbackSubmissions      CourseFeedbackSubmission[]
+  assessmentsCreated       Assessment[]               @relation("AssessmentsCreatedByAdmin")
+  assessmentAttempts       AssessmentAttempt[]
+  courseCompletions        CourseCompletion[]
 
   @@index([email])
   @@map("users")
@@ -83,6 +86,10 @@ model Course {
   Assignment           Assignment[]
   feedbackForm         CourseFeedbackForm?
   feedbackSubmissions  CourseFeedbackSubmission[]
+  courseAssessments    Assessment[]
+  questionCategories   QuestionCategory[]
+  questions            Question[]
+  courseCompletions    CourseCompletion[]
 
   @@map("courses")
 }
@@ -473,17 +480,19 @@ model ThreadSubscription {
 }
 
 model Notification {
-  id          String      @id @default(uuid())
+  id          String           @id @default(uuid())
   userId      String
-  threadId    String
+  threadId    String?          // nullable to support non-forum notifications
   message     String
-  isRead      Boolean     @default(false)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  isRead      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
   commenterId String?
-  commenter   User?       @relation("Commenter", fields: [commenterId], references: [id])
-  thread      ForumThread @relation(fields: [threadId], references: [id])
-  user        User        @relation(fields: [userId], references: [id])
+  type        NotificationType @default(FORUM_COMMENT)
+  referenceId String?          // assessmentId or attemptId for assessment notifications
+  commenter   User?            @relation("Commenter", fields: [commenterId], references: [id])
+  thread      ForumThread?     @relation(fields: [threadId], references: [id])
+  user        User             @relation(fields: [userId], references: [id])
 
   @@map("notifications")
 }
@@ -617,4 +626,240 @@ model AssignmentSubmission {
   @@index([status])
   @@index([assignmentId])
   @@map("assignment_submissions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ASSESSMENT FEATURE
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum NotificationType {
+  FORUM_COMMENT
+  FORUM_THREAD
+  ASSESSMENT_SUBMITTED
+  ASSESSMENT_GRADED
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  FILL_IN_THE_BLANK
+  SHORT_ANSWER
+  LONG_ANSWER
+  ORDERING
+  MATCHING
+  VISUAL_ACTIVITY
+}
+
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum AssessmentMode {
+  MANUAL
+  AUTOMATIC
+}
+
+enum AssessmentAttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  AUTO_GRADED
+  GRADED
+  FINALIZED
+}
+
+/// Admin-defined question categories, scoped per course
+model QuestionCategory {
+  id        String     @id @default(uuid())
+  name      String
+  courseId  String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  course    Course     @relation(fields: [courseId], references: [id])
+  questions Question[]
+
+  @@unique([courseId, name])
+  @@index([courseId])
+  @@map("question_categories")
+}
+
+/// Question bank — reusable questions per course
+/// content JSON shapes:
+///   SINGLE_CHOICE:      { options: [{id,text}], correctOptionId: string }
+///   MULTIPLE_CHOICE:    { options: [{id,text}], correctOptionIds: string[] }
+///   TRUE_FALSE:         { correctAnswer: boolean }
+///   FILL_IN_THE_BLANK:  { sentence: string, wordBank: string[], correctAnswer: string }
+///   SHORT_ANSWER:       {}
+///   LONG_ANSWER:        {}
+///   ORDERING:           { items: [{id,text}], correctOrder: string[] }
+///   MATCHING:           { pairs: [{id,left,right}] }
+///   VISUAL_ACTIVITY:    { imageUrl: string, options: [{id,text,isCorrect}], allowMultiple: boolean }
+model Question {
+  id                  String             @id @default(uuid())
+  courseId            String
+  categoryId          String
+  type                QuestionType
+  difficulty          QuestionDifficulty @default(MEDIUM)
+  text                String
+  imageUrl            String?
+  content             Json
+  maxMarks            Float              @default(1)
+  isActive            Boolean            @default(true)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  course              Course             @relation(fields: [courseId], references: [id])
+  category            QuestionCategory   @relation(fields: [categoryId], references: [id])
+  assessmentQuestions AssessmentQuestion[]
+
+  @@index([courseId])
+  @@index([courseId, categoryId])
+  @@index([courseId, difficulty])
+  @@index([courseId, type])
+  @@index([isActive])
+  @@map("questions")
+}
+
+/// Assessment definition linked to a course. Only one may be isActive at a time per course.
+/// autoConfig JSON (used when mode = AUTOMATIC):
+///   { totalQuestions: number, byCategory: [{categoryId,count}], byDifficulty: [{difficulty,count}] }
+model Assessment {
+  id                  String         @id @default(uuid())
+  courseId            String
+  title               String
+  description         String?
+  mode                AssessmentMode @default(MANUAL)
+  isActive            Boolean        @default(false)
+  passingPercentage   Float          @default(60)
+  timeLimitMinutes    Int?           // informational only — NOT enforced in code yet
+  maxAttempts         Int?           // null = unlimited
+  autoConfig          Json?          // required when mode = AUTOMATIC
+  createdByAdminId    String
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  course              Course         @relation(fields: [courseId], references: [id])
+  createdByAdmin      User           @relation("AssessmentsCreatedByAdmin", fields: [createdByAdminId], references: [id])
+  assessmentQuestions AssessmentQuestion[]
+  attempts            AssessmentAttempt[]
+
+  @@index([courseId])
+  @@index([courseId, isActive])
+  @@index([createdByAdminId])
+  @@map("assessments")
+}
+
+/// Junction table for MANUAL mode — the ordered list of questions in an assessment
+model AssessmentQuestion {
+  id            String     @id @default(uuid())
+  assessmentId  String
+  questionId    String
+  orderIndex    Int        @default(0)
+  marksOverride Float?     // overrides question.maxMarks for this specific assessment
+  createdAt     DateTime   @default(now())
+  assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  question      Question   @relation(fields: [questionId], references: [id])
+
+  @@unique([assessmentId, questionId])
+  @@index([assessmentId])
+  @@map("assessment_questions")
+}
+
+/// One attempt per student per assessment session. All content is snapshotted at creation time.
+model AssessmentAttempt {
+  id                   String                  @id @default(uuid())
+  assessmentId         String
+  userId               String
+  status               AssessmentAttemptStatus @default(IN_PROGRESS)
+  // Snapshot of assessment settings at attempt creation time
+  snapshotTitle        String
+  snapshotPassingPct   Float
+  snapshotMaxAttempts  Int?
+  snapshotTimeLimitMin Int?
+  // Scoring (populated progressively and on submission/finalization)
+  totalMarks           Float?
+  marksObtained        Float?
+  percentage           Float?
+  isPassed             Boolean?
+  // Lifecycle timestamps
+  startedAt            DateTime               @default(now())
+  submittedAt          DateTime?
+  gradedAt             DateTime?
+  finalizedAt          DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  assessment           Assessment             @relation(fields: [assessmentId], references: [id])
+  user                 User                   @relation(fields: [userId], references: [id])
+  questionSnapshots    AttemptQuestionSnapshot[]
+  courseCompletion     CourseCompletion?       @relation("BestAttempt")
+
+  @@index([assessmentId])
+  @@index([userId])
+  @@index([userId, assessmentId])
+  @@index([status])
+  @@map("assessment_attempts")
+}
+
+/// Full snapshot of a single question within an attempt, plus student answer and grading state.
+/// studentAnswer JSON shapes:
+///   SINGLE_CHOICE:      { selectedOptionId: string }
+///   MULTIPLE_CHOICE:    { selectedOptionIds: string[] }
+///   TRUE_FALSE:         { answer: boolean }
+///   FILL_IN_THE_BLANK:  { selectedWord: string }
+///   SHORT_ANSWER:       { text: string }
+///   LONG_ANSWER:        { text: string }
+///   ORDERING:           { orderedIds: string[] }
+///   MATCHING:           { pairs: [{leftId,rightId}] }
+///   VISUAL_ACTIVITY:    { selectedOptionIds: string[] }
+model AttemptQuestionSnapshot {
+  id               String            @id @default(uuid())
+  attemptId        String
+  questionId       String            // traceability only — question may be edited/deleted later
+  orderIndex       Int               @default(0)
+  // Snapshot of question content at attempt creation time
+  questionType     QuestionType
+  questionText     String
+  questionImageUrl String?
+  questionContent  Json              // full content snapshot (correct answers included for grading)
+  maxMarks         Float
+  // Student answer
+  studentAnswer    Json?
+  isAnswered       Boolean           @default(false)
+  isLocked         Boolean           @default(false) // locked once answered — cannot re-answer
+  // Grading
+  systemScore      Float?            // auto-calculated on answer submission
+  adminScore       Float?            // admin override or manual grade
+  finalScore       Float?            // adminScore ?? systemScore, set on finalization
+  adminFeedback    String?
+  gradedAt         DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  attempt          AssessmentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId])
+  @@index([questionId])
+  @@index([attemptId, isAnswered])
+  @@map("attempt_question_snapshots")
+}
+
+/// Tracks full course completion (course content + assessment passed) per user per course.
+model CourseCompletion {
+  id                 String             @id @default(uuid())
+  userId             String
+  courseId           String
+  isPassed           Boolean            @default(false)
+  bestAttemptId      String?            @unique
+  certificateUrl     String?
+  courseCompletedAt  DateTime?
+  assessmentPassedAt DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  user               User               @relation(fields: [userId], references: [id])
+  course             Course             @relation(fields: [courseId], references: [id])
+  bestAttempt        AssessmentAttempt? @relation("BestAttempt", fields: [bestAttemptId], references: [id])
+
+  @@unique([userId, courseId])
+  @@index([userId, courseId])
+  @@index([userId, isPassed])
+  @@map("course_completions")
 }

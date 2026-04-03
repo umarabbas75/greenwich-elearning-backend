@@ -1,9 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-// import { Forum } from '@prisma/client';
-// import {
-//   QuizDto,
-//   ResponseDto,
-// } from '../dto';
+import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -86,6 +82,34 @@ export class NotificationService {
         {
           cause: error,
         },
+      );
+    }
+  }
+
+  async createAssessmentNotification(
+    userId: string,
+    type: NotificationType,
+    message: string,
+    referenceId: string,
+  ): Promise<void> {
+    try {
+      await this.prisma.notification.create({
+        data: {
+          userId,
+          type,
+          message,
+          referenceId,
+          threadId: null,
+        },
+      });
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Failed to create notification',
+        },
+        HttpStatus.FORBIDDEN,
+        { cause: error },
       );
     }
   }

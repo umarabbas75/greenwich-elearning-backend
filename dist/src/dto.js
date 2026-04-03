@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UpdateSectionOrderDto = exports.SectionOrderItemDto = exports.UpdateVisualActivitySectionDto = exports.CreateVisualActivitySectionDto = exports.VisualActivityOptionDto = exports.UpdateMatchAndLearnSectionDto = exports.UpdateSectionDto = exports.CreateMatchAndLearnSectionDto = exports.MatchAndLearnItemDto = exports.CreateSectionDto = exports.SectionType = exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.CourseDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
+exports.SetCertificateDto = exports.GradeAttemptDto = exports.QuestionScoreDto = exports.SaveAnswerDto = exports.StartAttemptDto = exports.ReorderAssessmentQuestionsDto = exports.ReorderQuestionItemDto = exports.AddAssessmentQuestionDto = exports.UpdateAssessmentDto = exports.CreateAssessmentDto = exports.AssessmentAutoConfigDto = exports.AutoConfigDifficultyDto = exports.AutoConfigCategoryDto = exports.UpdateQuestionDto = exports.CreateQuestionDto = exports.UpdateQuestionCategoryDto = exports.CreateQuestionCategoryDto = exports.UpdateSectionOrderDto = exports.SectionOrderItemDto = exports.UpdateVisualActivitySectionDto = exports.CreateVisualActivitySectionDto = exports.VisualActivityOptionDto = exports.UpdateMatchAndLearnSectionDto = exports.UpdateSectionDto = exports.CreateMatchAndLearnSectionDto = exports.MatchAndLearnItemDto = exports.CreateSectionDto = exports.SectionType = exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.CourseDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
 const client_1 = require("@prisma/client");
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
@@ -697,4 +697,341 @@ __decorate([
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", Array)
 ], UpdateSectionOrderDto.prototype, "sections", void 0);
+class CreateQuestionCategoryDto {
+}
+exports.CreateQuestionCategoryDto = CreateQuestionCategoryDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateQuestionCategoryDto.prototype, "courseId", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateQuestionCategoryDto.prototype, "name", void 0);
+class UpdateQuestionCategoryDto {
+}
+exports.UpdateQuestionCategoryDto = UpdateQuestionCategoryDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], UpdateQuestionCategoryDto.prototype, "name", void 0);
+class CreateQuestionDto {
+}
+exports.CreateQuestionDto = CreateQuestionDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateQuestionDto.prototype, "courseId", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateQuestionDto.prototype, "categoryId", void 0);
+__decorate([
+    (0, class_validator_1.IsEnum)(client_1.QuestionType),
+    __metadata("design:type", String)
+], CreateQuestionDto.prototype, "type", void 0);
+__decorate([
+    (0, class_validator_1.IsEnum)(client_1.QuestionDifficulty),
+    __metadata("design:type", String)
+], CreateQuestionDto.prototype, "difficulty", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateQuestionDto.prototype, "text", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateQuestionDto.prototype, "imageUrl", void 0);
+__decorate([
+    (0, class_validator_1.IsObject)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Object)
+], CreateQuestionDto.prototype, "content", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0),
+    __metadata("design:type", Number)
+], CreateQuestionDto.prototype, "maxMarks", void 0);
+class UpdateQuestionDto {
+}
+exports.UpdateQuestionDto = UpdateQuestionDto;
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], UpdateQuestionDto.prototype, "categoryId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsEnum)(client_1.QuestionType),
+    __metadata("design:type", String)
+], UpdateQuestionDto.prototype, "type", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsEnum)(client_1.QuestionDifficulty),
+    __metadata("design:type", String)
+], UpdateQuestionDto.prototype, "difficulty", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], UpdateQuestionDto.prototype, "text", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], UpdateQuestionDto.prototype, "imageUrl", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsObject)(),
+    __metadata("design:type", Object)
+], UpdateQuestionDto.prototype, "content", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0),
+    __metadata("design:type", Number)
+], UpdateQuestionDto.prototype, "maxMarks", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateQuestionDto.prototype, "isActive", void 0);
+class AutoConfigCategoryDto {
+}
+exports.AutoConfigCategoryDto = AutoConfigCategoryDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], AutoConfigCategoryDto.prototype, "categoryId", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], AutoConfigCategoryDto.prototype, "count", void 0);
+class AutoConfigDifficultyDto {
+}
+exports.AutoConfigDifficultyDto = AutoConfigDifficultyDto;
+__decorate([
+    (0, class_validator_1.IsEnum)(client_1.QuestionDifficulty),
+    __metadata("design:type", String)
+], AutoConfigDifficultyDto.prototype, "difficulty", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], AutoConfigDifficultyDto.prototype, "count", void 0);
+class AssessmentAutoConfigDto {
+}
+exports.AssessmentAutoConfigDto = AssessmentAutoConfigDto;
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], AssessmentAutoConfigDto.prototype, "totalQuestions", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => AutoConfigCategoryDto),
+    __metadata("design:type", Array)
+], AssessmentAutoConfigDto.prototype, "byCategory", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => AutoConfigDifficultyDto),
+    __metadata("design:type", Array)
+], AssessmentAutoConfigDto.prototype, "byDifficulty", void 0);
+class CreateAssessmentDto {
+}
+exports.CreateAssessmentDto = CreateAssessmentDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateAssessmentDto.prototype, "courseId", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateAssessmentDto.prototype, "title", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateAssessmentDto.prototype, "description", void 0);
+__decorate([
+    (0, class_validator_1.IsEnum)(client_1.AssessmentMode),
+    __metadata("design:type", String)
+], CreateAssessmentDto.prototype, "mode", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(1),
+    (0, class_validator_1.Max)(100),
+    __metadata("design:type", Number)
+], CreateAssessmentDto.prototype, "passingPercentage", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], CreateAssessmentDto.prototype, "timeLimitMinutes", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], CreateAssessmentDto.prototype, "maxAttempts", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.ValidateNested)(),
+    (0, class_transformer_1.Type)(() => AssessmentAutoConfigDto),
+    __metadata("design:type", AssessmentAutoConfigDto)
+], CreateAssessmentDto.prototype, "autoConfig", void 0);
+class UpdateAssessmentDto {
+}
+exports.UpdateAssessmentDto = UpdateAssessmentDto;
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], UpdateAssessmentDto.prototype, "title", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], UpdateAssessmentDto.prototype, "description", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(1),
+    (0, class_validator_1.Max)(100),
+    __metadata("design:type", Number)
+], UpdateAssessmentDto.prototype, "passingPercentage", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], UpdateAssessmentDto.prototype, "timeLimitMinutes", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], UpdateAssessmentDto.prototype, "maxAttempts", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.ValidateNested)(),
+    (0, class_transformer_1.Type)(() => AssessmentAutoConfigDto),
+    __metadata("design:type", AssessmentAutoConfigDto)
+], UpdateAssessmentDto.prototype, "autoConfig", void 0);
+class AddAssessmentQuestionDto {
+}
+exports.AddAssessmentQuestionDto = AddAssessmentQuestionDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], AddAssessmentQuestionDto.prototype, "questionId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0),
+    __metadata("design:type", Number)
+], AddAssessmentQuestionDto.prototype, "orderIndex", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0),
+    __metadata("design:type", Number)
+], AddAssessmentQuestionDto.prototype, "marksOverride", void 0);
+class ReorderQuestionItemDto {
+}
+exports.ReorderQuestionItemDto = ReorderQuestionItemDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], ReorderQuestionItemDto.prototype, "questionId", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0),
+    __metadata("design:type", Number)
+], ReorderQuestionItemDto.prototype, "orderIndex", void 0);
+class ReorderAssessmentQuestionsDto {
+}
+exports.ReorderAssessmentQuestionsDto = ReorderAssessmentQuestionsDto;
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => ReorderQuestionItemDto),
+    (0, class_validator_1.ArrayMinSize)(1),
+    __metadata("design:type", Array)
+], ReorderAssessmentQuestionsDto.prototype, "questions", void 0);
+class StartAttemptDto {
+}
+exports.StartAttemptDto = StartAttemptDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], StartAttemptDto.prototype, "courseId", void 0);
+class SaveAnswerDto {
+}
+exports.SaveAnswerDto = SaveAnswerDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], SaveAnswerDto.prototype, "snapshotId", void 0);
+__decorate([
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Object)
+], SaveAnswerDto.prototype, "studentAnswer", void 0);
+class QuestionScoreDto {
+}
+exports.QuestionScoreDto = QuestionScoreDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], QuestionScoreDto.prototype, "snapshotId", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0),
+    __metadata("design:type", Number)
+], QuestionScoreDto.prototype, "adminScore", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], QuestionScoreDto.prototype, "adminFeedback", void 0);
+class GradeAttemptDto {
+}
+exports.GradeAttemptDto = GradeAttemptDto;
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => QuestionScoreDto),
+    (0, class_validator_1.ArrayMinSize)(1),
+    __metadata("design:type", Array)
+], GradeAttemptDto.prototype, "scores", void 0);
+class SetCertificateDto {
+}
+exports.SetCertificateDto = SetCertificateDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], SetCertificateDto.prototype, "certificateUrl", void 0);
 //# sourceMappingURL=dto.js.map
