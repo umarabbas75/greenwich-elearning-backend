@@ -1251,8 +1251,6 @@ export class CourseAssessmentService {
       }
 
       case QuestionType.MATCHING: {
-        // Both leftId and rightId are pair IDs. Correct when leftId === rightId
-        // (student correctly matched the left item of pair X with the right item of pair X).
         const pairs: Array<{ id: string }> = content.pairs ?? [];
         const givenPairs: Array<{ leftId: string; rightId: string }> = answer.pairs ?? [];
         const correct = givenPairs.filter((gp) => gp.leftId === gp.rightId).length;
@@ -1261,7 +1259,7 @@ export class CourseAssessmentService {
 
       case QuestionType.SHORT_ANSWER:
       case QuestionType.LONG_ANSWER:
-        return null; // manual grading required
+        return null;
 
       default:
         return null;
@@ -1274,14 +1272,11 @@ export class CourseAssessmentService {
       ...attempt,
       questionSnapshots: (attempt.questionSnapshots ?? []).map((s: any) => {
         const { questionContent, ...rest } = s;
-        // Keep questionContent but remove answer keys so student cannot see correct answers
         const sanitizedContent = { ...questionContent };
         delete sanitizedContent.correctOptionId;
         delete sanitizedContent.correctOptionIds;
         delete sanitizedContent.correctAnswer;
         delete sanitizedContent.correctOrder;
-        // For MATCHING: strip 'right' from pairs but expose shuffled categories[]
-        // so the frontend can render the right-side options without revealing correct mapping.
         if (sanitizedContent.pairs) {
           const categories = this._shuffle(
             sanitizedContent.pairs.map((p: any) => ({ id: p.id, text: p.right })),
@@ -1292,7 +1287,6 @@ export class CourseAssessmentService {
             left: p.left,
           }));
         }
-        // For VISUAL_ACTIVITY, remove isCorrect from options
         if (sanitizedContent.options) {
           sanitizedContent.options = sanitizedContent.options.map((o: any) => ({
             id: o.id,

@@ -332,9 +332,12 @@ model Section {
   allowMultipleSelection Boolean           @default(false)
   
   // JSON storage for flexible data
-  items            Json?  // For MATCH_AND_LEARN
-  options          Json?  // For VISUAL_ACTIVITY (array of option objects)
-  config           Json?
+  items            Json?  // MATCH_AND_LEARN + ORDERING (orderable rows)
+  options          Json?  // VISUAL_ACTIVITY (array of option objects)
+  config           Json?  // ORDERING: { correctOrder }; MATCHING: { pairs }
+
+  // ORDERING — orderable items in `items` JSON; correct sequence in `config.correctOrder`
+  // MATCHING — `config.pairs` as [{ id, left, right }]; optional `questionText`
   
   LastSeenSection  LastSeenSection[]
   chapter          Chapter           @relation(fields: [chapterId], references: [id])
@@ -562,6 +565,8 @@ enum SectionType {
   DEFAULT
   MATCH_AND_LEARN
   VISUAL_ACTIVITY
+  ORDERING
+  MATCHING
   @@map("section_type")
 }
 

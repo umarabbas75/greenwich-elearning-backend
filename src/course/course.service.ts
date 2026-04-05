@@ -9,9 +9,13 @@ import {
   CreateSectionDto,
   CreateMatchAndLearnSectionDto,
   CreateVisualActivitySectionDto,
+  CreateOrderingSectionDto,
+  CreateMatchingSectionDto,
   UpdateSectionDto,
   UpdateMatchAndLearnSectionDto,
   UpdateVisualActivitySectionDto,
+  UpdateOrderingSectionDto,
+  UpdateMatchingSectionDto,
   UpdateSectionOrderDto,
   SectionType,
 } from '../dto';
@@ -20,6 +24,52 @@ import { PrismaService } from '../prisma/prisma.service';
 @Injectable()
 export class CourseService {
   constructor(private prisma: PrismaService) {}
+
+  private shuffleArray<T>(arr: T[]): T[] {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  private assertValidOrderingItems(
+    items: { id: string }[],
+    correctOrder: string[],
+  ): void {
+    const ids = new Set(items.map((i) => i.id));
+    if (ids.size !== items.length) {
+      throw new Error('Ordering items must have unique ids');
+    }
+    if (correctOrder.length !== ids.size) {
+      throw new Error('correctOrder must list each item id exactly once');
+    }
+    for (const id of correctOrder) {
+      if (!ids.has(id)) {
+        throw new Error(`correctOrder references unknown id: ${id}`);
+      }
+    }
+  }
+
+  private sanitizeLessonSectionForStudent(section: Record<string, unknown>): void {
+    if (section.type === SectionType.ORDERING) {
+      section.config = null;
+    } else if (section.type === SectionType.MATCHING) {
+      const cfg = section.config as {
+        pairs?: Array<{ id: string; left: string; right: string }>;
+      } | null;
+      if (cfg?.pairs?.length) {
+        const categories = this.shuffleArray(
+          cfg.pairs.map((p) => ({ id: p.id, text: p.right })),
+        );
+        section.config = {
+          pairs: cfg.pairs.map((p) => ({ id: p.id, left: p.left })),
+          categories,
+        };
+      }
+    }
+  }
 
   async markFormComplete(
     userId: string,
@@ -982,7 +1032,9 @@ export class CourseService {
     body:
       | CreateSectionDto
       | CreateMatchAndLearnSectionDto
-      | CreateVisualActivitySectionDto,
+      | CreateVisualActivitySectionDto
+      | CreateOrderingSectionDto
+      | CreateMatchingSectionDto,
   ): Promise<ResponseDto> {
     try {
       const data: any = {
@@ -1031,6 +1083,28 @@ export class CourseService {
         data.allowMultipleSelection =
           visualData.allowMultipleSelection ?? false;
         data.options = visualData.options; // Stored as JSON
+      }
+
+      if (body.type === SectionType.ORDERING) {
+        const ord = body as CreateOrderingSectionDto;
+        this.assertValidOrderingItems(ord.items, ord.correctOrder);
+        data.type = SectionType.ORDERING as any;
+        data.questionText = ord.questionText ?? null;
+        data.items = ord.items as unknown as Prisma.InputJsonValue;
+        data.config = {
+          correctOrder: ord.correctOrder,
+        } as unknown as Prisma.InputJsonValue;
+      }
+
+      if (body.type === SectionType.MATCHING) {
+        const mat = body as CreateMatchingSectionDto;
+        const ids = new Set(mat.pairs.map((p) => p.id));
+        if (ids.size !== mat.pairs.length) {
+          throw new Error('Matching pairs must have unique ids');
+        }
+        data.type = SectionType.MATCHING as any;
+        data.questionText = mat.questionText ?? null;
+        data.config = { pairs: mat.pairs } as unknown as Prisma.InputJsonValue;
       }
 
       const section: Section = await this.prisma.section.create({
@@ -1745,6 +1819,13 @@ export class CourseService {
           lastSeenLesson?.sectionId === section.id ? true : false;
         // Insert the boolean value into the section object
         section.isCompleted = isCompleted;
+
+        if (
+          section.type === SectionType.ORDERING ||
+          section.type === SectionType.MATCHING
+        ) {
+          this.sanitizeLessonSectionForStudent(section);
+        }
       });
 
       if (!(sections.length > 0)) {
@@ -1981,6 +2062,8 @@ export class CourseService {
       | UpdateSectionDto
       | UpdateMatchAndLearnSectionDto
       | UpdateVisualActivitySectionDto
+      | UpdateOrderingSectionDto
+      | UpdateMatchingSectionDto
       | any,
   ): Promise<ResponseDto> {
     try {
@@ -2006,6 +2089,7 @@ export class CourseService {
       if (body.moduleId !== undefined) updateData.moduleId = body.moduleId;
       if ((body as any).orderIndex !== undefined)
         updateData.orderIndex = (body as any).orderIndex;
+      if (body.type !== undefined) updateData.type = body.type as any;
 
       // Handle Match and Learn specific fields if section type is MATCH_AND_LEARN
       const sectionType = (isSectionExist as any).type;
@@ -2068,6 +2152,56 @@ export class CourseService {
             );
           }
           updateData.options = visualData.options;
+        }
+      }
+
+      if (
+        sectionType === SectionType.ORDERING ||
+        body.type === SectionType.ORDERING
+      ) {
+        const ord = body as UpdateOrderingSectionDto;
+        if (ord.questionText !== undefined)
+          updateData.questionText = ord.questionText;
+        if (ord.items !== undefined)
+          updateData.items = ord.items as unknown as Prisma.InputJsonValue;
+        if (ord.items !== undefined || ord.correctOrder !== undefined) {
+          const items =
+            ord.items ??
+            (Array.isArray(isSectionExist.items)
+              ? (isSectionExist.items as { id: string }[])
+              : null);
+          const existingCfg = isSectionExist.config as {
+            correctOrder?: string[];
+          } | null;
+          const correctOrder =
+            ord.correctOrder ?? existingCfg?.correctOrder ?? null;
+          if (!items?.length || !correctOrder?.length) {
+            throw new Error(
+              'ORDERING section update requires existing items and correctOrder, or provide both in the request',
+            );
+          }
+          this.assertValidOrderingItems(items, correctOrder);
+          updateData.config = {
+            correctOrder,
+          } as unknown as Prisma.InputJsonValue;
+        }
+      }
+
+      if (
+        sectionType === SectionType.MATCHING ||
+        body.type === SectionType.MATCHING
+      ) {
+        const mat = body as UpdateMatchingSectionDto;
+        if (mat.questionText !== undefined)
+          updateData.questionText = mat.questionText;
+        if (mat.pairs !== undefined) {
+          const ids = new Set(mat.pairs.map((p) => p.id));
+          if (ids.size !== mat.pairs.length) {
+            throw new Error('Matching pairs must have unique ids');
+          }
+          updateData.config = {
+            pairs: mat.pairs,
+          } as unknown as Prisma.InputJsonValue;
         }
       }
 

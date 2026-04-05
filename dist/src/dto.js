@@ -9,7 +9,8 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SetCertificateDto = exports.GradeAttemptDto = exports.QuestionScoreDto = exports.SaveAnswerDto = exports.StartAttemptDto = exports.ReorderAssessmentQuestionsDto = exports.ReorderQuestionItemDto = exports.AddAssessmentQuestionDto = exports.UpdateAssessmentDto = exports.CreateAssessmentDto = exports.AssessmentAutoConfigDto = exports.AutoConfigDifficultyDto = exports.AutoConfigCategoryDto = exports.UpdateQuestionDto = exports.CreateQuestionDto = exports.UpdateQuestionCategoryDto = exports.CreateQuestionCategoryDto = exports.UpdateSectionOrderDto = exports.SectionOrderItemDto = exports.UpdateVisualActivitySectionDto = exports.CreateVisualActivitySectionDto = exports.VisualActivityOptionDto = exports.UpdateMatchAndLearnSectionDto = exports.UpdateSectionDto = exports.CreateMatchAndLearnSectionDto = exports.MatchAndLearnItemDto = exports.CreateSectionDto = exports.SectionType = exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.CourseDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
+exports.GradeAttemptDto = exports.QuestionScoreDto = exports.SaveAnswerDto = exports.StartAttemptDto = exports.ReorderAssessmentQuestionsDto = exports.ReorderQuestionItemDto = exports.AddAssessmentQuestionDto = exports.UpdateAssessmentDto = exports.CreateAssessmentDto = exports.AssessmentAutoConfigDto = exports.AutoConfigDifficultyDto = exports.AutoConfigCategoryDto = exports.UpdateQuestionDto = exports.CreateQuestionDto = exports.UpdateQuestionCategoryDto = exports.CreateQuestionCategoryDto = exports.UpdateSectionOrderDto = exports.SectionOrderItemDto = exports.UpdateMatchingSectionDto = exports.CreateMatchingSectionDto = exports.MatchingPairDto = exports.UpdateOrderingSectionDto = exports.CreateOrderingSectionDto = exports.OrderingItemDto = exports.UpdateVisualActivitySectionDto = exports.CreateVisualActivitySectionDto = exports.VisualActivityOptionDto = exports.UpdateMatchAndLearnSectionDto = exports.UpdateSectionDto = exports.CreateMatchAndLearnSectionDto = exports.MatchAndLearnItemDto = exports.CreateSectionDto = exports.SectionType = exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.CourseDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
+exports.SetCertificateDto = void 0;
 const client_1 = require("@prisma/client");
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
@@ -434,6 +435,8 @@ var SectionType;
     SectionType["DEFAULT"] = "DEFAULT";
     SectionType["MATCH_AND_LEARN"] = "MATCH_AND_LEARN";
     SectionType["VISUAL_ACTIVITY"] = "VISUAL_ACTIVITY";
+    SectionType["ORDERING"] = "ORDERING";
+    SectionType["MATCHING"] = "MATCHING";
 })(SectionType || (exports.SectionType = SectionType = {}));
 class CreateSectionDto {
     constructor() {
@@ -533,6 +536,11 @@ __decorate([
 class UpdateSectionDto {
 }
 exports.UpdateSectionDto = UpdateSectionDto;
+__decorate([
+    (0, class_validator_1.IsEnum)(SectionType),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateSectionDto.prototype, "type", void 0);
 __decorate([
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.IsOptional)(),
@@ -669,6 +677,118 @@ __decorate([
     (0, class_validator_1.ArrayMinSize)(2, { message: 'At least 2 options are required' }),
     __metadata("design:type", Array)
 ], UpdateVisualActivitySectionDto.prototype, "options", void 0);
+class OrderingItemDto {
+}
+exports.OrderingItemDto = OrderingItemDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], OrderingItemDto.prototype, "id", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], OrderingItemDto.prototype, "text", void 0);
+class CreateOrderingSectionDto extends CreateSectionDto {
+}
+exports.CreateOrderingSectionDto = CreateOrderingSectionDto;
+__decorate([
+    (0, class_validator_1.IsEnum)(SectionType),
+    __metadata("design:type", String)
+], CreateOrderingSectionDto.prototype, "type", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], CreateOrderingSectionDto.prototype, "questionText", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => OrderingItemDto),
+    (0, class_validator_1.ArrayMinSize)(2, { message: 'At least 2 items are required' }),
+    __metadata("design:type", Array)
+], CreateOrderingSectionDto.prototype, "items", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.IsString)({ each: true }),
+    (0, class_validator_1.ArrayMinSize)(2),
+    __metadata("design:type", Array)
+], CreateOrderingSectionDto.prototype, "correctOrder", void 0);
+class UpdateOrderingSectionDto extends UpdateSectionDto {
+}
+exports.UpdateOrderingSectionDto = UpdateOrderingSectionDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateOrderingSectionDto.prototype, "questionText", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => OrderingItemDto),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Array)
+], UpdateOrderingSectionDto.prototype, "items", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.IsString)({ each: true }),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Array)
+], UpdateOrderingSectionDto.prototype, "correctOrder", void 0);
+class MatchingPairDto {
+}
+exports.MatchingPairDto = MatchingPairDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], MatchingPairDto.prototype, "id", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], MatchingPairDto.prototype, "left", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], MatchingPairDto.prototype, "right", void 0);
+class CreateMatchingSectionDto extends CreateSectionDto {
+}
+exports.CreateMatchingSectionDto = CreateMatchingSectionDto;
+__decorate([
+    (0, class_validator_1.IsEnum)(SectionType),
+    __metadata("design:type", String)
+], CreateMatchingSectionDto.prototype, "type", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], CreateMatchingSectionDto.prototype, "questionText", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => MatchingPairDto),
+    (0, class_validator_1.ArrayMinSize)(2, { message: 'At least 2 pairs are required' }),
+    __metadata("design:type", Array)
+], CreateMatchingSectionDto.prototype, "pairs", void 0);
+class UpdateMatchingSectionDto extends UpdateSectionDto {
+}
+exports.UpdateMatchingSectionDto = UpdateMatchingSectionDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateMatchingSectionDto.prototype, "questionText", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => MatchingPairDto),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.ArrayMinSize)(2),
+    __metadata("design:type", Array)
+], UpdateMatchingSectionDto.prototype, "pairs", void 0);
 class SectionOrderItemDto {
 }
 exports.SectionOrderItemDto = SectionOrderItemDto;

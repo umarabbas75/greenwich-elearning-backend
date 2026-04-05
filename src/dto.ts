@@ -348,6 +348,8 @@ export enum SectionType {
   DEFAULT = 'DEFAULT',
   MATCH_AND_LEARN = 'MATCH_AND_LEARN',
   VISUAL_ACTIVITY = 'VISUAL_ACTIVITY',
+  ORDERING = 'ORDERING',
+  MATCHING = 'MATCHING',
 }
 
 export class CreateSectionDto {
@@ -424,6 +426,10 @@ export class CreateMatchAndLearnSectionDto extends CreateSectionDto {
 }
 
 export class UpdateSectionDto {
+  @IsEnum(SectionType)
+  @IsOptional()
+  type?: SectionType;
+
   @IsString()
   @IsOptional()
   title?: string;
@@ -533,6 +539,95 @@ export class UpdateVisualActivitySectionDto extends UpdateSectionDto {
   @IsOptional()
   @ArrayMinSize(2, { message: 'At least 2 options are required' })
   options?: VisualActivityOptionDto[];
+}
+
+export class OrderingItemDto {
+  @IsString()
+  @IsNotEmpty()
+  id: string;
+
+  @IsString()
+  @IsNotEmpty()
+  text: string;
+}
+
+export class CreateOrderingSectionDto extends CreateSectionDto {
+  @IsEnum(SectionType)
+  type: SectionType.ORDERING;
+
+  @IsString()
+  @IsOptional()
+  questionText?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderingItemDto)
+  @ArrayMinSize(2, { message: 'At least 2 items are required' })
+  items: OrderingItemDto[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMinSize(2)
+  correctOrder: string[];
+}
+
+export class UpdateOrderingSectionDto extends UpdateSectionDto {
+  @IsString()
+  @IsOptional()
+  questionText?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderingItemDto)
+  @IsOptional()
+  items?: OrderingItemDto[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  correctOrder?: string[];
+}
+
+export class MatchingPairDto {
+  @IsString()
+  @IsNotEmpty()
+  id: string;
+
+  @IsString()
+  @IsNotEmpty()
+  left: string;
+
+  @IsString()
+  @IsNotEmpty()
+  right: string;
+}
+
+export class CreateMatchingSectionDto extends CreateSectionDto {
+  @IsEnum(SectionType)
+  type: SectionType.MATCHING;
+
+  @IsString()
+  @IsOptional()
+  questionText?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MatchingPairDto)
+  @ArrayMinSize(2, { message: 'At least 2 pairs are required' })
+  pairs: MatchingPairDto[];
+}
+
+export class UpdateMatchingSectionDto extends UpdateSectionDto {
+  @IsString()
+  @IsOptional()
+  questionText?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MatchingPairDto)
+  @IsOptional()
+  @ArrayMinSize(2)
+  pairs?: MatchingPairDto[];
 }
 
 // Bulk update orderIndex DTO

@@ -18,6 +18,43 @@ let CourseService = class CourseService {
     constructor(prisma) {
         this.prisma = prisma;
     }
+    shuffleArray(arr) {
+        const a = [...arr];
+        for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+    }
+    assertValidOrderingItems(items, correctOrder) {
+        const ids = new Set(items.map((i) => i.id));
+        if (ids.size !== items.length) {
+            throw new Error('Ordering items must have unique ids');
+        }
+        if (correctOrder.length !== ids.size) {
+            throw new Error('correctOrder must list each item id exactly once');
+        }
+        for (const id of correctOrder) {
+            if (!ids.has(id)) {
+                throw new Error(`correctOrder references unknown id: ${id}`);
+            }
+        }
+    }
+    sanitizeLessonSectionForStudent(section) {
+        if (section.type === dto_1.SectionType.ORDERING) {
+            section.config = null;
+        }
+        else if (section.type === dto_1.SectionType.MATCHING) {
+            const cfg = section.config;
+            if (cfg?.pairs?.length) {
+                const categories = this.shuffleArray(cfg.pairs.map((p) => ({ id: p.id, text: p.right })));
+                section.config = {
+                    pairs: cfg.pairs.map((p) => ({ id: p.id, left: p.left })),
+                    categories,
+                };
+            }
+        }
+    }
     async markFormComplete(userId, courseId, formId, metadata, courseFormId) {
         return this.prisma.userFormCompletion.upsert({
             where: {
@@ -812,6 +849,26 @@ let CourseService = class CourseService {
                     visualData.allowMultipleSelection ?? false;
                 data.options = visualData.options;
             }
+            if (body.type === dto_1.SectionType.ORDERING) {
+                const ord = body;
+                this.assertValidOrderingItems(ord.items, ord.correctOrder);
+                data.type = dto_1.SectionType.ORDERING;
+                data.questionText = ord.questionText ?? null;
+                data.items = ord.items;
+                data.config = {
+                    correctOrder: ord.correctOrder,
+                };
+            }
+            if (body.type === dto_1.SectionType.MATCHING) {
+                const mat = body;
+                const ids = new Set(mat.pairs.map((p) => p.id));
+                if (ids.size !== mat.pairs.length) {
+                    throw new Error('Matching pairs must have unique ids');
+                }
+                data.type = dto_1.SectionType.MATCHING;
+                data.questionText = mat.questionText ?? null;
+                data.config = { pairs: mat.pairs };
+            }
             const section = await this.prisma.section.create({
                 data,
             });
@@ -1413,6 +1470,10 @@ let CourseService = class CourseService {
                 section.isLastSeen =
                     lastSeenLesson?.sectionId === section.id ? true : false;
                 section.isCompleted = isCompleted;
+                if (section.type === dto_1.SectionType.ORDERING ||
+                    section.type === dto_1.SectionType.MATCHING) {
+                    this.sanitizeLessonSectionForStudent(section);
+                }
             });
             if (!(sections.length > 0)) {
                 throw new Error('No Sections found');
@@ -1618,6 +1679,8 @@ let CourseService = class CourseService {
                 updateData.moduleId = body.moduleId;
             if (body.orderIndex !== undefined)
                 updateData.orderIndex = body.orderIndex;
+            if (body.type !== undefined)
+                updateData.type = body.type;
             const sectionType = isSectionExist.type;
             if (sectionType === dto_1.SectionType.MATCH_AND_LEARN ||
                 body.type === dto_1.SectionType.MATCH_AND_LEARN) {
@@ -1660,6 +1723,44 @@ let CourseService = class CourseService {
                         throw new Error('At least one option must be marked as correct for Visual Activity sections');
                     }
                     updateData.options = visualData.options;
+                }
+            }
+            if (sectionType === dto_1.SectionType.ORDERING ||
+                body.type === dto_1.SectionType.ORDERING) {
+                const ord = body;
+                if (ord.questionText !== undefined)
+                    updateData.questionText = ord.questionText;
+                if (ord.items !== undefined)
+                    updateData.items = ord.items;
+                if (ord.items !== undefined || ord.correctOrder !== undefined) {
+                    const items = ord.items ??
+                        (Array.isArray(isSectionExist.items)
+                            ? isSectionExist.items
+                            : null);
+                    const existingCfg = isSectionExist.config;
+                    const correctOrder = ord.correctOrder ?? existingCfg?.correctOrder ?? null;
+                    if (!items?.length || !correctOrder?.length) {
+                        throw new Error('ORDERING section update requires existing items and correctOrder, or provide both in the request');
+                    }
+                    this.assertValidOrderingItems(items, correctOrder);
+                    updateData.config = {
+                        correctOrder,
+                    };
+                }
+            }
+            if (sectionType === dto_1.SectionType.MATCHING ||
+                body.type === dto_1.SectionType.MATCHING) {
+                const mat = body;
+                if (mat.questionText !== undefined)
+                    updateData.questionText = mat.questionText;
+                if (mat.pairs !== undefined) {
+                    const ids = new Set(mat.pairs.map((p) => p.id));
+                    if (ids.size !== mat.pairs.length) {
+                        throw new Error('Matching pairs must have unique ids');
+                    }
+                    updateData.config = {
+                        pairs: mat.pairs,
+                    };
                 }
             }
             if (Object.keys(updateData).length === 0) {

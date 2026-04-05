@@ -139,7 +139,9 @@ export interface ResponseDto {
 export declare enum SectionType {
     DEFAULT = "DEFAULT",
     MATCH_AND_LEARN = "MATCH_AND_LEARN",
-    VISUAL_ACTIVITY = "VISUAL_ACTIVITY"
+    VISUAL_ACTIVITY = "VISUAL_ACTIVITY",
+    ORDERING = "ORDERING",
+    MATCHING = "MATCHING"
 }
 export declare class CreateSectionDto {
     title: string;
@@ -164,6 +166,7 @@ export declare class CreateMatchAndLearnSectionDto extends CreateSectionDto {
     isActive?: boolean;
 }
 export declare class UpdateSectionDto {
+    type?: SectionType;
     title?: string;
     description?: string;
     shortDescription?: string;
@@ -195,6 +198,35 @@ export declare class UpdateVisualActivitySectionDto extends UpdateSectionDto {
     imageUrl?: string;
     allowMultipleSelection?: boolean;
     options?: VisualActivityOptionDto[];
+}
+export declare class OrderingItemDto {
+    id: string;
+    text: string;
+}
+export declare class CreateOrderingSectionDto extends CreateSectionDto {
+    type: SectionType.ORDERING;
+    questionText?: string;
+    items: OrderingItemDto[];
+    correctOrder: string[];
+}
+export declare class UpdateOrderingSectionDto extends UpdateSectionDto {
+    questionText?: string;
+    items?: OrderingItemDto[];
+    correctOrder?: string[];
+}
+export declare class MatchingPairDto {
+    id: string;
+    left: string;
+    right: string;
+}
+export declare class CreateMatchingSectionDto extends CreateSectionDto {
+    type: SectionType.MATCHING;
+    questionText?: string;
+    pairs: MatchingPairDto[];
+}
+export declare class UpdateMatchingSectionDto extends UpdateSectionDto {
+    questionText?: string;
+    pairs?: MatchingPairDto[];
 }
 export declare class SectionOrderItemDto {
     id: string;

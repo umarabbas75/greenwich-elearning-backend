@@ -1,8 +1,11 @@
-import { CourseDto, ModuleDto, ResponseDto, UpdateCourseDto, CreateSectionDto, CreateMatchAndLearnSectionDto, CreateVisualActivitySectionDto, UpdateSectionDto, UpdateMatchAndLearnSectionDto, UpdateVisualActivitySectionDto, UpdateSectionOrderDto } from '../dto';
+import { CourseDto, ModuleDto, ResponseDto, UpdateCourseDto, CreateSectionDto, CreateMatchAndLearnSectionDto, CreateVisualActivitySectionDto, CreateOrderingSectionDto, CreateMatchingSectionDto, UpdateSectionDto, UpdateMatchAndLearnSectionDto, UpdateVisualActivitySectionDto, UpdateOrderingSectionDto, UpdateMatchingSectionDto, UpdateSectionOrderDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 export declare class CourseService {
     private prisma;
     constructor(prisma: PrismaService);
+    private shuffleArray;
+    private assertValidOrderingItems;
+    private sanitizeLessonSectionForStudent;
     markFormComplete(userId: string, courseId: string, formId: string, metadata: any, courseFormId: string): Promise<any>;
     markPolicyItemAsComplete({ userId, courseId, policyId, policyItemId, }: {
         userId: string;
@@ -31,7 +34,7 @@ export declare class CourseService {
     createCourse(body: CourseDto): Promise<ResponseDto>;
     createModule(body: ModuleDto): Promise<ResponseDto>;
     createChapter(body: ModuleDto): Promise<ResponseDto>;
-    createSection(body: CreateSectionDto | CreateMatchAndLearnSectionDto | CreateVisualActivitySectionDto): Promise<ResponseDto>;
+    createSection(body: CreateSectionDto | CreateMatchAndLearnSectionDto | CreateVisualActivitySectionDto | CreateOrderingSectionDto | CreateMatchingSectionDto): Promise<ResponseDto>;
     getCourse(id: string): Promise<ResponseDto>;
     canAccessCourseContent(userId: string, courseId: string): Promise<ResponseDto>;
     getCourseDetailPublic(id: string): Promise<ResponseDto>;
@@ -48,7 +51,7 @@ export declare class CourseService {
     updateCourse(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateModule(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateChapter(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
-    updateSection(id: string, body: UpdateSectionDto | UpdateMatchAndLearnSectionDto | UpdateVisualActivitySectionDto | any): Promise<ResponseDto>;
+    updateSection(id: string, body: UpdateSectionDto | UpdateMatchAndLearnSectionDto | UpdateVisualActivitySectionDto | UpdateOrderingSectionDto | UpdateMatchingSectionDto | any): Promise<ResponseDto>;
     updateSectionOrder(body: UpdateSectionOrderDto): Promise<ResponseDto>;
     deleteCourse(id: string): Promise<ResponseDto>;
     deleteModule(id: string): Promise<ResponseDto>;
