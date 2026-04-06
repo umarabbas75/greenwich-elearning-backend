@@ -265,16 +265,10 @@ let CourseAssessmentService = class CourseAssessmentService {
                 throw new Error('Cannot activate a MANUAL assessment with no questions. Add questions first.');
             if (assessment.mode === client_1.AssessmentMode.AUTOMATIC && !assessment.autoConfig)
                 throw new Error('Cannot activate an AUTOMATIC assessment without autoConfig.');
-            const [, activated] = await this.prisma.$transaction([
-                this.prisma.assessment.updateMany({
-                    where: { courseId: assessment.courseId },
-                    data: { isActive: false },
-                }),
-                this.prisma.assessment.update({
-                    where: { id: assessmentId },
-                    data: { isActive: true },
-                }),
-            ]);
+            const activated = await this.prisma.assessment.update({
+                where: { id: assessmentId },
+                data: { isActive: true },
+            });
             return { message: 'Assessment activated successfully', statusCode: 200, data: activated };
         }
         catch (error) {
@@ -396,7 +390,7 @@ let CourseAssessmentService = class CourseAssessmentService {
             });
             if (!enrollment)
                 throw new Error('You are not enrolled in this course');
-            const assessment = await this.prisma.assessment.findFirst({
+            const assessments = await this.prisma.assessment.findMany({
                 where: { courseId, isActive: true },
                 select: {
                     id: true,
@@ -407,52 +401,56 @@ let CourseAssessmentService = class CourseAssessmentService {
                     timeLimitMinutes: true,
                     maxAttempts: true,
                 },
+                orderBy: { createdAt: 'asc' },
             });
-            if (!assessment) {
-                return { message: 'No active assessment for this course', statusCode: 200, data: null };
-            }
             const isEligible = await this._isCourseContentCompleted(userId, courseId);
-            const attempts = await this.prisma.assessmentAttempt.findMany({
-                where: { userId, assessmentId: assessment.id },
-                select: {
-                    id: true,
-                    status: true,
-                    startedAt: true,
-                    submittedAt: true,
-                    finalizedAt: true,
-                    marksObtained: true,
-                    totalMarks: true,
-                    percentage: true,
-                    isPassed: true,
-                },
-                orderBy: { startedAt: 'desc' },
-            });
-            const remainingAttempts = assessment.maxAttempts === null
-                ? null
-                : Math.max(0, assessment.maxAttempts - attempts.length);
+            const result = await Promise.all(assessments.map(async (assessment) => {
+                const attempts = await this.prisma.assessmentAttempt.findMany({
+                    where: { userId, assessmentId: assessment.id },
+                    select: {
+                        id: true,
+                        status: true,
+                        startedAt: true,
+                        submittedAt: true,
+                        finalizedAt: true,
+                        marksObtained: true,
+                        totalMarks: true,
+                        percentage: true,
+                        isPassed: true,
+                    },
+                    orderBy: { startedAt: 'desc' },
+                });
+                const inProgressAttempt = attempts.find((a) => a.status === client_1.AssessmentAttemptStatus.IN_PROGRESS);
+                const remainingAttempts = assessment.maxAttempts === null
+                    ? null
+                    : Math.max(0, assessment.maxAttempts - attempts.length);
+                const canStart = isEligible &&
+                    !inProgressAttempt &&
+                    (assessment.maxAttempts === null || remainingAttempts > 0);
+                return {
+                    assessment,
+                    isEligible,
+                    remainingAttempts,
+                    canStart,
+                    inProgressAttemptId: inProgressAttempt?.id ?? null,
+                    attempts,
+                };
+            }));
             return {
-                message: 'Assessment fetched successfully',
+                message: 'Assessments fetched successfully',
                 statusCode: 200,
-                data: { assessment, isEligible, remainingAttempts, attempts },
+                data: result,
             };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch assessment' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch assessments' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
         }
     }
     async startAttempt(userId, body) {
         try {
-            const { courseId } = body;
-            const enrollment = await this.prisma.userCourse.findFirst({
-                where: { userId, courseId, isActive: true },
-            });
-            if (!enrollment)
-                throw new Error('You are not enrolled in this course');
-            const isComplete = await this._isCourseContentCompleted(userId, courseId);
-            if (!isComplete)
-                throw new Error('You must complete all course content before attempting the assessment');
-            const assessment = await this.prisma.assessment.findFirst({
-                where: { courseId, isActive: true },
+            const { assessmentId } = body;
+            const assessment = await this.prisma.assessment.findUnique({
+                where: { id: assessmentId },
                 include: {
                     assessmentQuestions: {
                         include: { question: true },
@@ -461,7 +459,18 @@ let CourseAssessmentService = class CourseAssessmentService {
                 },
             });
             if (!assessment)
-                throw new Error('No active assessment found for this course');
+                throw new Error('Assessment not found');
+            if (!assessment.isActive)
+                throw new Error('This assessment is not currently active');
+            const courseId = assessment.courseId;
+            const enrollment = await this.prisma.userCourse.findFirst({
+                where: { userId, courseId, isActive: true },
+            });
+            if (!enrollment)
+                throw new Error('You are not enrolled in this course');
+            const isComplete = await this._isCourseContentCompleted(userId, courseId);
+            if (!isComplete)
+                throw new Error('You must complete all course content before attempting the assessment');
             const attemptCount = await this.prisma.assessmentAttempt.count({
                 where: { userId, assessmentId: assessment.id },
             });
@@ -527,44 +536,7 @@ let CourseAssessmentService = class CourseAssessmentService {
             throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch attempt' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
         }
     }
-    async saveAnswer(userId, attemptId, body) {
-        try {
-            const attempt = await this.prisma.assessmentAttempt.findUnique({
-                where: { id: attemptId },
-            });
-            if (!attempt)
-                throw new Error('Attempt not found');
-            if (attempt.userId !== userId)
-                throw new Error('You do not have access to this attempt');
-            if (attempt.status !== client_1.AssessmentAttemptStatus.IN_PROGRESS)
-                throw new Error('This attempt is no longer in progress');
-            const snapshot = await this.prisma.attemptQuestionSnapshot.findUnique({
-                where: { id: body.snapshotId },
-            });
-            if (!snapshot)
-                throw new Error('Question snapshot not found');
-            if (snapshot.attemptId !== attemptId)
-                throw new Error('This question does not belong to your attempt');
-            if (snapshot.isLocked)
-                throw new Error('This question has already been answered and is locked');
-            const systemScore = this._calculateAutoScore(snapshot.questionType, snapshot.questionContent, body.studentAnswer, snapshot.maxMarks);
-            const updated = await this.prisma.attemptQuestionSnapshot.update({
-                where: { id: body.snapshotId },
-                data: {
-                    studentAnswer: body.studentAnswer,
-                    isAnswered: true,
-                    isLocked: true,
-                    systemScore,
-                },
-            });
-            const { questionContent: _, ...safeSnapshot } = updated;
-            return { message: 'Answer saved successfully', statusCode: 200, data: safeSnapshot };
-        }
-        catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to save answer' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
-        }
-    }
-    async submitAttempt(userId, attemptId) {
+    async submitAttempt(userId, attemptId, body) {
         try {
             const attempt = await this.prisma.assessmentAttempt.findUnique({
                 where: { id: attemptId },
@@ -576,14 +548,23 @@ let CourseAssessmentService = class CourseAssessmentService {
                 throw new Error('You do not have access to this attempt');
             if (attempt.status !== client_1.AssessmentAttemptStatus.IN_PROGRESS)
                 throw new Error('This attempt is not in progress');
-            const hasManualQuestions = attempt.questionSnapshots.some((s) => s.questionType === client_1.QuestionType.SHORT_ANSWER ||
-                s.questionType === client_1.QuestionType.LONG_ANSWER);
+            const answerMap = new Map(body.answers.map((a) => [a.snapshotId, a.studentAnswer]));
+            const snapshotUpdates = attempt.questionSnapshots.map((snapshot) => {
+                const studentAnswer = answerMap.get(snapshot.id) ?? null;
+                const systemScore = studentAnswer !== null
+                    ? this._calculateAutoScore(snapshot.questionType, snapshot.questionContent, studentAnswer, snapshot.maxMarks)
+                    : null;
+                return { snapshot, studentAnswer, systemScore };
+            });
+            const answeredSnapshots = snapshotUpdates.filter((u) => u.studentAnswer !== null);
+            const hasManualQuestions = answeredSnapshots.some((u) => u.snapshot.questionType === client_1.QuestionType.SHORT_ANSWER ||
+                u.snapshot.questionType === client_1.QuestionType.LONG_ANSWER);
             let newStatus;
             let marksObtained = null;
             let percentage = null;
             let isPassed = null;
             if (!hasManualQuestions) {
-                marksObtained = attempt.questionSnapshots.reduce((sum, s) => sum + (s.systemScore ?? 0), 0);
+                marksObtained = snapshotUpdates.reduce((sum, u) => sum + (u.systemScore ?? 0), 0);
                 percentage =
                     attempt.totalMarks && attempt.totalMarks > 0
                         ? (marksObtained / attempt.totalMarks) * 100
@@ -594,15 +575,25 @@ let CourseAssessmentService = class CourseAssessmentService {
             else {
                 newStatus = client_1.AssessmentAttemptStatus.SUBMITTED;
             }
-            const updated = await this.prisma.assessmentAttempt.update({
-                where: { id: attemptId },
-                data: {
-                    status: newStatus,
-                    submittedAt: new Date(),
-                    ...(marksObtained !== null && { marksObtained }),
-                    ...(percentage !== null && { percentage }),
-                    ...(isPassed !== null && { isPassed }),
-                },
+            const updated = await this.prisma.$transaction(async (tx) => {
+                await Promise.all(snapshotUpdates.map((u) => tx.attemptQuestionSnapshot.update({
+                    where: { id: u.snapshot.id },
+                    data: {
+                        studentAnswer: u.studentAnswer,
+                        isAnswered: u.studentAnswer !== null,
+                        systemScore: u.systemScore,
+                    },
+                })));
+                return tx.assessmentAttempt.update({
+                    where: { id: attemptId },
+                    data: {
+                        status: newStatus,
+                        submittedAt: new Date(),
+                        ...(marksObtained !== null && { marksObtained }),
+                        ...(percentage !== null && { percentage }),
+                        ...(isPassed !== null && { isPassed }),
+                    },
+                });
             });
             if (newStatus === client_1.AssessmentAttemptStatus.AUTO_GRADED && isPassed) {
                 const assessmentRecord = await this.prisma.assessment.findUnique({

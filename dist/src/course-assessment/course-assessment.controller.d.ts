@@ -1,6 +1,6 @@
 import { AssessmentAttemptStatus, QuestionDifficulty, QuestionType } from '@prisma/client';
 import { User } from '@prisma/client';
-import { AddAssessmentQuestionDto, CreateAssessmentDto, CreateQuestionCategoryDto, CreateQuestionDto, GradeAttemptDto, ReorderAssessmentQuestionsDto, SaveAnswerDto, SetCertificateDto, StartAttemptDto, UpdateAssessmentDto, UpdateQuestionCategoryDto, UpdateQuestionDto } from '../dto';
+import { AddAssessmentQuestionDto, CreateAssessmentDto, CreateQuestionCategoryDto, CreateQuestionDto, GradeAttemptDto, ReorderAssessmentQuestionsDto, SetCertificateDto, StartAttemptDto, SubmitAttemptDto, UpdateAssessmentDto, UpdateQuestionCategoryDto, UpdateQuestionDto } from '../dto';
 import { CourseAssessmentService } from './course-assessment.service';
 export declare class CourseAssessmentController {
     private readonly service;
@@ -337,15 +337,15 @@ export declare class CourseAssessmentController {
         message: string;
         statusCode: number;
         data: ({
+            assessment: {
+                id: string;
+                title: string;
+            };
             user: {
+                id: string;
                 firstName: string;
                 lastName: string;
                 email: string;
-                id: string;
-            };
-            assessment: {
-                title: string;
-                id: string;
             };
         } & {
             id: string;
@@ -373,10 +373,10 @@ export declare class CourseAssessmentController {
         statusCode: number;
         data: {
             user: {
+                id: string;
                 firstName: string;
                 lastName: string;
                 email: string;
-                id: string;
             };
             questionSnapshots: {
                 id: string;
@@ -537,9 +537,9 @@ export declare class CourseAssessmentController {
         statusCode: number;
         data: {
             assessment: {
+                id: string;
                 title: string;
                 description: string;
-                id: string;
                 mode: import(".prisma/client").$Enums.AssessmentMode;
                 passingPercentage: number;
                 timeLimitMinutes: number;
@@ -547,18 +547,20 @@ export declare class CourseAssessmentController {
             };
             isEligible: boolean;
             remainingAttempts: number;
+            canStart: boolean;
+            inProgressAttemptId: string;
             attempts: {
                 status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
                 id: string;
-                percentage: number;
-                submittedAt: Date;
-                isPassed: boolean;
                 totalMarks: number;
                 marksObtained: number;
+                percentage: number;
+                isPassed: boolean;
                 startedAt: Date;
+                submittedAt: Date;
                 finalizedAt: Date;
             }[];
-        };
+        }[];
     }>;
     startAttempt(user: User, body: StartAttemptDto): Promise<{
         message: string;
@@ -570,31 +572,7 @@ export declare class CourseAssessmentController {
         statusCode: number;
         data: any;
     }>;
-    saveAnswer(user: User, attemptId: string, body: SaveAnswerDto): Promise<{
-        message: string;
-        statusCode: number;
-        data: {
-            id: string;
-            attemptId: string;
-            questionId: string;
-            orderIndex: number;
-            questionType: import(".prisma/client").$Enums.QuestionType;
-            questionText: string;
-            questionImageUrl: string;
-            maxMarks: number;
-            studentAnswer: import(".prisma/client").Prisma.JsonValue;
-            isAnswered: boolean;
-            isLocked: boolean;
-            systemScore: number;
-            adminScore: number;
-            finalScore: number;
-            adminFeedback: string;
-            gradedAt: Date;
-            createdAt: Date;
-            updatedAt: Date;
-        };
-    }>;
-    submitAttempt(user: User, id: string): Promise<{
+    submitAttempt(user: User, id: string, body: SubmitAttemptDto): Promise<{
         message: string;
         statusCode: number;
         data: {
@@ -624,17 +602,17 @@ export declare class CourseAssessmentController {
         data: ({
             questionSnapshots: {
                 id: string;
-                orderIndex: number;
-                questionText: string;
                 maxMarks: number;
-                studentAnswer: import(".prisma/client").Prisma.JsonValue;
-                adminFeedback: string;
+                orderIndex: number;
                 questionType: import(".prisma/client").$Enums.QuestionType;
+                questionText: string;
                 questionImageUrl: string;
+                studentAnswer: import(".prisma/client").Prisma.JsonValue;
                 isAnswered: boolean;
                 isLocked: boolean;
                 systemScore: number;
                 finalScore: number;
+                adminFeedback: string;
             }[];
         } & {
             id: string;
@@ -664,8 +642,8 @@ export declare class CourseAssessmentController {
             bestAttempt: {
                 id: string;
                 percentage: number;
-                submittedAt: Date;
                 isPassed: boolean;
+                submittedAt: Date;
                 finalizedAt: Date;
             };
         } & {

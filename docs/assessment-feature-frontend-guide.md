@@ -675,26 +675,33 @@ Auth: Student token
 
 Response:
 {
-  "data": {
-    "assessment": {
-      "id": "uuid",
-      "title": "Managing Safely – Assessment 1",
-      "passingPercentage": 60,
-      "timeLimitMinutes": 90,
-      "maxAttempts": 3
+  "data": [
+    {
+      "assessment": {
+        "id": "uuid",
+        "title": "Managing Safely – Assessment 1",
+        "passingPercentage": 60,
+        "timeLimitMinutes": 90,
+        "maxAttempts": 3
+      },
+      "isEligible": true,           // false if course content not yet completed
+      "remainingAttempts": 2,       // null = unlimited
+      "canStart": true,             // false if not eligible, maxAttempts reached, or IN_PROGRESS exists
+      "inProgressAttemptId": null,  // set if student has an active attempt for this assessment
+      "attempts": [...]             // past attempt summaries
     },
-    "isEligible": true,          // false if course content not yet completed
-    "remainingAttempts": 2,      // null = unlimited
-    "attempts": [...]            // past attempt summaries
-  }
+    ...                             // additional active assessments for the same course
+  ]
 }
 ```
 
 **Frontend logic**:
-- If `data === null` → no assessment exists for this course
-- If `isEligible === false` → show "Complete the course first" message
-- If `remainingAttempts === 0` → show "No more attempts available"
-- Otherwise → show "Start Assessment" button
+- If `data.length === 0` → no active assessments for this course
+- For each assessment entry:
+  - If `isEligible === false` → show "Complete the course first"
+  - If `inProgressAttemptId` is set → show "Resume" button linking to that attempt
+  - If `canStart === false && remainingAttempts === 0` → show "No more attempts available"
+  - If `canStart === true` → show "Start Assessment" button
 
 ---
 
@@ -703,7 +710,7 @@ Response:
 POST /course-assessment/student/attempts/start
 Auth: Student token
 
-Body: { "courseId": "uuid" }
+Body: { "assessmentId": "uuid" }   ⚠️ Changed: was courseId, now assessmentId
 
 Response: {
   "data": {
@@ -741,43 +748,30 @@ Response: {
 GET /course-assessment/student/attempts/:id
 Auth: Student token
 
-Same response shape as start. Already-answered questions show studentAnswer and isLocked=true.
-Correct answers are still hidden.
+Same response shape as start. Correct answers are still hidden.
 ```
 
 ---
 
-### Save an Answer
-```
-POST /course-assessment/student/attempts/:attemptId/answer
-Auth: Student token
-
-Body:
-{
-  "snapshotId": "snapshot-uuid",
-  "studentAnswer": { "selectedOptionId": "b" }  // shape depends on questionType (see section 1)
-}
-
-- Once answered, the question is LOCKED — this endpoint will fail if called again for the same snapshot
-- For auto-gradeable types, systemScore is calculated immediately
-- Response: updated snapshot (without correct answer)
-```
-
-**Frontend rules**:
-- Disable the answer UI for locked questions
-- Show a "Answered ✓" indicator for locked questions
-- Display the student's own answer on locked questions
-
----
-
-### Submit Assessment
+### Submit Assessment (with all answers)
 ```
 POST /course-assessment/student/attempts/:id/submit
 Auth: Student token
 
-- Closes the attempt
+Body:
+{
+  "answers": [
+    { "snapshotId": "snapshot-uuid-1", "studentAnswer": { "selectedOptionId": "b" } },
+    { "snapshotId": "snapshot-uuid-2", "studentAnswer": { "answer": true } },
+    { "snapshotId": "snapshot-uuid-3", "studentAnswer": { "text": "My short answer here" } }
+  ]
+}
+
+- All answers are submitted in one request — there is no mid-attempt save
+- studentAnswer shape depends on questionType (see Section 1 — Question Types reference)
+- Questions not included in answers array are left unanswered (count as 0 marks)
 - If all questions are auto-gradeable → status becomes AUTO_GRADED, results shown immediately
-- If any question is SHORT_ANSWER or LONG_ANSWER → status becomes SUBMITTED, waiting for admin
+- If any answered question is SHORT_ANSWER or LONG_ANSWER → status becomes SUBMITTED, waiting for admin
 ```
 
 **After submit, check `data.status`**:

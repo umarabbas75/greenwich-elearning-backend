@@ -891,16 +891,24 @@ export class ReorderAssessmentQuestionsDto {
 export class StartAttemptDto {
   @IsString()
   @IsNotEmpty()
-  courseId: string;
+  assessmentId: string;
 }
 
-export class SaveAnswerDto {
+export class AnswerItemDto {
   @IsString()
   @IsNotEmpty()
   snapshotId: string;
 
   @IsNotEmpty()
   studentAnswer: Record<string, any>;
+}
+
+export class SubmitAttemptDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @ArrayMinSize(1)
+  @Type(() => AnswerItemDto)
+  answers: AnswerItemDto[];
 }
 
 // --- Admin Grading ---

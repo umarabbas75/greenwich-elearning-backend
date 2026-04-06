@@ -307,11 +307,14 @@ export declare class ReorderAssessmentQuestionsDto {
     questions: ReorderQuestionItemDto[];
 }
 export declare class StartAttemptDto {
-    courseId: string;
+    assessmentId: string;
 }
-export declare class SaveAnswerDto {
+export declare class AnswerItemDto {
     snapshotId: string;
     studentAnswer: Record<string, any>;
+}
+export declare class SubmitAttemptDto {
+    answers: AnswerItemDto[];
 }
 export declare class QuestionScoreDto {
     snapshotId: string;

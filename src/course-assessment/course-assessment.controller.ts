@@ -20,9 +20,9 @@ import {
   CreateQuestionDto,
   GradeAttemptDto,
   ReorderAssessmentQuestionsDto,
-  SaveAnswerDto,
   SetCertificateDto,
   StartAttemptDto,
+  SubmitAttemptDto,
   UpdateAssessmentDto,
   UpdateQuestionCategoryDto,
   UpdateQuestionDto,
@@ -249,19 +249,13 @@ export class CourseAssessmentController {
   }
 
   @UseGuards(AuthGuard('uJwt'))
-  @Post('student/attempts/:id/answer')
-  saveAnswer(
-    @GetUser() user: User,
-    @Param('id') attemptId: string,
-    @Body() body: SaveAnswerDto,
-  ) {
-    return this.service.saveAnswer(user.id, attemptId, body);
-  }
-
-  @UseGuards(AuthGuard('uJwt'))
   @Post('student/attempts/:id/submit')
-  submitAttempt(@GetUser() user: User, @Param('id') id: string) {
-    return this.service.submitAttempt(user.id, id);
+  submitAttempt(
+    @GetUser() user: User,
+    @Param('id') id: string,
+    @Body() body: SubmitAttemptDto,
+  ) {
+    return this.service.submitAttempt(user.id, id, body);
   }
 
   @UseGuards(AuthGuard('uJwt'))

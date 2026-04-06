@@ -106,11 +106,8 @@ let CourseAssessmentController = class CourseAssessmentController {
     getAttempt(user, id) {
         return this.service.getAttempt(user.id, id);
     }
-    saveAnswer(user, attemptId, body) {
-        return this.service.saveAnswer(user.id, attemptId, body);
-    }
-    submitAttempt(user, id) {
-        return this.service.submitAttempt(user.id, id);
+    submitAttempt(user, id, body) {
+        return this.service.submitAttempt(user.id, id, body);
     }
     getStudentAttemptHistory(user, courseId) {
         return this.service.getStudentAttemptHistory(user.id, courseId);
@@ -354,21 +351,12 @@ __decorate([
 ], CourseAssessmentController.prototype, "getAttempt", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('uJwt')),
-    (0, common_1.Post)('student/attempts/:id/answer'),
+    (0, common_1.Post)('student/attempts/:id/submit'),
     __param(0, (0, decorator_1.GetUser)()),
     __param(1, (0, common_1.Param)('id')),
     __param(2, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, dto_1.SaveAnswerDto]),
-    __metadata("design:returntype", void 0)
-], CourseAssessmentController.prototype, "saveAnswer", null);
-__decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('uJwt')),
-    (0, common_1.Post)('student/attempts/:id/submit'),
-    __param(0, (0, decorator_1.GetUser)()),
-    __param(1, (0, common_1.Param)('id')),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:paramtypes", [Object, String, dto_1.SubmitAttemptDto]),
     __metadata("design:returntype", void 0)
 ], CourseAssessmentController.prototype, "submitAttempt", null);
 __decorate([
