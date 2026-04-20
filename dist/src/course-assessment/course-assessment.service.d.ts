@@ -5,6 +5,7 @@ import { AddAssessmentQuestionDto, CreateAssessmentDto, CreateQuestionCategoryDt
 export declare class CourseAssessmentService {
     private prisma;
     private notificationService;
+    private static readonly ASSESSMENT_TIMER_GRACE_SECONDS;
     constructor(prisma: PrismaService, notificationService: NotificationService);
     private throwQuestionCategoryError;
     createCategory(adminId: string, body: CreateQuestionCategoryDto): Promise<{
@@ -238,8 +239,8 @@ export declare class CourseAssessmentService {
         statusCode: number;
         data: ({
             _count: {
-                assessmentQuestions: number;
                 attempts: number;
+                assessmentQuestions: number;
             };
         } & {
             id: string;
@@ -345,9 +346,9 @@ export declare class CourseAssessmentService {
         statusCode: number;
         data: {
             assessment: {
-                id: string;
                 title: string;
                 description: string;
+                id: string;
                 mode: import(".prisma/client").$Enums.AssessmentMode;
                 passingPercentage: number;
                 timeLimitMinutes: number;
@@ -358,14 +359,23 @@ export declare class CourseAssessmentService {
             canStart: boolean;
             inProgressAttemptId: string;
             attempts: {
+                isExpired: boolean;
+                timeInfo: {
+                    timeLimitSeconds: number;
+                    startedAtMs: number;
+                    deadlineMs: number;
+                    remainingSeconds: number;
+                    graceSeconds: number;
+                };
                 status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
                 id: string;
+                percentage: number;
+                submittedAt: Date;
+                isPassed: boolean;
+                snapshotTimeLimitMin: number;
                 totalMarks: number;
                 marksObtained: number;
-                percentage: number;
-                isPassed: boolean;
                 startedAt: Date;
-                submittedAt: Date;
                 finalizedAt: Date;
             }[];
         }[];
@@ -410,17 +420,17 @@ export declare class CourseAssessmentService {
         data: ({
             questionSnapshots: {
                 id: string;
-                maxMarks: number;
                 orderIndex: number;
-                questionType: import(".prisma/client").$Enums.QuestionType;
                 questionText: string;
-                questionImageUrl: string;
+                maxMarks: number;
                 studentAnswer: Prisma.JsonValue;
+                adminFeedback: string;
+                questionType: import(".prisma/client").$Enums.QuestionType;
+                questionImageUrl: string;
                 isAnswered: boolean;
                 isLocked: boolean;
                 systemScore: number;
                 finalScore: number;
-                adminFeedback: string;
             }[];
         } & {
             id: string;
@@ -450,8 +460,8 @@ export declare class CourseAssessmentService {
             bestAttempt: {
                 id: string;
                 percentage: number;
-                isPassed: boolean;
                 submittedAt: Date;
+                isPassed: boolean;
                 finalizedAt: Date;
             };
         } & {
@@ -474,15 +484,15 @@ export declare class CourseAssessmentService {
         message: string;
         statusCode: number;
         data: ({
-            assessment: {
-                id: string;
-                title: string;
-            };
             user: {
-                id: string;
                 firstName: string;
                 lastName: string;
                 email: string;
+                id: string;
+            };
+            assessment: {
+                title: string;
+                id: string;
             };
         } & {
             id: string;
@@ -510,10 +520,10 @@ export declare class CourseAssessmentService {
         statusCode: number;
         data: {
             user: {
-                id: string;
                 firstName: string;
                 lastName: string;
                 email: string;
+                id: string;
             };
             questionSnapshots: {
                 id: string;
@@ -673,6 +683,8 @@ export declare class CourseAssessmentService {
     private _buildQuestionList;
     private _shuffle;
     private _calculateAutoScore;
+    private _expireStaleAttempts;
+    private _computeTimeInfo;
     private _stripCorrectAnswers;
     private _upsertCourseCompletion;
 }

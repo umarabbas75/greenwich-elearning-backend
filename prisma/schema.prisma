@@ -673,6 +673,7 @@ enum AssessmentAttemptStatus {
   AUTO_GRADED
   GRADED
   FINALIZED
+  EXPIRED
 }
 
 /// Admin-defined question categories, scoped per course

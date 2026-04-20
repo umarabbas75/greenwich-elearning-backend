@@ -26,6 +26,9 @@ import {
 
 @Injectable()
 export class CourseAssessmentService {
+  /** Grace period after the nominal deadline when the server still accepts submit (not configurable per assessment). */
+  private static readonly ASSESSMENT_TIMER_GRACE_SECONDS = 60;
+
   constructor(
     private prisma: PrismaService,
     private notificationService: NotificationService,
@@ -543,6 +546,8 @@ export class CourseAssessmentService {
 
       const result = await Promise.all(
         assessments.map(async (assessment) => {
+          await this._expireStaleAttempts(userId, assessment.id);
+
           const attempts = await this.prisma.assessmentAttempt.findMany({
             where: { userId, assessmentId: assessment.id },
             select: {
@@ -555,11 +560,24 @@ export class CourseAssessmentService {
               totalMarks: true,
               percentage: true,
               isPassed: true,
+              snapshotTimeLimitMin: true,
             },
             orderBy: { startedAt: 'desc' },
           });
 
-          const inProgressAttempt = attempts.find(
+          const attemptsWithMeta = attempts.map((a) => {
+            const isExpired = a.status === AssessmentAttemptStatus.EXPIRED;
+            const timeInfo =
+              a.status === AssessmentAttemptStatus.IN_PROGRESS
+                ? this._computeTimeInfo({
+                    startedAt: a.startedAt,
+                    snapshotTimeLimitMin: a.snapshotTimeLimitMin,
+                  })
+                : null;
+            return { ...a, isExpired, timeInfo };
+          });
+
+          const inProgressAttempt = attemptsWithMeta.find(
             (a) => a.status === AssessmentAttemptStatus.IN_PROGRESS,
           );
           const remainingAttempts =
@@ -577,7 +595,7 @@ export class CourseAssessmentService {
             remainingAttempts,
             canStart,
             inProgressAttemptId: inProgressAttempt?.id ?? null,
-            attempts,
+            attempts: attemptsWithMeta,
           };
         }),
       );
@@ -635,6 +653,8 @@ export class CourseAssessmentService {
           `Maximum attempts (${assessment.maxAttempts}) reached for this assessment`,
         );
 
+      await this._expireStaleAttempts(userId, assessment.id);
+
       // 5. No existing IN_PROGRESS attempt
       const inProgress = await this.prisma.assessmentAttempt.findFirst({
         where: { userId, assessmentId: assessment.id, status: AssessmentAttemptStatus.IN_PROGRESS },
@@ -648,42 +668,45 @@ export class CourseAssessmentService {
       // 7. Calculate totalMarks
       const totalMarks = selectedQuestions.reduce((sum, q) => sum + q.effectiveMarks, 0);
 
-      // 8. Create attempt + snapshots in a transaction
-      const attempt = await this.prisma.$transaction(async (tx) => {
-        const newAttempt = await tx.assessmentAttempt.create({
-          data: {
-            assessmentId: assessment.id,
-            userId,
-            snapshotTitle: assessment.title,
-            snapshotPassingPct: assessment.passingPercentage,
-            snapshotMaxAttempts: assessment.maxAttempts,
-            snapshotTimeLimitMin: assessment.timeLimitMinutes,
-            totalMarks,
+      // 8. Create attempt + snapshots in one statement (avoids interactive $transaction issues on
+      // Neon / poolers where "Transaction already closed" can occur on multi-step interactive txs).
+      const attempt = await this.prisma.assessmentAttempt.create({
+        data: {
+          assessmentId: assessment.id,
+          userId,
+          snapshotTitle: assessment.title,
+          snapshotPassingPct: assessment.passingPercentage,
+          snapshotMaxAttempts: assessment.maxAttempts,
+          snapshotTimeLimitMin: assessment.timeLimitMinutes,
+          totalMarks,
+          questionSnapshots: {
+            createMany: {
+              data: selectedQuestions.map((q, idx) => ({
+                questionId: q.id,
+                orderIndex: idx,
+                questionType: q.type,
+                questionText: q.text,
+                questionImageUrl: q.imageUrl ?? null,
+                questionContent: q.content as any,
+                maxMarks: q.effectiveMarks,
+              })),
+            },
           },
-        });
-
-        await tx.attemptQuestionSnapshot.createMany({
-          data: selectedQuestions.map((q, idx) => ({
-            attemptId: newAttempt.id,
-            questionId: q.id,
-            orderIndex: idx,
-            questionType: q.type,
-            questionText: q.text,
-            questionImageUrl: q.imageUrl ?? null,
-            questionContent: q.content as any,
-            maxMarks: q.effectiveMarks,
-          })),
-        });
-
-        return tx.assessmentAttempt.findUnique({
-          where: { id: newAttempt.id },
-          include: { questionSnapshots: { orderBy: { orderIndex: 'asc' } } },
-        });
+        },
+        include: { questionSnapshots: { orderBy: { orderIndex: 'asc' } } },
       });
 
       // 9. Strip correct answers before returning
       const sanitized = this._stripCorrectAnswers(attempt);
-      return { message: 'Attempt started successfully', statusCode: 200, data: sanitized };
+      const timeInfo = this._computeTimeInfo({
+        startedAt: attempt.startedAt,
+        snapshotTimeLimitMin: attempt.snapshotTimeLimitMin,
+      });
+      return {
+        message: 'Attempt started successfully',
+        statusCode: 200,
+        data: { ...sanitized, timeInfo },
+      };
     } catch (error) {
       throw new HttpException(
         { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to start attempt' },
@@ -702,8 +725,24 @@ export class CourseAssessmentService {
       if (!attempt) throw new Error('Attempt not found');
       if (attempt.userId !== userId) throw new Error('You do not have access to this attempt');
 
-      const sanitized = this._stripCorrectAnswers(attempt);
-      return { message: 'Attempt fetched successfully', statusCode: 200, data: sanitized };
+      await this._expireStaleAttempts(userId, attempt.assessmentId);
+
+      const fresh = await this.prisma.assessmentAttempt.findUnique({
+        where: { id: attemptId },
+        include: { questionSnapshots: { orderBy: { orderIndex: 'asc' } } },
+      });
+      if (!fresh) throw new Error('Attempt not found');
+
+      const sanitized = this._stripCorrectAnswers(fresh);
+      const timeInfo = this._computeTimeInfo({
+        startedAt: fresh.startedAt,
+        snapshotTimeLimitMin: fresh.snapshotTimeLimitMin,
+      });
+      return {
+        message: 'Attempt fetched successfully',
+        statusCode: 200,
+        data: { ...sanitized, timeInfo },
+      };
     } catch (error) {
       throw new HttpException(
         { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch attempt' },
@@ -715,14 +754,51 @@ export class CourseAssessmentService {
 
   async submitAttempt(userId: string, attemptId: string, body: SubmitAttemptDto) {
     try {
-      const attempt = await this.prisma.assessmentAttempt.findUnique({
+      let attempt = await this.prisma.assessmentAttempt.findUnique({
         where: { id: attemptId },
         include: { questionSnapshots: true },
       });
       if (!attempt) throw new Error('Attempt not found');
       if (attempt.userId !== userId) throw new Error('You do not have access to this attempt');
-      if (attempt.status !== AssessmentAttemptStatus.IN_PROGRESS)
+
+      await this._expireStaleAttempts(userId, attempt.assessmentId);
+      attempt = await this.prisma.assessmentAttempt.findUnique({
+        where: { id: attemptId },
+        include: { questionSnapshots: true },
+      });
+      if (!attempt) throw new Error('Attempt not found');
+
+      if (attempt.status !== AssessmentAttemptStatus.IN_PROGRESS) {
+        if (attempt.status === AssessmentAttemptStatus.EXPIRED) {
+          throw new HttpException(
+            {
+              status: HttpStatus.BAD_REQUEST,
+              error:
+                'Time limit exceeded. Your assessment time has expired and this attempt can no longer be submitted.',
+            },
+            HttpStatus.BAD_REQUEST,
+          );
+        }
         throw new Error('This attempt is not in progress');
+      }
+
+      const graceMs = CourseAssessmentService.ASSESSMENT_TIMER_GRACE_SECONDS * 1000;
+      if (attempt.snapshotTimeLimitMin != null) {
+        const deadline = new Date(
+          attempt.startedAt.getTime() +
+            attempt.snapshotTimeLimitMin * 60_000 +
+            graceMs,
+        );
+        if (new Date() > deadline) {
+          throw new HttpException(
+            {
+              status: HttpStatus.BAD_REQUEST,
+              error: 'Time limit exceeded. Your assessment time has expired.',
+            },
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+      }
 
       // Build a map of snapshotId → answer for fast lookup
       const answerMap = new Map(body.answers.map((a) => [a.snapshotId, a.studentAnswer]));
@@ -820,6 +896,7 @@ export class CourseAssessmentService {
 
       return { message: 'Assessment submitted successfully', statusCode: 200, data: updated };
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to submit attempt' },
         HttpStatus.FORBIDDEN,
@@ -945,7 +1022,16 @@ export class CourseAssessmentService {
         },
       });
       if (!attempt) throw new Error('Attempt not found');
-      return { message: 'Attempt fetched', statusCode: 200, data: attempt };
+      await this._expireStaleAttempts(attempt.userId, attempt.assessmentId);
+      const fresh = await this.prisma.assessmentAttempt.findUnique({
+        where: { id: attemptId },
+        include: {
+          user: { select: { id: true, firstName: true, lastName: true, email: true } },
+          questionSnapshots: { orderBy: { orderIndex: 'asc' } },
+        },
+      });
+      if (!fresh) throw new Error('Attempt not found');
+      return { message: 'Attempt fetched', statusCode: 200, data: fresh };
     } catch (error) {
       throw new HttpException(
         { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch attempt' },
@@ -1268,6 +1354,67 @@ export class CourseAssessmentService {
       default:
         return null;
     }
+  }
+
+  /**
+   * Marks IN_PROGRESS attempts as EXPIRED when now is past startedAt + time limit + grace.
+   * Called on read paths so lists and resume URLs stay consistent without a cron.
+   */
+  private async _expireStaleAttempts(userId: string, assessmentId: string): Promise<void> {
+    const graceMs = CourseAssessmentService.ASSESSMENT_TIMER_GRACE_SECONDS * 1000;
+    const stale = await this.prisma.assessmentAttempt.findMany({
+      where: {
+        userId,
+        assessmentId,
+        status: AssessmentAttemptStatus.IN_PROGRESS,
+        snapshotTimeLimitMin: { not: null },
+      },
+    });
+    const now = Date.now();
+    const expiredIds = stale
+      .filter((a) => {
+        const deadline =
+          a.startedAt.getTime() + a.snapshotTimeLimitMin! * 60_000 + graceMs;
+        return now > deadline;
+      })
+      .map((a) => a.id);
+
+    if (expiredIds.length > 0) {
+      await this.prisma.assessmentAttempt.updateMany({
+        where: { id: { in: expiredIds } },
+        data: { status: AssessmentAttemptStatus.EXPIRED },
+      });
+    }
+  }
+
+  /**
+   * Server-derived timer fields for the student UI. When `snapshotTimeLimitMin` is null, no timer applies.
+   */
+  private _computeTimeInfo(attempt: {
+    startedAt: Date;
+    snapshotTimeLimitMin: number | null;
+  }): {
+    timeLimitSeconds: number;
+    startedAtMs: number;
+    deadlineMs: number;
+    remainingSeconds: number;
+    graceSeconds: number;
+  } | null {
+    if (attempt.snapshotTimeLimitMin == null) return null;
+    const timeLimitSeconds = attempt.snapshotTimeLimitMin * 60;
+    const startedAtMs = attempt.startedAt.getTime();
+    const deadlineMs = startedAtMs + attempt.snapshotTimeLimitMin * 60_000;
+    const remainingSeconds = Math.max(
+      0,
+      Math.floor((deadlineMs - Date.now()) / 1000),
+    );
+    return {
+      timeLimitSeconds,
+      startedAtMs,
+      deadlineMs,
+      remainingSeconds,
+      graceSeconds: CourseAssessmentService.ASSESSMENT_TIMER_GRACE_SECONDS,
+    };
   }
 
   private _stripCorrectAnswers(attempt: any): any {

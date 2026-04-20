@@ -12,6 +12,89 @@
 |------|---------|
 | 2026-04-04 | Initial release |
 | 2026-04-04 | **BREAKING (pre-release)**: MATCHING `studentAnswer.rightId` now uses pair ID, not text. Added `categories[]` to MATCHING student-facing snapshot. See [Blocker 1](#blocker-1--matching-rightid-now-uses-pair-id) and [Blocker 2](#blocker-2--matching-categories-is-confirmed-and-shipped). Clarified isEligible logic, attempts[] shape, pagination, VISUAL_ACTIVITY answer format, notification routing. |
+| 2026-04-08 | Added **[How the assessment feature works](#how-the-assessment-feature-works-architecture--behaviour)** (architecture, gates, bookmarked URLs, submit validation). Aligned finalize rules and UI notes with current backend. |
+| 2026-04-15 | **Timer enforcement**: `timeLimitMinutes` is snapshotted as `snapshotTimeLimitMin` per attempt; backend enforces deadline + **60s grace** on submit; new status **`EXPIRED`** for attempts never submitted after the window; responses include computed **`timeInfo`** (see [Assessment timer](#assessment-timer-server--student-ui)). |
+
+---
+
+## How the assessment feature works (architecture & behaviour)
+
+This section is the **high-level backend story** for product and frontend. Everything below still applies; the rest of the document is the **API cookbook**.
+
+### What it is for
+
+The assessment feature is the **formal end-of-course exam** for a **course**: a **question bank** (reusable questions), one or more **assessment** definitions per course, **student attempts** with **immutable question snapshots**, optional **admin grading** for written questions, and a **course completion** record that can point at the learner’s best attempt and certificate URL.
+
+It is **separate** from: lesson sections, chapter quizzes (`Quiz` / `QuizProgress`), and assignments.
+
+### Main database concepts
+
+| Concept | Role |
+|--------|------|
+| **QuestionCategory** | Groups questions within a **course** (e.g. “Risk assessment”). Unique per `(courseId, name)`. |
+| **Question** | A single bank item: `type`, `text`, `content` JSON (options, correct answers, etc.), `maxMarks`, `difficulty`, `isActive`. |
+| **Assessment** | Exam paper for a **course**: title, `mode` (**MANUAL** or **AUTOMATIC**), `passingPercentage`, optional `maxAttempts` (`null` = unlimited), optional `timeLimitMinutes` (`null` = **no** time limit; when set, see [Assessment timer](#assessment-timer-server--student-ui)), `isActive`. |
+| **AssessmentQuestion** | **MANUAL mode only**: ordered list of which bank questions appear, with optional `marksOverride`. |
+| **AUTOMATIC mode** | No roster table for the admin pick-list; at **start attempt** the server builds a paper from `autoConfig` (counts per category / difficulty + `totalQuestions`) by drawing from active questions in the bank. |
+| **AssessmentAttempt** | One **sitting** of the exam for one student: `status`, scores, timestamps. Settings at creation are **snapshotted** (`snapshotPassingPct`, etc.) so later edits to the assessment do not change old attempts. |
+| **AttemptQuestionSnapshot** | Frozen copy of each question as shown in that attempt (`questionContent` **includes** correct answers for grading). Holds `studentAnswer`, auto `systemScore`, optional `adminScore` / `finalScore`, feedback. |
+| **CourseCompletion** | One row per `(userId, courseId)`; links optional `bestAttemptId`, certificate URL, pass timestamps. Updated when an attempt is **finalized** (see below). |
+
+**Why snapshots?** Once an attempt starts, question text and correct answers are fixed for that attempt even if an admin edits or deactivates the bank question later.
+
+### Assessment modes (MANUAL vs AUTOMATIC)
+
+- **MANUAL** — Admin attaches specific bank questions in order (`AssessmentQuestion`). Everyone who starts an attempt gets **that ordered set** (unless questions were removed from the roster before the attempt).
+- **AUTOMATIC** — Admin configures `autoConfig` (`totalQuestions`, `byCategory`, `byDifficulty`). Each **new** attempt may get a **different random subset** from the bank (subject to pool size checks at start). **Do not cache** question lists between users or between attempts.
+
+### Who can start an attempt (student gates)
+
+When `POST /course-assessment/student/attempts/start` runs, the server checks, in order:
+
+1. **Assessment exists** and **`isActive`**.
+2. **Enrollment** — `UserCourse` for `(userId, courseId)` with `isActive: true`.
+3. **Course content done** — count of `UserCourseProgress` rows for that user and course is **≥** total count of **sections** in the course (all modules/chapters). This is the same rule as `isEligible` on the list endpoint.
+4. **Attempt budget** — number of existing attempts for this assessment is **&lt;** `maxAttempts` when `maxAttempts` is not `null`.
+5. **No duplicate in-flight attempt** — there must be **no** row with `status = IN_PROGRESS` for this user + assessment.
+
+The list endpoint `GET .../student/assessments/:courseId` pre-computes **`canStart`**, **`remainingAttempts`**, and **`inProgressAttemptId`** so the UI can disable “Start” without guessing.
+
+### Assessment timer (server + student UI)
+
+- **`timeLimitMinutes` on the assessment** is copied to **`snapshotTimeLimitMin`** on the attempt when it starts. If it is **`null`**, there is **no timer** (same as unlimited time).
+- The **frontend** should run a **visible countdown** and call **`POST .../attempts/:id/submit`** when the countdown reaches **zero** (send whatever answers are filled in).
+- The **backend** rejects submit when `now > startedAt + snapshotTimeLimitMin × 60s + 60s grace`. The grace period is a **fixed server constant** (60 seconds), not configurable per assessment.
+- Attempts that were **never submitted** and are past that window become **`EXPIRED`** (see state machine). Expiry is applied **on demand** when the student list, resume, or admin detail is loaded — there is **no cron job**.
+- **`timeInfo`** on **`startAttempt`** and **`GET .../attempts/:id`** gives server-derived fields so the UI can seed a countdown without trusting only the client clock:
+  - `timeLimitSeconds`, `startedAtMs`, `deadlineMs`, `remainingSeconds` (floored, ≥ 0), `graceSeconds` (always `60` when `timeInfo` is present).
+- List responses (`attempts[]`) include **`snapshotTimeLimitMin`**, per-row **`timeInfo`** when `status === IN_PROGRESS` and a limit exists, and **`isExpired`** when `status === EXPIRED`.
+
+### Attempt status (what happens after submit)
+
+See [§2 Attempt Status State Machine](#2-attempt-status-state-machine). In short:
+
+- **Submit** sends **all answers in one request** (no per-question save API).
+- If every scored question is auto-gradeable → **`AUTO_GRADED`** immediately with marks.
+- If any included answer needs human marking (short/long text) → **`SUBMITTED`**.
+- Admin uses **`PATCH .../grade`** → **`GRADED`** (preview).
+- **`POST .../finalize`** → **`FINALIZED`** and student notification; also drives **course completion** bookkeeping.
+
+**Finalize** may be called when the attempt is **`SUBMITTED`**, **`AUTO_GRADED`**, or **`GRADED`** (the service recalculates totals from snapshots).
+
+### Submit payload rule (important)
+
+`SubmitAttemptDto` requires **`answers` to be a non-empty array** (`ArrayMinSize(1)`). Each element is `{ snapshotId, studentAnswer }`. Snapshots **not** listed in `answers` are treated as unanswered (0 marks) — but you must still send **at least one** snapshot entry to pass validation.
+
+### Bookmarked URLs / coming back later
+
+- A completed attempt is **not** `IN_PROGRESS`. Calling **`POST .../attempts/:id/submit` again** on that id fails with **“This attempt is not in progress”** (or a **time expired** message if the attempt was marked **`EXPIRED`**).
+- Opening a saved URL does **not** by itself create a new attempt. If the app calls **`startAttempt`** again, the backend may create a **new** attempt **only if** `maxAttempts` allows it (`null` = unlimited). Otherwise the student gets **“Maximum attempts (N) reached”**.
+- If they abandoned mid-exam and the **time limit + grace** has passed, the next load of the list or **`GET .../attempts/:id`** marks the attempt **`EXPIRED`**. **`startAttempt`** can then succeed again (subject to **`maxAttempts`**). While still within the window, **`IN_PROGRESS`** still blocks **`startAttempt`** until they **submit** or time runs out.
+
+### Out of scope / not enforced in backend today
+
+- **Pagination** on admin/student list endpoints — full lists.
+- **Per-question autosave** — only full submit.
 
 ---
 
@@ -93,18 +176,29 @@ Render left `pairs` on one side, render `categories` on the other side. Student 
 ```json
 {
   "id": "attempt-uuid",
-  "status": "IN_PROGRESS",        // or SUBMITTED | AUTO_GRADED | GRADED | FINALIZED
+  "status": "IN_PROGRESS",
   "startedAt": "2026-04-04T...",
   "submittedAt": null,
   "finalizedAt": null,
   "marksObtained": null,
   "totalMarks": 60,
   "percentage": null,
-  "isPassed": null
+  "isPassed": null,
+  "snapshotTimeLimitMin": 90,
+  "isExpired": false,
+  "timeInfo": {
+    "timeLimitSeconds": 5400,
+    "startedAtMs": 1712236800000,
+    "deadlineMs": 1712242200000,
+    "remainingSeconds": 1200,
+    "graceSeconds": 60
+  }
 }
 ```
 
-**Resume flow**: find the item where `status === "IN_PROGRESS"`, take its `id`, then call `GET /student/attempts/:id` to load the full attempt with all snapshots.
+`status` may be `IN_PROGRESS | SUBMITTED | AUTO_GRADED | GRADED | FINALIZED | EXPIRED`. **`timeInfo`** is **`null`** unless `status === IN_PROGRESS` and `snapshotTimeLimitMin` is set. **`isExpired`** is **`true`** when `status === EXPIRED` (no resume).
+
+**Resume flow**: find the item where `status === "IN_PROGRESS"`, take its `id`, then call `GET /student/attempts/:id` to load the full attempt with all snapshots. Use **`timeInfo.remainingSeconds`** from either the list row or **`GET`** response to drive the countdown.
 
 ---
 
@@ -172,6 +266,7 @@ There is **no expected URL pattern from the backend**. The `referenceId` in the 
 
 ## Table of Contents
 
+0. [How the assessment feature works (architecture & behaviour)](#how-the-assessment-feature-works-architecture--behaviour)
 1. [Question Types Reference](#1-question-types-reference)
 2. [Attempt Status State Machine](#2-attempt-status-state-machine)
 3. [Admin Flows](#3-admin-flows)
@@ -378,7 +473,16 @@ An image with clickable option buttons (single or multiple correct).
                 ┌─────────────┐
                 │  IN_PROGRESS │  ← student starts attempt
                 └──────┬──────┘
-                       │ student submits
+         never submitted + past time limit + grace
+                       ▼
+                ┌─────────────┐
+                │   EXPIRED   │  ← not submitted in time (on-demand expiry on read)
+                └─────────────┘
+
+                ┌─────────────┐
+                │  IN_PROGRESS │
+                └──────┬──────┘
+                       │ student submits (within deadline + grace)
                        ▼
           ┌────────────────────────┐
           │                        │
@@ -400,7 +504,8 @@ An image with clickable option buttons (single or multiple correct).
 ```
 
 **Key rules for frontend**:
-- `IN_PROGRESS` → show the assessment quiz UI
+- `IN_PROGRESS` → show the assessment quiz UI; run countdown from **`timeInfo.remainingSeconds`**
+- `EXPIRED` → show “This attempt expired”; **no** resume; grey out in history lists
 - `SUBMITTED` → show "Waiting for admin to grade" message
 - `AUTO_GRADED` → show results immediately (all questions were auto-gradeable)
 - `GRADED` → admin-only state, means admin is reviewing
@@ -609,7 +714,7 @@ GET /course-assessment/admin/attempts?courseId=uuid&status=SUBMITTED&userId=uuid
 Auth: Admin token
 
 Filters (all optional):
-- status: IN_PROGRESS | SUBMITTED | AUTO_GRADED | GRADED | FINALIZED
+- status: IN_PROGRESS | SUBMITTED | AUTO_GRADED | GRADED | FINALIZED | EXPIRED
 - userId: filter by a specific student
 
 Returns attempt list with student info and score summaries.
@@ -649,14 +754,15 @@ Body:
 ```
 POST /course-assessment/admin/attempts/:id/finalize
 Auth: Admin token
-
-- Sets finalScore = adminScore ?? systemScore for all questions
-- Calculates final percentage and isPassed
-- Updates CourseCompletion record
-- Sends notification to student
-- Status becomes FINALIZED
-- Admin can still call /grade after this (to correct mistakes), then /finalize again
 ```
+
+- Allowed when attempt status is **`SUBMITTED`**, **`AUTO_GRADED`**, or **`GRADED`** (not `IN_PROGRESS`).
+- Sets `finalScore = adminScore ?? systemScore` for each snapshot.
+- Calculates final `marksObtained`, `percentage`, and `isPassed` vs `snapshotPassingPct`.
+- Updates **`CourseCompletion`** (best-attempt pointer and timestamps).
+- Sends **`ASSESSMENT_GRADED`** notification to the student.
+- Attempt **`status`** becomes **`FINALIZED`**.
+- Admin can call **`PATCH .../grade`** again after finalize to correct mistakes, then **`POST .../finalize`** again.
 
 #### Set Certificate URL
 ```
@@ -699,7 +805,8 @@ Response:
 - If `data.length === 0` → no active assessments for this course
 - For each assessment entry:
   - If `isEligible === false` → show "Complete the course first"
-  - If `inProgressAttemptId` is set → show "Resume" button linking to that attempt
+  - If `inProgressAttemptId` is set → show "Resume" button linking to that attempt (use **`timeInfo`** on the matching **`attempts[]`** row for “X min left” if needed)
+  - In **`attempts[]`**, if **`isExpired`** → show “This attempt expired” (no resume)
   - If `canStart === false && remainingAttempts === 0` → show "No more attempts available"
   - If `canStart === true` → show "Start Assessment" button
 
@@ -718,6 +825,13 @@ Response: {
     "status": "IN_PROGRESS",
     "snapshotTitle": "...",
     "snapshotPassingPct": 60,
+    "timeInfo": {
+      "timeLimitSeconds": 5400,
+      "startedAtMs": 1712236800000,
+      "deadlineMs": 1712242200000,
+      "remainingSeconds": 5380,
+      "graceSeconds": 60
+    },
     "totalMarks": 60,
     "questionSnapshots": [
       {
@@ -741,6 +855,8 @@ Response: {
 }
 ```
 
+`timeInfo` is **`null`** when the assessment has no time limit (`snapshotTimeLimitMin` null).
+
 ---
 
 ### Resume an In-Progress Attempt
@@ -748,7 +864,7 @@ Response: {
 GET /course-assessment/student/attempts/:id
 Auth: Student token
 
-Same response shape as start. Correct answers are still hidden.
+Same response shape as start (attempt fields + `questionSnapshots` + `timeInfo`). Correct answers are still hidden.
 ```
 
 ---
@@ -768,10 +884,14 @@ Body:
 }
 
 - All answers are submitted in one request — there is no mid-attempt save
-- studentAnswer shape depends on questionType (see Section 1 — Question Types reference)
-- Questions not included in answers array are left unanswered (count as 0 marks)
+- The `answers` array must contain **at least one** `{ snapshotId, studentAnswer }` entry (API validation). Include one entry per question you want to score; omitting a snapshot leaves that question unanswered (0 marks).
+- `studentAnswer` shape depends on `questionType` (see Section 1 — Question Types reference)
 - If all questions are auto-gradeable → status becomes AUTO_GRADED, results shown immediately
 - If any answered question is SHORT_ANSWER or LONG_ANSWER → status becomes SUBMITTED, waiting for admin
+
+**Timer behaviour**:
+- When the visible countdown reaches **0**, call **`POST .../submit` immediately** with whatever answers the student entered; show a message such as “Time is up — submitting your answers”.
+- If the server responds with **HTTP 400** and a message like **“Time limit exceeded…”**, show that the attempt could not be submitted in time (e.g. network failure after the grace window). If the attempt was already marked **`EXPIRED`** (e.g. another tab loaded first), submit may return **400** with wording that the attempt can no longer be submitted.
 ```
 
 **After submit, check `data.status`**:
@@ -842,8 +962,8 @@ Assessment notifications use the **existing** `GET /api/v1/notifications` endpoi
 |------|--------|
 | **Correct answers hidden from student** | `correctOptionId`, `correctOptionIds`, `correctAnswer`, `correctOrder`, `isCorrect` are stripped from all student-facing responses. Never shown until FINALIZED. |
 | **Locked questions** | Once `isLocked=true`, the answer UI must be disabled. Backend will reject re-answers. |
-| **Assessment lock** | The "Start Assessment" button should only be enabled when `isEligible=true` and `remainingAttempts !== 0`. |
-| **One active assessment** | A course always has at most one `isActive=true` assessment. |
+| **Assessment lock** | Prefer the API’s **`canStart`** flag (it bundles eligibility, attempt limit, and in-progress state). Roughly: need `isEligible`, no `inProgressAttemptId`, and remaining attempts if capped. |
+| **Active assessments** | **Activating** an assessment (`POST .../activate`) deactivates other assessments for that course. The student list returns **all** `isActive` assessments for the course (usually **one**; handle an array). |
 | **AUTOMATIC mode** | Each student gets a unique question set. Do not cache or reuse the question list between users. |
 | **Time limit** | `timeLimitMinutes` is **informational only** — show it to the student as "Estimated time: X minutes". The backend does NOT enforce it yet. |
 | **Admin can override auto-grades** | For MCQ questions, show the auto-calculated score to admin but allow them to change it via `/grade`. |

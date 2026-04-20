@@ -8,13 +8,14 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var CourseAssessmentService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CourseAssessmentService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const notification_service_1 = require("../notifiications/notification.service");
-let CourseAssessmentService = class CourseAssessmentService {
+let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessmentService {
     constructor(prisma, notificationService) {
         this.prisma = prisma;
         this.notificationService = notificationService;
@@ -405,6 +406,7 @@ let CourseAssessmentService = class CourseAssessmentService {
             });
             const isEligible = await this._isCourseContentCompleted(userId, courseId);
             const result = await Promise.all(assessments.map(async (assessment) => {
+                await this._expireStaleAttempts(userId, assessment.id);
                 const attempts = await this.prisma.assessmentAttempt.findMany({
                     where: { userId, assessmentId: assessment.id },
                     select: {
@@ -417,10 +419,21 @@ let CourseAssessmentService = class CourseAssessmentService {
                         totalMarks: true,
                         percentage: true,
                         isPassed: true,
+                        snapshotTimeLimitMin: true,
                     },
                     orderBy: { startedAt: 'desc' },
                 });
-                const inProgressAttempt = attempts.find((a) => a.status === client_1.AssessmentAttemptStatus.IN_PROGRESS);
+                const attemptsWithMeta = attempts.map((a) => {
+                    const isExpired = a.status === client_1.AssessmentAttemptStatus.EXPIRED;
+                    const timeInfo = a.status === client_1.AssessmentAttemptStatus.IN_PROGRESS
+                        ? this._computeTimeInfo({
+                            startedAt: a.startedAt,
+                            snapshotTimeLimitMin: a.snapshotTimeLimitMin,
+                        })
+                        : null;
+                    return { ...a, isExpired, timeInfo };
+                });
+                const inProgressAttempt = attemptsWithMeta.find((a) => a.status === client_1.AssessmentAttemptStatus.IN_PROGRESS);
                 const remainingAttempts = assessment.maxAttempts === null
                     ? null
                     : Math.max(0, assessment.maxAttempts - attempts.length);
@@ -433,7 +446,7 @@ let CourseAssessmentService = class CourseAssessmentService {
                     remainingAttempts,
                     canStart,
                     inProgressAttemptId: inProgressAttempt?.id ?? null,
-                    attempts,
+                    attempts: attemptsWithMeta,
                 };
             }));
             return {
@@ -476,6 +489,7 @@ let CourseAssessmentService = class CourseAssessmentService {
             });
             if (assessment.maxAttempts !== null && attemptCount >= assessment.maxAttempts)
                 throw new Error(`Maximum attempts (${assessment.maxAttempts}) reached for this assessment`);
+            await this._expireStaleAttempts(userId, assessment.id);
             const inProgress = await this.prisma.assessmentAttempt.findFirst({
                 where: { userId, assessmentId: assessment.id, status: client_1.AssessmentAttemptStatus.IN_PROGRESS },
             });
@@ -483,37 +497,41 @@ let CourseAssessmentService = class CourseAssessmentService {
                 throw new Error('You already have an in-progress attempt. Complete or submit it first.');
             const selectedQuestions = await this._buildQuestionList(assessment);
             const totalMarks = selectedQuestions.reduce((sum, q) => sum + q.effectiveMarks, 0);
-            const attempt = await this.prisma.$transaction(async (tx) => {
-                const newAttempt = await tx.assessmentAttempt.create({
-                    data: {
-                        assessmentId: assessment.id,
-                        userId,
-                        snapshotTitle: assessment.title,
-                        snapshotPassingPct: assessment.passingPercentage,
-                        snapshotMaxAttempts: assessment.maxAttempts,
-                        snapshotTimeLimitMin: assessment.timeLimitMinutes,
-                        totalMarks,
+            const attempt = await this.prisma.assessmentAttempt.create({
+                data: {
+                    assessmentId: assessment.id,
+                    userId,
+                    snapshotTitle: assessment.title,
+                    snapshotPassingPct: assessment.passingPercentage,
+                    snapshotMaxAttempts: assessment.maxAttempts,
+                    snapshotTimeLimitMin: assessment.timeLimitMinutes,
+                    totalMarks,
+                    questionSnapshots: {
+                        createMany: {
+                            data: selectedQuestions.map((q, idx) => ({
+                                questionId: q.id,
+                                orderIndex: idx,
+                                questionType: q.type,
+                                questionText: q.text,
+                                questionImageUrl: q.imageUrl ?? null,
+                                questionContent: q.content,
+                                maxMarks: q.effectiveMarks,
+                            })),
+                        },
                     },
-                });
-                await tx.attemptQuestionSnapshot.createMany({
-                    data: selectedQuestions.map((q, idx) => ({
-                        attemptId: newAttempt.id,
-                        questionId: q.id,
-                        orderIndex: idx,
-                        questionType: q.type,
-                        questionText: q.text,
-                        questionImageUrl: q.imageUrl ?? null,
-                        questionContent: q.content,
-                        maxMarks: q.effectiveMarks,
-                    })),
-                });
-                return tx.assessmentAttempt.findUnique({
-                    where: { id: newAttempt.id },
-                    include: { questionSnapshots: { orderBy: { orderIndex: 'asc' } } },
-                });
+                },
+                include: { questionSnapshots: { orderBy: { orderIndex: 'asc' } } },
             });
             const sanitized = this._stripCorrectAnswers(attempt);
-            return { message: 'Attempt started successfully', statusCode: 200, data: sanitized };
+            const timeInfo = this._computeTimeInfo({
+                startedAt: attempt.startedAt,
+                snapshotTimeLimitMin: attempt.snapshotTimeLimitMin,
+            });
+            return {
+                message: 'Attempt started successfully',
+                statusCode: 200,
+                data: { ...sanitized, timeInfo },
+            };
         }
         catch (error) {
             throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to start attempt' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
@@ -529,8 +547,23 @@ let CourseAssessmentService = class CourseAssessmentService {
                 throw new Error('Attempt not found');
             if (attempt.userId !== userId)
                 throw new Error('You do not have access to this attempt');
-            const sanitized = this._stripCorrectAnswers(attempt);
-            return { message: 'Attempt fetched successfully', statusCode: 200, data: sanitized };
+            await this._expireStaleAttempts(userId, attempt.assessmentId);
+            const fresh = await this.prisma.assessmentAttempt.findUnique({
+                where: { id: attemptId },
+                include: { questionSnapshots: { orderBy: { orderIndex: 'asc' } } },
+            });
+            if (!fresh)
+                throw new Error('Attempt not found');
+            const sanitized = this._stripCorrectAnswers(fresh);
+            const timeInfo = this._computeTimeInfo({
+                startedAt: fresh.startedAt,
+                snapshotTimeLimitMin: fresh.snapshotTimeLimitMin,
+            });
+            return {
+                message: 'Attempt fetched successfully',
+                statusCode: 200,
+                data: { ...sanitized, timeInfo },
+            };
         }
         catch (error) {
             throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch attempt' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
@@ -538,7 +571,7 @@ let CourseAssessmentService = class CourseAssessmentService {
     }
     async submitAttempt(userId, attemptId, body) {
         try {
-            const attempt = await this.prisma.assessmentAttempt.findUnique({
+            let attempt = await this.prisma.assessmentAttempt.findUnique({
                 where: { id: attemptId },
                 include: { questionSnapshots: true },
             });
@@ -546,8 +579,34 @@ let CourseAssessmentService = class CourseAssessmentService {
                 throw new Error('Attempt not found');
             if (attempt.userId !== userId)
                 throw new Error('You do not have access to this attempt');
-            if (attempt.status !== client_1.AssessmentAttemptStatus.IN_PROGRESS)
+            await this._expireStaleAttempts(userId, attempt.assessmentId);
+            attempt = await this.prisma.assessmentAttempt.findUnique({
+                where: { id: attemptId },
+                include: { questionSnapshots: true },
+            });
+            if (!attempt)
+                throw new Error('Attempt not found');
+            if (attempt.status !== client_1.AssessmentAttemptStatus.IN_PROGRESS) {
+                if (attempt.status === client_1.AssessmentAttemptStatus.EXPIRED) {
+                    throw new common_1.HttpException({
+                        status: common_1.HttpStatus.BAD_REQUEST,
+                        error: 'Time limit exceeded. Your assessment time has expired and this attempt can no longer be submitted.',
+                    }, common_1.HttpStatus.BAD_REQUEST);
+                }
                 throw new Error('This attempt is not in progress');
+            }
+            const graceMs = CourseAssessmentService_1.ASSESSMENT_TIMER_GRACE_SECONDS * 1000;
+            if (attempt.snapshotTimeLimitMin != null) {
+                const deadline = new Date(attempt.startedAt.getTime() +
+                    attempt.snapshotTimeLimitMin * 60000 +
+                    graceMs);
+                if (new Date() > deadline) {
+                    throw new common_1.HttpException({
+                        status: common_1.HttpStatus.BAD_REQUEST,
+                        error: 'Time limit exceeded. Your assessment time has expired.',
+                    }, common_1.HttpStatus.BAD_REQUEST);
+                }
+            }
             const answerMap = new Map(body.answers.map((a) => [a.snapshotId, a.studentAnswer]));
             const snapshotUpdates = attempt.questionSnapshots.map((snapshot) => {
                 const studentAnswer = answerMap.get(snapshot.id) ?? null;
@@ -613,6 +672,8 @@ let CourseAssessmentService = class CourseAssessmentService {
             return { message: 'Assessment submitted successfully', statusCode: 200, data: updated };
         }
         catch (error) {
+            if (error instanceof common_1.HttpException)
+                throw error;
             throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to submit attempt' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
         }
     }
@@ -707,7 +768,17 @@ let CourseAssessmentService = class CourseAssessmentService {
             });
             if (!attempt)
                 throw new Error('Attempt not found');
-            return { message: 'Attempt fetched', statusCode: 200, data: attempt };
+            await this._expireStaleAttempts(attempt.userId, attempt.assessmentId);
+            const fresh = await this.prisma.assessmentAttempt.findUnique({
+                where: { id: attemptId },
+                include: {
+                    user: { select: { id: true, firstName: true, lastName: true, email: true } },
+                    questionSnapshots: { orderBy: { orderIndex: 'asc' } },
+                },
+            });
+            if (!fresh)
+                throw new Error('Attempt not found');
+            return { message: 'Attempt fetched', statusCode: 200, data: fresh };
         }
         catch (error) {
             throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch attempt' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
@@ -932,6 +1003,45 @@ let CourseAssessmentService = class CourseAssessmentService {
                 return null;
         }
     }
+    async _expireStaleAttempts(userId, assessmentId) {
+        const graceMs = CourseAssessmentService_1.ASSESSMENT_TIMER_GRACE_SECONDS * 1000;
+        const stale = await this.prisma.assessmentAttempt.findMany({
+            where: {
+                userId,
+                assessmentId,
+                status: client_1.AssessmentAttemptStatus.IN_PROGRESS,
+                snapshotTimeLimitMin: { not: null },
+            },
+        });
+        const now = Date.now();
+        const expiredIds = stale
+            .filter((a) => {
+            const deadline = a.startedAt.getTime() + a.snapshotTimeLimitMin * 60000 + graceMs;
+            return now > deadline;
+        })
+            .map((a) => a.id);
+        if (expiredIds.length > 0) {
+            await this.prisma.assessmentAttempt.updateMany({
+                where: { id: { in: expiredIds } },
+                data: { status: client_1.AssessmentAttemptStatus.EXPIRED },
+            });
+        }
+    }
+    _computeTimeInfo(attempt) {
+        if (attempt.snapshotTimeLimitMin == null)
+            return null;
+        const timeLimitSeconds = attempt.snapshotTimeLimitMin * 60;
+        const startedAtMs = attempt.startedAt.getTime();
+        const deadlineMs = startedAtMs + attempt.snapshotTimeLimitMin * 60000;
+        const remainingSeconds = Math.max(0, Math.floor((deadlineMs - Date.now()) / 1000));
+        return {
+            timeLimitSeconds,
+            startedAtMs,
+            deadlineMs,
+            remainingSeconds,
+            graceSeconds: CourseAssessmentService_1.ASSESSMENT_TIMER_GRACE_SECONDS,
+        };
+    }
     _stripCorrectAnswers(attempt) {
         if (!attempt)
             return attempt;
@@ -988,7 +1098,8 @@ let CourseAssessmentService = class CourseAssessmentService {
     }
 };
 exports.CourseAssessmentService = CourseAssessmentService;
-exports.CourseAssessmentService = CourseAssessmentService = __decorate([
+CourseAssessmentService.ASSESSMENT_TIMER_GRACE_SECONDS = 60;
+exports.CourseAssessmentService = CourseAssessmentService = CourseAssessmentService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         notification_service_1.NotificationService])
