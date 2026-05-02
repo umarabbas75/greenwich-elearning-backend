@@ -55,7 +55,46 @@ let CourseService = class CourseService {
             }
         }
     }
-    async markFormComplete(userId, courseId, formId, metadata, courseFormId) {
+    async markFormComplete(userId, userRole, courseId, formId, metadata, courseFormId) {
+        const courseForm = await this.prisma.courseForm.findUnique({
+            where: { id: courseFormId },
+        });
+        if (!courseForm) {
+            throw new common_1.BadRequestException({
+                detail: 'Invalid courseFormId: that course form assignment was not found',
+            });
+        }
+        if (courseForm.courseId !== courseId || courseForm.formId !== formId) {
+            throw new common_1.BadRequestException({
+                detail: 'courseFormId does not match the given courseId and formId',
+            });
+        }
+        const enrollmentWhere = userRole === client_1.Role.user
+            ? { userId, courseId, isActive: true }
+            : { userId, courseId };
+        const enrollment = await this.prisma.userCourse.findFirst({
+            where: enrollmentWhere,
+        });
+        if (!enrollment) {
+            throw new common_1.ForbiddenException({
+                detail: 'You are not assigned to this course, or the enrolment is inactive',
+            });
+        }
+        const existing = await this.prisma.userFormCompletion.findUnique({
+            where: {
+                userId_courseId_formId: { userId, courseId, formId },
+            },
+        });
+        if (existing?.isComplete) {
+            return {
+                alreadyCompleted: true,
+                id: existing.id,
+                courseFormId: existing.courseFormId,
+                formId: existing.formId,
+                completedAt: existing.completedAt,
+                metadata: existing.metadata,
+            };
+        }
         return this.prisma.userFormCompletion.upsert({
             where: {
                 userId_courseId_formId: {
@@ -71,14 +110,52 @@ let CourseService = class CourseService {
                 courseFormId,
                 isComplete: true,
                 completedAt: new Date(),
-                metadata: metadata ?? {},
+                metadata: (metadata ?? {}),
             },
             update: {
                 isComplete: true,
                 completedAt: new Date(),
-                metadata: metadata ?? {},
+                metadata: (metadata ?? {}),
+                courseFormId,
             },
         });
+    }
+    async getStudentCourseFormsStatus(userId, userRole, courseId) {
+        const enrollmentWhere = userRole === client_1.Role.user
+            ? { userId, courseId, isActive: true }
+            : { userId, courseId };
+        const enrollment = await this.prisma.userCourse.findFirst({
+            where: enrollmentWhere,
+        });
+        if (!enrollment) {
+            throw new common_1.ForbiddenException({
+                detail: 'You are not assigned to this course, or the enrolment is inactive',
+            });
+        }
+        const forms = await this.prisma.courseForm.findMany({
+            where: { courseId },
+            orderBy: { createdAt: 'asc' },
+            include: {
+                userFormCompletions: {
+                    where: { userId },
+                    take: 1,
+                },
+            },
+        });
+        return {
+            courseId,
+            forms: forms.map((f) => {
+                const c = f.userFormCompletions[0];
+                return {
+                    courseFormId: f.id,
+                    formId: f.formId,
+                    formName: f.formName,
+                    isRequired: f.isRequired,
+                    isComplete: c?.isComplete ?? false,
+                    completedAt: c?.completedAt ?? null,
+                };
+            }),
+        };
     }
     async markPolicyItemAsComplete({ userId, courseId, policyId, policyItemId, }) {
         try {

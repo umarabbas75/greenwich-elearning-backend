@@ -1,5 +1,11 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { Course, Module, Chapter, Section, Prisma } from '@prisma/client';
+import {
+  BadRequestException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+} from '@nestjs/common';
+import { Course, Module, Chapter, Section, Prisma, Role } from '@prisma/client';
 import {
   // AssignCourseDto,
   CourseDto,
@@ -73,11 +79,56 @@ export class CourseService {
 
   async markFormComplete(
     userId: string,
+    userRole: Role,
     courseId: string,
     formId: string,
-    metadata: any, // More specific type for Prisma JSON fields
-    courseFormId: string, // Added required field from your schema
+    metadata: Record<string, unknown> | undefined,
+    courseFormId: string,
   ): Promise<any> {
+    const courseForm = await this.prisma.courseForm.findUnique({
+      where: { id: courseFormId },
+    });
+    if (!courseForm) {
+      throw new BadRequestException({
+        detail: 'Invalid courseFormId: that course form assignment was not found',
+      });
+    }
+    if (courseForm.courseId !== courseId || courseForm.formId !== formId) {
+      throw new BadRequestException({
+        detail: 'courseFormId does not match the given courseId and formId',
+      });
+    }
+
+    const enrollmentWhere: Prisma.UserCourseWhereInput =
+      userRole === Role.user
+        ? { userId, courseId, isActive: true }
+        : { userId, courseId };
+    const enrollment = await this.prisma.userCourse.findFirst({
+      where: enrollmentWhere,
+    });
+    if (!enrollment) {
+      throw new ForbiddenException({
+        detail:
+          'You are not assigned to this course, or the enrolment is inactive',
+      });
+    }
+
+    const existing = await this.prisma.userFormCompletion.findUnique({
+      where: {
+        userId_courseId_formId: { userId, courseId, formId },
+      },
+    });
+    if (existing?.isComplete) {
+      return {
+        alreadyCompleted: true,
+        id: existing.id,
+        courseFormId: existing.courseFormId,
+        formId: existing.formId,
+        completedAt: existing.completedAt,
+        metadata: existing.metadata,
+      };
+    }
+
     return this.prisma.userFormCompletion.upsert({
       where: {
         userId_courseId_formId: {
@@ -90,19 +141,75 @@ export class CourseService {
         userId,
         courseId,
         formId,
-        courseFormId, // Added required relation field
+        courseFormId,
         isComplete: true,
         completedAt: new Date(),
-        metadata: metadata ?? {}, // Ensure metadata is always an object
+        metadata: (metadata ?? {}) as Prisma.InputJsonValue,
       },
       update: {
         isComplete: true,
         completedAt: new Date(),
-        metadata: metadata ?? {},
-        // You might want to update the courseForm relation if it can change
-        // courseFormId: courseFormId
+        metadata: (metadata ?? {}) as Prisma.InputJsonValue,
+        courseFormId,
       },
     });
+  }
+
+  /** Which requirement forms exist for the course and whether the current user completed them. */
+  async getStudentCourseFormsStatus(
+    userId: string,
+    userRole: Role,
+    courseId: string,
+  ): Promise<{
+    courseId: string;
+    forms: Array<{
+      courseFormId: string;
+      formId: string;
+      formName: string;
+      isRequired: boolean;
+      isComplete: boolean;
+      completedAt: Date | null;
+    }>;
+  }> {
+    const enrollmentWhere: Prisma.UserCourseWhereInput =
+      userRole === Role.user
+        ? { userId, courseId, isActive: true }
+        : { userId, courseId };
+    const enrollment = await this.prisma.userCourse.findFirst({
+      where: enrollmentWhere,
+    });
+    if (!enrollment) {
+      throw new ForbiddenException({
+        detail:
+          'You are not assigned to this course, or the enrolment is inactive',
+      });
+    }
+
+    const forms = await this.prisma.courseForm.findMany({
+      where: { courseId },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        userFormCompletions: {
+          where: { userId },
+          take: 1,
+        },
+      },
+    });
+
+    return {
+      courseId,
+      forms: forms.map((f) => {
+        const c = f.userFormCompletions[0];
+        return {
+          courseFormId: f.id,
+          formId: f.formId,
+          formName: f.formName,
+          isRequired: f.isRequired,
+          isComplete: c?.isComplete ?? false,
+          completedAt: c?.completedAt ?? null,
+        };
+      }),
+    };
   }
 
   async markPolicyItemAsComplete({

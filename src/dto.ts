@@ -263,6 +263,25 @@ export class UpdateCourseProgress {
   @IsNotEmpty()
   sectionId: string;
 }
+
+/** Body for `POST /courses/markFormComplete` (student course requirement forms). */
+export class MarkFormCompleteDto {
+  @IsString()
+  @IsNotEmpty()
+  courseId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  formId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  courseFormId: string;
+
+  @IsOptional()
+  @IsObject()
+  metaData?: Record<string, unknown>;
+}
 export class AssignCourseDto {
   @IsString()
   @IsNotEmpty()

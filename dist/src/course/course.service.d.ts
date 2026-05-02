@@ -1,3 +1,4 @@
+import { Role } from '@prisma/client';
 import { CourseDto, ModuleDto, ResponseDto, UpdateCourseDto, CreateSectionDto, CreateMatchAndLearnSectionDto, CreateVisualActivitySectionDto, CreateOrderingSectionDto, CreateMatchingSectionDto, UpdateSectionDto, UpdateMatchAndLearnSectionDto, UpdateVisualActivitySectionDto, UpdateOrderingSectionDto, UpdateMatchingSectionDto, UpdateSectionOrderDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 export declare class CourseService {
@@ -6,7 +7,18 @@ export declare class CourseService {
     private shuffleArray;
     private assertValidOrderingItems;
     private sanitizeLessonSectionForStudent;
-    markFormComplete(userId: string, courseId: string, formId: string, metadata: any, courseFormId: string): Promise<any>;
+    markFormComplete(userId: string, userRole: Role, courseId: string, formId: string, metadata: Record<string, unknown> | undefined, courseFormId: string): Promise<any>;
+    getStudentCourseFormsStatus(userId: string, userRole: Role, courseId: string): Promise<{
+        courseId: string;
+        forms: Array<{
+            courseFormId: string;
+            formId: string;
+            formName: string;
+            isRequired: boolean;
+            isComplete: boolean;
+            completedAt: Date | null;
+        }>;
+    }>;
     markPolicyItemAsComplete({ userId, courseId, policyId, policyItemId, }: {
         userId: string;
         courseId: string;

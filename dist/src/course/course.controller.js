@@ -23,7 +23,7 @@ let CourseController = class CourseController {
         this.appService = appService;
     }
     markFormComplete(user, body) {
-        return this.appService.markFormComplete(user?.id, body.courseId, body.formId, body?.metaData, body.courseFormId);
+        return this.appService.markFormComplete(user.id, user.role, body.courseId, body.formId, body.metaData, body.courseFormId);
     }
     markPolicyItemAsComplete(user, body) {
         return this.appService.markPolicyItemAsComplete({
@@ -80,6 +80,9 @@ let CourseController = class CourseController {
             userId: user?.id,
             courseId: params?.courseId,
         });
+    }
+    getCourseFormsStatus(user, courseId) {
+        return this.appService.getStudentCourseFormsStatus(user.id, user.role, courseId);
     }
     updatePost(body, id) {
         return this.appService.updatePost(id, body);
@@ -209,7 +212,7 @@ __decorate([
     __param(0, (0, decorator_1.GetUser)()),
     __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object, dto_1.MarkFormCompleteDto]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "markFormComplete", null);
 __decorate([
@@ -344,6 +347,15 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getUserPolicyCompletions", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Get)('/:courseId/forms/status'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)('courseId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "getCourseFormsStatus", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Put)('/post/:id'),

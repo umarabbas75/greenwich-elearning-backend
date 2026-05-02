@@ -100,6 +100,12 @@ export declare class UpdateCourseProgress {
     chapterId: string;
     sectionId: string;
 }
+export declare class MarkFormCompleteDto {
+    courseId: string;
+    formId: string;
+    courseFormId: string;
+    metaData?: Record<string, unknown>;
+}
 export declare class AssignCourseDto {
     userId: string;
     courseId: string;

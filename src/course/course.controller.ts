@@ -13,6 +13,7 @@ import {
   AssignCourseDto,
   CourseDto,
   GetUpdateLastSeen,
+  MarkFormCompleteDto,
   ModuleDto,
   ParamsDto,
   ParamsDto1,
@@ -29,12 +30,16 @@ export class CourseController {
 
   @UseGuards(AuthGuard('cJwt'))
   @Post('/markFormComplete')
-  markFormComplete(@GetUser() user: User, @Body() body: any): Promise<any> {
+  markFormComplete(
+    @GetUser() user: User,
+    @Body() body: MarkFormCompleteDto,
+  ): Promise<any> {
     return this.appService.markFormComplete(
-      user?.id,
+      user.id,
+      user.role,
       body.courseId,
       body.formId,
-      body?.metaData,
+      body.metaData,
       body.courseFormId,
     );
   }
@@ -154,6 +159,16 @@ export class CourseController {
       userId: user?.id,
       courseId: params?.courseId,
     });
+  }
+
+  /** Form completion status for the current user on a course (optional UI refresh). */
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('/:courseId/forms/status')
+  getCourseFormsStatus(
+    @GetUser() user: User,
+    @Param('courseId') courseId: string,
+  ): Promise<any> {
+    return this.appService.getStudentCourseFormsStatus(user.id, user.role, courseId);
   }
 
   @UseGuards(AuthGuard('cJwt'))
