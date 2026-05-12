@@ -12,10 +12,13 @@ import { NotificationModule } from './notifiications/notification.module';
 import { AssignmentModule } from './assignment/assignment.module';
 import { CourseAssessmentModule } from './course-assessment/course-assessment.module';
 
+import { HealthModule } from './health/health.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    HealthModule,
     CourseModule,
     UserModule,
     AuthModule,

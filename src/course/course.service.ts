@@ -528,7 +528,7 @@ export class CourseService {
 
   async getCourseDates(courseId: any, userId: any): Promise<any> {
     try {
-      const allProgressItem = await this.prisma.UserCourseProgress.findMany({
+      const allProgressItem = await this.prisma.userCourseProgress.findMany({
         where: {
           courseId,
           userId,
@@ -2677,7 +2677,10 @@ export class CourseService {
         where: { id: courseId },
       });
       if (!course) {
-        throw new Error('Course not found');
+        throw new HttpException(
+          { status: HttpStatus.NOT_FOUND, error: 'Course not found.' },
+          HttpStatus.NOT_FOUND,
+        );
       }
 
       // Check if the user exists
@@ -2685,7 +2688,10 @@ export class CourseService {
         where: { id: userId },
       });
       if (!user) {
-        throw new Error('User not found');
+        throw new HttpException(
+          { status: HttpStatus.NOT_FOUND, error: 'User not found.' },
+          HttpStatus.NOT_FOUND,
+        );
       }
 
       // Check if the course is already assigned to the user
@@ -2698,7 +2704,14 @@ export class CourseService {
         },
       });
       if (existingAssignment) {
-        throw new Error('Course already assigned to the user');
+        throw new HttpException(
+          {
+            status: HttpStatus.CONFLICT,
+            error:
+              'This course is already assigned to this user. No changes were made.',
+          },
+          HttpStatus.CONFLICT,
+        );
       }
 
       // Assign the course to the user by creating a new entry in UserCourse table
@@ -2717,15 +2730,29 @@ export class CourseService {
         data: {},
       };
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new HttpException(
+          {
+            status: HttpStatus.CONFLICT,
+            error:
+              'This course is already assigned to this user. No changes were made.',
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
       throw new HttpException(
         {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
+          status: HttpStatus.BAD_REQUEST,
+          error:
+            error instanceof Error ? error.message : 'Something went wrong',
         },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
+        HttpStatus.BAD_REQUEST,
       );
     }
   }
@@ -2739,16 +2766,40 @@ export class CourseService {
         where: { id: courseId },
       });
       if (!course) {
-        throw new Error('course not found');
+        throw new HttpException(
+          { status: HttpStatus.NOT_FOUND, error: 'Course not found.' },
+          HttpStatus.NOT_FOUND,
+        );
       }
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
       });
       if (!user) {
-        throw new Error('user not found');
+        throw new HttpException(
+          { status: HttpStatus.NOT_FOUND, error: 'User not found.' },
+          HttpStatus.NOT_FOUND,
+        );
       }
 
-      // Assign the course to the user
+      const existingAssignment = await this.prisma.userCourse.findUnique({
+        where: {
+          userId_courseId: {
+            userId,
+            courseId,
+          },
+        },
+      });
+      if (existingAssignment) {
+        throw new HttpException(
+          {
+            status: HttpStatus.CONFLICT,
+            error:
+              'This course is already assigned to this user. No changes were made.',
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+
       await this.prisma.userCourse.create({
         data: {
           userId,
@@ -2764,15 +2815,29 @@ export class CourseService {
         data: {},
       };
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new HttpException(
+          {
+            status: HttpStatus.CONFLICT,
+            error:
+              'This course is already assigned to this user. No changes were made.',
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
       throw new HttpException(
         {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
+          status: HttpStatus.BAD_REQUEST,
+          error:
+            error instanceof Error ? error.message : 'Something went wrong',
         },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
+        HttpStatus.BAD_REQUEST,
       );
     }
   }

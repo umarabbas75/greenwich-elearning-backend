@@ -20,7 +20,7 @@ export class AuthService {
 
   async loginUser(body: LoginDto): Promise<ResponseDto> {
     try {
-      const user: any = await this.prisma.user.findUnique({
+      const user = await this.prisma.user.findUnique({
         where: { email: body.email },
         select: {
           id: true,

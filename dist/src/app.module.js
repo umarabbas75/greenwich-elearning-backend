@@ -20,6 +20,7 @@ const todo_module_1 = require("./todo/todo.module");
 const notification_module_1 = require("./notifiications/notification.module");
 const assignment_module_1 = require("./assignment/assignment.module");
 const course_assessment_module_1 = require("./course-assessment/course-assessment.module");
+const health_module_1 = require("./health/health.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -28,6 +29,7 @@ exports.AppModule = AppModule = __decorate([
         imports: [
             config_1.ConfigModule.forRoot({ isGlobal: true }),
             prisma_module_1.PrismaModule,
+            health_module_1.HealthModule,
             course_module_1.CourseModule,
             user_module_1.UserModule,
             auth_module_1.AuthModule,
