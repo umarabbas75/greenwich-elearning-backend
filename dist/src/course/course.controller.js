@@ -123,6 +123,9 @@ let CourseController = class CourseController {
     getAllUserSections(params, user) {
         return this.appService.getAllUserSections(params?.id, user.id, params?.courseId);
     }
+    setCourseActive(params, body) {
+        return this.appService.setCourseActive(params.id, body.isActive);
+    }
     createCourse(body) {
         return this.appService.createCourse(body);
     }
@@ -463,6 +466,16 @@ __decorate([
     __metadata("design:paramtypes", [dto_1.ParamsDto1, Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getAllUserSections", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Patch)('/admin/:id/active'),
+    __param(0, (0, common_1.Param)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [dto_1.ParamsDto,
+        dto_1.SetCourseActiveDto]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "setCourseActive", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('/'),

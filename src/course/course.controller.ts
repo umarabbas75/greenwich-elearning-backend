@@ -6,6 +6,7 @@ import {
   Param,
   UseGuards,
   Put,
+  Patch,
   Delete,
 } from '@nestjs/common';
 import { CourseService } from './course.service';
@@ -20,6 +21,7 @@ import {
   ResponseDto,
   UpdateCourseDto,
   UpdateSectionOrderDto,
+  SetCourseActiveDto,
 } from '../dto';
 import { User } from '@prisma/client';
 import { GetUser } from '../decorator';
@@ -251,6 +253,15 @@ export class CourseController {
       user.id,
       params?.courseId,
     );
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Patch('/admin/:id/active')
+  setCourseActive(
+    @Param() params: ParamsDto,
+    @Body() body: SetCourseActiveDto,
+  ): Promise<ResponseDto> {
+    return this.appService.setCourseActive(params.id, body.isActive);
   }
 
   @UseGuards(AuthGuard('jwt'))

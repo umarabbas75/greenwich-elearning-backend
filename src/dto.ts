@@ -165,6 +165,11 @@ export class CourseDto {
   @IsArray()
   policies?: Array<any>;
 }
+
+export class SetCourseActiveDto {
+  @IsBoolean()
+  isActive: boolean;
+}
 export class QuizDto {
   @IsNotEmpty()
   @IsString()

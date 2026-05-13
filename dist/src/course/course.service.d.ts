@@ -55,6 +55,7 @@ export declare class CourseService {
     getSection(id: string): Promise<ResponseDto>;
     getAllCourses(): Promise<ResponseDto>;
     getAllPublicCourses(): Promise<ResponseDto>;
+    setCourseActive(courseId: string, isActive: boolean): Promise<ResponseDto>;
     getAllModules(id: string): Promise<ResponseDto>;
     getAllUserModules(id: string, userId: string): Promise<any>;
     getAllChapters(id: string): Promise<ResponseDto>;

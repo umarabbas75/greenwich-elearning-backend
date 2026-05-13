@@ -1164,8 +1164,8 @@ let CourseService = class CourseService {
     }
     async getCourseDetailPublic(id) {
         try {
-            const course = await this.prisma.course.findUnique({
-                where: { id },
+            const course = await this.prisma.course.findFirst({
+                where: { id, isActive: true },
                 select: {
                     id: true,
                     title: true,
@@ -1287,10 +1287,14 @@ let CourseService = class CourseService {
             if (!(courses.length > 0)) {
                 throw new Error('No Courses found');
             }
+            const data = courses.map((course) => ({
+                ...course,
+                status: course.isActive ? 'active' : 'inactive',
+            }));
             return {
                 message: 'Successfully fetched all Courses with form information',
                 statusCode: 200,
-                data: courses,
+                data,
             };
         }
         catch (error) {
@@ -1305,6 +1309,7 @@ let CourseService = class CourseService {
     async getAllPublicCourses() {
         try {
             const courses = await this.prisma.course.findMany({
+                where: { isActive: true },
                 include: {
                     _count: {
                         select: {
@@ -1327,6 +1332,35 @@ let CourseService = class CourseService {
                 message: 'Successfully fetch all Courses info',
                 statusCode: 200,
                 data: courses,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async setCourseActive(courseId, isActive) {
+        try {
+            const existing = await this.prisma.course.findUnique({
+                where: { id: courseId },
+            });
+            if (!existing) {
+                throw new Error('Course not found');
+            }
+            const course = await this.prisma.course.update({
+                where: { id: courseId },
+                data: { isActive },
+            });
+            return {
+                message: isActive
+                    ? 'Course activated successfully'
+                    : 'Course deactivated successfully',
+                statusCode: 200,
+                data: course,
             };
         }
         catch (error) {

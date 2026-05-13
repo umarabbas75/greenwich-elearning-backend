@@ -60,6 +60,7 @@ enum UserStatus {
 
 model Course {
   id                   String                 @id @default(uuid())
+  isActive             Boolean                @default(true)
   title                String                 @unique
   description          String
   image                String

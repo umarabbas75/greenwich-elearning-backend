@@ -9,8 +9,8 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SubmitAttemptDto = exports.AnswerItemDto = exports.StartAttemptDto = exports.ReorderAssessmentQuestionsDto = exports.ReorderQuestionItemDto = exports.AddAssessmentQuestionDto = exports.UpdateAssessmentDto = exports.CreateAssessmentDto = exports.AssessmentAutoConfigDto = exports.AutoConfigDifficultyDto = exports.AutoConfigCategoryDto = exports.UpdateQuestionDto = exports.CreateQuestionDto = exports.UpdateQuestionCategoryDto = exports.CreateQuestionCategoryDto = exports.UpdateSectionOrderDto = exports.SectionOrderItemDto = exports.UpdateMatchingSectionDto = exports.CreateMatchingSectionDto = exports.MatchingPairDto = exports.UpdateOrderingSectionDto = exports.CreateOrderingSectionDto = exports.OrderingItemDto = exports.UpdateVisualActivitySectionDto = exports.CreateVisualActivitySectionDto = exports.VisualActivityOptionDto = exports.UpdateMatchAndLearnSectionDto = exports.UpdateSectionDto = exports.CreateMatchAndLearnSectionDto = exports.MatchAndLearnItemDto = exports.CreateSectionDto = exports.SectionType = exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.MarkFormCompleteDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.CourseDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
-exports.SetCertificateDto = exports.GradeAttemptDto = exports.QuestionScoreDto = void 0;
+exports.AnswerItemDto = exports.StartAttemptDto = exports.ReorderAssessmentQuestionsDto = exports.ReorderQuestionItemDto = exports.AddAssessmentQuestionDto = exports.UpdateAssessmentDto = exports.CreateAssessmentDto = exports.AssessmentAutoConfigDto = exports.AutoConfigDifficultyDto = exports.AutoConfigCategoryDto = exports.UpdateQuestionDto = exports.CreateQuestionDto = exports.UpdateQuestionCategoryDto = exports.CreateQuestionCategoryDto = exports.UpdateSectionOrderDto = exports.SectionOrderItemDto = exports.UpdateMatchingSectionDto = exports.CreateMatchingSectionDto = exports.MatchingPairDto = exports.UpdateOrderingSectionDto = exports.CreateOrderingSectionDto = exports.OrderingItemDto = exports.UpdateVisualActivitySectionDto = exports.CreateVisualActivitySectionDto = exports.VisualActivityOptionDto = exports.UpdateMatchAndLearnSectionDto = exports.UpdateSectionDto = exports.CreateMatchAndLearnSectionDto = exports.MatchAndLearnItemDto = exports.CreateSectionDto = exports.SectionType = exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.MarkFormCompleteDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.SetCourseActiveDto = exports.CourseDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
+exports.SetCertificateDto = exports.GradeAttemptDto = exports.QuestionScoreDto = exports.SubmitAttemptDto = void 0;
 const client_1 = require("@prisma/client");
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
@@ -199,6 +199,13 @@ __decorate([
     (0, class_validator_1.IsArray)(),
     __metadata("design:type", Array)
 ], CourseDto.prototype, "policies", void 0);
+class SetCourseActiveDto {
+}
+exports.SetCourseActiveDto = SetCourseActiveDto;
+__decorate([
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], SetCourseActiveDto.prototype, "isActive", void 0);
 class QuizDto {
 }
 exports.QuizDto = QuizDto;

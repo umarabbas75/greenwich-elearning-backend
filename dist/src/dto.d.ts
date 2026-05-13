@@ -60,6 +60,9 @@ export declare class CourseDto {
     };
     policies?: Array<any>;
 }
+export declare class SetCourseActiveDto {
+    isActive: boolean;
+}
 export declare class QuizDto {
     question: string;
     options: string[];
