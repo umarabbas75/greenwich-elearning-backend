@@ -1,12 +1,13 @@
 import { AssessmentAttemptStatus, Prisma, QuestionDifficulty, QuestionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { NotificationService } from '../notifiications/notification.service';
+import { NotificationService } from '../notifications/notification.service';
 import { AddAssessmentQuestionDto, CreateAssessmentDto, CreateQuestionCategoryDto, CreateQuestionDto, GradeAttemptDto, ReorderAssessmentQuestionsDto, SetCertificateDto, StartAttemptDto, SubmitAttemptDto, UpdateAssessmentDto, UpdateQuestionCategoryDto, UpdateQuestionDto } from '../dto';
 export declare class CourseAssessmentService {
     private prisma;
     private notificationService;
     private static readonly ASSESSMENT_TIMER_GRACE_SECONDS;
     constructor(prisma: PrismaService, notificationService: NotificationService);
+    private throwMapped;
     private throwQuestionCategoryError;
     createCategory(adminId: string, body: CreateQuestionCategoryDto): Promise<{
         message: string;

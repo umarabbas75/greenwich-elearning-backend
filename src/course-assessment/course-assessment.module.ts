@@ -6,7 +6,7 @@ import {
   JwtUserStrategy,
 } from '../strategy';
 import { PrismaModule } from '../prisma/prisma.module';
-import { NotificationModule } from '../notifiications/notification.module';
+import { NotificationModule } from '../notifications/notification.module';
 import { CourseAssessmentController } from './course-assessment.controller';
 import { CourseAssessmentService } from './course-assessment.service';
 

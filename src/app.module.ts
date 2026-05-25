@@ -8,7 +8,7 @@ import { QuizModule } from './quiz/quiz.module';
 import { ForumModule } from './forum-thread/forum.module';
 import { ForumCommentModule } from './forum-comment/forum-comment.module';
 import { TodoModule } from './todo/todo.module';
-import { NotificationModule } from './notifiications/notification.module';
+import { NotificationModule } from './notifications/notification.module';
 import { AssignmentModule } from './assignment/assignment.module';
 import { CourseAssessmentModule } from './course-assessment/course-assessment.module';
 

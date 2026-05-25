@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\"; head -20 \"{}\"')",
+      "Bash(git mv *)",
+      "Bash(sed -i '' \"s|notifiications/notification.module|notifications/notification.module|g; s|notifiications/notification.service|notifications/notification.service|g\" src/app.module.ts src/course-assessment/course-assessment.module.ts src/course-assessment/course-assessment.service.ts src/forum-thread/forum-thread.service.ts && grep -rln \"notifiications\" src/ 2>/dev/null; echo \"done\")",
+      "Bash([ ! -f \"$d/migration.sql\" ])",
+      "Bash(node -e ' *)",
+      "WebFetch(domain:neon.tech)",
+      "WebFetch(domain:www.prisma.io)",
+      "WebFetch(domain:neon.com)"
+    ],
+    "additionalDirectories": [
+      "/Users/appal/Documents/greenwichPorjects/greenwich-elearning-backend/src"
+    ]
+  }
+}

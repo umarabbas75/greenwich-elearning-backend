@@ -14,11 +14,29 @@ exports.CourseAssessmentService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
-const notification_service_1 = require("../notifiications/notification.service");
+const notification_service_1 = require("../notifications/notification.service");
 let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessmentService {
     constructor(prisma, notificationService) {
         this.prisma = prisma;
         this.notificationService = notificationService;
+    }
+    throwMapped(error, fallback) {
+        if (error instanceof common_1.HttpException)
+            throw error;
+        if (error instanceof client_1.Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+            throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Resource not found' }, common_1.HttpStatus.NOT_FOUND, { cause: error });
+        }
+        if (error instanceof Error) {
+            const msg = error.message;
+            if (/not found/i.test(msg)) {
+                throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: msg }, common_1.HttpStatus.NOT_FOUND, { cause: error });
+            }
+            if (/do not have access/i.test(msg)) {
+                throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: msg }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            }
+            throw new common_1.HttpException({ status: common_1.HttpStatus.BAD_REQUEST, error: msg || fallback }, common_1.HttpStatus.BAD_REQUEST, { cause: error });
+        }
+        throw new common_1.HttpException({ status: common_1.HttpStatus.INTERNAL_SERVER_ERROR, error: fallback }, common_1.HttpStatus.INTERNAL_SERVER_ERROR, { cause: error });
     }
     throwQuestionCategoryError(error, fallback) {
         if (error instanceof client_1.Prisma.PrismaClientKnownRequestError) {
@@ -120,7 +138,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Question created successfully', statusCode: 200, data: question };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to create question' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to create question');
         }
     }
     async getQuestions(courseId, filters) {
@@ -139,7 +157,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Questions fetched successfully', statusCode: 200, data: questions };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch questions' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to fetch questions');
         }
     }
     async getQuestionById(questionId) {
@@ -153,7 +171,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Question fetched successfully', statusCode: 200, data: question };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch question' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to fetch question');
         }
     }
     async updateQuestion(questionId, body) {
@@ -174,7 +192,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Question updated successfully', statusCode: 200, data: question };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to update question' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to update question');
         }
     }
     async deleteQuestion(questionId, permanent) {
@@ -206,7 +224,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             }
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to delete question' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to delete question');
         }
     }
     async createAssessment(adminId, body) {
@@ -232,7 +250,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Assessment created successfully', statusCode: 200, data: assessment };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to create assessment' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to create assessment');
         }
     }
     async updateAssessment(assessmentId, body) {
@@ -251,7 +269,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Assessment updated successfully', statusCode: 200, data: assessment };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to update assessment' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to update assessment');
         }
     }
     async activateAssessment(assessmentId) {
@@ -273,7 +291,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Assessment activated successfully', statusCode: 200, data: activated };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to activate assessment' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to activate assessment');
         }
     }
     async deactivateAssessment(assessmentId) {
@@ -285,7 +303,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Assessment deactivated successfully', statusCode: 200, data: assessment };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to deactivate assessment' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to deactivate assessment');
         }
     }
     async getAssessmentsByCourse(courseId) {
@@ -300,7 +318,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Assessments fetched successfully', statusCode: 200, data: assessments };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch assessments' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to fetch assessments');
         }
     }
     async getAssessmentById(assessmentId) {
@@ -320,7 +338,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Assessment fetched successfully', statusCode: 200, data: assessment };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch assessment' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to fetch assessment');
         }
     }
     async addQuestionToAssessment(assessmentId, body) {
@@ -353,7 +371,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Question added to assessment', statusCode: 200, data: aq };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to add question' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to add question');
         }
     }
     async removeQuestionFromAssessment(assessmentId, questionId) {
@@ -369,7 +387,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Question removed from assessment', statusCode: 200, data: {} };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to remove question' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to remove question');
         }
     }
     async reorderAssessmentQuestions(assessmentId, body) {
@@ -381,7 +399,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Questions reordered successfully', statusCode: 200, data: {} };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to reorder questions' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to reorder questions');
         }
     }
     async getActiveAssessmentForStudent(userId, courseId) {
@@ -456,7 +474,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch assessments' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to fetch assessments');
         }
     }
     async startAttempt(userId, body) {
@@ -534,7 +552,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to start attempt' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to start attempt');
         }
     }
     async getAttempt(userId, attemptId) {
@@ -566,7 +584,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch attempt' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to fetch attempt');
         }
     }
     async submitAttempt(userId, attemptId, body) {
@@ -663,18 +681,40 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                     await this._upsertCourseCompletion(userId, assessmentRecord.courseId, attemptId, percentage);
                 }
             }
-            const assessment = await this.prisma.assessment.findUnique({
-                where: { id: attempt.assessmentId },
-            });
-            if (assessment) {
-                await this.notificationService.createAssessmentNotification(assessment.createdByAdminId, client_1.NotificationType.ASSESSMENT_SUBMITTED, `A student has submitted the assessment: ${attempt.snapshotTitle}`, attemptId);
+            const [assessment, student] = await Promise.all([
+                this.prisma.assessment.findUnique({
+                    where: { id: attempt.assessmentId },
+                    select: { id: true, title: true, createdByAdminId: true },
+                }),
+                this.prisma.user.findUnique({
+                    where: { id: userId },
+                    select: { firstName: true, lastName: true },
+                }),
+            ]);
+            if (assessment && student) {
+                await this.notificationService.createNotification({
+                    userId: assessment.createdByAdminId,
+                    type: client_1.NotificationType.ASSESSMENT_SUBMITTED,
+                    message: `A student has submitted the assessment: ${attempt.snapshotTitle}`,
+                    payload: {
+                        assessmentId: assessment.id,
+                        assessmentTitle: assessment.title,
+                        attemptId,
+                        studentFirstName: student.firstName,
+                        studentLastName: student.lastName,
+                    },
+                    groupKey: `assessment-submitted:${assessment.id}`,
+                    dedupeKey: `submitted:${attemptId}`,
+                    referenceId: attemptId,
+                    commenterId: userId,
+                });
             }
             return { message: 'Assessment submitted successfully', statusCode: 200, data: updated };
         }
         catch (error) {
             if (error instanceof common_1.HttpException)
                 throw error;
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to submit attempt' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to submit attempt');
         }
     }
     async getStudentAttemptHistory(userId, courseId) {
@@ -708,7 +748,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Attempt history fetched', statusCode: 200, data: attempts };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch history' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to fetch history');
         }
     }
     async getStudentCompletion(userId, courseId) {
@@ -730,7 +770,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Completion fetched', statusCode: 200, data: completion ?? null };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch completion' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to fetch completion');
         }
     }
     async getAdminAttempts(courseId, filters) {
@@ -754,7 +794,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Attempts fetched', statusCode: 200, data: attempts };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch attempts' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to fetch attempts');
         }
     }
     async getAdminAttemptDetail(attemptId) {
@@ -781,7 +821,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Attempt fetched', statusCode: 200, data: fresh };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch attempt' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to fetch attempt');
         }
     }
     async gradeAttempt(attemptId, body) {
@@ -835,7 +875,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to grade attempt' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to grade attempt');
         }
     }
     async finalizeGrade(adminId, attemptId) {
@@ -859,6 +899,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                 ? (marksObtained / attempt.totalMarks) * 100
                 : 0;
             const isPassed = percentage >= attempt.snapshotPassingPct;
+            const finalizedAt = new Date();
             await this.prisma.$transaction([
                 ...snapshotUpdates,
                 this.prisma.assessmentAttempt.update({
@@ -868,15 +909,29 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                         marksObtained,
                         percentage,
                         isPassed,
-                        gradedAt: new Date(),
-                        finalizedAt: new Date(),
+                        gradedAt: finalizedAt,
+                        finalizedAt,
                     },
                 }),
             ]);
             if (attempt.assessment) {
                 await this._upsertCourseCompletion(attempt.userId, attempt.assessment.courseId, attemptId, percentage);
             }
-            await this.notificationService.createAssessmentNotification(attempt.userId, client_1.NotificationType.ASSESSMENT_GRADED, `Your assessment "${attempt.snapshotTitle}" has been graded. You ${isPassed ? 'passed' : 'did not pass'}.`, attemptId);
+            await this.notificationService.createNotification({
+                userId: attempt.userId,
+                type: client_1.NotificationType.ASSESSMENT_GRADED,
+                message: `Your assessment "${attempt.snapshotTitle}" has been graded. You ${isPassed ? 'passed' : 'did not pass'}.`,
+                payload: {
+                    assessmentId: attempt.assessmentId,
+                    assessmentTitle: attempt.snapshotTitle,
+                    attemptId,
+                    passed: isPassed,
+                    scorePct: percentage,
+                },
+                dedupeKey: `graded:${attemptId}:${finalizedAt.getTime()}`,
+                referenceId: attemptId,
+                commenterId: adminId,
+            });
             const finalized = await this.prisma.assessmentAttempt.findUnique({
                 where: { id: attemptId },
                 include: { questionSnapshots: { orderBy: { orderIndex: 'asc' } } },
@@ -884,7 +939,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Assessment finalized successfully', statusCode: 200, data: finalized };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to finalize grade' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to finalize grade');
         }
     }
     async setCertificate(userId, courseId, body) {
@@ -896,7 +951,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             return { message: 'Certificate URL saved', statusCode: 200, data: completion };
         }
         catch (error) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: error?.message || 'Failed to set certificate' }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+            this.throwMapped(error, 'Failed to set certificate');
         }
     }
     async _isCourseContentCompleted(userId, courseId) {

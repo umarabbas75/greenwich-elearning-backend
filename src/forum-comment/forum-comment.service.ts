@@ -1,63 +1,69 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-// import { Forum } from '@prisma/client';
-// import {
-//   QuizDto,
-//   ResponseDto,
-// } from '../dto';
+import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from '../notifications/notification.service';
+
+/** Truncate to N chars after stripping HTML-ish tags. Cheap defensive scrub
+ * — comment content is plain text today but this protects against future
+ * rich-text edits leaking markup into notification payloads. */
+function buildExcerpt(content: string, maxLen = 140): string {
+  return content.replace(/<[^>]*>/g, '').slice(0, maxLen);
+}
 
 @Injectable()
 export class ForumCommentService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notificationService: NotificationService,
+  ) {}
 
   async createForumThreadComment(body: any, userId: string): Promise<any> {
     try {
-      // Check if the user exists
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
+        select: { id: true, firstName: true, lastName: true },
       });
-      if (!user) {
-        throw new Error('User not found');
-      }
+      if (!user) throw new Error('User not found');
 
-      // Check if the thread exists
       const thread = await this.prisma.forumThread.findUnique({
         where: { id: body?.threadId },
+        select: { id: true, title: true },
       });
-      if (!thread) {
-        throw new Error('Forum thread not found');
-      }
+      if (!thread) throw new Error('Forum thread not found');
 
-      await this.prisma.forumComment.create({
+      const comment = await this.prisma.forumComment.create({
         data: {
           content: body?.content,
-          user: { connect: { id: userId } }, // Connects the user by userId
-          thread: { connect: { id: body.threadId } }, // Connects the thread by threadId
+          user: { connect: { id: userId } },
+          thread: { connect: { id: body.threadId } },
         },
+        select: { id: true },
       });
 
-      // Fetch all subscribed users except the commenter
       const subscribedUsers = await this.prisma.threadSubscription.findMany({
-        where: {
-          threadId: body.threadId,
-          userId: { not: userId },
-        },
-        select: {
-          userId: true,
-        },
+        where: { threadId: body.threadId, userId: { not: userId } },
+        select: { userId: true },
       });
 
-      // Prepare notifications
-      const notifications = subscribedUsers.map((sub) => ({
-        userId: sub.userId,
-        threadId: body.threadId,
+      await this.notificationService.createNotificationForMany({
+        userIds: subscribedUsers.map((s) => s.userId),
+        type: NotificationType.FORUM_COMMENT,
         message: body.content,
+        payload: {
+          threadId: thread.id,
+          threadTitle: thread.title,
+          commentId: comment.id,
+          commentExcerpt: buildExcerpt(body.content ?? ''),
+          commenterFirstName: user.firstName,
+          commenterLastName: user.lastName,
+        },
+        groupKey: `forum-comment:${thread.id}`,
+        threadId: thread.id,
         commenterId: userId,
-      }));
-
-      await this.prisma.notification.createMany({
-        data: notifications,
+        dedupeKeyFor: (recipientId) =>
+          `comment:${comment.id}:${recipientId}`,
       });
+
       return {
         message: 'Successfully create quiz record',
         statusCode: 200,

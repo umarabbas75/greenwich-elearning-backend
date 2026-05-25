@@ -487,18 +487,24 @@ model ThreadSubscription {
 model Notification {
   id          String           @id @default(uuid())
   userId      String
-  threadId    String?          // nullable to support non-forum notifications
-  message     String
-  isRead      Boolean          @default(false)
+  threadId    String?          // nullable; cascade-null when thread is deleted
+  message     String           // legacy pre-rendered string — kept until FE fully switches to payload templates
+  seenAt      DateTime?        // panel opened (clears bell badge)
+  readAt      DateTime?        // row clicked / explicitly marked read; implies seenAt
+  payload     Json?            // structured template data — shape varies by type
+  groupKey    String?          // collapsed-row key, e.g. "assessment-submitted:<assessmentId>"
+  dedupeKey   String?          // per-recipient idempotency key; partial unique on (userId, dedupeKey)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   commenterId String?
   type        NotificationType @default(FORUM_COMMENT)
-  referenceId String?          // assessmentId or attemptId for assessment notifications
+  referenceId String?          // assessmentId / attemptId / etc. — polymorphic, no FK
   commenter   User?            @relation("Commenter", fields: [commenterId], references: [id])
-  thread      ForumThread?     @relation(fields: [threadId], references: [id])
+  thread      ForumThread?     @relation(fields: [threadId], references: [id], onDelete: SetNull)
   user        User             @relation(fields: [userId], references: [id])
 
+  @@index([userId, readAt, createdAt(sort: Desc)])
+  @@index([userId, groupKey])
   @@map("notifications")
 }
 

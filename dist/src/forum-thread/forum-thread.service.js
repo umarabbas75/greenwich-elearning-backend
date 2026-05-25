@@ -13,9 +13,11 @@ exports.ForumThreadService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const client_1 = require("@prisma/client");
+const notification_service_1 = require("../notifications/notification.service");
 let ForumThreadService = class ForumThreadService {
-    constructor(prisma) {
+    constructor(prisma, notificationService) {
         this.prisma = prisma;
+        this.notificationService = notificationService;
     }
     async subscribeForumThread(body, userId) {
         try {
@@ -250,28 +252,15 @@ let ForumThreadService = class ForumThreadService {
                 data: updateForumThread,
             });
             if (shouldSendNotification) {
-                try {
-                    const users = await this.prisma.user.findMany({
-                        select: {
-                            id: true,
-                        },
-                    });
-                    const notifications = users.map((user) => ({
-                        userId: user.id,
+                const admin = await this.prisma.user.findUnique({
+                    where: { id: userId },
+                    select: { id: true, firstName: true, lastName: true },
+                });
+                if (admin) {
+                    await this.notificationService.notifyAllUsersForNewThread({
                         threadId: forumThreadId,
-                        commenterId: userId,
-                        message: 'A new thread has been created by the admin.',
-                    }));
-                    await this.prisma.notification.createMany({
-                        data: notifications,
-                    });
-                }
-                catch (error) {
-                    throw new common_1.HttpException({
-                        status: common_1.HttpStatus.FORBIDDEN,
-                        error: error.message || 'Something went wrong',
-                    }, common_1.HttpStatus.FORBIDDEN, {
-                        cause: error,
+                        threadTitle: existingForumThread.title,
+                        creator: admin,
                     });
                 }
             }
@@ -359,6 +348,7 @@ let ForumThreadService = class ForumThreadService {
 exports.ForumThreadService = ForumThreadService;
 exports.ForumThreadService = ForumThreadService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        notification_service_1.NotificationService])
 ], ForumThreadService);
 //# sourceMappingURL=forum-thread.service.js.map

@@ -8,7 +8,7 @@ import {
   QuestionType,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { NotificationService } from '../notifiications/notification.service';
+import { NotificationService } from '../notifications/notification.service';
 import {
   AddAssessmentQuestionDto,
   CreateAssessmentDto,
@@ -33,6 +33,55 @@ export class CourseAssessmentService {
     private prisma: PrismaService,
     private notificationService: NotificationService,
   ) {}
+
+  /**
+   * Maps thrown errors to the right HTTP status:
+   *   - Existing HttpException → re-thrown unchanged
+   *   - "X not found" / Prisma P2025 → 404
+   *   - "You do not have access ..." → 403
+   *   - Any other Error → 400 (validation/state)
+   *   - Anything else → 500
+   */
+  private throwMapped(error: unknown, fallback: string): never {
+    if (error instanceof HttpException) throw error;
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      throw new HttpException(
+        { status: HttpStatus.NOT_FOUND, error: 'Resource not found' },
+        HttpStatus.NOT_FOUND,
+        { cause: error },
+      );
+    }
+
+    if (error instanceof Error) {
+      const msg = error.message;
+      if (/not found/i.test(msg)) {
+        throw new HttpException(
+          { status: HttpStatus.NOT_FOUND, error: msg },
+          HttpStatus.NOT_FOUND,
+          { cause: error },
+        );
+      }
+      if (/do not have access/i.test(msg)) {
+        throw new HttpException(
+          { status: HttpStatus.FORBIDDEN, error: msg },
+          HttpStatus.FORBIDDEN,
+          { cause: error },
+        );
+      }
+      throw new HttpException(
+        { status: HttpStatus.BAD_REQUEST, error: msg || fallback },
+        HttpStatus.BAD_REQUEST,
+        { cause: error },
+      );
+    }
+
+    throw new HttpException(
+      { status: HttpStatus.INTERNAL_SERVER_ERROR, error: fallback },
+      HttpStatus.INTERNAL_SERVER_ERROR,
+      { cause: error },
+    );
+  }
 
   private throwQuestionCategoryError(error: unknown, fallback: string): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -167,11 +216,7 @@ export class CourseAssessmentService {
 
       return { message: 'Question created successfully', statusCode: 200, data: question };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to create question' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to create question');
     }
   }
 
@@ -198,11 +243,7 @@ export class CourseAssessmentService {
       });
       return { message: 'Questions fetched successfully', statusCode: 200, data: questions };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch questions' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to fetch questions');
     }
   }
 
@@ -215,11 +256,7 @@ export class CourseAssessmentService {
       if (!question) throw new Error('Question not found');
       return { message: 'Question fetched successfully', statusCode: 200, data: question };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch question' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to fetch question');
     }
   }
 
@@ -240,11 +277,7 @@ export class CourseAssessmentService {
       });
       return { message: 'Question updated successfully', statusCode: 200, data: question };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to update question' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to update question');
     }
   }
 
@@ -281,11 +314,7 @@ export class CourseAssessmentService {
         return { message: 'Question deactivated successfully', statusCode: 200, data: updated };
       }
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to delete question' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to delete question');
     }
   }
 
@@ -317,11 +346,7 @@ export class CourseAssessmentService {
 
       return { message: 'Assessment created successfully', statusCode: 200, data: assessment };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to create assessment' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to create assessment');
     }
   }
 
@@ -340,11 +365,7 @@ export class CourseAssessmentService {
       });
       return { message: 'Assessment updated successfully', statusCode: 200, data: assessment };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to update assessment' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to update assessment');
     }
   }
 
@@ -369,11 +390,7 @@ export class CourseAssessmentService {
 
       return { message: 'Assessment activated successfully', statusCode: 200, data: activated };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to activate assessment' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to activate assessment');
     }
   }
 
@@ -385,11 +402,7 @@ export class CourseAssessmentService {
       });
       return { message: 'Assessment deactivated successfully', statusCode: 200, data: assessment };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to deactivate assessment' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to deactivate assessment');
     }
   }
 
@@ -404,11 +417,7 @@ export class CourseAssessmentService {
       });
       return { message: 'Assessments fetched successfully', statusCode: 200, data: assessments };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch assessments' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to fetch assessments');
     }
   }
 
@@ -427,11 +436,7 @@ export class CourseAssessmentService {
       if (!assessment) throw new Error('Assessment not found');
       return { message: 'Assessment fetched successfully', statusCode: 200, data: assessment };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch assessment' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to fetch assessment');
     }
   }
 
@@ -468,11 +473,7 @@ export class CourseAssessmentService {
 
       return { message: 'Question added to assessment', statusCode: 200, data: aq };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to add question' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to add question');
     }
   }
 
@@ -489,11 +490,7 @@ export class CourseAssessmentService {
       });
       return { message: 'Question removed from assessment', statusCode: 200, data: {} };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to remove question' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to remove question');
     }
   }
 
@@ -509,11 +506,7 @@ export class CourseAssessmentService {
       );
       return { message: 'Questions reordered successfully', statusCode: 200, data: {} };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to reorder questions' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to reorder questions');
     }
   }
 
@@ -606,11 +599,7 @@ export class CourseAssessmentService {
         data: result,
       };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch assessments' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to fetch assessments');
     }
   }
 
@@ -708,11 +697,7 @@ export class CourseAssessmentService {
         data: { ...sanitized, timeInfo },
       };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to start attempt' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to start attempt');
     }
   }
 
@@ -744,11 +729,7 @@ export class CourseAssessmentService {
         data: { ...sanitized, timeInfo },
       };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch attempt' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to fetch attempt');
     }
   }
 
@@ -882,26 +863,39 @@ export class CourseAssessmentService {
       }
 
       // Notify the admin who created the assessment
-      const assessment = await this.prisma.assessment.findUnique({
-        where: { id: attempt.assessmentId },
-      });
-      if (assessment) {
-        await this.notificationService.createAssessmentNotification(
-          assessment.createdByAdminId,
-          NotificationType.ASSESSMENT_SUBMITTED,
-          `A student has submitted the assessment: ${attempt.snapshotTitle}`,
-          attemptId,
-        );
+      const [assessment, student] = await Promise.all([
+        this.prisma.assessment.findUnique({
+          where: { id: attempt.assessmentId },
+          select: { id: true, title: true, createdByAdminId: true },
+        }),
+        this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { firstName: true, lastName: true },
+        }),
+      ]);
+      if (assessment && student) {
+        await this.notificationService.createNotification({
+          userId: assessment.createdByAdminId,
+          type: NotificationType.ASSESSMENT_SUBMITTED,
+          message: `A student has submitted the assessment: ${attempt.snapshotTitle}`,
+          payload: {
+            assessmentId: assessment.id,
+            assessmentTitle: assessment.title,
+            attemptId,
+            studentFirstName: student.firstName,
+            studentLastName: student.lastName,
+          },
+          groupKey: `assessment-submitted:${assessment.id}`,
+          dedupeKey: `submitted:${attemptId}`,
+          referenceId: attemptId,
+          commenterId: userId,
+        });
       }
 
       return { message: 'Assessment submitted successfully', statusCode: 200, data: updated };
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to submit attempt' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to submit attempt');
     }
   }
 
@@ -939,11 +933,7 @@ export class CourseAssessmentService {
 
       return { message: 'Attempt history fetched', statusCode: 200, data: attempts };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch history' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to fetch history');
     }
   }
 
@@ -965,11 +955,7 @@ export class CourseAssessmentService {
       });
       return { message: 'Completion fetched', statusCode: 200, data: completion ?? null };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch completion' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to fetch completion');
     }
   }
 
@@ -1004,11 +990,7 @@ export class CourseAssessmentService {
 
       return { message: 'Attempts fetched', statusCode: 200, data: attempts };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch attempts' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to fetch attempts');
     }
   }
 
@@ -1033,11 +1015,7 @@ export class CourseAssessmentService {
       if (!fresh) throw new Error('Attempt not found');
       return { message: 'Attempt fetched', statusCode: 200, data: fresh };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to fetch attempt' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to fetch attempt');
     }
   }
 
@@ -1106,11 +1084,7 @@ export class CourseAssessmentService {
         data: { attempt: updated, previewMarks, previewPercentage: previewPct },
       };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to grade attempt' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to grade attempt');
     }
   }
 
@@ -1145,6 +1119,7 @@ export class CourseAssessmentService {
           ? (marksObtained / attempt.totalMarks) * 100
           : 0;
       const isPassed = percentage >= attempt.snapshotPassingPct;
+      const finalizedAt = new Date();
 
       await this.prisma.$transaction([
         ...snapshotUpdates,
@@ -1155,8 +1130,8 @@ export class CourseAssessmentService {
             marksObtained,
             percentage,
             isPassed,
-            gradedAt: new Date(),
-            finalizedAt: new Date(),
+            gradedAt: finalizedAt,
+            finalizedAt,
           },
         }),
       ]);
@@ -1171,13 +1146,24 @@ export class CourseAssessmentService {
         );
       }
 
-      // Notify student
-      await this.notificationService.createAssessmentNotification(
-        attempt.userId,
-        NotificationType.ASSESSMENT_GRADED,
-        `Your assessment "${attempt.snapshotTitle}" has been graded. You ${isPassed ? 'passed' : 'did not pass'}.`,
-        attemptId,
-      );
+      // Notify student. dedupeKey includes finalizedAt epoch so re-finalize
+      // (which can produce a different grade) generates a fresh notification
+      // rather than silently swallowing it.
+      await this.notificationService.createNotification({
+        userId: attempt.userId,
+        type: NotificationType.ASSESSMENT_GRADED,
+        message: `Your assessment "${attempt.snapshotTitle}" has been graded. You ${isPassed ? 'passed' : 'did not pass'}.`,
+        payload: {
+          assessmentId: attempt.assessmentId,
+          assessmentTitle: attempt.snapshotTitle,
+          attemptId,
+          passed: isPassed,
+          scorePct: percentage,
+        },
+        dedupeKey: `graded:${attemptId}:${finalizedAt.getTime()}`,
+        referenceId: attemptId,
+        commenterId: adminId,
+      });
 
       const finalized = await this.prisma.assessmentAttempt.findUnique({
         where: { id: attemptId },
@@ -1186,11 +1172,7 @@ export class CourseAssessmentService {
 
       return { message: 'Assessment finalized successfully', statusCode: 200, data: finalized };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to finalize grade' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to finalize grade');
     }
   }
 
@@ -1202,11 +1184,7 @@ export class CourseAssessmentService {
       });
       return { message: 'Certificate URL saved', statusCode: 200, data: completion };
     } catch (error) {
-      throw new HttpException(
-        { status: HttpStatus.FORBIDDEN, error: error?.message || 'Failed to set certificate' },
-        HttpStatus.FORBIDDEN,
-        { cause: error },
-      );
+      this.throwMapped(error, 'Failed to set certificate');
     }
   }
 

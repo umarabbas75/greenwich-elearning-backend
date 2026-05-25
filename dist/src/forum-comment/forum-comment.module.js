@@ -12,12 +12,13 @@ const forum_comment_service_1 = require("./forum-comment.service");
 const forum_comment_controller_1 = require("./forum-comment.controller");
 const jwt_1 = require("@nestjs/jwt");
 const strategy_1 = require("../strategy");
+const notification_module_1 = require("../notifications/notification.module");
 let ForumCommentModule = class ForumCommentModule {
 };
 exports.ForumCommentModule = ForumCommentModule;
 exports.ForumCommentModule = ForumCommentModule = __decorate([
     (0, common_1.Module)({
-        imports: [jwt_1.JwtModule.register({})],
+        imports: [jwt_1.JwtModule.register({}), notification_module_1.NotificationModule],
         providers: [
             forum_comment_service_1.ForumCommentService,
             strategy_1.JwtUserStrategy,

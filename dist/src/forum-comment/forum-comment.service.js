@@ -11,49 +11,59 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ForumCommentService = void 0;
 const common_1 = require("@nestjs/common");
+const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
+const notification_service_1 = require("../notifications/notification.service");
+function buildExcerpt(content, maxLen = 140) {
+    return content.replace(/<[^>]*>/g, '').slice(0, maxLen);
+}
 let ForumCommentService = class ForumCommentService {
-    constructor(prisma) {
+    constructor(prisma, notificationService) {
         this.prisma = prisma;
+        this.notificationService = notificationService;
     }
     async createForumThreadComment(body, userId) {
         try {
             const user = await this.prisma.user.findUnique({
                 where: { id: userId },
+                select: { id: true, firstName: true, lastName: true },
             });
-            if (!user) {
+            if (!user)
                 throw new Error('User not found');
-            }
             const thread = await this.prisma.forumThread.findUnique({
                 where: { id: body?.threadId },
+                select: { id: true, title: true },
             });
-            if (!thread) {
+            if (!thread)
                 throw new Error('Forum thread not found');
-            }
-            await this.prisma.forumComment.create({
+            const comment = await this.prisma.forumComment.create({
                 data: {
                     content: body?.content,
                     user: { connect: { id: userId } },
                     thread: { connect: { id: body.threadId } },
                 },
+                select: { id: true },
             });
             const subscribedUsers = await this.prisma.threadSubscription.findMany({
-                where: {
-                    threadId: body.threadId,
-                    userId: { not: userId },
-                },
-                select: {
-                    userId: true,
-                },
+                where: { threadId: body.threadId, userId: { not: userId } },
+                select: { userId: true },
             });
-            const notifications = subscribedUsers.map((sub) => ({
-                userId: sub.userId,
-                threadId: body.threadId,
+            await this.notificationService.createNotificationForMany({
+                userIds: subscribedUsers.map((s) => s.userId),
+                type: client_1.NotificationType.FORUM_COMMENT,
                 message: body.content,
+                payload: {
+                    threadId: thread.id,
+                    threadTitle: thread.title,
+                    commentId: comment.id,
+                    commentExcerpt: buildExcerpt(body.content ?? ''),
+                    commenterFirstName: user.firstName,
+                    commenterLastName: user.lastName,
+                },
+                groupKey: `forum-comment:${thread.id}`,
+                threadId: thread.id,
                 commenterId: userId,
-            }));
-            await this.prisma.notification.createMany({
-                data: notifications,
+                dedupeKeyFor: (recipientId) => `comment:${comment.id}:${recipientId}`,
             });
             return {
                 message: 'Successfully create quiz record',
@@ -225,6 +235,7 @@ let ForumCommentService = class ForumCommentService {
 exports.ForumCommentService = ForumCommentService;
 exports.ForumCommentService = ForumCommentService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        notification_service_1.NotificationService])
 ], ForumCommentService);
 //# sourceMappingURL=forum-comment.service.js.map

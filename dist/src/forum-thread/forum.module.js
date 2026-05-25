@@ -12,12 +12,13 @@ const forum_thread_service_1 = require("./forum-thread.service");
 const forum_thread_controller_1 = require("./forum-thread.controller");
 const jwt_1 = require("@nestjs/jwt");
 const strategy_1 = require("../strategy");
+const notification_module_1 = require("../notifications/notification.module");
 let ForumModule = class ForumModule {
 };
 exports.ForumModule = ForumModule;
 exports.ForumModule = ForumModule = __decorate([
     (0, common_1.Module)({
-        imports: [jwt_1.JwtModule.register({})],
+        imports: [jwt_1.JwtModule.register({}), notification_module_1.NotificationModule],
         providers: [
             forum_thread_service_1.ForumThreadService,
             strategy_1.JwtUserStrategy,

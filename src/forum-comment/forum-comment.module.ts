@@ -7,9 +7,10 @@ import {
   JwtCombineStrategy,
   JwtUserStrategy,
 } from '../strategy';
+import { NotificationModule } from '../notifications/notification.module';
 
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [JwtModule.register({}), NotificationModule],
   providers: [
     ForumCommentService,
     JwtUserStrategy,

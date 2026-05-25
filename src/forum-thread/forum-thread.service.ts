@@ -1,18 +1,13 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-// import { Forum } from '@prisma/client';
-// import {
-//   QuizDto,
-//   ResponseDto,
-// } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ForumThread, Prisma } from '@prisma/client';
-// import { NotificationService } from 'src/notifiications/notification.service';
+import { NotificationService } from '../notifications/notification.service';
 
 @Injectable()
 export class ForumThreadService {
   constructor(
     private prisma: PrismaService,
-    // private notificationService: NotificationService,
+    private notificationService: NotificationService,
   ) {}
 
   async subscribeForumThread(body: any, userId: string): Promise<any> {
@@ -237,12 +232,8 @@ export class ForumThreadService {
       });
       console.log({ newThread });
 
-      //Notify all users if the thread is created by an admin
-
-      // await this.notificationService.notifyAllUsersForNewThread(
-      //   newThread.id,
-      //   userId,
-      // );
+      // Notification fan-out happens later when the thread is activated
+      // (status: inActive → active). See updateForumThread below.
 
       return {
         message: 'Successfully create quiz record',
@@ -302,35 +293,17 @@ export class ForumThreadService {
         data: updateForumThread, // Pass the modified user object
       });
 
-      //If status is changing to active, notify users
       if (shouldSendNotification) {
-        // Call a method to notify users about the thread becoming active
-        try {
-          const users = await this.prisma.user.findMany({
-            select: {
-              id: true,
-            },
-          });
-          const notifications = users.map((user) => ({
-            userId: user.id,
+        const admin = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, firstName: true, lastName: true },
+        });
+        if (admin) {
+          await this.notificationService.notifyAllUsersForNewThread({
             threadId: forumThreadId,
-            commenterId: userId, // Include the commenterId
-            message: 'A new thread has been created by the admin.',
-          }));
-          await this.prisma.notification.createMany({
-            data: notifications,
+            threadTitle: existingForumThread.title,
+            creator: admin,
           });
-        } catch (error) {
-          throw new HttpException(
-            {
-              status: HttpStatus.FORBIDDEN,
-              error: error.message || 'Something went wrong',
-            },
-            HttpStatus.FORBIDDEN,
-            {
-              cause: error,
-            },
-          );
         }
       }
 

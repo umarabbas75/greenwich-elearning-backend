@@ -1,0 +1,3 @@
+-- Placeholder. The original SQL for this migration was lost from disk but the
+-- migration is recorded as applied in _prisma_migrations. This file exists so
+-- prisma migrate status / deploy doesn't error on the missing file.

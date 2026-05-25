@@ -1,7 +1,9 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from '../notifications/notification.service';
 export declare class ForumCommentService {
     private prisma;
-    constructor(prisma: PrismaService);
+    private notificationService;
+    constructor(prisma: PrismaService, notificationService: NotificationService);
     createForumThreadComment(body: any, userId: string): Promise<any>;
     getForumCommentsByThreadId(threadId: string): Promise<{
         message: string;
