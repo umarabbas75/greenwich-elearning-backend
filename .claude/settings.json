@@ -8,7 +8,9 @@
       "Bash(node -e ' *)",
       "WebFetch(domain:neon.tech)",
       "WebFetch(domain:www.prisma.io)",
-      "WebFetch(domain:neon.com)"
+      "WebFetch(domain:neon.com)",
+      "Bash(xargs cat)",
+      "Bash(grep -iE \"\\\\.md$\")"
     ],
     "additionalDirectories": [
       "/Users/appal/Documents/greenwichPorjects/greenwich-elearning-backend/src"

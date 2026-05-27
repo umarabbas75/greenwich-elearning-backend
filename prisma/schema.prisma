@@ -92,6 +92,7 @@ model Course {
   questionCategories   QuestionCategory[]
   questions            Question[]
   courseCompletions    CourseCompletion[]
+  ForumThread          ForumThread[]
 
   @@map("courses")
 }
@@ -432,6 +433,7 @@ model ForumThread {
   title               String
   content             String
   userId              String
+  courseId            String?
   status              String
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
@@ -439,6 +441,7 @@ model ForumThread {
   FavoriteForumThread FavoriteForumThread[]
   ForumComment        ForumComment[]
   user                User                  @relation(fields: [userId], references: [id])
+  course              Course?               @relation(fields: [courseId], references: [id])
   Notification        Notification[]
   ThreadSubscription  ThreadSubscription[]
 

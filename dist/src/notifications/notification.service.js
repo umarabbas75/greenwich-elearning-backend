@@ -168,7 +168,12 @@ let NotificationService = NotificationService_1 = class NotificationService {
         });
     }
     async notifyAllUsersForNewThread(args) {
-        const users = await this.prisma.user.findMany({ select: { id: true } });
+        const users = await this.prisma.user.findMany({
+            where: args.courseId
+                ? { UserCourse: { some: { courseId: args.courseId, isActive: true } } }
+                : undefined,
+            select: { id: true },
+        });
         await this.createNotificationForMany({
             userIds: users.map((u) => u.id),
             type: client_1.NotificationType.FORUM_THREAD,

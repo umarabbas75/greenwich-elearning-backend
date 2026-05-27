@@ -251,9 +251,17 @@ export class NotificationService {
   async notifyAllUsersForNewThread(args: {
     threadId: string;
     threadTitle: string;
+    courseId?: string | null;
     creator: { id: string; firstName: string; lastName: string };
   }): Promise<void> {
-    const users = await this.prisma.user.findMany({ select: { id: true } });
+    // Course-scoped threads notify only enrolled users; legacy global
+    // threads (no courseId) still fan out to everyone.
+    const users = await this.prisma.user.findMany({
+      where: args.courseId
+        ? { UserCourse: { some: { courseId: args.courseId, isActive: true } } }
+        : undefined,
+      select: { id: true },
+    });
     await this.createNotificationForMany({
       userIds: users.map((u) => u.id),
       type: NotificationType.FORUM_THREAD,

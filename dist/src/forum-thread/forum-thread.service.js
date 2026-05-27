@@ -147,6 +147,12 @@ let ForumThreadService = class ForumThreadService {
                                 photo: true,
                             },
                         },
+                        course: {
+                            select: {
+                                id: true,
+                                title: true,
+                            },
+                        },
                         ForumComment: {
                             select: {
                                 id: true,
@@ -165,7 +171,19 @@ let ForumThreadService = class ForumThreadService {
                             },
                         },
                     },
-                    where: user?.role === 'user' ? { status: 'active' } : undefined,
+                    where: user?.role === 'user'
+                        ? {
+                            status: 'active',
+                            OR: [
+                                { courseId: null },
+                                {
+                                    course: {
+                                        users: { some: { userId: user.id, isActive: true } },
+                                    },
+                                },
+                            ],
+                        }
+                        : undefined,
                 }),
             ]);
             const favoriteThreadIds = new Set(favoriteThreads.map((fav) => fav.threadId));
@@ -202,11 +220,15 @@ let ForumThreadService = class ForumThreadService {
     }
     async createForumThread(body, userId) {
         try {
+            if (!body.courseId) {
+                throw new Error('courseId is required');
+            }
             const newThread = await this.prisma.forumThread.create({
                 data: {
                     title: body.title,
                     content: body.content,
                     userId: userId,
+                    courseId: body.courseId,
                     status: 'inActive',
                 },
             });
@@ -260,6 +282,7 @@ let ForumThreadService = class ForumThreadService {
                     await this.notificationService.notifyAllUsersForNewThread({
                         threadId: forumThreadId,
                         threadTitle: existingForumThread.title,
+                        courseId: existingForumThread.courseId,
                         creator: admin,
                     });
                 }
@@ -325,6 +348,12 @@ let ForumThreadService = class ForumThreadService {
                             firstName: true,
                             lastName: true,
                             photo: true,
+                        },
+                    },
+                    course: {
+                        select: {
+                            id: true,
+                            title: true,
                         },
                     },
                 },

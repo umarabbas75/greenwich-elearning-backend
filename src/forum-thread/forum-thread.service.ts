@@ -154,6 +154,12 @@ export class ForumThreadService {
                 photo: true,
               },
             },
+            course: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
             ForumComment: {
               select: {
                 id: true,
@@ -172,7 +178,20 @@ export class ForumThreadService {
               },
             },
           },
-          where: user?.role === 'user' ? { status: 'active' } : undefined,
+          where:
+            user?.role === 'user'
+              ? {
+                  status: 'active',
+                  OR: [
+                    { courseId: null },
+                    {
+                      course: {
+                        users: { some: { userId: user.id, isActive: true } },
+                      },
+                    },
+                  ],
+                }
+              : undefined,
         }),
       ]);
 
@@ -222,11 +241,15 @@ export class ForumThreadService {
 
   async createForumThread(body: any, userId: string): Promise<any> {
     try {
+      if (!body.courseId) {
+        throw new Error('courseId is required');
+      }
       const newThread = await this.prisma.forumThread.create({
         data: {
           title: body.title,
           content: body.content,
           userId: userId,
+          courseId: body.courseId,
           status: 'inActive',
         },
       });
@@ -302,6 +325,7 @@ export class ForumThreadService {
           await this.notificationService.notifyAllUsersForNewThread({
             threadId: forumThreadId,
             threadTitle: existingForumThread.title,
+            courseId: existingForumThread.courseId,
             creator: admin,
           });
         }
@@ -385,6 +409,12 @@ export class ForumThreadService {
               firstName: true,
               lastName: true,
               photo: true,
+            },
+          },
+          course: {
+            select: {
+              id: true,
+              title: true,
             },
           },
         },

@@ -88,6 +88,7 @@ export declare class NotificationService {
     notifyAllUsersForNewThread(args: {
         threadId: string;
         threadTitle: string;
+        courseId?: string | null;
         creator: {
             id: string;
             firstName: string;
