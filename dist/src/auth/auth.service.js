@@ -38,9 +38,10 @@ let AuthService = class AuthService {
                     timezone: true,
                     password: true,
                     status: true,
+                    deletedAt: true,
                 },
             });
-            if (!user) {
+            if (!user || user.deletedAt) {
                 throw new Error('User not found 34');
             }
             const pwMatches = await argon2.verify(user.password, body.password);

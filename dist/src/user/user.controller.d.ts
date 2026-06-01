@@ -12,5 +12,7 @@ export declare class UserController {
     changePassword(params: ParamsDto, body: ChangePasswordDto): Promise<ResponseDto>;
     updatePassword(params: any, body: any): Promise<ResponseDto>;
     deleteUser(params: ParamsDto): Promise<ResponseDto>;
+    getDeletionPreview(params: ParamsDto): Promise<ResponseDto>;
+    purgeUser(params: ParamsDto): Promise<ResponseDto>;
     createUserMessage(body: any, user: User): Promise<any>;
 }

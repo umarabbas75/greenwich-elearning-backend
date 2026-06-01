@@ -10,8 +10,8 @@ export class UserService {
 
   async getUser(id: string): Promise<ResponseDto> {
     try {
-      const user = await this.prisma.user.findUnique({
-        where: { id },
+      const user = await this.prisma.user.findFirst({
+        where: { id, deletedAt: null },
         include: {
           UserCourse: {
             include: {
@@ -100,6 +100,7 @@ export class UserService {
   async getAllUsers(): Promise<ResponseDto> {
     try {
       const users = await this.prisma.user.findMany({
+        where: { deletedAt: null },
         orderBy: {
           createdAt: 'desc',
         },
@@ -153,6 +154,13 @@ export class UserService {
         where: { email: body?.email },
       });
       if (isUserExist) {
+        if (isUserExist.deletedAt) {
+          // Email belongs to a soft-deleted user — it stays reserved until the
+          // account is purged or restored.
+          throw new Error(
+            'A previously deleted account is using this email. Restore that account or purge it before re-registering this email.',
+          );
+        }
         throw new Error('User already exists in the system');
       }
       const password = await argon2.hash(body.password);
@@ -315,7 +323,210 @@ export class UserService {
     }
   }
 
+  /**
+   * Soft delete: marks the user as deleted instead of removing the row.
+   * This always succeeds regardless of related records (enrollments, progress,
+   * submissions, forum content, etc.) and preserves historical/compliance data.
+   * Soft-deleted users are excluded from all reads and cannot log in.
+   */
   async deleteUser(id: string): Promise<ResponseDto> {
+    try {
+      const user = await this.prisma.user.findFirst({
+        where: { id, deletedAt: null },
+      });
+      if (!user?.id) {
+        throw new Error('User not found');
+      }
+
+      const deletedUser = await this.prisma.user.update({
+        where: { id },
+        data: {
+          deletedAt: new Date(),
+          status: 'inactive',
+        },
+      });
+
+      return {
+        message: 'Successfully deleted user record',
+        statusCode: 200,
+        data: deletedUser,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  /**
+   * Computes the "blast radius" of permanently deleting a user.
+   *
+   * Two categories:
+   *  - cascade:  self-owned records that will be removed together with the user.
+   *  - blockers: content this user authored that OTHER users depend on. Any
+   *              blocker > 0 means a hard purge is refused — those records must
+   *              be reassigned/removed first (a soft delete is always available).
+   */
+  private async gatherDeletionImpact(id: string) {
+    const [
+      // ---- cascade (self-owned) ----
+      enrollments,
+      formCompletions,
+      policyCompletions,
+      policyItemCompletions,
+      feedbackSubmissions,
+      lastSeenSections,
+      quizProgress,
+      courseCompletions,
+      favoriteThreads,
+      threadSubscriptions,
+      todos,
+      contactMessages,
+      policiesAndProcedures,
+      notifications,
+      assessmentAttempts,
+      ownSubmissions,
+      authoredNotifications,
+      // ---- blockers (others depend on these) ----
+      posts,
+      postComments,
+      forumThreads,
+      forumComments,
+      assignmentsCreated,
+      assignmentsToReview,
+      assessmentsCreated,
+      submissionsAssignedToReview,
+      submissionsReviewed,
+    ] = await this.prisma.$transaction([
+      this.prisma.userCourse.count({ where: { userId: id } }),
+      this.prisma.userFormCompletion.count({ where: { userId: id } }),
+      this.prisma.userPolicyCompletion.count({ where: { userId: id } }),
+      this.prisma.userPolicyItemCompletion.count({ where: { userId: id } }),
+      this.prisma.courseFeedbackSubmission.count({ where: { userId: id } }),
+      this.prisma.lastSeenSection.count({ where: { userId: id } }),
+      this.prisma.quizProgress.count({ where: { userId: id } }),
+      this.prisma.courseCompletion.count({ where: { userId: id } }),
+      this.prisma.favoriteForumThread.count({ where: { userId: id } }),
+      this.prisma.threadSubscription.count({ where: { userId: id } }),
+      this.prisma.todoItem.count({ where: { userId: id } }),
+      this.prisma.contactMessage.count({ where: { userId: id } }),
+      this.prisma.policiesAndProcedures.count({ where: { userId: id } }),
+      this.prisma.notification.count({ where: { userId: id } }),
+      this.prisma.assessmentAttempt.count({ where: { userId: id } }),
+      this.prisma.assignmentSubmission.count({ where: { studentId: id } }),
+      this.prisma.notification.count({ where: { commenterId: id } }),
+      this.prisma.post.count({ where: { userId: id } }),
+      this.prisma.comment.count({ where: { userId: id } }),
+      this.prisma.forumThread.count({ where: { userId: id } }),
+      this.prisma.forumComment.count({ where: { userId: id } }),
+      this.prisma.assignment.count({ where: { createdByAdminId: id } }),
+      this.prisma.assignment.count({ where: { assignedToAdminId: id } }),
+      this.prisma.assessment.count({ where: { createdByAdminId: id } }),
+      this.prisma.assignmentSubmission.count({
+        where: { assignedToAdminId: id },
+      }),
+      this.prisma.assignmentSubmission.count({
+        where: { reviewedByAdminId: id },
+      }),
+    ]);
+
+    const cascade = {
+      enrollments,
+      formCompletions,
+      policyCompletions,
+      policyItemCompletions,
+      feedbackSubmissions,
+      lastSeenSections,
+      quizProgress,
+      courseCompletions,
+      favoriteThreads,
+      threadSubscriptions,
+      todos,
+      contactMessages,
+      policiesAndProcedures,
+      notifications,
+      assessmentAttempts,
+      assignmentSubmissions: ownSubmissions,
+    };
+
+    const blockers = {
+      posts,
+      postComments,
+      forumThreads,
+      forumComments,
+      assignmentsCreated,
+      assignmentsToReview,
+      assessmentsCreated,
+      submissionsAssignedToReview,
+      submissionsReviewed,
+    };
+
+    const cascadeTotal = Object.values(cascade).reduce((a, b) => a + b, 0);
+    const blockerTotal = Object.values(blockers).reduce((a, b) => a + b, 0);
+
+    return {
+      // notifications authored BY this user but owned by others: we null the
+      // commenter link rather than delete the recipient's notification.
+      commenterReferencesToUnlink: authoredNotifications,
+      cascade,
+      cascadeTotal,
+      blockers,
+      blockerTotal,
+      canPurge: blockerTotal === 0,
+    };
+  }
+
+  /**
+   * Preview the impact of permanently deleting a user, WITHOUT deleting
+   * anything. The frontend shows this in the confirmation dialog so the admin
+   * knows exactly what will be removed (and what is blocking a hard purge).
+   */
+  async getDeletionPreview(id: string): Promise<ResponseDto> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id },
+        select: { id: true, firstName: true, lastName: true, email: true, role: true },
+      });
+      if (!user?.id) {
+        throw new Error('User not found');
+      }
+
+      const impact = await this.gatherDeletionImpact(id);
+
+      return {
+        message: 'Successfully fetched user deletion preview',
+        statusCode: 200,
+        data: { user, ...impact },
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Hard delete (force purge) — admin/GDPR "right to be forgotten".
+   *
+   * Permanently removes the user AND all of their self-owned records, in a
+   * single transaction. If the user authored content other users depend on
+   * (forum content, assignments/assessments, or is a reviewer on others'
+   * submissions), the purge is REFUSED with the list of blockers — the admin
+   * must reassign/remove those first, or use a soft delete instead.
+   */
+  async purgeUser(id: string): Promise<ResponseDto> {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id },
@@ -324,32 +535,78 @@ export class UserService {
         throw new Error('User not found');
       }
 
-      await this.prisma.user.delete({
-        where: { id },
-      });
+      const impact = await this.gatherDeletionImpact(id);
+
+      if (!impact.canPurge) {
+        throw new HttpException(
+          {
+            status: HttpStatus.CONFLICT,
+            error:
+              'Cannot permanently delete this user because they authored content other users depend on. Reassign or remove these records first, or use a soft delete instead.',
+            blockers: impact.blockers,
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      // Delete all self-owned records, then the user, atomically. Children
+      // must be removed before the parent rows they reference.
+      await this.prisma.$transaction([
+        // unlink notifications this user authored but others own
+        this.prisma.notification.updateMany({
+          where: { commenterId: id },
+          data: { commenterId: null },
+        }),
+        // course-completion references an attempt; clear the link before
+        // deleting attempts/completions
+        this.prisma.courseCompletion.deleteMany({ where: { userId: id } }),
+        this.prisma.assessmentAttempt.deleteMany({ where: { userId: id } }),
+        this.prisma.assignmentSubmission.deleteMany({
+          where: { studentId: id },
+        }),
+        this.prisma.userFormCompletion.deleteMany({ where: { userId: id } }),
+        this.prisma.userPolicyItemCompletion.deleteMany({
+          where: { userId: id },
+        }),
+        this.prisma.userPolicyCompletion.deleteMany({ where: { userId: id } }),
+        this.prisma.courseFeedbackSubmission.deleteMany({
+          where: { userId: id },
+        }),
+        this.prisma.lastSeenSection.deleteMany({ where: { userId: id } }),
+        this.prisma.quizProgress.deleteMany({ where: { userId: id } }),
+        this.prisma.favoriteForumThread.deleteMany({ where: { userId: id } }),
+        this.prisma.threadSubscription.deleteMany({ where: { userId: id } }),
+        this.prisma.todoItem.deleteMany({ where: { userId: id } }),
+        this.prisma.contactMessage.deleteMany({ where: { userId: id } }),
+        this.prisma.policiesAndProcedures.deleteMany({ where: { userId: id } }),
+        this.prisma.notification.deleteMany({ where: { userId: id } }),
+        this.prisma.userCourse.deleteMany({ where: { userId: id } }),
+        this.prisma.user.delete({ where: { id } }),
+      ]);
 
       return {
-        message: 'Successfully deleted user record',
+        message: 'Successfully purged user record and associated data',
         statusCode: 200,
-        data: user,
+        data: { user, deleted: impact.cascade },
       };
     } catch (error) {
-      console.log({ error });
+      if (error instanceof HttpException) {
+        throw error;
+      }
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2003'
       ) {
-        // Foreign key constraint violation
+        // Unexpected foreign-key violation — a relation we didn't account for.
         throw new HttpException(
           {
-            status: HttpStatus.FORBIDDEN,
+            status: HttpStatus.CONFLICT,
             error:
-              'Cannot delete it because it is associated with other records.',
+              'Cannot permanently delete this user because they still have associated records. Use a soft delete instead.',
           },
-          HttpStatus.FORBIDDEN,
+          HttpStatus.CONFLICT,
         );
       } else {
-        // Other errors
         throw new HttpException(
           {
             status: HttpStatus.FORBIDDEN,

@@ -11,6 +11,9 @@ export declare class UserService {
     changePassword(userId: string, body: ChangePasswordDto): Promise<ResponseDto>;
     updatePassword(userId: string, body: any): Promise<ResponseDto>;
     deleteUser(id: string): Promise<ResponseDto>;
+    private gatherDeletionImpact;
+    getDeletionPreview(id: string): Promise<ResponseDto>;
+    purgeUser(id: string): Promise<ResponseDto>;
     createUserMessage(body: any, user: User): Promise<ResponseDto>;
     getAllUserMessages(userId: any, role: string): Promise<ResponseDto>;
 }

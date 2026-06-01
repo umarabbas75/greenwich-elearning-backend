@@ -20,6 +20,7 @@ export declare class JwtAdminStrategy extends JwtAdminStrategy_base {
         role: import(".prisma/client").$Enums.Role;
         createdAt: Date;
         updatedAt: Date;
+        deletedAt: Date;
         status: import(".prisma/client").$Enums.UserStatus;
     }>;
 }
@@ -43,6 +44,7 @@ export declare class JwtUserStrategy extends JwtUserStrategy_base {
         role: import(".prisma/client").$Enums.Role;
         createdAt: Date;
         updatedAt: Date;
+        deletedAt: Date;
         status: import(".prisma/client").$Enums.UserStatus;
     }>;
 }
@@ -67,6 +69,7 @@ export declare class JwtCombineStrategy extends JwtCombineStrategy_base {
         role: import(".prisma/client").$Enums.Role;
         createdAt: Date;
         updatedAt: Date;
+        deletedAt: Date;
         status: import(".prisma/client").$Enums.UserStatus;
     }>;
 }

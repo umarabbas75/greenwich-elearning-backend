@@ -10,7 +10,14 @@
       "WebFetch(domain:www.prisma.io)",
       "WebFetch(domain:neon.com)",
       "Bash(xargs cat)",
-      "Bash(grep -iE \"\\\\.md$\")"
+      "Bash(grep -iE \"\\\\.md$\")",
+      "Bash(awk '/^model User \\\\{/,/^\\\\}/' prisma/schema.prisma)",
+      "Bash(awk '/enum UserStatus \\\\{/,/^\\\\}/' prisma/schema.prisma)",
+      "Bash(grep -n '^model __TRACKED_VAR__ ' prisma/schema.prisma)",
+      "Bash(awk '/^model AttemptQuestionSnapshot \\\\{/,/^\\\\}/' prisma/schema.prisma)",
+      "Bash(cp /tmp/preview_check.ts ./preview_check.ts)",
+      "Bash(npx ts-node *)",
+      "Bash(grep -n '\\\\.delete\\\\|\\\\.deleteMany\\\\|\\\\.update\\\\|$transaction' src/user/user.service.ts)"
     ],
     "additionalDirectories": [
       "/Users/appal/Documents/greenwichPorjects/greenwich-elearning-backend/src"

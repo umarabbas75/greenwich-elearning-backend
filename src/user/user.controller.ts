@@ -73,6 +73,20 @@ export class UserController {
     return this.appService.deleteUser(params.id);
   }
 
+  // Preview the blast radius of a permanent delete (no deletion happens).
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('/:id/deletion-preview')
+  getDeletionPreview(@Param() params: ParamsDto): Promise<ResponseDto> {
+    return this.appService.getDeletionPreview(params.id);
+  }
+
+  // Admin / GDPR force-purge: permanently removes the user + self-owned records.
+  @UseGuards(AuthGuard('cJwt'))
+  @Delete('/:id/purge')
+  purgeUser(@Param() params: ParamsDto): Promise<ResponseDto> {
+    return this.appService.purgeUser(params.id);
+  }
+
   @UseGuards(AuthGuard('cJwt'))
   @Post('/contact-us-message')
   createUserMessage(@Body() body: any, @GetUser() user: User): Promise<any> {

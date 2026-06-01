@@ -46,6 +46,12 @@ let UserController = class UserController {
     deleteUser(params) {
         return this.appService.deleteUser(params.id);
     }
+    getDeletionPreview(params) {
+        return this.appService.getDeletionPreview(params.id);
+    }
+    purgeUser(params) {
+        return this.appService.purgeUser(params.id);
+    }
     createUserMessage(body, user) {
         return this.appService.createUserMessage(body, user);
     }
@@ -116,6 +122,22 @@ __decorate([
     __metadata("design:paramtypes", [dto_1.ParamsDto]),
     __metadata("design:returntype", Promise)
 ], UserController.prototype, "deleteUser", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Get)('/:id/deletion-preview'),
+    __param(0, (0, common_1.Param)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [dto_1.ParamsDto]),
+    __metadata("design:returntype", Promise)
+], UserController.prototype, "getDeletionPreview", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Delete)('/:id/purge'),
+    __param(0, (0, common_1.Param)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [dto_1.ParamsDto]),
+    __metadata("design:returntype", Promise)
+], UserController.prototype, "purgeUser", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Post)('/contact-us-message'),

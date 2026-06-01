@@ -20,8 +20,8 @@ let UserService = class UserService {
     }
     async getUser(id) {
         try {
-            const user = await this.prisma.user.findUnique({
-                where: { id },
+            const user = await this.prisma.user.findFirst({
+                where: { id, deletedAt: null },
                 include: {
                     UserCourse: {
                         include: {
@@ -98,6 +98,7 @@ let UserService = class UserService {
     async getAllUsers() {
         try {
             const users = await this.prisma.user.findMany({
+                where: { deletedAt: null },
                 orderBy: {
                     createdAt: 'desc',
                 },
@@ -143,6 +144,9 @@ let UserService = class UserService {
                 where: { email: body?.email },
             });
             if (isUserExist) {
+                if (isUserExist.deletedAt) {
+                    throw new Error('A previously deleted account is using this email. Restore that account or purge it before re-registering this email.');
+                }
                 throw new Error('User already exists in the system');
             }
             const password = await argon2.hash(body.password);
@@ -273,29 +277,191 @@ let UserService = class UserService {
     }
     async deleteUser(id) {
         try {
+            const user = await this.prisma.user.findFirst({
+                where: { id, deletedAt: null },
+            });
+            if (!user?.id) {
+                throw new Error('User not found');
+            }
+            const deletedUser = await this.prisma.user.update({
+                where: { id },
+                data: {
+                    deletedAt: new Date(),
+                    status: 'inactive',
+                },
+            });
+            return {
+                message: 'Successfully deleted user record',
+                statusCode: 200,
+                data: deletedUser,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async gatherDeletionImpact(id) {
+        const [enrollments, formCompletions, policyCompletions, policyItemCompletions, feedbackSubmissions, lastSeenSections, quizProgress, courseCompletions, favoriteThreads, threadSubscriptions, todos, contactMessages, policiesAndProcedures, notifications, assessmentAttempts, ownSubmissions, authoredNotifications, posts, postComments, forumThreads, forumComments, assignmentsCreated, assignmentsToReview, assessmentsCreated, submissionsAssignedToReview, submissionsReviewed,] = await this.prisma.$transaction([
+            this.prisma.userCourse.count({ where: { userId: id } }),
+            this.prisma.userFormCompletion.count({ where: { userId: id } }),
+            this.prisma.userPolicyCompletion.count({ where: { userId: id } }),
+            this.prisma.userPolicyItemCompletion.count({ where: { userId: id } }),
+            this.prisma.courseFeedbackSubmission.count({ where: { userId: id } }),
+            this.prisma.lastSeenSection.count({ where: { userId: id } }),
+            this.prisma.quizProgress.count({ where: { userId: id } }),
+            this.prisma.courseCompletion.count({ where: { userId: id } }),
+            this.prisma.favoriteForumThread.count({ where: { userId: id } }),
+            this.prisma.threadSubscription.count({ where: { userId: id } }),
+            this.prisma.todoItem.count({ where: { userId: id } }),
+            this.prisma.contactMessage.count({ where: { userId: id } }),
+            this.prisma.policiesAndProcedures.count({ where: { userId: id } }),
+            this.prisma.notification.count({ where: { userId: id } }),
+            this.prisma.assessmentAttempt.count({ where: { userId: id } }),
+            this.prisma.assignmentSubmission.count({ where: { studentId: id } }),
+            this.prisma.notification.count({ where: { commenterId: id } }),
+            this.prisma.post.count({ where: { userId: id } }),
+            this.prisma.comment.count({ where: { userId: id } }),
+            this.prisma.forumThread.count({ where: { userId: id } }),
+            this.prisma.forumComment.count({ where: { userId: id } }),
+            this.prisma.assignment.count({ where: { createdByAdminId: id } }),
+            this.prisma.assignment.count({ where: { assignedToAdminId: id } }),
+            this.prisma.assessment.count({ where: { createdByAdminId: id } }),
+            this.prisma.assignmentSubmission.count({
+                where: { assignedToAdminId: id },
+            }),
+            this.prisma.assignmentSubmission.count({
+                where: { reviewedByAdminId: id },
+            }),
+        ]);
+        const cascade = {
+            enrollments,
+            formCompletions,
+            policyCompletions,
+            policyItemCompletions,
+            feedbackSubmissions,
+            lastSeenSections,
+            quizProgress,
+            courseCompletions,
+            favoriteThreads,
+            threadSubscriptions,
+            todos,
+            contactMessages,
+            policiesAndProcedures,
+            notifications,
+            assessmentAttempts,
+            assignmentSubmissions: ownSubmissions,
+        };
+        const blockers = {
+            posts,
+            postComments,
+            forumThreads,
+            forumComments,
+            assignmentsCreated,
+            assignmentsToReview,
+            assessmentsCreated,
+            submissionsAssignedToReview,
+            submissionsReviewed,
+        };
+        const cascadeTotal = Object.values(cascade).reduce((a, b) => a + b, 0);
+        const blockerTotal = Object.values(blockers).reduce((a, b) => a + b, 0);
+        return {
+            commenterReferencesToUnlink: authoredNotifications,
+            cascade,
+            cascadeTotal,
+            blockers,
+            blockerTotal,
+            canPurge: blockerTotal === 0,
+        };
+    }
+    async getDeletionPreview(id) {
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: { id },
+                select: { id: true, firstName: true, lastName: true, email: true, role: true },
+            });
+            if (!user?.id) {
+                throw new Error('User not found');
+            }
+            const impact = await this.gatherDeletionImpact(id);
+            return {
+                message: 'Successfully fetched user deletion preview',
+                statusCode: 200,
+                data: { user, ...impact },
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+        }
+    }
+    async purgeUser(id) {
+        try {
             const user = await this.prisma.user.findUnique({
                 where: { id },
             });
             if (!user?.id) {
                 throw new Error('User not found');
             }
-            await this.prisma.user.delete({
-                where: { id },
-            });
+            const impact = await this.gatherDeletionImpact(id);
+            if (!impact.canPurge) {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.CONFLICT,
+                    error: 'Cannot permanently delete this user because they authored content other users depend on. Reassign or remove these records first, or use a soft delete instead.',
+                    blockers: impact.blockers,
+                }, common_1.HttpStatus.CONFLICT);
+            }
+            await this.prisma.$transaction([
+                this.prisma.notification.updateMany({
+                    where: { commenterId: id },
+                    data: { commenterId: null },
+                }),
+                this.prisma.courseCompletion.deleteMany({ where: { userId: id } }),
+                this.prisma.assessmentAttempt.deleteMany({ where: { userId: id } }),
+                this.prisma.assignmentSubmission.deleteMany({
+                    where: { studentId: id },
+                }),
+                this.prisma.userFormCompletion.deleteMany({ where: { userId: id } }),
+                this.prisma.userPolicyItemCompletion.deleteMany({
+                    where: { userId: id },
+                }),
+                this.prisma.userPolicyCompletion.deleteMany({ where: { userId: id } }),
+                this.prisma.courseFeedbackSubmission.deleteMany({
+                    where: { userId: id },
+                }),
+                this.prisma.lastSeenSection.deleteMany({ where: { userId: id } }),
+                this.prisma.quizProgress.deleteMany({ where: { userId: id } }),
+                this.prisma.favoriteForumThread.deleteMany({ where: { userId: id } }),
+                this.prisma.threadSubscription.deleteMany({ where: { userId: id } }),
+                this.prisma.todoItem.deleteMany({ where: { userId: id } }),
+                this.prisma.contactMessage.deleteMany({ where: { userId: id } }),
+                this.prisma.policiesAndProcedures.deleteMany({ where: { userId: id } }),
+                this.prisma.notification.deleteMany({ where: { userId: id } }),
+                this.prisma.userCourse.deleteMany({ where: { userId: id } }),
+                this.prisma.user.delete({ where: { id } }),
+            ]);
             return {
-                message: 'Successfully deleted user record',
+                message: 'Successfully purged user record and associated data',
                 statusCode: 200,
-                data: user,
+                data: { user, deleted: impact.cascade },
             };
         }
         catch (error) {
-            console.log({ error });
+            if (error instanceof common_1.HttpException) {
+                throw error;
+            }
             if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
                 error.code === 'P2003') {
                 throw new common_1.HttpException({
-                    status: common_1.HttpStatus.FORBIDDEN,
-                    error: 'Cannot delete it because it is associated with other records.',
-                }, common_1.HttpStatus.FORBIDDEN);
+                    status: common_1.HttpStatus.CONFLICT,
+                    error: 'Cannot permanently delete this user because they still have associated records. Use a soft delete instead.',
+                }, common_1.HttpStatus.CONFLICT);
             }
             else {
                 throw new common_1.HttpException({
