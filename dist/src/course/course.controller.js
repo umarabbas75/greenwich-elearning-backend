@@ -121,7 +121,7 @@ let CourseController = class CourseController {
         return this.appService.getAllSections(params.id);
     }
     getAllUserSections(params, user) {
-        return this.appService.getAllUserSections(params?.id, user.id, params?.courseId, user.email);
+        return this.appService.getAllUserSections(params?.id, user.id, params?.courseId);
     }
     setCourseActive(params, body) {
         return this.appService.setCourseActive(params.id, body.isActive);

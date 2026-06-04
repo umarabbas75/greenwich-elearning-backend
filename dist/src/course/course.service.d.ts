@@ -62,7 +62,7 @@ export declare class CourseService {
     getAllUserModules(id: string, userId: string): Promise<any>;
     getAllChapters(id: string): Promise<ResponseDto>;
     getAllSections(id: string): Promise<ResponseDto>;
-    getAllUserSections(id: string, userId: string, courseId: string, userEmail?: string | null): Promise<any>;
+    getAllUserSections(id: string, userId: string, courseId: string): Promise<any>;
     updateCourse(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateModule(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateChapter(id: string, body: UpdateCourseDto): Promise<ResponseDto>;

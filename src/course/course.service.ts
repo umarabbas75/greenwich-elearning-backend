@@ -1915,17 +1915,8 @@ export class CourseService {
     id: string,
     userId: string,
     courseId: string,
-    userEmail?: string | null,
   ): Promise<any> {
     try {
-      await assertChapterAccessible(
-        this.prisma,
-        this.config,
-        userId,
-        id,
-        userEmail,
-      );
-
       const [sections, userCourseProgress, chapter, lastSeenLesson] =
         await Promise.all([
           this.prisma.section.findMany({

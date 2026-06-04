@@ -17,7 +17,7 @@ Default pass threshold is **70%** (`DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE`). Stor
 Deletes all `quiz_answers` for `(userId, chapterId)` so a new attempt starts clean.
 
 ### B5 — Server-side gating
-`PUT /courses/updateUserChapter/progress`, `POST /courses/section/updateLastSeen/`, `GET /courses/user/module/chapter/allSections/:id/:courseId`, `POST /quizzes/checkQuiz`, `POST /quizzes/createChapterQuizzesReport`, and `POST /quizzes/retakeChapterQuiz` reject access when the previous chapter (sections + quiz) is incomplete, unless the user email is in `FREE_ROAM_EMAILS` (comma-separated, mirrors frontend free-roam allowlist).
+`PUT /courses/updateUserChapter/progress`, `POST /courses/section/updateLastSeen/`, `POST /quizzes/checkQuiz`, `POST /quizzes/createChapterQuizzesReport`, and `POST /quizzes/retakeChapterQuiz` reject access when the previous chapter (sections + quiz) is incomplete, unless the user email is in `FREE_ROAM_EMAILS` (comma-separated, mirrors frontend free-roam allowlist). `GET .../allSections` is intentionally not gated (frontend handles lock UI).
 
 ## Env
 

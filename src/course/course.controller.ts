@@ -253,7 +253,6 @@ export class CourseController {
       params?.id,
       user.id,
       params?.courseId,
-      user.email,
     );
   }
 

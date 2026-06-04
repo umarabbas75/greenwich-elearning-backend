@@ -1537,9 +1537,8 @@ let CourseService = class CourseService {
             });
         }
     }
-    async getAllUserSections(id, userId, courseId, userEmail) {
+    async getAllUserSections(id, userId, courseId) {
         try {
-            await (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, id, userEmail);
             const [sections, userCourseProgress, chapter, lastSeenLesson] = await Promise.all([
                 this.prisma.section.findMany({
                     where: { chapterId: id },
