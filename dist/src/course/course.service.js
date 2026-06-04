@@ -13,10 +13,13 @@ exports.CourseService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const dto_1 = require("../dto");
+const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../prisma/prisma.service");
+const chapter_progression_1 = require("../utils/chapter-progression");
 let CourseService = class CourseService {
-    constructor(prisma) {
+    constructor(prisma, config) {
         this.prisma = prisma;
+        this.config = config;
     }
     shuffleArray(arr) {
         const a = [...arr];
@@ -1534,8 +1537,9 @@ let CourseService = class CourseService {
             });
         }
     }
-    async getAllUserSections(id, userId, courseId) {
+    async getAllUserSections(id, userId, courseId, userEmail) {
         try {
+            await (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, id, userEmail);
             const [sections, userCourseProgress, chapter, lastSeenLesson] = await Promise.all([
                 this.prisma.section.findMany({
                     where: { chapterId: id },
@@ -1597,6 +1601,9 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
+            if (error instanceof common_1.HttpException) {
+                throw error;
+            }
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
@@ -2503,8 +2510,9 @@ let CourseService = class CourseService {
             }, common_1.HttpStatus.FORBIDDEN);
         }
     }
-    async updateUserChapterProgress(userId, body) {
+    async updateUserChapterProgress(userId, body, userEmail) {
         try {
+            await (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, body.chapterId, userEmail);
             const course = await this.prisma.course.findUnique({
                 where: { id: body.courseId },
                 include: { modules: true },
@@ -2547,6 +2555,9 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
+            if (error instanceof common_1.HttpException) {
+                throw error;
+            }
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
@@ -2622,8 +2633,9 @@ let CourseService = class CourseService {
             });
         }
     }
-    async updateLastSeenSection(userId, chapterId, sectionId, moduleId, courseId) {
+    async updateLastSeenSection(userId, chapterId, sectionId, moduleId, courseId, userEmail) {
         try {
+            await (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, chapterId, userEmail);
             await this.prisma.lastSeenSection.upsert({
                 where: {
                     userId_chapterId: { userId, chapterId },
@@ -2646,6 +2658,9 @@ let CourseService = class CourseService {
             };
         }
         catch (error) {
+            if (error instanceof common_1.HttpException) {
+                throw error;
+            }
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Something went wrong',
@@ -2792,10 +2807,114 @@ let CourseService = class CourseService {
             }, common_1.HttpStatus.FORBIDDEN);
         }
     }
+    async resetUserCourseProgress(adminId, userId, courseId) {
+        try {
+            const admin = await this.prisma.user.findUnique({
+                where: { id: adminId },
+                select: { role: true },
+            });
+            if (!admin || admin.role !== 'admin') {
+                throw new common_1.ForbiddenException('Only admins can reset course progress');
+            }
+            const [user, course] = await Promise.all([
+                this.prisma.user.findUnique({
+                    where: { id: userId },
+                    select: { id: true, deletedAt: true },
+                }),
+                this.prisma.course.findUnique({
+                    where: { id: courseId },
+                    select: { id: true },
+                }),
+            ]);
+            if (!user || user.deletedAt) {
+                throw new common_1.BadRequestException('User not found');
+            }
+            if (!course) {
+                throw new common_1.BadRequestException('Course not found');
+            }
+            const chapters = await this.prisma.chapter.findMany({
+                where: { module: { courseId } },
+                select: { id: true },
+            });
+            const chapterIds = chapters.map((c) => c.id);
+            const assessmentIds = (await this.prisma.assessment.findMany({
+                where: { courseId },
+                select: { id: true },
+            })).map((a) => a.id);
+            const deleted = await this.prisma.$transaction(async (tx) => {
+                const sectionProgress = await tx.userCourseProgress.deleteMany({
+                    where: { userId, courseId },
+                });
+                const lastSeen = await tx.lastSeenSection.deleteMany({
+                    where: { userId, courseId },
+                });
+                const quizProgress = chapterIds.length > 0
+                    ? await tx.quizProgress.deleteMany({
+                        where: { userId, chapterId: { in: chapterIds } },
+                    })
+                    : { count: 0 };
+                const quizAnswers = chapterIds.length > 0
+                    ? await tx.quizAnswer.deleteMany({
+                        where: { userId, chapterId: { in: chapterIds } },
+                    })
+                    : { count: 0 };
+                const formCompletions = await tx.userFormCompletion.deleteMany({
+                    where: { userId, courseId },
+                });
+                const policyCompletions = await tx.userPolicyCompletion.deleteMany({
+                    where: { userId, courseId },
+                });
+                const policyItemCompletions = await tx.userPolicyItemCompletion.deleteMany({
+                    where: {
+                        userId,
+                        item: { policy: { courseId } },
+                    },
+                });
+                const feedbackSubmissions = await tx.courseFeedbackSubmission.deleteMany({
+                    where: { userId, courseId },
+                });
+                const courseCompletions = await tx.courseCompletion.deleteMany({
+                    where: { userId, courseId },
+                });
+                const assessmentAttempts = assessmentIds.length > 0
+                    ? await tx.assessmentAttempt.deleteMany({
+                        where: { userId, assessmentId: { in: assessmentIds } },
+                    })
+                    : { count: 0 };
+                return {
+                    sectionProgress: sectionProgress.count,
+                    lastSeen: lastSeen.count,
+                    quizProgress: quizProgress.count,
+                    quizAnswers: quizAnswers.count,
+                    formCompletions: formCompletions.count,
+                    policyCompletions: policyCompletions.count,
+                    policyItemCompletions: policyItemCompletions.count,
+                    feedbackSubmissions: feedbackSubmissions.count,
+                    courseCompletions: courseCompletions.count,
+                    assessmentAttempts: assessmentAttempts.count,
+                };
+            });
+            return {
+                message: 'User course progress reset successfully',
+                statusCode: 200,
+                data: { userId, courseId, deleted },
+            };
+        }
+        catch (error) {
+            if (error instanceof common_1.HttpException) {
+                throw error;
+            }
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Failed to reset course progress',
+            }, common_1.HttpStatus.FORBIDDEN);
+        }
+    }
 };
 exports.CourseService = CourseService;
 exports.CourseService = CourseService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        config_1.ConfigService])
 ], CourseService);
 //# sourceMappingURL=course.service.js.map

@@ -29,7 +29,7 @@ let QuizController = class QuizController {
         return this.appService.getAllQuizzes(user.role);
     }
     getAllAssignQuizzes(params, user) {
-        return this.appService.getAllAssignQuizzes(params.id, user.role, user.id);
+        return this.appService.getAllAssignQuizzes(params.id, user.role, user.id, user.email);
     }
     getChapterQuizzesReport(params, user) {
         return this.appService.getChapterQuizzesReport(params.chapterId, user.id);
@@ -38,10 +38,10 @@ let QuizController = class QuizController {
         return this.appService.getAllQuizReport();
     }
     createChapterQuizzesReport(body, user) {
-        return this.appService.createChapterQuizzesReport(user.id, body.chapterId, body.totalAttempts, body.isPassed, body.score, body.passingCriteria);
+        return this.appService.createChapterQuizzesReport(user.id, body.chapterId, user.email);
     }
     retakeChapterQuiz(body, user) {
-        return this.appService.retakeChapterQuiz(user.id, body.chapterId);
+        return this.appService.retakeChapterQuiz(user.id, body.chapterId, user.email);
     }
     createQuiz(body) {
         return this.appService.createQuiz(body);
@@ -59,7 +59,7 @@ let QuizController = class QuizController {
         return this.appService.unAssignQuiz(body.quizId, body.chapterId);
     }
     checkQuiz(body, user) {
-        return this.appService.checkQuiz(user.id, body);
+        return this.appService.checkQuiz(user.id, body, user.email);
     }
     getUserQuizAnswers(params, user) {
         return this.appService.getUserQuizAnswers(user.id, params.id);

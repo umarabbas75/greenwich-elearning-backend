@@ -1,11 +1,26 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Chapter, Prisma, Quiz } from '@prisma/client';
 import { CheckQuiz, QuizDto, ResponseDto, UpdateQuizDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  assertChapterAccessible,
+  enrichQuizProgressReport,
+  gradeChapterQuizFromStoredAnswers,
+  resolvePassingCriteria,
+} from '../utils/chapter-progression';
 
 @Injectable()
 export class QuizService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private config: ConfigService,
+  ) {}
   async getQuiz(id: string, role: string): Promise<ResponseDto> {
     try {
       let quiz = {};
@@ -89,9 +104,20 @@ export class QuizService {
     chapterId: string,
     role: string,
     userId: string,
+    userEmail?: string | null,
   ): Promise<ResponseDto> {
     console.log({ role });
     try {
+      if (role === 'user') {
+        await assertChapterAccessible(
+          this.prisma,
+          this.config,
+          userId,
+          chapterId,
+          userEmail,
+        );
+      }
+
       const chapter = await this.prisma.chapter.findUnique({
         where: {
           id: chapterId,
@@ -133,6 +159,9 @@ export class QuizService {
         data: updatedUserQuizData?.length > 0 ? updatedUserQuizData : [],
       };
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -163,9 +192,9 @@ export class QuizService {
       console.log({ quizReport });
 
       return {
-        message: 'Successfully fetch all Quizzes info related to chapter',
+        message: 'Successfully fetch chapter quiz report',
         statusCode: 200,
-        data: quizReport,
+        data: enrichQuizProgressReport(quizReport),
       };
     } catch (error) {
       throw new HttpException(
@@ -211,12 +240,17 @@ export class QuizService {
   async createChapterQuizzesReport(
     userId: string,
     chapterId: string,
-    totalAttempts: number,
-    isPassed: boolean,
-    score: any,
-    passingCriteria: any,
+    userEmail?: string | null,
   ): Promise<ResponseDto> {
     try {
+      await assertChapterAccessible(
+        this.prisma,
+        this.config,
+        userId,
+        chapterId,
+        userEmail,
+      );
+
       const quizReport = await this.prisma.quizProgress.findUnique({
         where: {
           userId_chapterId: {
@@ -225,16 +259,34 @@ export class QuizService {
           },
         },
       });
+
+      const grade = await gradeChapterQuizFromStoredAnswers(
+        this.prisma,
+        userId,
+        chapterId,
+        quizReport?.passingCriteria,
+      );
+
+      if (grade.answeredQuestions < grade.totalQuestions) {
+        throw new BadRequestException(
+          'Answer all chapter quiz questions before submitting the report',
+        );
+      }
+
+      const stickyPassed = (quizReport?.isPassed ?? false) || grade.isPassed;
+      const bestScore = Math.max(quizReport?.score ?? 0, grade.score);
+      const passingCriteria = grade.passingCriteria;
+
       let newQuizProgress = null;
       if (!quizReport) {
         newQuizProgress = await this.prisma.quizProgress.create({
           data: {
-            userId: userId,
-            chapterId: chapterId,
-            totalAttempts: totalAttempts,
-            isPassed: isPassed,
-            score: score,
-            passingCriteria: passingCriteria,
+            userId,
+            chapterId,
+            totalAttempts: 1,
+            isPassed: stickyPassed,
+            score: bestScore,
+            passingCriteria,
           },
         });
       } else {
@@ -246,19 +298,25 @@ export class QuizService {
             },
           },
           data: {
-            totalAttempts: (quizReport.totalAttempts ?? 0) + totalAttempts,
-            isPassed: isPassed,
-            score: score,
+            totalAttempts: (quizReport.totalAttempts ?? 0) + 1,
+            isPassed: stickyPassed,
+            score: bestScore,
+            passingCriteria: resolvePassingCriteria(
+              quizReport.passingCriteria || passingCriteria,
+            ),
           },
         });
       }
-      console.log({ newQuizProgress });
+
       return {
-        message: 'Successfully fetch all Quizzes info related to chapter',
+        message: 'Chapter quiz report saved',
         statusCode: 200,
-        data: newQuizProgress,
+        data: enrichQuizProgressReport(newQuizProgress),
       };
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -275,8 +333,17 @@ export class QuizService {
   async retakeChapterQuiz(
     userId: string,
     chapterId: string,
+    userEmail?: string | null,
   ): Promise<ResponseDto> {
     try {
+      await assertChapterAccessible(
+        this.prisma,
+        this.config,
+        userId,
+        chapterId,
+        userEmail,
+      );
+
       await this.prisma.quizAnswer.deleteMany({
         where: {
           userId,
@@ -289,6 +356,9 @@ export class QuizService {
         data: null,
       };
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -502,8 +572,20 @@ export class QuizService {
     }
   }
 
-  async checkQuiz(userId: string, body: CheckQuiz): Promise<ResponseDto> {
+  async checkQuiz(
+    userId: string,
+    body: CheckQuiz,
+    userEmail?: string | null,
+  ): Promise<ResponseDto> {
     try {
+      await assertChapterAccessible(
+        this.prisma,
+        this.config,
+        userId,
+        body.chapterId,
+        userEmail,
+      );
+
       // Fetch quiz, user, and quizAnswer in parallel
       const [quiz, user, existingQuizAnswer] = await Promise.all([
         this.prisma.quiz.findUnique({ where: { id: body.quizId } }),
@@ -553,6 +635,9 @@ export class QuizService {
         data: quizAnswer,
       };
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,

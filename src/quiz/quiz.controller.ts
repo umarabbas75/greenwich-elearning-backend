@@ -44,7 +44,12 @@ export class QuizController {
     @Param() params: ParamsDto,
     @GetUser() user: User,
   ): Promise<ResponseDto> {
-    return this.appService.getAllAssignQuizzes(params.id, user.role, user.id);
+    return this.appService.getAllAssignQuizzes(
+      params.id,
+      user.role,
+      user.id,
+      user.email,
+    );
   }
 
   @UseGuards(AuthGuard('cJwt'))
@@ -71,10 +76,7 @@ export class QuizController {
     return this.appService.createChapterQuizzesReport(
       user.id,
       body.chapterId,
-      body.totalAttempts,
-      body.isPassed,
-      body.score,
-      body.passingCriteria,
+      user.email,
     );
   }
 
@@ -84,7 +86,11 @@ export class QuizController {
     @Body() body: any,
     @GetUser() user: User,
   ): Promise<ResponseDto> {
-    return this.appService.retakeChapterQuiz(user.id, body.chapterId);
+    return this.appService.retakeChapterQuiz(
+      user.id,
+      body.chapterId,
+      user.email,
+    );
   }
 
   @UseGuards(AuthGuard('jwt'))
@@ -124,7 +130,7 @@ export class QuizController {
     @Body() body: CheckQuiz,
     @GetUser() user: User,
   ): Promise<ResponseDto> {
-    return this.appService.checkQuiz(user.id, body);
+    return this.appService.checkQuiz(user.id, body, user.email);
   }
 
   @UseGuards(AuthGuard('uJwt'))

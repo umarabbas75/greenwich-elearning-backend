@@ -25,11 +25,16 @@ import {
   UpdateSectionOrderDto,
   SectionType,
 } from '../dto';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertChapterAccessible } from '../utils/chapter-progression';
 
 @Injectable()
 export class CourseService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private config: ConfigService,
+  ) {}
 
   private shuffleArray<T>(arr: T[]): T[] {
     const a = [...arr];
@@ -1910,8 +1915,17 @@ export class CourseService {
     id: string,
     userId: string,
     courseId: string,
+    userEmail?: string | null,
   ): Promise<any> {
     try {
+      await assertChapterAccessible(
+        this.prisma,
+        this.config,
+        userId,
+        id,
+        userEmail,
+      );
+
       const [sections, userCourseProgress, chapter, lastSeenLesson] =
         await Promise.all([
           this.prisma.section.findMany({
@@ -1984,6 +1998,9 @@ export class CourseService {
         chapter: chapter,
       };
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -3317,8 +3334,17 @@ export class CourseService {
   async updateUserChapterProgress(
     userId: string,
     body: any,
+    userEmail?: string | null,
   ): Promise<ResponseDto> {
     try {
+      await assertChapterAccessible(
+        this.prisma,
+        this.config,
+        userId,
+        body.chapterId,
+        userEmail,
+      );
+
       // Get total modules in the course
       const course = await this.prisma.course.findUnique({
         where: { id: body.courseId },
@@ -3366,6 +3392,9 @@ export class CourseService {
         },
       };
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -3469,8 +3498,17 @@ export class CourseService {
     sectionId: string,
     moduleId: string,
     courseId: string,
+    userEmail?: string | null,
   ): Promise<ResponseDto> {
     try {
+      await assertChapterAccessible(
+        this.prisma,
+        this.config,
+        userId,
+        chapterId,
+        userEmail,
+      );
+
       await this.prisma.lastSeenSection.upsert({
         where: {
           userId_chapterId: { userId, chapterId },
@@ -3493,6 +3531,9 @@ export class CourseService {
         data: {},
       };
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -3685,6 +3726,133 @@ export class CourseService {
         {
           status: HttpStatus.FORBIDDEN,
           error: error?.message || 'Failed to fetch feedback submissions',
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+
+  /**
+   * Testing/admin: clear all learner progress for a course (sections, quizzes,
+   * forms, policies, feedback, assessments). Does not unassign the course.
+   */
+  async resetUserCourseProgress(
+    adminId: string,
+    userId: string,
+    courseId: string,
+  ): Promise<ResponseDto> {
+    try {
+      const admin = await this.prisma.user.findUnique({
+        where: { id: adminId },
+        select: { role: true },
+      });
+      if (!admin || admin.role !== 'admin') {
+        throw new ForbiddenException('Only admins can reset course progress');
+      }
+
+      const [user, course] = await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, deletedAt: true },
+        }),
+        this.prisma.course.findUnique({
+          where: { id: courseId },
+          select: { id: true },
+        }),
+      ]);
+      if (!user || user.deletedAt) {
+        throw new BadRequestException('User not found');
+      }
+      if (!course) {
+        throw new BadRequestException('Course not found');
+      }
+
+      const chapters = await this.prisma.chapter.findMany({
+        where: { module: { courseId } },
+        select: { id: true },
+      });
+      const chapterIds = chapters.map((c) => c.id);
+
+      const assessmentIds = (
+        await this.prisma.assessment.findMany({
+          where: { courseId },
+          select: { id: true },
+        })
+      ).map((a) => a.id);
+
+      const deleted = await this.prisma.$transaction(async (tx) => {
+        const sectionProgress = await tx.userCourseProgress.deleteMany({
+          where: { userId, courseId },
+        });
+        const lastSeen = await tx.lastSeenSection.deleteMany({
+          where: { userId, courseId },
+        });
+        const quizProgress =
+          chapterIds.length > 0
+            ? await tx.quizProgress.deleteMany({
+                where: { userId, chapterId: { in: chapterIds } },
+              })
+            : { count: 0 };
+        const quizAnswers =
+          chapterIds.length > 0
+            ? await tx.quizAnswer.deleteMany({
+                where: { userId, chapterId: { in: chapterIds } },
+              })
+            : { count: 0 };
+        const formCompletions = await tx.userFormCompletion.deleteMany({
+          where: { userId, courseId },
+        });
+        const policyCompletions = await tx.userPolicyCompletion.deleteMany({
+          where: { userId, courseId },
+        });
+        const policyItemCompletions =
+          await tx.userPolicyItemCompletion.deleteMany({
+            where: {
+              userId,
+              item: { policy: { courseId } },
+            },
+          });
+        const feedbackSubmissions =
+          await tx.courseFeedbackSubmission.deleteMany({
+            where: { userId, courseId },
+          });
+        const courseCompletions = await tx.courseCompletion.deleteMany({
+          where: { userId, courseId },
+        });
+        const assessmentAttempts =
+          assessmentIds.length > 0
+            ? await tx.assessmentAttempt.deleteMany({
+                where: { userId, assessmentId: { in: assessmentIds } },
+              })
+            : { count: 0 };
+
+        return {
+          sectionProgress: sectionProgress.count,
+          lastSeen: lastSeen.count,
+          quizProgress: quizProgress.count,
+          quizAnswers: quizAnswers.count,
+          formCompletions: formCompletions.count,
+          policyCompletions: policyCompletions.count,
+          policyItemCompletions: policyItemCompletions.count,
+          feedbackSubmissions: feedbackSubmissions.count,
+          courseCompletions: courseCompletions.count,
+          assessmentAttempts: assessmentAttempts.count,
+        };
+      });
+
+      return {
+        message: 'User course progress reset successfully',
+        statusCode: 200,
+        data: { userId, courseId, deleted },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Failed to reset course progress',
         },
         HttpStatus.FORBIDDEN,
       );

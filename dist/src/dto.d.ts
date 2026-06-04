@@ -336,3 +336,7 @@ export declare class GradeAttemptDto {
 export declare class SetCertificateDto {
     certificateUrl: string;
 }
+export declare class ResetUserCourseProgressDto {
+    userId: string;
+    courseId: string;
+}

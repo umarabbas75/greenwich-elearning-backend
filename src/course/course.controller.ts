@@ -19,6 +19,7 @@ import {
   ParamsDto,
   ParamsDto1,
   ResponseDto,
+  ResetUserCourseProgressDto,
   UpdateCourseDto,
   UpdateSectionOrderDto,
   SetCourseActiveDto,
@@ -252,6 +253,7 @@ export class CourseController {
       params?.id,
       user.id,
       params?.courseId,
+      user.email,
     );
   }
 
@@ -410,7 +412,7 @@ export class CourseController {
     @Body() body: any,
     @GetUser() user: User,
   ): Promise<ResponseDto> {
-    return this.appService.updateUserChapterProgress(user.id, body);
+    return this.appService.updateUserChapterProgress(user.id, body, user.email);
   }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/getUserChapterProgress/:userId/:courseId/:chapterId')
@@ -437,6 +439,7 @@ export class CourseController {
       body.sectionId,
       body.moduleId,
       body.courseId,
+      user.email,
     );
   }
 
@@ -476,5 +479,19 @@ export class CourseController {
     @Param('courseId') courseId: string,
   ): Promise<ResponseDto> {
     return this.appService.getCourseFeedbackSubmissions(courseId, user.id);
+  }
+
+  /** Admin/testing: wipe learner progress for one course (keeps enrollment). */
+  @UseGuards(AuthGuard('jwt'))
+  @Post('/testing/resetUserCourseProgress')
+  resetUserCourseProgress(
+    @GetUser() admin: User,
+    @Body() body: ResetUserCourseProgressDto,
+  ): Promise<ResponseDto> {
+    return this.appService.resetUserCourseProgress(
+      admin.id,
+      body.userId,
+      body.courseId,
+    );
   }
 }

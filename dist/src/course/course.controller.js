@@ -121,7 +121,7 @@ let CourseController = class CourseController {
         return this.appService.getAllSections(params.id);
     }
     getAllUserSections(params, user) {
-        return this.appService.getAllUserSections(params?.id, user.id, params?.courseId);
+        return this.appService.getAllUserSections(params?.id, user.id, params?.courseId, user.email);
     }
     setCourseActive(params, body) {
         return this.appService.setCourseActive(params.id, body.isActive);
@@ -187,7 +187,7 @@ let CourseController = class CourseController {
         return this.appService.deleteSection(params.id);
     }
     updateUserChapterProgress(body, user) {
-        return this.appService.updateUserChapterProgress(user.id, body);
+        return this.appService.updateUserChapterProgress(user.id, body, user.email);
     }
     getUserChapterProgress(params) {
         return this.appService.getUserChapterProgress(params.userId, params.courseId, params.chapterId);
@@ -196,7 +196,7 @@ let CourseController = class CourseController {
         return this.appService.getLastSeenSection(param.userId, param.chapterId);
     }
     updateLastSeen(body, user) {
-        return this.appService.updateLastSeenSection(user.id, body.chapterId, body.sectionId, body.moduleId, body.courseId);
+        return this.appService.updateLastSeenSection(user.id, body.chapterId, body.sectionId, body.moduleId, body.courseId, user.email);
     }
     async submitCourseFeedback(user, courseId, body) {
         return this.appService.submitCourseFeedback(user.id, courseId, body.formData);
@@ -206,6 +206,9 @@ let CourseController = class CourseController {
     }
     async getCourseFeedbackSubmissions(user, courseId) {
         return this.appService.getCourseFeedbackSubmissions(courseId, user.id);
+    }
+    resetUserCourseProgress(admin, body) {
+        return this.appService.resetUserCourseProgress(admin.id, body.userId, body.courseId);
     }
 };
 exports.CourseController = CourseController;
@@ -705,6 +708,15 @@ __decorate([
     __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "getCourseFeedbackSubmissions", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Post)('/testing/resetUserCourseProgress'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, dto_1.ResetUserCourseProgressDto]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "resetUserCourseProgress", null);
 exports.CourseController = CourseController = __decorate([
     (0, common_1.Controller)('courses'),
     __metadata("design:paramtypes", [course_service_1.CourseService])

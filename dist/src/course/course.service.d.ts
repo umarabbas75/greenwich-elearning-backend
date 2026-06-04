@@ -1,9 +1,11 @@
 import { Role } from '@prisma/client';
 import { CourseDto, ModuleDto, ResponseDto, UpdateCourseDto, CreateSectionDto, CreateMatchAndLearnSectionDto, CreateVisualActivitySectionDto, CreateOrderingSectionDto, CreateMatchingSectionDto, UpdateSectionDto, UpdateMatchAndLearnSectionDto, UpdateVisualActivitySectionDto, UpdateOrderingSectionDto, UpdateMatchingSectionDto, UpdateSectionOrderDto } from '../dto';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 export declare class CourseService {
     private prisma;
-    constructor(prisma: PrismaService);
+    private config;
+    constructor(prisma: PrismaService, config: ConfigService);
     private shuffleArray;
     private assertValidOrderingItems;
     private sanitizeLessonSectionForStudent;
@@ -60,7 +62,7 @@ export declare class CourseService {
     getAllUserModules(id: string, userId: string): Promise<any>;
     getAllChapters(id: string): Promise<ResponseDto>;
     getAllSections(id: string): Promise<ResponseDto>;
-    getAllUserSections(id: string, userId: string, courseId: string): Promise<any>;
+    getAllUserSections(id: string, userId: string, courseId: string, userEmail?: string | null): Promise<any>;
     updateCourse(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateModule(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateChapter(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
@@ -77,11 +79,12 @@ export declare class CourseService {
     toggleCoursePaymentStatus(userId: string, courseId: string, isPaid: boolean): Promise<ResponseDto>;
     getAllAssignedCourses(userId: string, role: string): Promise<any>;
     getAllAssignedCoursesPublic(userId: string): Promise<any>;
-    updateUserChapterProgress(userId: string, body: any): Promise<ResponseDto>;
+    updateUserChapterProgress(userId: string, body: any, userEmail?: string | null): Promise<ResponseDto>;
     getUserChapterProgress(userId: string, courseId: string, chapterId: string): Promise<ResponseDto>;
     getLastSeenSection(userId: string, chapterId: string): Promise<ResponseDto>;
-    updateLastSeenSection(userId: string, chapterId: string, sectionId: string, moduleId: string, courseId: string): Promise<ResponseDto>;
+    updateLastSeenSection(userId: string, chapterId: string, sectionId: string, moduleId: string, courseId: string, userEmail?: string | null): Promise<ResponseDto>;
     submitCourseFeedback(studentId: string, courseId: string, formData: any): Promise<ResponseDto>;
     getCourseFeedbackStatus(studentId: string, courseId: string): Promise<ResponseDto>;
     getCourseFeedbackSubmissions(courseId: string, adminId: string): Promise<ResponseDto>;
+    resetUserCourseProgress(adminId: string, userId: string, courseId: string): Promise<ResponseDto>;
 }

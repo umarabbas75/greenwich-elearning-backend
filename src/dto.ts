@@ -964,3 +964,14 @@ export class SetCertificateDto {
   @IsNotEmpty()
   certificateUrl: string;
 }
+
+/** Admin/testing: wipe a learner's progress for one course (keeps enrollment). */
+export class ResetUserCourseProgressDto {
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  courseId: string;
+}
