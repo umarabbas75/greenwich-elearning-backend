@@ -2260,9 +2260,13 @@ let CourseService = class CourseService {
             if (!userCourse) {
                 throw new Error('User is not assigned to this course');
             }
+            const isFirstActivation = isActive && !userCourse.isActive && !userCourse.activatedAt;
             await this.prisma.userCourse.update({
                 where: { id: userCourse.id },
-                data: { isActive },
+                data: {
+                    isActive,
+                    ...(isFirstActivation ? { activatedAt: new Date() } : {}),
+                },
             });
             return {
                 message: `Successfully ${isActive ? 'activated' : 'deactivated'} course status for user`,

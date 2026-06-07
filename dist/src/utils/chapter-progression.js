@@ -74,9 +74,7 @@ async function gradeChapterQuizFromStoredAnswers(prisma, userId, chapterId, stor
         where: { userId, chapterId, quizId: { in: quizIds } },
         select: { quizId: true, isAnswerCorrect: true },
     });
-    const passingCriteria = resolvePassingCriteria(storedPassingCriteria ??
-        chapter.QuizProgress[0]?.passingCriteria ??
-        null);
+    const passingCriteria = resolvePassingCriteria(storedPassingCriteria ?? chapter.QuizProgress[0]?.passingCriteria ?? null);
     const answeredQuestions = answers.length;
     const correctCount = answers.filter((a) => a.isAnswerCorrect).length;
     const score = quizIds.length > 0

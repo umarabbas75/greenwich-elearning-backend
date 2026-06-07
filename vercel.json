@@ -21,5 +21,11 @@
         "Access-Control-Allow-Headers": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version"
       }
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/v1/internal/cron/engagement-reminders",
+      "schedule": "0 9 * * *"
+    }
   ]
 }

@@ -275,8 +275,7 @@ export class NotificationService {
       groupKey: null,
       threadId: args.threadId,
       commenterId: args.creator.id,
-      dedupeKeyFor: (userId) =>
-        `thread-created:${args.threadId}:${userId}`,
+      dedupeKeyFor: (userId) => `thread-created:${args.threadId}:${userId}`,
     });
   }
 }

@@ -11,6 +11,7 @@ import { TodoModule } from './todo/todo.module';
 import { NotificationModule } from './notifications/notification.module';
 import { AssignmentModule } from './assignment/assignment.module';
 import { CourseAssessmentModule } from './course-assessment/course-assessment.module';
+import { EngagementModule } from './engagement/engagement.module';
 
 import { HealthModule } from './health/health.module';
 
@@ -29,6 +30,7 @@ import { HealthModule } from './health/health.module';
     AssignmentModule,
     ForumCommentModule,
     CourseAssessmentModule,
+    EngagementModule,
   ],
 })
 export class AppModule {}

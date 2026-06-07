@@ -45,7 +45,10 @@ export class CourseAssessmentService {
   private throwMapped(error: unknown, fallback: string): never {
     if (error instanceof HttpException) throw error;
 
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2025'
+    ) {
       throw new HttpException(
         { status: HttpStatus.NOT_FOUND, error: 'Resource not found' },
         HttpStatus.NOT_FOUND,
@@ -112,7 +115,9 @@ export class CourseAssessmentService {
     }
     if (
       error instanceof Error &&
-      error.message.startsWith('Cannot delete a category that has active questions')
+      error.message.startsWith(
+        'Cannot delete a category that has active questions',
+      )
     ) {
       throw new HttpException(
         { status: HttpStatus.BAD_REQUEST, error: error.message },
@@ -143,7 +148,11 @@ export class CourseAssessmentService {
         data: { name: body.name, courseId: body.courseId },
       });
 
-      return { message: 'Category created successfully', statusCode: 200, data: category };
+      return {
+        message: 'Category created successfully',
+        statusCode: 200,
+        data: category,
+      };
     } catch (error) {
       this.throwQuestionCategoryError(error, 'Failed to create category');
     }
@@ -155,7 +164,11 @@ export class CourseAssessmentService {
         where: { courseId },
         orderBy: { name: 'asc' },
       });
-      return { message: 'Categories fetched successfully', statusCode: 200, data: categories };
+      return {
+        message: 'Categories fetched successfully',
+        statusCode: 200,
+        data: categories,
+      };
     } catch (error) {
       this.throwQuestionCategoryError(error, 'Failed to fetch categories');
     }
@@ -167,7 +180,11 @@ export class CourseAssessmentService {
         where: { id: categoryId },
         data: { name: body.name },
       });
-      return { message: 'Category updated successfully', statusCode: 200, data: category };
+      return {
+        message: 'Category updated successfully',
+        statusCode: 200,
+        data: category,
+      };
     } catch (error) {
       this.throwQuestionCategoryError(error, 'Failed to update category');
     }
@@ -179,10 +196,16 @@ export class CourseAssessmentService {
         where: { categoryId, isActive: true },
       });
       if (activeQuestions > 0)
-        throw new Error('Cannot delete a category that has active questions. Deactivate the questions first.');
+        throw new Error(
+          'Cannot delete a category that has active questions. Deactivate the questions first.',
+        );
 
       await this.prisma.questionCategory.delete({ where: { id: categoryId } });
-      return { message: 'Category deleted successfully', statusCode: 200, data: {} };
+      return {
+        message: 'Category deleted successfully',
+        statusCode: 200,
+        data: {},
+      };
     } catch (error) {
       this.throwQuestionCategoryError(error, 'Failed to delete category');
     }
@@ -214,7 +237,11 @@ export class CourseAssessmentService {
         },
       });
 
-      return { message: 'Question created successfully', statusCode: 200, data: question };
+      return {
+        message: 'Question created successfully',
+        statusCode: 200,
+        data: question,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to create question');
     }
@@ -241,7 +268,11 @@ export class CourseAssessmentService {
         include: { category: { select: { id: true, name: true } } },
         orderBy: { createdAt: 'desc' },
       });
-      return { message: 'Questions fetched successfully', statusCode: 200, data: questions };
+      return {
+        message: 'Questions fetched successfully',
+        statusCode: 200,
+        data: questions,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to fetch questions');
     }
@@ -254,7 +285,11 @@ export class CourseAssessmentService {
         include: { category: true },
       });
       if (!question) throw new Error('Question not found');
-      return { message: 'Question fetched successfully', statusCode: 200, data: question };
+      return {
+        message: 'Question fetched successfully',
+        statusCode: 200,
+        data: question,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to fetch question');
     }
@@ -275,7 +310,11 @@ export class CourseAssessmentService {
           ...(body.isActive !== undefined && { isActive: body.isActive }),
         },
       });
-      return { message: 'Question updated successfully', statusCode: 200, data: question };
+      return {
+        message: 'Question updated successfully',
+        statusCode: 200,
+        data: question,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to update question');
     }
@@ -299,9 +338,15 @@ export class CourseAssessmentService {
           );
 
         // Remove from all assessment rosters first (FK constraint)
-        await this.prisma.assessmentQuestion.deleteMany({ where: { questionId } });
+        await this.prisma.assessmentQuestion.deleteMany({
+          where: { questionId },
+        });
         await this.prisma.question.delete({ where: { id: questionId } });
-        return { message: 'Question permanently deleted', statusCode: 200, data: {} };
+        return {
+          message: 'Question permanently deleted',
+          statusCode: 200,
+          data: {},
+        };
       } else {
         const updated = await this.prisma.question.update({
           where: { id: questionId },
@@ -311,7 +356,11 @@ export class CourseAssessmentService {
         await this.prisma.assessmentQuestion.deleteMany({
           where: { questionId, assessment: { isActive: false } },
         });
-        return { message: 'Question deactivated successfully', statusCode: 200, data: updated };
+        return {
+          message: 'Question deactivated successfully',
+          statusCode: 200,
+          data: updated,
+        };
       }
     } catch (error) {
       this.throwMapped(error, 'Failed to delete question');
@@ -324,7 +373,9 @@ export class CourseAssessmentService {
 
   async createAssessment(adminId: string, body: CreateAssessmentDto) {
     try {
-      const course = await this.prisma.course.findUnique({ where: { id: body.courseId } });
+      const course = await this.prisma.course.findUnique({
+        where: { id: body.courseId },
+      });
       if (!course) throw new Error('Course not found');
 
       if (body.mode === AssessmentMode.AUTOMATIC && !body.autoConfig)
@@ -344,7 +395,11 @@ export class CourseAssessmentService {
         },
       });
 
-      return { message: 'Assessment created successfully', statusCode: 200, data: assessment };
+      return {
+        message: 'Assessment created successfully',
+        statusCode: 200,
+        data: assessment,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to create assessment');
     }
@@ -356,14 +411,28 @@ export class CourseAssessmentService {
         where: { id: assessmentId },
         data: {
           ...(body.title && { title: body.title }),
-          ...(body.description !== undefined && { description: body.description }),
-          ...(body.passingPercentage !== undefined && { passingPercentage: body.passingPercentage }),
-          ...(body.timeLimitMinutes !== undefined && { timeLimitMinutes: body.timeLimitMinutes }),
-          ...(body.maxAttempts !== undefined && { maxAttempts: body.maxAttempts }),
-          ...(body.autoConfig !== undefined && { autoConfig: body.autoConfig as any }),
+          ...(body.description !== undefined && {
+            description: body.description,
+          }),
+          ...(body.passingPercentage !== undefined && {
+            passingPercentage: body.passingPercentage,
+          }),
+          ...(body.timeLimitMinutes !== undefined && {
+            timeLimitMinutes: body.timeLimitMinutes,
+          }),
+          ...(body.maxAttempts !== undefined && {
+            maxAttempts: body.maxAttempts,
+          }),
+          ...(body.autoConfig !== undefined && {
+            autoConfig: body.autoConfig as any,
+          }),
         },
       });
-      return { message: 'Assessment updated successfully', statusCode: 200, data: assessment };
+      return {
+        message: 'Assessment updated successfully',
+        statusCode: 200,
+        data: assessment,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to update assessment');
     }
@@ -377,18 +446,32 @@ export class CourseAssessmentService {
       });
       if (!assessment) throw new Error('Assessment not found');
 
-      if (assessment.mode === AssessmentMode.MANUAL && assessment.assessmentQuestions.length === 0)
-        throw new Error('Cannot activate a MANUAL assessment with no questions. Add questions first.');
+      if (
+        assessment.mode === AssessmentMode.MANUAL &&
+        assessment.assessmentQuestions.length === 0
+      )
+        throw new Error(
+          'Cannot activate a MANUAL assessment with no questions. Add questions first.',
+        );
 
-      if (assessment.mode === AssessmentMode.AUTOMATIC && !assessment.autoConfig)
-        throw new Error('Cannot activate an AUTOMATIC assessment without autoConfig.');
+      if (
+        assessment.mode === AssessmentMode.AUTOMATIC &&
+        !assessment.autoConfig
+      )
+        throw new Error(
+          'Cannot activate an AUTOMATIC assessment without autoConfig.',
+        );
 
       const activated = await this.prisma.assessment.update({
         where: { id: assessmentId },
         data: { isActive: true },
       });
 
-      return { message: 'Assessment activated successfully', statusCode: 200, data: activated };
+      return {
+        message: 'Assessment activated successfully',
+        statusCode: 200,
+        data: activated,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to activate assessment');
     }
@@ -400,7 +483,11 @@ export class CourseAssessmentService {
         where: { id: assessmentId },
         data: { isActive: false },
       });
-      return { message: 'Assessment deactivated successfully', statusCode: 200, data: assessment };
+      return {
+        message: 'Assessment deactivated successfully',
+        statusCode: 200,
+        data: assessment,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to deactivate assessment');
     }
@@ -415,7 +502,11 @@ export class CourseAssessmentService {
         },
         orderBy: { createdAt: 'desc' },
       });
-      return { message: 'Assessments fetched successfully', statusCode: 200, data: assessments };
+      return {
+        message: 'Assessments fetched successfully',
+        statusCode: 200,
+        data: assessments,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to fetch assessments');
     }
@@ -434,7 +525,11 @@ export class CourseAssessmentService {
         },
       });
       if (!assessment) throw new Error('Assessment not found');
-      return { message: 'Assessment fetched successfully', statusCode: 200, data: assessment };
+      return {
+        message: 'Assessment fetched successfully',
+        statusCode: 200,
+        data: assessment,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to fetch assessment');
     }
@@ -444,22 +539,30 @@ export class CourseAssessmentService {
   // MANUAL ASSESSMENT QUESTION ROSTER (ADMIN)
   // ────────────────────────────────────────────────────────────────────────────
 
-  async addQuestionToAssessment(assessmentId: string, body: AddAssessmentQuestionDto) {
+  async addQuestionToAssessment(
+    assessmentId: string,
+    body: AddAssessmentQuestionDto,
+  ) {
     try {
       const assessment = await this.prisma.assessment.findUnique({
         where: { id: assessmentId },
       });
       if (!assessment) throw new Error('Assessment not found');
       if (assessment.mode !== AssessmentMode.MANUAL)
-        throw new Error('Questions can only be added manually to MANUAL mode assessments');
+        throw new Error(
+          'Questions can only be added manually to MANUAL mode assessments',
+        );
 
       const question = await this.prisma.question.findUnique({
         where: { id: body.questionId },
       });
       if (!question) throw new Error('Question not found');
       if (question.courseId !== assessment.courseId)
-        throw new Error('Question does not belong to the same course as this assessment');
-      if (!question.isActive) throw new Error('Cannot add an inactive question to an assessment');
+        throw new Error(
+          'Question does not belong to the same course as this assessment',
+        );
+      if (!question.isActive)
+        throw new Error('Cannot add an inactive question to an assessment');
 
       const aq = await this.prisma.assessmentQuestion.create({
         data: {
@@ -471,7 +574,11 @@ export class CourseAssessmentService {
         include: { question: true },
       });
 
-      return { message: 'Question added to assessment', statusCode: 200, data: aq };
+      return {
+        message: 'Question added to assessment',
+        statusCode: 200,
+        data: aq,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to add question');
     }
@@ -483,18 +590,27 @@ export class CourseAssessmentService {
         where: { assessmentId, status: AssessmentAttemptStatus.FINALIZED },
       });
       if (hasAttempts > 0)
-        throw new Error('Cannot remove questions from an assessment that has finalized attempts');
+        throw new Error(
+          'Cannot remove questions from an assessment that has finalized attempts',
+        );
 
       await this.prisma.assessmentQuestion.deleteMany({
         where: { assessmentId, questionId },
       });
-      return { message: 'Question removed from assessment', statusCode: 200, data: {} };
+      return {
+        message: 'Question removed from assessment',
+        statusCode: 200,
+        data: {},
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to remove question');
     }
   }
 
-  async reorderAssessmentQuestions(assessmentId: string, body: ReorderAssessmentQuestionsDto) {
+  async reorderAssessmentQuestions(
+    assessmentId: string,
+    body: ReorderAssessmentQuestionsDto,
+  ) {
     try {
       await this.prisma.$transaction(
         body.questions.map((q) =>
@@ -504,7 +620,11 @@ export class CourseAssessmentService {
           }),
         ),
       );
-      return { message: 'Questions reordered successfully', statusCode: 200, data: {} };
+      return {
+        message: 'Questions reordered successfully',
+        statusCode: 200,
+        data: {},
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to reorder questions');
     }
@@ -618,7 +738,8 @@ export class CourseAssessmentService {
         },
       });
       if (!assessment) throw new Error('Assessment not found');
-      if (!assessment.isActive) throw new Error('This assessment is not currently active');
+      if (!assessment.isActive)
+        throw new Error('This assessment is not currently active');
 
       const courseId = assessment.courseId;
 
@@ -631,13 +752,18 @@ export class CourseAssessmentService {
       // 3. Course content completion check
       const isComplete = await this._isCourseContentCompleted(userId, courseId);
       if (!isComplete)
-        throw new Error('You must complete all course content before attempting the assessment');
+        throw new Error(
+          'You must complete all course content before attempting the assessment',
+        );
 
       // 4. Attempt limit check
       const attemptCount = await this.prisma.assessmentAttempt.count({
         where: { userId, assessmentId: assessment.id },
       });
-      if (assessment.maxAttempts !== null && attemptCount >= assessment.maxAttempts)
+      if (
+        assessment.maxAttempts !== null &&
+        attemptCount >= assessment.maxAttempts
+      )
         throw new Error(
           `Maximum attempts (${assessment.maxAttempts}) reached for this assessment`,
         );
@@ -646,16 +772,25 @@ export class CourseAssessmentService {
 
       // 5. No existing IN_PROGRESS attempt
       const inProgress = await this.prisma.assessmentAttempt.findFirst({
-        where: { userId, assessmentId: assessment.id, status: AssessmentAttemptStatus.IN_PROGRESS },
+        where: {
+          userId,
+          assessmentId: assessment.id,
+          status: AssessmentAttemptStatus.IN_PROGRESS,
+        },
       });
       if (inProgress)
-        throw new Error('You already have an in-progress attempt. Complete or submit it first.');
+        throw new Error(
+          'You already have an in-progress attempt. Complete or submit it first.',
+        );
 
       // 6. Build question list
       const selectedQuestions = await this._buildQuestionList(assessment);
 
       // 7. Calculate totalMarks
-      const totalMarks = selectedQuestions.reduce((sum, q) => sum + q.effectiveMarks, 0);
+      const totalMarks = selectedQuestions.reduce(
+        (sum, q) => sum + q.effectiveMarks,
+        0,
+      );
 
       // 8. Create attempt + snapshots in one statement (avoids interactive $transaction issues on
       // Neon / poolers where "Transaction already closed" can occur on multi-step interactive txs).
@@ -708,7 +843,8 @@ export class CourseAssessmentService {
         include: { questionSnapshots: { orderBy: { orderIndex: 'asc' } } },
       });
       if (!attempt) throw new Error('Attempt not found');
-      if (attempt.userId !== userId) throw new Error('You do not have access to this attempt');
+      if (attempt.userId !== userId)
+        throw new Error('You do not have access to this attempt');
 
       await this._expireStaleAttempts(userId, attempt.assessmentId);
 
@@ -733,14 +869,19 @@ export class CourseAssessmentService {
     }
   }
 
-  async submitAttempt(userId: string, attemptId: string, body: SubmitAttemptDto) {
+  async submitAttempt(
+    userId: string,
+    attemptId: string,
+    body: SubmitAttemptDto,
+  ) {
     try {
       let attempt = await this.prisma.assessmentAttempt.findUnique({
         where: { id: attemptId },
         include: { questionSnapshots: true },
       });
       if (!attempt) throw new Error('Attempt not found');
-      if (attempt.userId !== userId) throw new Error('You do not have access to this attempt');
+      if (attempt.userId !== userId)
+        throw new Error('You do not have access to this attempt');
 
       await this._expireStaleAttempts(userId, attempt.assessmentId);
       attempt = await this.prisma.assessmentAttempt.findUnique({
@@ -763,7 +904,8 @@ export class CourseAssessmentService {
         throw new Error('This attempt is not in progress');
       }
 
-      const graceMs = CourseAssessmentService.ASSESSMENT_TIMER_GRACE_SECONDS * 1000;
+      const graceMs =
+        CourseAssessmentService.ASSESSMENT_TIMER_GRACE_SECONDS * 1000;
       if (attempt.snapshotTimeLimitMin != null) {
         const deadline = new Date(
           attempt.startedAt.getTime() +
@@ -782,7 +924,9 @@ export class CourseAssessmentService {
       }
 
       // Build a map of snapshotId → answer for fast lookup
-      const answerMap = new Map(body.answers.map((a) => [a.snapshotId, a.studentAnswer]));
+      const answerMap = new Map(
+        body.answers.map((a) => [a.snapshotId, a.studentAnswer]),
+      );
 
       // Calculate scores for each snapshot that has an answer
       const snapshotUpdates = attempt.questionSnapshots.map((snapshot) => {
@@ -800,7 +944,9 @@ export class CourseAssessmentService {
       });
 
       // Determine grading status
-      const answeredSnapshots = snapshotUpdates.filter((u) => u.studentAnswer !== null);
+      const answeredSnapshots = snapshotUpdates.filter(
+        (u) => u.studentAnswer !== null,
+      );
       const hasManualQuestions = answeredSnapshots.some(
         (u) =>
           u.snapshot.questionType === QuestionType.SHORT_ANSWER ||
@@ -813,7 +959,10 @@ export class CourseAssessmentService {
       let isPassed: boolean | null = null;
 
       if (!hasManualQuestions) {
-        marksObtained = snapshotUpdates.reduce((sum, u) => sum + (u.systemScore ?? 0), 0);
+        marksObtained = snapshotUpdates.reduce(
+          (sum, u) => sum + (u.systemScore ?? 0),
+          0,
+        );
         percentage =
           attempt.totalMarks && attempt.totalMarks > 0
             ? (marksObtained / attempt.totalMarks) * 100
@@ -858,7 +1007,12 @@ export class CourseAssessmentService {
           select: { courseId: true },
         });
         if (assessmentRecord) {
-          await this._upsertCourseCompletion(userId, assessmentRecord.courseId, attemptId, percentage!);
+          await this._upsertCourseCompletion(
+            userId,
+            assessmentRecord.courseId,
+            attemptId,
+            percentage!,
+          );
         }
       }
 
@@ -892,7 +1046,11 @@ export class CourseAssessmentService {
         });
       }
 
-      return { message: 'Assessment submitted successfully', statusCode: 200, data: updated };
+      return {
+        message: 'Assessment submitted successfully',
+        statusCode: 200,
+        data: updated,
+      };
     } catch (error) {
       if (error instanceof HttpException) throw error;
       this.throwMapped(error, 'Failed to submit attempt');
@@ -931,7 +1089,11 @@ export class CourseAssessmentService {
         },
       });
 
-      return { message: 'Attempt history fetched', statusCode: 200, data: attempts };
+      return {
+        message: 'Attempt history fetched',
+        statusCode: 200,
+        data: attempts,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to fetch history');
     }
@@ -953,7 +1115,11 @@ export class CourseAssessmentService {
           },
         },
       });
-      return { message: 'Completion fetched', statusCode: 200, data: completion ?? null };
+      return {
+        message: 'Completion fetched',
+        statusCode: 200,
+        data: completion ?? null,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to fetch completion');
     }
@@ -982,7 +1148,9 @@ export class CourseAssessmentService {
           ...(filters.userId && { userId: filters.userId }),
         },
         include: {
-          user: { select: { id: true, firstName: true, lastName: true, email: true } },
+          user: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
           assessment: { select: { id: true, title: true } },
         },
         orderBy: { submittedAt: 'desc' },
@@ -999,7 +1167,9 @@ export class CourseAssessmentService {
       const attempt = await this.prisma.assessmentAttempt.findUnique({
         where: { id: attemptId },
         include: {
-          user: { select: { id: true, firstName: true, lastName: true, email: true } },
+          user: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
           questionSnapshots: { orderBy: { orderIndex: 'asc' } },
         },
       });
@@ -1008,7 +1178,9 @@ export class CourseAssessmentService {
       const fresh = await this.prisma.assessmentAttempt.findUnique({
         where: { id: attemptId },
         include: {
-          user: { select: { id: true, firstName: true, lastName: true, email: true } },
+          user: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
           questionSnapshots: { orderBy: { orderIndex: 'asc' } },
         },
       });
@@ -1035,8 +1207,13 @@ export class CourseAssessmentService {
 
       // Validate scores don't exceed maxMarks
       for (const score of body.scores) {
-        const snapshot = attempt.questionSnapshots.find((s) => s.id === score.snapshotId);
-        if (!snapshot) throw new Error(`Snapshot ${score.snapshotId} not found in this attempt`);
+        const snapshot = attempt.questionSnapshots.find(
+          (s) => s.id === score.snapshotId,
+        );
+        if (!snapshot)
+          throw new Error(
+            `Snapshot ${score.snapshotId} not found in this attempt`,
+          );
         if (score.adminScore > snapshot.maxMarks)
           throw new Error(
             `Score ${score.adminScore} exceeds max marks ${snapshot.maxMarks} for question ${score.snapshotId}`,
@@ -1061,9 +1238,10 @@ export class CourseAssessmentService {
       ]);
 
       // Recalculate running totals (preview — not finalized)
-      const updatedSnapshots = await this.prisma.attemptQuestionSnapshot.findMany({
-        where: { attemptId },
-      });
+      const updatedSnapshots =
+        await this.prisma.attemptQuestionSnapshot.findMany({
+          where: { attemptId },
+        });
       const previewMarks = updatedSnapshots.reduce(
         (sum, s) => sum + (s.adminScore ?? s.systemScore ?? 0),
         0,
@@ -1152,7 +1330,9 @@ export class CourseAssessmentService {
       await this.notificationService.createNotification({
         userId: attempt.userId,
         type: NotificationType.ASSESSMENT_GRADED,
-        message: `Your assessment "${attempt.snapshotTitle}" has been graded. You ${isPassed ? 'passed' : 'did not pass'}.`,
+        message: `Your assessment "${
+          attempt.snapshotTitle
+        }" has been graded. You ${isPassed ? 'passed' : 'did not pass'}.`,
         payload: {
           assessmentId: attempt.assessmentId,
           assessmentTitle: attempt.snapshotTitle,
@@ -1170,19 +1350,31 @@ export class CourseAssessmentService {
         include: { questionSnapshots: { orderBy: { orderIndex: 'asc' } } },
       });
 
-      return { message: 'Assessment finalized successfully', statusCode: 200, data: finalized };
+      return {
+        message: 'Assessment finalized successfully',
+        statusCode: 200,
+        data: finalized,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to finalize grade');
     }
   }
 
-  async setCertificate(userId: string, courseId: string, body: SetCertificateDto) {
+  async setCertificate(
+    userId: string,
+    courseId: string,
+    body: SetCertificateDto,
+  ) {
     try {
       const completion = await this.prisma.courseCompletion.update({
         where: { userId_courseId: { userId, courseId } },
         data: { certificateUrl: body.certificateUrl },
       });
-      return { message: 'Certificate URL saved', statusCode: 200, data: completion };
+      return {
+        message: 'Certificate URL saved',
+        statusCode: 200,
+        data: completion,
+      };
     } catch (error) {
       this.throwMapped(error, 'Failed to set certificate');
     }
@@ -1192,7 +1384,10 @@ export class CourseAssessmentService {
   // PRIVATE HELPERS
   // ────────────────────────────────────────────────────────────────────────────
 
-  private async _isCourseContentCompleted(userId: string, courseId: string): Promise<boolean> {
+  private async _isCourseContentCompleted(
+    userId: string,
+    courseId: string,
+  ): Promise<boolean> {
     const totalSections = await this.prisma.section.count({
       where: { chapter: { module: { courseId } } },
     });
@@ -1205,9 +1400,16 @@ export class CourseAssessmentService {
     return completedSections >= totalSections;
   }
 
-  private async _buildQuestionList(
-    assessment: any,
-  ): Promise<Array<{ id: string; type: QuestionType; text: string; imageUrl: string | null; content: any; effectiveMarks: number }>> {
+  private async _buildQuestionList(assessment: any): Promise<
+    Array<{
+      id: string;
+      type: QuestionType;
+      text: string;
+      imageUrl: string | null;
+      content: any;
+      effectiveMarks: number;
+    }>
+  > {
     if (assessment.mode === AssessmentMode.MANUAL) {
       return assessment.assessmentQuestions.map((aq: any) => ({
         id: aq.question.id,
@@ -1249,14 +1451,16 @@ export class CourseAssessmentService {
     // Validate difficulty distribution (informational — not re-filtered to keep it simple)
     // Admin should ensure their question bank has the required difficulty spread.
 
-    return this._shuffle(selected).slice(0, config.totalQuestions).map((q) => ({
-      id: q.id,
-      type: q.type,
-      text: q.text,
-      imageUrl: q.imageUrl,
-      content: q.content,
-      effectiveMarks: q.maxMarks,
-    }));
+    return this._shuffle(selected)
+      .slice(0, config.totalQuestions)
+      .map((q) => ({
+        id: q.id,
+        type: q.type,
+        text: q.text,
+        imageUrl: q.imageUrl,
+        content: q.content,
+        effectiveMarks: q.maxMarks,
+      }));
   }
 
   private _shuffle<T>(arr: T[]): T[] {
@@ -1278,7 +1482,9 @@ export class CourseAssessmentService {
 
     switch (type) {
       case QuestionType.SINGLE_CHOICE:
-        return answer.selectedOptionId === content.correctOptionId ? maxMarks : 0;
+        return answer.selectedOptionId === content.correctOptionId
+          ? maxMarks
+          : 0;
 
       case QuestionType.TRUE_FALSE:
         return answer.answer === content.correctAnswer ? maxMarks : 0;
@@ -1299,12 +1505,16 @@ export class CourseAssessmentService {
 
       case QuestionType.VISUAL_ACTIVITY: {
         const correct: Set<string> = new Set(
-          content.options?.filter((o: any) => o.isCorrect).map((o: any) => o.id) ?? [],
+          content.options
+            ?.filter((o: any) => o.isCorrect)
+            .map((o: any) => o.id) ?? [],
         );
         const selected: Set<string> = new Set(answer.selectedOptionIds ?? []);
         if (correct.size === 1 && !content.allowMultiple) {
           const [onlyCorrect] = correct;
-          return selected.has(onlyCorrect) && selected.size === 1 ? maxMarks : 0;
+          return selected.has(onlyCorrect) && selected.size === 1
+            ? maxMarks
+            : 0;
         }
         const intersection = [...correct].filter((x) => selected.has(x)).length;
         const union = new Set([...correct, ...selected]).size;
@@ -1320,8 +1530,11 @@ export class CourseAssessmentService {
 
       case QuestionType.MATCHING: {
         const pairs: Array<{ id: string }> = content.pairs ?? [];
-        const givenPairs: Array<{ leftId: string; rightId: string }> = answer.pairs ?? [];
-        const correct = givenPairs.filter((gp) => gp.leftId === gp.rightId).length;
+        const givenPairs: Array<{ leftId: string; rightId: string }> =
+          answer.pairs ?? [];
+        const correct = givenPairs.filter(
+          (gp) => gp.leftId === gp.rightId,
+        ).length;
         return pairs.length === 0 ? 0 : (correct / pairs.length) * maxMarks;
       }
 
@@ -1338,8 +1551,12 @@ export class CourseAssessmentService {
    * Marks IN_PROGRESS attempts as EXPIRED when now is past startedAt + time limit + grace.
    * Called on read paths so lists and resume URLs stay consistent without a cron.
    */
-  private async _expireStaleAttempts(userId: string, assessmentId: string): Promise<void> {
-    const graceMs = CourseAssessmentService.ASSESSMENT_TIMER_GRACE_SECONDS * 1000;
+  private async _expireStaleAttempts(
+    userId: string,
+    assessmentId: string,
+  ): Promise<void> {
+    const graceMs =
+      CourseAssessmentService.ASSESSMENT_TIMER_GRACE_SECONDS * 1000;
     const stale = await this.prisma.assessmentAttempt.findMany({
       where: {
         userId,
@@ -1408,7 +1625,10 @@ export class CourseAssessmentService {
         delete sanitizedContent.correctOrder;
         if (sanitizedContent.pairs) {
           const categories = this._shuffle(
-            sanitizedContent.pairs.map((p: any) => ({ id: p.id, text: p.right })),
+            sanitizedContent.pairs.map((p: any) => ({
+              id: p.id,
+              text: p.right,
+            })),
           );
           sanitizedContent.categories = categories;
           sanitizedContent.pairs = sanitizedContent.pairs.map((p: any) => ({
@@ -1440,7 +1660,9 @@ export class CourseAssessmentService {
       },
     });
 
-    const isBetter = !existing?.bestAttempt || percentage > (existing.bestAttempt.percentage ?? 0);
+    const isBetter =
+      !existing?.bestAttempt ||
+      percentage > (existing.bestAttempt.percentage ?? 0);
 
     await this.prisma.courseCompletion.upsert({
       where: { userId_courseId: { userId, courseId } },

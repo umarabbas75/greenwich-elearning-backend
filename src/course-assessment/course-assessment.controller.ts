@@ -10,7 +10,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { AssessmentAttemptStatus, QuestionDifficulty, QuestionType } from '@prisma/client';
+import {
+  AssessmentAttemptStatus,
+  QuestionDifficulty,
+  QuestionType,
+} from '@prisma/client';
 import { GetUser } from '../decorator';
 import { User } from '@prisma/client';
 import {
@@ -39,7 +43,10 @@ export class CourseAssessmentController {
 
   @UseGuards(AuthGuard('jwt'))
   @Post('admin/questions/categories')
-  createCategory(@GetUser() user: User, @Body() body: CreateQuestionCategoryDto) {
+  createCategory(
+    @GetUser() user: User,
+    @Body() body: CreateQuestionCategoryDto,
+  ) {
     return this.service.createCategory(user.id, body);
   }
 
@@ -51,7 +58,10 @@ export class CourseAssessmentController {
 
   @UseGuards(AuthGuard('jwt'))
   @Patch('admin/questions/categories/:id')
-  updateCategory(@Param('id') id: string, @Body() body: UpdateQuestionCategoryDto) {
+  updateCategory(
+    @Param('id') id: string,
+    @Body() body: UpdateQuestionCategoryDto,
+  ) {
     return this.service.updateCategory(id, body);
   }
 
@@ -269,7 +279,10 @@ export class CourseAssessmentController {
 
   @UseGuards(AuthGuard('uJwt'))
   @Get('student/completion/:courseId')
-  getStudentCompletion(@GetUser() user: User, @Param('courseId') courseId: string) {
+  getStudentCompletion(
+    @GetUser() user: User,
+    @Param('courseId') courseId: string,
+  ) {
     return this.service.getStudentCompletion(user.id, courseId);
   }
 }

@@ -210,9 +210,7 @@ export class QuizService {
     }
   }
 
-  async getAllQuizReport(
-   
-  ): Promise<ResponseDto> {
+  async getAllQuizReport(): Promise<ResponseDto> {
     try {
       const quizReport = await this.prisma.quizProgress.findMany();
 
@@ -597,11 +595,11 @@ export class QuizService {
           },
         }),
       ]);
-  
+
       if (!quiz || !user) {
         throw new Error('Quiz or user not found');
       }
-  
+
       // Determine the promise for creating or updating the quizAnswer
       const quizAnswerPromise = existingQuizAnswer
         ? this.prisma.quizAnswer.update({
@@ -625,10 +623,10 @@ export class QuizService {
               isAnswerCorrect: body.answer == quiz.answer,
             },
           });
-  
+
       // Await the result of the create or update operation
       const quizAnswer = await quizAnswerPromise;
-  
+
       return {
         message: 'Success',
         statusCode: 200,
@@ -650,7 +648,7 @@ export class QuizService {
       );
     }
   }
-  
+
   async getUserQuizAnswers(
     userId: string,
     chapterId: string,

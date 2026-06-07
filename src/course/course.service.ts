@@ -63,7 +63,9 @@ export class CourseService {
     }
   }
 
-  private sanitizeLessonSectionForStudent(section: Record<string, unknown>): void {
+  private sanitizeLessonSectionForStudent(
+    section: Record<string, unknown>,
+  ): void {
     if (section.type === SectionType.ORDERING) {
       section.config = null;
     } else if (section.type === SectionType.MATCHING) {
@@ -95,7 +97,8 @@ export class CourseService {
     });
     if (!courseForm) {
       throw new BadRequestException({
-        detail: 'Invalid courseFormId: that course form assignment was not found',
+        detail:
+          'Invalid courseFormId: that course form assignment was not found',
       });
     }
     if (courseForm.courseId !== courseId || courseForm.formId !== formId) {
@@ -1691,7 +1694,10 @@ export class CourseService {
     }
   }
 
-  async setCourseActive(courseId: string, isActive: boolean): Promise<ResponseDto> {
+  async setCourseActive(
+    courseId: string,
+    isActive: boolean,
+  ): Promise<ResponseDto> {
     try {
       const existing = await this.prisma.course.findUnique({
         where: { id: courseId },
@@ -2967,10 +2973,19 @@ export class CourseService {
         throw new Error('User is not assigned to this course');
       }
 
-      // Update the isActive status for the user-course relation
+      // Update the isActive status for the user-course relation. On the first
+      // false→true activation, stamp activatedAt — this is the engagement
+      // "start line" for NEVER_STARTED reminders. Only set it once (don't reset
+      // on a later deactivate/reactivate would be a product call; keeping the
+      // first activation is the conservative choice).
+      const isFirstActivation =
+        isActive && !userCourse.isActive && !userCourse.activatedAt;
       await this.prisma.userCourse.update({
         where: { id: userCourse.id },
-        data: { isActive },
+        data: {
+          isActive,
+          ...(isFirstActivation ? { activatedAt: new Date() } : {}),
+        },
       });
 
       return {

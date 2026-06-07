@@ -17,7 +17,14 @@
       "Bash(awk '/^model AttemptQuestionSnapshot \\\\{/,/^\\\\}/' prisma/schema.prisma)",
       "Bash(cp /tmp/preview_check.ts ./preview_check.ts)",
       "Bash(npx ts-node *)",
-      "Bash(grep -n '\\\\.delete\\\\|\\\\.deleteMany\\\\|\\\\.update\\\\|$transaction' src/user/user.service.ts)"
+      "Bash(grep -n '\\\\.delete\\\\|\\\\.deleteMany\\\\|\\\\.update\\\\|$transaction' src/user/user.service.ts)",
+      "Bash(npx eslint *)",
+      "Bash(echo \"lint exit: $?\")",
+      "Bash(echo \"eslint exit: $?\")",
+      "Bash(grep -nA10 \"isFirstActivation\" src/course/course.service.ts)",
+      "Bash(openssl rand *)",
+      "Bash(grep -nA12 \"const rows: Prisma.NotificationCreateManyInput\" src/engagement/engagement.service.ts)",
+      "Bash(grep -nA2 \"courseUrl\\\\|private courseUrl\" src/engagement/engagement.service.ts)"
     ],
     "additionalDirectories": [
       "/Users/appal/Documents/greenwichPorjects/greenwich-elearning-backend/src"

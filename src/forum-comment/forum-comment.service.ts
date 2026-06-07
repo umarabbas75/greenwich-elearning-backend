@@ -60,8 +60,7 @@ export class ForumCommentService {
         groupKey: `forum-comment:${thread.id}`,
         threadId: thread.id,
         commenterId: userId,
-        dedupeKeyFor: (recipientId) =>
-          `comment:${comment.id}:${recipientId}`,
+        dedupeKeyFor: (recipientId) => `comment:${comment.id}:${recipientId}`,
       });
 
       return {

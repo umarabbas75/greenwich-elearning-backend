@@ -20,7 +20,7 @@ export class AuthService {
     private jwt: JwtService,
     private config: ConfigService,
     private prisma: PrismaService,
-  ) { }
+  ) {}
 
   async loginUser(body: LoginDto): Promise<ResponseDto> {
     try {

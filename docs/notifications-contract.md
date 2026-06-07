@@ -70,6 +70,7 @@ ASSESSMENT_SUBMITTED   // → admin: a student submitted an assessment
 ASSESSMENT_GRADED      // → student: admin finalized their attempt
 FORUM_THREAD           // → all users: admin created a new thread
 FORUM_COMMENT          // → thread subscribers: new comment on a thread
+ENGAGEMENT_REMINDER    // → student: automated low-engagement nudge (see §4 payload)
 ```
 
 If we add more types, the FE renderer falls back to `item.message` as
@@ -120,6 +121,16 @@ falls back to `message`. Proposed payload shapes per type:
   commenterFirstName: string;
   commenterLastName: string;
 }
+
+// ENGAGEMENT_REMINDER  (automated, written by the engagement sweep)
+{
+  reminderType: 'never_started' | 'stalled';
+  courseId: string;
+  courseTitle: string;
+}
+// `referenceId` is set to the courseId; `commenterId`/`threadId` are null
+// (no actor — it's system-generated). `groupKey` is
+// `engagement:<reminderType>:<courseId>` so the bell collapses repeats per course.
 ```
 
 The FE will define exhaustive `assertNever`-style switch on `type` once
@@ -342,6 +353,9 @@ on the legacy paths, and add `@deprecated` annotations.
      (admin grading page).
    - `ASSESSMENT_GRADED` → `/studentCourses` (until we have a
      deep-link to the graded attempt).
+   - `ENGAGEMENT_REMINDER` → `/studentCourses/<referenceId>` (the courseId).
+     The reminder email links to the same place; confirm this FE route exists
+     (currently `ASSESSMENT_GRADED` routes to bare `/studentCourses`).
    - Anything with `threadId` → `/forum/<threadId>`.
    - Otherwise: no route, just mark read.
 
@@ -391,6 +405,7 @@ No FE change here; recording the current contract for completeness:
 | Admin activates a forum thread            | `forum-thread.service.ts:288-335`                     | `FORUM_THREAD`        | null              | threadId   | admin         |
 | Student submits an assessment             | `course-assessment.service.ts:884-895`                | `ASSESSMENT_SUBMITTED`| attemptId         | null       | studentId     |
 | Admin finalizes grading                   | `course-assessment.service.ts:1174-1180`              | `ASSESSMENT_GRADED`   | attemptId         | null       | adminId       |
+| Engagement sweep (cron)                   | `engagement.service.ts` (`dispatch`)                  | `ENGAGEMENT_REMINDER` | courseId          | null       | null          |
 
 **Asks for backend cleanup:**
 

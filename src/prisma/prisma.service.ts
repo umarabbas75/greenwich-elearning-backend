@@ -48,7 +48,9 @@ export class PrismaService extends PrismaClient {
         mode,
         onRetry: ({ attempt, maxAttempts, code }) => {
           PrismaService.retryLogger.warn(
-            `DB transient error, retrying (${attempt}/${maxAttempts}) model=${String(params.model)} action=${params.action} code=${code ?? 'n/a'}`,
+            `DB transient error, retrying (${attempt}/${maxAttempts}) model=${String(
+              params.model,
+            )} action=${params.action} code=${code ?? 'n/a'}`,
           );
         },
       });

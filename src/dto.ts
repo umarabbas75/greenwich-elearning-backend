@@ -1,4 +1,9 @@
-import { Role, QuestionType, QuestionDifficulty, AssessmentMode } from '@prisma/client';
+import {
+  Role,
+  QuestionType,
+  QuestionDifficulty,
+  AssessmentMode,
+} from '@prisma/client';
 import {
   IsEmail,
   IsNotEmpty,

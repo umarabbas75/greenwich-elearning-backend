@@ -171,7 +171,11 @@ export class CourseController {
     @GetUser() user: User,
     @Param('courseId') courseId: string,
   ): Promise<any> {
-    return this.appService.getStudentCourseFormsStatus(user.id, user.role, courseId);
+    return this.appService.getStudentCourseFormsStatus(
+      user.id,
+      user.role,
+      courseId,
+    );
   }
 
   @UseGuards(AuthGuard('cJwt'))

@@ -104,9 +104,7 @@ export async function gradeChapterQuizFromStoredAnswers(
   });
 
   const passingCriteria = resolvePassingCriteria(
-    storedPassingCriteria ??
-      chapter.QuizProgress[0]?.passingCriteria ??
-      null,
+    storedPassingCriteria ?? chapter.QuizProgress[0]?.passingCriteria ?? null,
   );
 
   const answeredQuestions = answers.length;
@@ -199,9 +197,9 @@ export async function assertChapterAccessible(
   }
 }
 
-export function enrichQuizProgressReport<T extends { passingCriteria?: number }>(
-  report: T | null,
-): T | null {
+export function enrichQuizProgressReport<
+  T extends { passingCriteria?: number },
+>(report: T | null): T | null {
   if (!report) return null;
   return {
     ...report,
