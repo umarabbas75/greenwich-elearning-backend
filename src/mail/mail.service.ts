@@ -1,11 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
-import { EngagementReminderMail, MailSendResult } from './mail.types';
+import {
+  EngagementReminderMail,
+  MailSendResult,
+  PasswordResetMail,
+} from './mail.types';
 import { renderEngagementReminder } from './templates/engagement-reminder.template';
+import { renderPasswordReset } from './templates/password-reset.template';
+import { RenderedEmail } from './templates/mail-layout';
 
 const DEFAULT_FROM =
-  'Greenwich Training Centre <noreply@greenwichtc-elearning.com>';
+  'Greenwich Training & Consulting <noreply@greenwichtc-elearning.com>';
 
 /**
  * Transactional email transport, wrapping Resend behind a narrow interface so
@@ -41,35 +47,49 @@ export class MailService {
   async sendEngagementReminder(
     mail: EngagementReminderMail,
   ): Promise<MailSendResult> {
+    return this.send(
+      mail.to,
+      renderEngagementReminder(mail),
+      'engagement reminder',
+    );
+  }
+
+  /**
+   * Sends the password-reset OTP email. Like all sends it returns a result
+   * rather than throwing — but the caller (PasswordResetService) treats a
+   * failed send as an error, since here email is the only delivery channel.
+   */
+  async sendPasswordReset(mail: PasswordResetMail): Promise<MailSendResult> {
+    return this.send(mail.to, renderPasswordReset(mail), 'password reset');
+  }
+
+  /** Shared send path. Best-effort: resolves to a result, never throws. */
+  private async send(
+    to: string,
+    rendered: RenderedEmail,
+    label: string,
+  ): Promise<MailSendResult> {
     if (!this.client) {
       return { sent: false, reason: 'mail-disabled' };
     }
-
-    const { subject, html, text } = renderEngagementReminder(mail);
-
     try {
       const { data, error } = await this.client.emails.send({
         from: this.from,
-        to: mail.to,
-        subject,
-        html,
-        text,
+        to,
+        subject: rendered.subject,
+        html: rendered.html,
+        text: rendered.text,
       });
-
       if (error) {
         this.logger.error(
-          `Resend rejected engagement reminder to ${mail.to}: ${error.name} — ${error.message}`,
+          `Resend rejected ${label} to ${to}: ${error.name} — ${error.message}`,
         );
         return { sent: false, reason: error.message };
       }
-
       return { sent: true, id: data?.id };
     } catch (err) {
-      // Network / SDK failure — swallow so the sweep continues. Email is best-effort.
       const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(
-        `Failed to send engagement reminder to ${mail.to}: ${message}`,
-      );
+      this.logger.error(`Failed to send ${label} to ${to}: ${message}`);
       return { sent: false, reason: message };
     }
   }

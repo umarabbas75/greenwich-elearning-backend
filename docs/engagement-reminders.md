@@ -146,7 +146,7 @@ Set in **local `.env`** and **Vercel → Production + Preview**.
 | --- | --- | --- | --- |
 | `RESEND_API_KEY` | ✅ | — | From resend.com → API keys (sending access). Without it, emails no-op; in-app still works. |
 | `CRON_SECRET` | ✅ | — | Long random string (`openssl rand -hex 32`). Same value in all environments. Vercel sends it as a Bearer token automatically. |
-| `MAIL_FROM` | — | `Greenwich Training Centre <noreply@greenwichtc-elearning.com>` | |
+| `MAIL_FROM` | — | `Greenwich Training & Consulting <noreply@greenwichtc-elearning.com>` | |
 | `APP_BASE_URL` | — | `https://www.greenwichtc-elearning.com` | Base for course links in emails. |
 | `ENGAGEMENT_NEVER_STARTED_DAYS` | — | 3 | Days after activation before a never-started nudge. |
 | `ENGAGEMENT_STALLED_DAYS` | — | 7 | Days of inactivity before a stalled nudge. |

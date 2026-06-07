@@ -1,7 +1,3 @@
 import { EngagementReminderMail } from '../mail.types';
-export interface RenderedEmail {
-    subject: string;
-    html: string;
-    text: string;
-}
+import { RenderedEmail } from './mail-layout';
 export declare function renderEngagementReminder(mail: EngagementReminderMail): RenderedEmail;

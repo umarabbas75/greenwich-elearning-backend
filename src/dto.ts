@@ -18,6 +18,9 @@ import {
   IsObject,
   Min,
   Max,
+  MinLength,
+  Length,
+  Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -979,4 +982,49 @@ export class ResetUserCourseProgressDto {
   @IsString()
   @IsNotEmpty()
   courseId: string;
+}
+
+// ── Forgot-password flow ─────────────────────────────────────────────────────
+
+/** Step 1: request an OTP. Always responds 200 (no account enumeration). */
+export class ForgotPasswordRequestDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+}
+
+/** Step 1b: resend the OTP for an in-progress reset (rate-limited). */
+export class ForgotPasswordResendDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+}
+
+/** Step 2: verify the 6-digit OTP. Returns a one-time reset token on success. */
+export class VerifyOtpDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Length(6, 6, { message: 'OTP must be exactly 6 digits' })
+  @Matches(/^[0-9]{6}$/, { message: 'OTP must be 6 digits' })
+  otp: string;
+}
+
+/** Step 3: set the new password using the reset token from step 2. */
+export class ResetPasswordDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  resetToken: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  newPassword: string;
 }

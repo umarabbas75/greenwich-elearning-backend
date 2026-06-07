@@ -340,3 +340,18 @@ export declare class ResetUserCourseProgressDto {
     userId: string;
     courseId: string;
 }
+export declare class ForgotPasswordRequestDto {
+    email: string;
+}
+export declare class ForgotPasswordResendDto {
+    email: string;
+}
+export declare class VerifyOtpDto {
+    email: string;
+    otp: string;
+}
+export declare class ResetPasswordDto {
+    email: string;
+    resetToken: string;
+    newPassword: string;
+}

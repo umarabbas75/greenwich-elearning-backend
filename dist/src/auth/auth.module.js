@@ -10,16 +10,19 @@ exports.AuthModule = void 0;
 const common_1 = require("@nestjs/common");
 const auth_controller_1 = require("./auth.controller");
 const auth_service_1 = require("./auth.service");
+const password_reset_service_1 = require("./password-reset.service");
 const jwt_1 = require("@nestjs/jwt");
+const mail_module_1 = require("../mail/mail.module");
 const strategy_1 = require("../strategy");
 let AuthModule = class AuthModule {
 };
 exports.AuthModule = AuthModule;
 exports.AuthModule = AuthModule = __decorate([
     (0, common_1.Module)({
-        imports: [jwt_1.JwtModule.register({})],
+        imports: [jwt_1.JwtModule.register({}), mail_module_1.MailModule],
         providers: [
             auth_service_1.AuthService,
+            password_reset_service_1.PasswordResetService,
             strategy_1.JwtUserStrategy,
             strategy_1.JwtAdminStrategy,
             strategy_1.JwtCombineStrategy,

@@ -49,10 +49,40 @@ model User {
   assessmentsCreated       Assessment[]               @relation("AssessmentsCreatedByAdmin")
   assessmentAttempts       AssessmentAttempt[]
   courseCompletions        CourseCompletion[]
+  passwordResets           PasswordReset[]
 
   @@index([email])
   @@index([deletedAt])
   @@map("users")
+}
+
+/// One forgot-password attempt: a hashed OTP with a short TTL, single-use.
+/// Rows are created on "request OTP", consumed on successful verify, and
+/// superseded (invalidated) when a new code is requested for the same user.
+model PasswordReset {
+  id           String    @id @default(uuid())
+  userId       String
+  /// argon2 hash of the 6-digit OTP — never store the code in plaintext.
+  otpHash      String
+  expiresAt    DateTime
+  /// Wrong-guess counter; the row is locked once it hits the max.
+  attempts     Int       @default(0)
+  /// How many times a code has been (re)sent for this active reset.
+  resendCount  Int       @default(0)
+  /// Set when the OTP is verified — gates the actual password reset.
+  verifiedAt   DateTime?
+  /// argon2 hash of the one-time reset token issued after verify.
+  resetTokenHash String?
+  /// Set when the password is actually changed — terminal, makes row unusable.
+  consumedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Hot path: find the latest active reset for a user.
+  @@index([userId, consumedAt, createdAt(sort: Desc)])
+  @@map("password_resets")
 }
 
 enum UserStatus {

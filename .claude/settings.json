@@ -29,7 +29,8 @@
       "Bash(grep -nA8 \"interface Candidate\" src/engagement/engagement.service.ts)",
       "Bash(sed -n '313,355p' prisma/schema.prisma)",
       "Bash(sed -n '354,368p' prisma/schema.prisma)",
-      "Bash(grep -rniE \"primary|theme|brand|#[0-9a-f]{3,6}\" .env.example)"
+      "Bash(grep -rniE \"primary|theme|brand|#[0-9a-f]{3,6}\" .env.example)",
+      "Bash(grep -nA20 \"async changePassword\\\\|async updatePassword\" src/user/user.service.ts)"
     ],
     "additionalDirectories": [
       "/Users/appal/Documents/greenwichPorjects/greenwich-elearning-backend/src"

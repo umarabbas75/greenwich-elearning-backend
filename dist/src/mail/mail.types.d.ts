@@ -12,6 +12,12 @@ export interface EngagementReminderMail {
     completedSections?: number | null;
     totalSections?: number | null;
 }
+export interface PasswordResetMail {
+    to: string;
+    firstName: string;
+    otp: string;
+    expiresInMinutes: number;
+}
 export interface MailSendResult {
     sent: boolean;
     id?: string;

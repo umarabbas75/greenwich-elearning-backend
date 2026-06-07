@@ -27,6 +27,16 @@ export interface EngagementReminderMail {
   totalSections?: number | null;
 }
 
+/** Data needed to render a password-reset OTP email. */
+export interface PasswordResetMail {
+  to: string;
+  firstName: string;
+  /** The 6-digit one-time code (plaintext, only here in memory for sending). */
+  otp: string;
+  /** Minutes until the code expires (for the copy). */
+  expiresInMinutes: number;
+}
+
 /** Result of a send attempt — never throws to the caller; email is best-effort. */
 export interface MailSendResult {
   sent: boolean;

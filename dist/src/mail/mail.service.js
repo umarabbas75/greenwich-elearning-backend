@@ -15,7 +15,8 @@ const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const resend_1 = require("resend");
 const engagement_reminder_template_1 = require("./templates/engagement-reminder.template");
-const DEFAULT_FROM = 'Greenwich Training Centre <noreply@greenwichtc-elearning.com>';
+const password_reset_template_1 = require("./templates/password-reset.template");
+const DEFAULT_FROM = 'Greenwich Training & Consulting <noreply@greenwichtc-elearning.com>';
 let MailService = MailService_1 = class MailService {
     constructor(config) {
         this.config = config;
@@ -31,27 +32,32 @@ let MailService = MailService_1 = class MailService {
         return this.client !== null;
     }
     async sendEngagementReminder(mail) {
+        return this.send(mail.to, (0, engagement_reminder_template_1.renderEngagementReminder)(mail), 'engagement reminder');
+    }
+    async sendPasswordReset(mail) {
+        return this.send(mail.to, (0, password_reset_template_1.renderPasswordReset)(mail), 'password reset');
+    }
+    async send(to, rendered, label) {
         if (!this.client) {
             return { sent: false, reason: 'mail-disabled' };
         }
-        const { subject, html, text } = (0, engagement_reminder_template_1.renderEngagementReminder)(mail);
         try {
             const { data, error } = await this.client.emails.send({
                 from: this.from,
-                to: mail.to,
-                subject,
-                html,
-                text,
+                to,
+                subject: rendered.subject,
+                html: rendered.html,
+                text: rendered.text,
             });
             if (error) {
-                this.logger.error(`Resend rejected engagement reminder to ${mail.to}: ${error.name} — ${error.message}`);
+                this.logger.error(`Resend rejected ${label} to ${to}: ${error.name} — ${error.message}`);
                 return { sent: false, reason: error.message };
             }
             return { sent: true, id: data?.id };
         }
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            this.logger.error(`Failed to send engagement reminder to ${mail.to}: ${message}`);
+            this.logger.error(`Failed to send ${label} to ${to}: ${message}`);
             return { sent: false, reason: message };
         }
     }
