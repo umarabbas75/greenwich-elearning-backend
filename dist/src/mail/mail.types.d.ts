@@ -8,6 +8,9 @@ export interface EngagementReminderMail {
     courseTitle: string;
     reminderType: ReminderType;
     courseUrl: string;
+    courseDuration?: string | null;
+    completedSections?: number | null;
+    totalSections?: number | null;
 }
 export interface MailSendResult {
     sent: boolean;

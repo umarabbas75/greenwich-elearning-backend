@@ -20,6 +20,11 @@ interface Candidate {
   email: string;
   firstName: string;
   courseTitle: string;
+  // Personalization fields. Populated per reminder type by the detection query;
+  // the other type leaves them null and the template omits them.
+  courseDuration?: string | null; // NEVER_STARTED nudge (e.g. "60 Days")
+  completedSections?: number | null; // STALLED progress
+  totalSections?: number | null; // STALLED progress
 }
 
 export interface SweepSummary {
@@ -175,7 +180,8 @@ export class EngagementService {
                  uc."courseId" AS "courseId",
                  u."email"     AS "email",
                  u."firstName" AS "firstName",
-                 c."title"     AS "courseTitle"
+                 c."title"     AS "courseTitle",
+                 c."duration"  AS "courseDuration"
             FROM "user_courses" uc
             JOIN "users"   u ON u."id" = uc."userId"
             JOIN "courses" c ON c."id" = uc."courseId"
@@ -212,7 +218,18 @@ export class EngagementService {
                  uc."courseId" AS "courseId",
                  u."email"     AS "email",
                  u."firstName" AS "firstName",
-                 c."title"     AS "courseTitle"
+                 c."title"     AS "courseTitle",
+                 -- Progress = distinct sections the user has progressed through.
+                 (SELECT COUNT(DISTINCT ucp."sectionId")
+                    FROM "UserCourseProgress" ucp
+                   WHERE ucp."userId" = uc."userId"
+                     AND ucp."courseId" = uc."courseId")::int AS "completedSections",
+                 -- Total sections in the course (sections → chapters → modules).
+                 (SELECT COUNT(*)
+                    FROM "sections" s
+                    JOIN "chapters" ch ON ch."id" = s."chapterId"
+                    JOIN "modules"  mo ON mo."id" = ch."moduleId"
+                   WHERE mo."courseId" = uc."courseId")::int AS "totalSections"
             FROM "user_courses" uc
             JOIN "users"   u ON u."id" = uc."userId"
             JOIN "courses" c ON c."id" = uc."courseId"
@@ -339,6 +356,9 @@ export class EngagementService {
             courseTitle: c.courseTitle,
             reminderType,
             courseUrl: this.courseUrl(c.courseId),
+            courseDuration: c.courseDuration,
+            completedSections: c.completedSections,
+            totalSections: c.totalSections,
           }),
         ),
       );

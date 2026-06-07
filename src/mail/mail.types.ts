@@ -18,6 +18,13 @@ export interface EngagementReminderMail {
   reminderType: ReminderType;
   /** Absolute URL to the course (deep link). Falls back to the app root. */
   courseUrl: string;
+  // Optional personalization. Templates render these only when present/valid.
+  /** NEVER_STARTED: course's intended duration (e.g. "60 Days"). */
+  courseDuration?: string | null;
+  /** STALLED: sections the student has completed. */
+  completedSections?: number | null;
+  /** STALLED: total sections in the course (for the progress fraction/percent). */
+  totalSections?: number | null;
 }
 
 /** Result of a send attempt — never throws to the caller; email is best-effort. */
