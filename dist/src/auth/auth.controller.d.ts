@@ -5,7 +5,7 @@ export declare class AuthController {
     private readonly appService;
     private readonly passwordReset;
     constructor(appService: AuthService, passwordReset: PasswordResetService);
-    loginUser(body: any): Promise<ResponseDto>;
+    loginUser(body: any, req: any): Promise<ResponseDto>;
     forgotPassword(body: ForgotPasswordRequestDto): Promise<{
         message: string;
         statusCode: number;

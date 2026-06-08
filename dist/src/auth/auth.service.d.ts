@@ -6,7 +6,12 @@ export declare class AuthService {
     private jwt;
     private config;
     private prisma;
+    private static readonly logger;
     constructor(jwt: JwtService, config: ConfigService, prisma: PrismaService);
-    loginUser(body: LoginDto): Promise<ResponseDto>;
+    loginUser(body: LoginDto, context?: {
+        ipAddress?: string | null;
+        userAgent?: string | null;
+    }): Promise<ResponseDto>;
     signToken(userId: string, email: string): Promise<string>;
+    private recordLoginEvent;
 }

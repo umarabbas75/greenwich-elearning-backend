@@ -12,6 +12,7 @@ import { NotificationModule } from './notifications/notification.module';
 import { AssignmentModule } from './assignment/assignment.module';
 import { CourseAssessmentModule } from './course-assessment/course-assessment.module';
 import { EngagementModule } from './engagement/engagement.module';
+import { TrackingModule } from './tracking/tracking.module';
 
 import { HealthModule } from './health/health.module';
 
@@ -31,6 +32,7 @@ import { HealthModule } from './health/health.module';
     ForumCommentModule,
     CourseAssessmentModule,
     EngagementModule,
+    TrackingModule,
   ],
 })
 export class AppModule {}

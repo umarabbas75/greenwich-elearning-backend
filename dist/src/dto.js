@@ -10,7 +10,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AnswerItemDto = exports.StartAttemptDto = exports.ReorderAssessmentQuestionsDto = exports.ReorderQuestionItemDto = exports.AddAssessmentQuestionDto = exports.UpdateAssessmentDto = exports.CreateAssessmentDto = exports.AssessmentAutoConfigDto = exports.AutoConfigDifficultyDto = exports.AutoConfigCategoryDto = exports.UpdateQuestionDto = exports.CreateQuestionDto = exports.UpdateQuestionCategoryDto = exports.CreateQuestionCategoryDto = exports.UpdateSectionOrderDto = exports.SectionOrderItemDto = exports.UpdateMatchingSectionDto = exports.CreateMatchingSectionDto = exports.MatchingPairDto = exports.UpdateOrderingSectionDto = exports.CreateOrderingSectionDto = exports.OrderingItemDto = exports.UpdateVisualActivitySectionDto = exports.CreateVisualActivitySectionDto = exports.VisualActivityOptionDto = exports.UpdateMatchAndLearnSectionDto = exports.UpdateSectionDto = exports.CreateMatchAndLearnSectionDto = exports.MatchAndLearnItemDto = exports.CreateSectionDto = exports.SectionType = exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.MarkFormCompleteDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.SetCourseActiveDto = exports.CourseDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
-exports.ResetPasswordDto = exports.VerifyOtpDto = exports.ForgotPasswordResendDto = exports.ForgotPasswordRequestDto = exports.ResetUserCourseProgressDto = exports.SetCertificateDto = exports.GradeAttemptDto = exports.QuestionScoreDto = exports.SubmitAttemptDto = void 0;
+exports.TrackingHeartbeatDto = exports.ResetPasswordDto = exports.VerifyOtpDto = exports.ForgotPasswordResendDto = exports.ForgotPasswordRequestDto = exports.ResetUserCourseProgressDto = exports.SetCertificateDto = exports.GradeAttemptDto = exports.QuestionScoreDto = exports.SubmitAttemptDto = void 0;
 const client_1 = require("@prisma/client");
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
@@ -1257,4 +1257,24 @@ __decorate([
     (0, class_validator_1.MinLength)(8, { message: 'Password must be at least 8 characters' }),
     __metadata("design:type", String)
 ], ResetPasswordDto.prototype, "newPassword", void 0);
+class TrackingHeartbeatDto {
+}
+exports.TrackingHeartbeatDto = TrackingHeartbeatDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], TrackingHeartbeatDto.prototype, "sectionId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0),
+    __metadata("design:type", Number)
+], TrackingHeartbeatDto.prototype, "activeSeconds", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0),
+    __metadata("design:type", Number)
+], TrackingHeartbeatDto.prototype, "intervalSeconds", void 0);
 //# sourceMappingURL=dto.js.map

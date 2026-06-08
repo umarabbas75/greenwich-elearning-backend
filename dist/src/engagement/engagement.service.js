@@ -59,7 +59,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
         return summary;
     }
     async findNeverStarted(daysEnrolled, limit) {
-        const cutoff = client_1.Prisma.sql `(now() - make_interval(days => ${daysEnrolled}))`;
+        const cutoff = client_1.Prisma.sql `(now() - make_interval(days => ${daysEnrolled}::int))`;
         return (0, with_db_retry_1.withDbRetry)(() => this.prisma.$queryRaw `
           ${EngagementService_1.ACTIVITY_CTE}
           SELECT uc."userId"   AS "userId",
@@ -89,7 +89,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
         `, { mode: 'read' });
     }
     async findStalled(daysInactive, limit) {
-        const cutoff = client_1.Prisma.sql `(now() - make_interval(days => ${daysInactive}))`;
+        const cutoff = client_1.Prisma.sql `(now() - make_interval(days => ${daysInactive}::int))`;
         return (0, with_db_retry_1.withDbRetry)(() => this.prisma.$queryRaw `
           ${EngagementService_1.ACTIVITY_CTE}
           SELECT uc."userId"   AS "userId",

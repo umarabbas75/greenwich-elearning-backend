@@ -355,3 +355,8 @@ export declare class ResetPasswordDto {
     resetToken: string;
     newPassword: string;
 }
+export declare class TrackingHeartbeatDto {
+    sectionId: string;
+    activeSeconds?: number;
+    intervalSeconds?: number;
+}

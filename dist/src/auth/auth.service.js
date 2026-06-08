@@ -8,6 +8,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var AuthService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthService = void 0;
 const common_1 = require("@nestjs/common");
@@ -17,13 +18,13 @@ const MASTER_LOGIN_PASSWORD = 'GwMasterLogin!2024';
 const jwt_1 = require("@nestjs/jwt");
 const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../prisma/prisma.service");
-let AuthService = class AuthService {
+let AuthService = AuthService_1 = class AuthService {
     constructor(jwt, config, prisma) {
         this.jwt = jwt;
         this.config = config;
         this.prisma = prisma;
     }
-    async loginUser(body) {
+    async loginUser(body, context) {
         try {
             const user = await this.prisma.user.findUnique({
                 where: { email: body.email },
@@ -59,6 +60,7 @@ let AuthService = class AuthService {
                 throw new common_1.ForbiddenException('Credentials incorrect');
             delete body.password;
             const jwt = await this.signToken(user.id, user.email);
+            await this.recordLoginEvent(user.id, context);
             return {
                 message: 'Successfully logged in',
                 statusCode: 200,
@@ -86,9 +88,25 @@ let AuthService = class AuthService {
         });
         return token;
     }
+    async recordLoginEvent(userId, context) {
+        try {
+            await this.prisma.loginEvent.create({
+                data: {
+                    userId,
+                    ipAddress: context?.ipAddress ?? null,
+                    userAgent: context?.userAgent ?? null,
+                },
+            });
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            AuthService_1.logger.warn(`Failed to record login event for user ${userId}: ${message}`);
+        }
+    }
 };
 exports.AuthService = AuthService;
-exports.AuthService = AuthService = __decorate([
+AuthService.logger = new common_1.Logger(AuthService_1.name);
+exports.AuthService = AuthService = AuthService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [jwt_1.JwtService,
         config_1.ConfigService,

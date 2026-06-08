@@ -171,7 +171,10 @@ export class EngagementService {
     daysEnrolled: number,
     limit: number,
   ): Promise<Candidate[]> {
-    const cutoff = Prisma.sql`(now() - make_interval(days => ${daysEnrolled}))`;
+    // Cast to int: Prisma binds JS numbers as bigint, but make_interval's `days`
+    // arg is integer and Postgres won't implicitly narrow bigint→integer for a
+    // named-arg call (error 42883). Explicit ::int makes the signature match.
+    const cutoff = Prisma.sql`(now() - make_interval(days => ${daysEnrolled}::int))`;
     return withDbRetry(
       () =>
         this.prisma.$queryRaw<Candidate[]>`
@@ -209,7 +212,9 @@ export class EngagementService {
     daysInactive: number,
     limit: number,
   ): Promise<Candidate[]> {
-    const cutoff = Prisma.sql`(now() - make_interval(days => ${daysInactive}))`;
+    // See findNeverStarted: ::int cast required so make_interval's signature
+    // matches (Prisma binds the number as bigint otherwise → error 42883).
+    const cutoff = Prisma.sql`(now() - make_interval(days => ${daysInactive}::int))`;
     return withDbRetry(
       () =>
         this.prisma.$queryRaw<Candidate[]>`

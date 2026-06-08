@@ -1028,3 +1028,34 @@ export class ResetPasswordDto {
   @MinLength(8, { message: 'Password must be at least 8 characters' })
   newPassword: string;
 }
+
+// ── Platform tracking ────────────────────────────────────────────────────────
+
+/**
+ * A single time-tracking heartbeat: "the current user is actively viewing this
+ * section". Sent by the FE every ~30-60s while a section is open. The backend
+ * resolves chapter/module/course from the section, so the FE only sends the id.
+ */
+export class TrackingHeartbeatDto {
+  @IsString()
+  @IsNotEmpty()
+  sectionId: string;
+
+  /**
+   * Active seconds the client measured since its LAST successful ping (i.e.
+   * time the tab was visible and the user not idle). The server credits
+   * min(activeSeconds, serverGap, perPingCap) — so this can never inflate the
+   * total beyond real elapsed server time. Omit on old clients (gap-rejection
+   * fallback applies).
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  activeSeconds?: number;
+
+  /** The client's ping cadence in seconds (used to size the per-ping cap). */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  intervalSeconds?: number;
+}

@@ -17,6 +17,7 @@ import {
   ResetPasswordDto,
 } from '../dto';
 import { JwtAuthGuard } from './jwt.guard';
+import { getClientIp, getUserAgent } from '../utils/client-request';
 
 @Controller('/auth')
 export class AuthController {
@@ -26,8 +27,11 @@ export class AuthController {
   ) {}
 
   @Post('/login')
-  loginUser(@Body() body: any): Promise<ResponseDto> {
-    return this.appService.loginUser(body);
+  loginUser(@Body() body: any, @Req() req): Promise<ResponseDto> {
+    return this.appService.loginUser(body, {
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req),
+    });
   }
 
   // ── Forgot-password flow ───────────────────────────────────────────────

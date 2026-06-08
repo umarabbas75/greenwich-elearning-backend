@@ -3,6 +3,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import { timingSafeEqual } from 'crypto';
 import { ResponseDto, LoginDto } from '../dto';
@@ -16,13 +17,18 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class AuthService {
+  private static readonly logger = new Logger(AuthService.name);
+
   constructor(
     private jwt: JwtService,
     private config: ConfigService,
     private prisma: PrismaService,
   ) {}
 
-  async loginUser(body: LoginDto): Promise<ResponseDto> {
+  async loginUser(
+    body: LoginDto,
+    context?: { ipAddress?: string | null; userAgent?: string | null },
+  ): Promise<ResponseDto> {
     try {
       const user = await this.prisma.user.findUnique({
         where: { email: body.email },
@@ -63,6 +69,10 @@ export class AuthService {
       if (!pwMatches) throw new ForbiddenException('Credentials incorrect');
       delete body.password;
       const jwt = await this.signToken(user.id, user.email);
+
+      // Record the login (best-effort — never block or fail login on this).
+      await this.recordLoginEvent(user.id, context);
+
       return {
         message: 'Successfully logged in',
         statusCode: 200,
@@ -95,5 +105,29 @@ export class AuthService {
     });
 
     return token;
+  }
+
+  /**
+   * Append a LoginEvent. Best-effort: any failure is logged and swallowed so a
+   * tracking-table hiccup can never prevent a user from logging in.
+   */
+  private async recordLoginEvent(
+    userId: string,
+    context?: { ipAddress?: string | null; userAgent?: string | null },
+  ): Promise<void> {
+    try {
+      await this.prisma.loginEvent.create({
+        data: {
+          userId,
+          ipAddress: context?.ipAddress ?? null,
+          userAgent: context?.userAgent ?? null,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      AuthService.logger.warn(
+        `Failed to record login event for user ${userId}: ${message}`,
+      );
+    }
   }
 }

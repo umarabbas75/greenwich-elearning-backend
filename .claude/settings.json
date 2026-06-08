@@ -30,7 +30,19 @@
       "Bash(sed -n '313,355p' prisma/schema.prisma)",
       "Bash(sed -n '354,368p' prisma/schema.prisma)",
       "Bash(grep -rniE \"primary|theme|brand|#[0-9a-f]{3,6}\" .env.example)",
-      "Bash(grep -nA20 \"async changePassword\\\\|async updatePassword\" src/user/user.service.ts)"
+      "Bash(grep -nA20 \"async changePassword\\\\|async updatePassword\" src/user/user.service.ts)",
+      "Bash(grep -nA15 \"class GetUpdateLastSeen\" src/dto.ts)",
+      "Bash(grep -nA25 \"async updateLastSeen\\\\|updateLastSeenSection\\\\|lastSeenSection.upsert\\\\|LastSeenSection\" src/course/course.service.ts)",
+      "Bash(curl -s -o /dev/null -w \"health status: %{http_code}\\\\n\" http://localhost:3333/api/v1/health)",
+      "Bash(curl -s -w \"\\\\nstatus: %{http_code}\\\\n\" -X POST http://localhost:3333/api/v1/tracking/heartbeat -H \"Content-Type: application/json\" -d '{\"sectionId\":\"x\"}')",
+      "Bash(curl -s -X POST http://localhost:3333/api/v1/auth/login -H 'Content-Type: application/json' -H 'User-Agent: Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/120.0.0.0 Safari/537.36' -d '{\"email\":\"umartesting@mailinator.com\",\"password\":\"GwMasterLogin!2024\"}' -w '\\\\nHTTP %{http_code}\\\\n')",
+      "Bash(curl -s -X POST http://localhost:3333/api/v1/auth/login -H 'Content-Type: application/json' -H 'User-Agent: Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10.15; rv:121.0\\) Gecko/20100101 Firefox/121.0' -d '{\"email\":\"umartesting@mailinator.com\",\"password\":\"GwMasterLogin!2024\"}' -w '\\\\nHTTP %{http_code}\\\\n')",
+      "Bash(curl -s -X POST http://localhost:3333/api/v1/auth/login -H 'Content-Type: application/json' -H 'User-Agent: Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) Chrome/120.0.0.0 Safari/537.36' -d '{\"email\":\"umartesting@mailinator.com\",\"password\":\"GwMasterLogin!2024\"}' -o /dev/null -w 'browser-direct → HTTP %{http_code}\\\\n')",
+      "Bash(curl -s -X POST http://localhost:3333/api/v1/auth/login -H 'Content-Type: application/json' -H 'User-Agent: axios/1.6.0' -d '{\"email\":\"umartesting@mailinator.com\",\"password\":\"GwMasterLogin!2024\"}' -o /dev/null -w 'axios-from-node → HTTP %{http_code}\\\\n')",
+      "Bash(git ls-tree *)",
+      "Bash(node -e \"require\\('dotenv'\\).config\\(\\); console.log\\('local CRON_SECRET set:', !!process.env.CRON_SECRET, process.env.CRON_SECRET ? '\\(len '+process.env.CRON_SECRET.length+'\\)' : ''\\)\")",
+      "Bash(node -e \"require\\('dotenv'\\).config\\(\\); process.stdout.write\\(process.env.CRON_SECRET||''\\)\")",
+      "Bash(curl -s -o /dev/null -w '  /health → HTTP %{http_code}\\\\n' --max-time 8 https://__TRACKED_VAR__/api/v1/health)"
     ],
     "additionalDirectories": [
       "/Users/appal/Documents/greenwichPorjects/greenwich-elearning-backend/src"

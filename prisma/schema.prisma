@@ -50,6 +50,8 @@ model User {
   assessmentAttempts       AssessmentAttempt[]
   courseCompletions        CourseCompletion[]
   passwordResets           PasswordReset[]
+  loginEvents              LoginEvent[]
+  sectionTimeSpent         SectionTimeSpent[]
 
   @@index([email])
   @@index([deletedAt])
@@ -921,4 +923,54 @@ model CourseCompletion {
   @@index([userId, courseId])
   @@index([userId, isPassed])
   @@map("course_completions")
+}
+
+// ── Platform tracking ────────────────────────────────────────────────────────
+
+/// Append-only log: one row per successful login. Captures when, from where
+/// (IP), and with what client (user-agent). Never updated.
+model LoginEvent {
+  id        String   @id @default(uuid())
+  userId    String
+  /// Client IP, best-effort from x-forwarded-for (Vercel) / socket. Nullable
+  /// because a proxy may strip it. Stored as text (supports IPv4 + IPv6).
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Report hot path: a user's logins newest-first; and global "who logged in".
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("login_events")
+}
+
+/// Running total of active time a user has spent in a single section (lesson),
+/// accumulated from heartbeat pings. chapterId/moduleId/courseId are denormalized
+/// so reports can roll time up to any level without extra joins.
+model SectionTimeSpent {
+  id              String   @id @default(uuid())
+  userId          String
+  sectionId       String
+  chapterId       String
+  moduleId        String?
+  courseId        String
+  /// Sum of capped heartbeat intervals — the student's active seconds here.
+  totalSeconds    Int      @default(0)
+  /// Last ping time; used to compute the next contiguous interval and to cap
+  /// gaps (idle/closed tab) so time can't be inflated.
+  lastHeartbeatAt DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // One running total per user per section.
+  @@unique([userId, sectionId])
+  // Roll-up report paths.
+  @@index([userId, courseId])
+  @@index([courseId, moduleId])
+  @@index([userId, chapterId])
+  @@map("section_time_spent")
 }

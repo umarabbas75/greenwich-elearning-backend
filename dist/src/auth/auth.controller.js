@@ -18,13 +18,17 @@ const auth_service_1 = require("./auth.service");
 const password_reset_service_1 = require("./password-reset.service");
 const dto_1 = require("../dto");
 const jwt_guard_1 = require("./jwt.guard");
+const client_request_1 = require("../utils/client-request");
 let AuthController = class AuthController {
     constructor(appService, passwordReset) {
         this.appService = appService;
         this.passwordReset = passwordReset;
     }
-    loginUser(body) {
-        return this.appService.loginUser(body);
+    loginUser(body, req) {
+        return this.appService.loginUser(body, {
+            ipAddress: (0, client_request_1.getClientIp)(req),
+            userAgent: (0, client_request_1.getUserAgent)(req),
+        });
     }
     forgotPassword(body) {
         return this.passwordReset.requestReset(body);
@@ -47,8 +51,9 @@ exports.AuthController = AuthController;
 __decorate([
     (0, common_1.Post)('/login'),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "loginUser", null);
 __decorate([

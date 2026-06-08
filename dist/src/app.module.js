@@ -21,6 +21,7 @@ const notification_module_1 = require("./notifications/notification.module");
 const assignment_module_1 = require("./assignment/assignment.module");
 const course_assessment_module_1 = require("./course-assessment/course-assessment.module");
 const engagement_module_1 = require("./engagement/engagement.module");
+const tracking_module_1 = require("./tracking/tracking.module");
 const health_module_1 = require("./health/health.module");
 let AppModule = class AppModule {
 };
@@ -42,6 +43,7 @@ exports.AppModule = AppModule = __decorate([
             forum_comment_module_1.ForumCommentModule,
             course_assessment_module_1.CourseAssessmentModule,
             engagement_module_1.EngagementModule,
+            tracking_module_1.TrackingModule,
         ],
     })
 ], AppModule);
