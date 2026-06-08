@@ -172,23 +172,46 @@ let EngagementService = EngagementService_1 = class EngagementService {
         };
     }
     async sendEmails(recipients, reminderType) {
-        const concurrency = Math.max(1, Math.trunc(this.num(engagement_constants_1.ENGAGEMENT_ENV.emailConcurrency, engagement_constants_1.ENGAGEMENT_DEFAULTS.emailConcurrency)));
+        const batchSize = Math.max(1, Math.trunc(this.num(engagement_constants_1.ENGAGEMENT_ENV.emailConcurrency, engagement_constants_1.ENGAGEMENT_DEFAULTS.emailConcurrency)));
+        const pauseMs = engagement_constants_1.ENGAGEMENT_DEFAULTS.emailBatchPauseMs;
+        const sendOne = (c) => this.mail.sendEngagementReminder({
+            to: c.email,
+            firstName: c.firstName,
+            courseTitle: c.courseTitle,
+            reminderType,
+            courseUrl: this.courseUrl(c.courseId),
+            courseDuration: c.courseDuration,
+            completedSections: c.completedSections,
+            totalSections: c.totalSections,
+        });
         let sent = 0;
-        for (let i = 0; i < recipients.length; i += concurrency) {
-            const chunk = recipients.slice(i, i + concurrency);
-            const results = await Promise.all(chunk.map((c) => this.mail.sendEngagementReminder({
-                to: c.email,
-                firstName: c.firstName,
-                courseTitle: c.courseTitle,
-                reminderType,
-                courseUrl: this.courseUrl(c.courseId),
-                courseDuration: c.courseDuration,
-                completedSections: c.completedSections,
-                totalSections: c.totalSections,
-            })));
-            sent += results.filter((r) => r.sent).length;
+        const rateLimited = [];
+        for (let i = 0; i < recipients.length; i += batchSize) {
+            const chunk = recipients.slice(i, i + batchSize);
+            const results = await Promise.all(chunk.map(sendOne));
+            results.forEach((r, idx) => {
+                if (r.sent)
+                    sent += 1;
+                else if (r.reason && /rate.?limit/i.test(r.reason))
+                    rateLimited.push(chunk[idx]);
+            });
+            if (i + batchSize < recipients.length)
+                await this.sleep(pauseMs);
+        }
+        if (rateLimited.length > 0) {
+            await this.sleep(pauseMs * 2);
+            for (let i = 0; i < rateLimited.length; i += batchSize) {
+                const chunk = rateLimited.slice(i, i + batchSize);
+                const results = await Promise.all(chunk.map(sendOne));
+                sent += results.filter((r) => r.sent).length;
+                if (i + batchSize < rateLimited.length)
+                    await this.sleep(pauseMs);
+            }
         }
         return sent;
+    }
+    sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
     }
     async freshlyInsertedKeys(rows) {
         const keys = rows

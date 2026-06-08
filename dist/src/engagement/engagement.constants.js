@@ -16,7 +16,8 @@ exports.ENGAGEMENT_DEFAULTS = {
     neverStartedCooldownDays: 3,
     stalledCooldownDays: 7,
     batchLimit: 50,
-    emailConcurrency: 5,
+    emailConcurrency: 2,
+    emailBatchPauseMs: 1100,
     appBaseUrl: 'https://www.greenwichtc-elearning.com',
 };
 const MS_PER_DAY = 86400000;

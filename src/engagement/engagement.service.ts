@@ -332,16 +332,18 @@ export class EngagementService {
   }
 
   /**
-   * Sends reminder emails with a bounded concurrency. These are HTTP calls to
-   * Resend (not DB queries), so running a few in parallel does not contend with
-   * the connection_limit=1 Postgres pool, while keeping the whole fan-out inside
-   * the serverless time budget. Returns the count successfully sent.
+   * Sends reminder emails in small batches, throttled to stay under Resend's
+   * rate limit (2 requests/second). Each batch of `emailConcurrency` is sent
+   * concurrently, then we pause `emailBatchPauseMs` before the next. Any send
+   * that fails with a rate-limit error is retried once after a longer backoff.
+   * These are HTTP calls (not DB), so they never touch the connection_limit=1
+   * Postgres pool. Returns the count successfully sent.
    */
   private async sendEmails(
     recipients: Candidate[],
     reminderType: ReminderType,
   ): Promise<number> {
-    const concurrency = Math.max(
+    const batchSize = Math.max(
       1,
       Math.trunc(
         this.num(
@@ -350,26 +352,51 @@ export class EngagementService {
         ),
       ),
     );
+    const pauseMs = ENGAGEMENT_DEFAULTS.emailBatchPauseMs;
+
+    const sendOne = (c: Candidate) =>
+      this.mail.sendEngagementReminder({
+        to: c.email,
+        firstName: c.firstName,
+        courseTitle: c.courseTitle,
+        reminderType,
+        courseUrl: this.courseUrl(c.courseId),
+        courseDuration: c.courseDuration,
+        completedSections: c.completedSections,
+        totalSections: c.totalSections,
+      });
+
     let sent = 0;
-    for (let i = 0; i < recipients.length; i += concurrency) {
-      const chunk = recipients.slice(i, i + concurrency);
-      const results = await Promise.all(
-        chunk.map((c) =>
-          this.mail.sendEngagementReminder({
-            to: c.email,
-            firstName: c.firstName,
-            courseTitle: c.courseTitle,
-            reminderType,
-            courseUrl: this.courseUrl(c.courseId),
-            courseDuration: c.courseDuration,
-            completedSections: c.completedSections,
-            totalSections: c.totalSections,
-          }),
-        ),
-      );
-      sent += results.filter((r) => r.sent).length;
+    const rateLimited: Candidate[] = [];
+
+    for (let i = 0; i < recipients.length; i += batchSize) {
+      const chunk = recipients.slice(i, i + batchSize);
+      const results = await Promise.all(chunk.map(sendOne));
+      results.forEach((r, idx) => {
+        if (r.sent) sent += 1;
+        else if (r.reason && /rate.?limit/i.test(r.reason))
+          rateLimited.push(chunk[idx]);
+      });
+      // Throttle between batches to respect Resend's 2 req/s ceiling.
+      if (i + batchSize < recipients.length) await this.sleep(pauseMs);
     }
+
+    // One retry pass for rate-limited sends, after a longer cooldown.
+    if (rateLimited.length > 0) {
+      await this.sleep(pauseMs * 2);
+      for (let i = 0; i < rateLimited.length; i += batchSize) {
+        const chunk = rateLimited.slice(i, i + batchSize);
+        const results = await Promise.all(chunk.map(sendOne));
+        sent += results.filter((r) => r.sent).length;
+        if (i + batchSize < rateLimited.length) await this.sleep(pauseMs);
+      }
+    }
+
     return sent;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**

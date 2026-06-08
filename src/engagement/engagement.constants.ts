@@ -31,9 +31,14 @@ export const ENGAGEMENT_DEFAULTS = {
   // Vercel function time budget (and under Resend's daily quota). Raise once
   // volume + send latency are observed.
   batchLimit: 50,
-  // Max concurrent Resend sends. These are HTTP calls (not DB), so parallelism
-  // here does not contend with the connection_limit=1 Postgres pool.
-  emailConcurrency: 5,
+  // Emails sent per ~1s batch. Resend's limit is 2 requests/second — exceeding
+  // it returns rate_limit_exceeded. Keep this at 2 (or 1 to be safe); the sweep
+  // pauses ~1s between batches. These are HTTP calls (not DB), so this never
+  // contends with the connection_limit=1 Postgres pool.
+  emailConcurrency: 2,
+  // Pause between email batches, ms. With emailConcurrency=2 this keeps us at
+  // or under Resend's 2 req/s ceiling.
+  emailBatchPauseMs: 1100,
   appBaseUrl: 'https://www.greenwichtc-elearning.com',
 } as const;
 

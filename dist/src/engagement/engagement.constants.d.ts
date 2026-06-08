@@ -14,7 +14,8 @@ export declare const ENGAGEMENT_DEFAULTS: {
     readonly neverStartedCooldownDays: 3;
     readonly stalledCooldownDays: 7;
     readonly batchLimit: 50;
-    readonly emailConcurrency: 5;
+    readonly emailConcurrency: 2;
+    readonly emailBatchPauseMs: 1100;
     readonly appBaseUrl: "https://www.greenwichtc-elearning.com";
 };
 export declare function cooldownBucket(now: Date, cooldownDays: number): number;

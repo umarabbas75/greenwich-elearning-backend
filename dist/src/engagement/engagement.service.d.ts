@@ -29,5 +29,6 @@ export declare class EngagementService {
     private findStalled;
     private dispatch;
     private sendEmails;
+    private sleep;
     private freshlyInsertedKeys;
 }
