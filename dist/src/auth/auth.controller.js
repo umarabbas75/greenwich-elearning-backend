@@ -42,6 +42,9 @@ let AuthController = class AuthController {
     resetPassword(body) {
         return this.passwordReset.resetPassword(body);
     }
+    forceChangePassword(body) {
+        return this.appService.forceChangePassword(body);
+    }
     getMe(req) {
         const user = req.user;
         return { user };
@@ -88,6 +91,14 @@ __decorate([
     __metadata("design:paramtypes", [dto_1.ResetPasswordDto]),
     __metadata("design:returntype", void 0)
 ], AuthController.prototype, "resetPassword", null);
+__decorate([
+    (0, common_1.Post)('/force-change-password'),
+    (0, common_1.HttpCode)(200),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [dto_1.ForceChangePasswordDto]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "forceChangePassword", null);
 __decorate([
     (0, common_1.Get)('me'),
     (0, common_1.UseGuards)(jwt_guard_1.JwtAuthGuard),

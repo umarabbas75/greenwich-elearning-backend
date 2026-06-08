@@ -25,6 +25,11 @@ export declare class LoginDto {
     email: string;
     password: string;
 }
+export declare class ForceChangePasswordDto {
+    email: string;
+    currentPassword: string;
+    newPassword: string;
+}
 export declare class CourseDto {
     title: string;
     price: string;

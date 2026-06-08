@@ -42,7 +42,11 @@
       "Bash(git ls-tree *)",
       "Bash(node -e \"require\\('dotenv'\\).config\\(\\); console.log\\('local CRON_SECRET set:', !!process.env.CRON_SECRET, process.env.CRON_SECRET ? '\\(len '+process.env.CRON_SECRET.length+'\\)' : ''\\)\")",
       "Bash(node -e \"require\\('dotenv'\\).config\\(\\); process.stdout.write\\(process.env.CRON_SECRET||''\\)\")",
-      "Bash(curl -s -o /dev/null -w '  /health → HTTP %{http_code}\\\\n' --max-time 8 https://__TRACKED_VAR__/api/v1/health)"
+      "Bash(curl -s -o /dev/null -w '  /health → HTTP %{http_code}\\\\n' --max-time 8 https://__TRACKED_VAR__/api/v1/health)",
+      "Bash(grep -o \"make_interval\\(days => \\\\${.*}::int\\)\" dist/src/engagement/engagement.service.js)",
+      "Bash(git add *)",
+      "Bash(git commit -q -m 'fix\\(engagement\\): cast make_interval arg to int; throttle Resend sends to 2/s *)",
+      "Bash(git push *)"
     ],
     "additionalDirectories": [
       "/Users/appal/Documents/greenwichPorjects/greenwich-elearning-backend/src"

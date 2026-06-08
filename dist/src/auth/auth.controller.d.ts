@@ -1,6 +1,6 @@
 import { AuthService } from './auth.service';
 import { PasswordResetService } from './password-reset.service';
-import { ResponseDto, ForgotPasswordRequestDto, ForgotPasswordResendDto, VerifyOtpDto, ResetPasswordDto } from '../dto';
+import { ResponseDto, ForgotPasswordRequestDto, ForgotPasswordResendDto, VerifyOtpDto, ResetPasswordDto, ForceChangePasswordDto } from '../dto';
 export declare class AuthController {
     private readonly appService;
     private readonly passwordReset;
@@ -29,6 +29,7 @@ export declare class AuthController {
         statusCode: number;
         data: {};
     }>;
+    forceChangePassword(body: ForceChangePasswordDto): Promise<ResponseDto>;
     getMe(req: any): {
         user: any;
     };

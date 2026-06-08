@@ -176,6 +176,9 @@ export class UserService {
           role: body.role,
           photo: body?.photo ?? null,
           photoBase64: body?.photoBase64 ?? null,
+          // Admin-created account: the admin set this temporary password, so the
+          // user must set their own on first login (cleared in forceChangePassword).
+          mustChangePassword: true,
         },
       });
       delete user.password;

@@ -15,6 +15,7 @@ import {
   ForgotPasswordResendDto,
   VerifyOtpDto,
   ResetPasswordDto,
+  ForceChangePasswordDto,
 } from '../dto';
 import { JwtAuthGuard } from './jwt.guard';
 import { getClientIp, getUserAgent } from '../utils/client-request';
@@ -62,6 +63,20 @@ export class AuthController {
   @HttpCode(200)
   resetPassword(@Body() body: ResetPasswordDto) {
     return this.passwordReset.resetPassword(body);
+  }
+
+  // ── Force password change on first login (admin-created accounts) ───────
+
+  /**
+   * Forced first-login password change. The login response carries
+   * `user.mustChangePassword: true` for admin-created accounts; the FE then
+   * routes here. Requires the current (temporary) password + a new one.
+   * Returns a fresh JWT so the user proceeds without re-logging in.
+   */
+  @Post('/force-change-password')
+  @HttpCode(200)
+  forceChangePassword(@Body() body: ForceChangePasswordDto) {
+    return this.appService.forceChangePassword(body);
   }
 
   @Get('me')

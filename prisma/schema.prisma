@@ -18,6 +18,10 @@ model User {
   photoBase64              String?
   timezone                 String?
   password                 String
+  // Set true for admin-created accounts (the admin sets a temporary password).
+  // The user is forced to set their own password on first login, after which it
+  // is cleared. Self-registered users chose their own password, so it stays false.
+  mustChangePassword       Boolean                    @default(false)
   role                     Role
   createdAt                DateTime                   @default(now())
   updatedAt                DateTime                   @updatedAt

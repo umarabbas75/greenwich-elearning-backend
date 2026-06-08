@@ -102,6 +102,20 @@ export class LoginDto {
   @IsNotEmpty()
   password: string;
 }
+export class ForceChangePasswordDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  currentPassword: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  newPassword: string;
+}
 export class CourseDto {
   @IsNotEmpty()
   @IsString()

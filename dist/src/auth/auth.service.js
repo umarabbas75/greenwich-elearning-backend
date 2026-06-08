@@ -42,6 +42,7 @@ let AuthService = AuthService_1 = class AuthService {
                     password: true,
                     status: true,
                     deletedAt: true,
+                    mustChangePassword: true,
                 },
             });
             if (!user || user.deletedAt) {
@@ -74,6 +75,53 @@ let AuthService = AuthService_1 = class AuthService {
             }, common_1.HttpStatus.FORBIDDEN, {
                 cause: error,
             });
+        }
+    }
+    async forceChangePassword(body) {
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: { email: body.email },
+                select: {
+                    id: true,
+                    password: true,
+                    status: true,
+                    deletedAt: true,
+                    mustChangePassword: true,
+                },
+            });
+            if (!user || user.deletedAt) {
+                throw new common_1.ForbiddenException('Credentials incorrect');
+            }
+            if (!user.mustChangePassword) {
+                throw new common_1.ForbiddenException('A password change is not required for this account.');
+            }
+            const currentOk = await argon2.verify(user.password, body.currentPassword);
+            if (!currentOk) {
+                throw new common_1.ForbiddenException('Credentials incorrect');
+            }
+            const sameAsOld = await argon2.verify(user.password, body.newPassword);
+            if (sameAsOld) {
+                throw new common_1.ForbiddenException('New password must be different from your current password.');
+            }
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    password: await argon2.hash(body.newPassword),
+                    mustChangePassword: false,
+                },
+            });
+            const jwt = await this.signToken(user.id, body.email);
+            return {
+                message: 'Password changed successfully.',
+                statusCode: 200,
+                data: { jwt },
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, { cause: error });
         }
     }
     async signToken(userId, email) {

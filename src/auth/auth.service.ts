@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { timingSafeEqual } from 'crypto';
-import { ResponseDto, LoginDto } from '../dto';
+import { ResponseDto, LoginDto, ForceChangePasswordDto } from '../dto';
 import * as argon2 from 'argon2';
 
 /** TEMP hardcoded — change/remove before production */
@@ -46,6 +46,7 @@ export class AuthService {
           password: true,
           status: true,
           deletedAt: true,
+          mustChangePassword: true,
         },
       });
       if (!user || user.deletedAt) {
@@ -91,6 +92,82 @@ export class AuthService {
       );
     }
   }
+  /**
+   * First-login forced password change. The user proves ownership with their
+   * current (admin-set, temporary) password, sets a new one, and the
+   * mustChangePassword flag is cleared so subsequent logins proceed normally.
+   *
+   * Enumeration-safe is not a concern here (the caller already knows the email
+   * from the login response), but we still require the current password so a
+   * leaked email alone can't reset it. Self-registered users won't have the
+   * flag set, so calling this without it being required is rejected.
+   */
+  async forceChangePassword(
+    body: ForceChangePasswordDto,
+  ): Promise<ResponseDto> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { email: body.email },
+        select: {
+          id: true,
+          password: true,
+          status: true,
+          deletedAt: true,
+          mustChangePassword: true,
+        },
+      });
+      if (!user || user.deletedAt) {
+        throw new ForbiddenException('Credentials incorrect');
+      }
+      if (!user.mustChangePassword) {
+        throw new ForbiddenException(
+          'A password change is not required for this account.',
+        );
+      }
+
+      const currentOk = await argon2.verify(
+        user.password,
+        body.currentPassword,
+      );
+      if (!currentOk) {
+        throw new ForbiddenException('Credentials incorrect');
+      }
+
+      // Don't allow re-setting the same (temporary) password.
+      const sameAsOld = await argon2.verify(user.password, body.newPassword);
+      if (sameAsOld) {
+        throw new ForbiddenException(
+          'New password must be different from your current password.',
+        );
+      }
+
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          password: await argon2.hash(body.newPassword),
+          mustChangePassword: false,
+        },
+      });
+
+      // Issue a fresh token so the client can proceed without re-logging in.
+      const jwt = await this.signToken(user.id, body.email);
+      return {
+        message: 'Password changed successfully.',
+        statusCode: 200,
+        data: { jwt },
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        { cause: error },
+      );
+    }
+  }
+
   async signToken(userId: string, email: string): Promise<string> {
     const payload = {
       sub: userId,

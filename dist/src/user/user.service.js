@@ -161,6 +161,7 @@ let UserService = class UserService {
                     role: body.role,
                     photo: body?.photo ?? null,
                     photoBase64: body?.photoBase64 ?? null,
+                    mustChangePassword: true,
                 },
             });
             delete user.password;
