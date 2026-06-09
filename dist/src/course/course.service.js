@@ -1432,6 +1432,7 @@ let CourseService = CourseService_1 = class CourseService {
                                                 where: { userId },
                                             },
                                             sections: true,
+                                            quizzes: true,
                                         },
                                     },
                                     QuizProgress: {
