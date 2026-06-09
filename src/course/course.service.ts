@@ -4,6 +4,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import { Course, Module, Chapter, Section, Prisma, Role } from '@prisma/client';
 import {
@@ -31,6 +32,8 @@ import { assertChapterAccessible } from '../utils/chapter-progression';
 
 @Injectable()
 export class CourseService {
+  private static readonly completionLogger = new Logger(CourseService.name);
+
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
@@ -1793,6 +1796,7 @@ export class CourseService {
                         where: { userId }, // Filter by userId
                       },
                       sections: true,
+                      quizzes: true,
                     },
                   },
                   QuizProgress: {
@@ -3388,6 +3392,10 @@ export class CourseService {
             moduleId: body.moduleId,
           },
         });
+        // A new section was just completed — re-check whether the user has now
+        // finished all content for this course (content completion is the
+        // course-completion criterion; assessment pass is tracked separately).
+        await this._checkContentCompletion(userId, body.courseId);
       }
 
       return {
@@ -3410,6 +3418,60 @@ export class CourseService {
         {
           cause: error,
         },
+      );
+    }
+  }
+
+  /**
+   * Content-completion check. A course is "completed" once the user has a
+   * UserCourseProgress row for every active section in the course — this is the
+   * completion criterion for ALL courses (many courses have no assessment).
+   * Assessment pass is tracked separately on CourseCompletion (isPassed /
+   * assessmentPassedAt) and is NOT required for completion.
+   *
+   * Best-effort: never throws into the caller — a completion-bookkeeping failure
+   * must not fail recording the user's progress. Idempotent: courseCompletedAt
+   * is only stamped once (first time 100% is reached).
+   */
+  private async _checkContentCompletion(
+    userId: string,
+    courseId: string,
+  ): Promise<void> {
+    try {
+      // Total active sections in the course (Section → Chapter → Module → Course).
+      const totalSections = await this.prisma.section.count({
+        where: {
+          isActive: true,
+          chapter: { module: { courseId } },
+        },
+      });
+      if (totalSections === 0) return; // nothing to complete
+
+      // Distinct sections this user has progressed through for this course.
+      const progressed = await this.prisma.userCourseProgress.findMany({
+        where: { userId, courseId },
+        select: { sectionId: true },
+        distinct: ['sectionId'],
+      });
+      if (progressed.length < totalSections) return; // not done yet
+
+      // 100% of content done — mark complete (idempotent: don't overwrite an
+      // existing courseCompletedAt). Preserve any assessment fields already set.
+      const existing = await this.prisma.courseCompletion.findUnique({
+        where: { userId_courseId: { userId, courseId } },
+        select: { courseCompletedAt: true },
+      });
+      if (existing?.courseCompletedAt) return; // already recorded
+
+      await this.prisma.courseCompletion.upsert({
+        where: { userId_courseId: { userId, courseId } },
+        create: { userId, courseId, courseCompletedAt: new Date() },
+        update: { courseCompletedAt: new Date() },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      CourseService.completionLogger.warn(
+        `Content-completion check failed for user ${userId}, course ${courseId}: ${message}`,
       );
     }
   }

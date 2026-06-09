@@ -1,12 +1,35 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { Prisma, User } from '@prisma/client';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { Prisma, SecurityEventType, User } from '@prisma/client';
 import { ResponseDto, BodyDto, BodyUpdateDto, ChangePasswordDto } from '../dto';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class UserService {
+  private static readonly logger = new Logger(UserService.name);
+
   constructor(private prisma: PrismaService) {}
+
+  /**
+   * Best-effort audit of an authenticated self-service password change. Never
+   * throws — a logging failure must not fail the password update itself.
+   */
+  private async recordPasswordChange(userId: string): Promise<void> {
+    try {
+      await this.prisma.securityEvent.create({
+        data: {
+          userId,
+          type: SecurityEventType.PASSWORD_CHANGED,
+          actorId: userId,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      UserService.logger.warn(
+        `Failed to record SecurityEvent for password change (user ${userId}): ${message}`,
+      );
+    }
+  }
 
   async getUser(id: string): Promise<ResponseDto> {
     try {
@@ -268,8 +291,10 @@ export class UserService {
         where: { id: userId }, // Specify the unique identifier for the user you want to update
         data: {
           password: await argon2.hash(body.password),
+          passwordChangedAt: new Date(),
         }, // Pass the modified user object
       });
+      await this.recordPasswordChange(userId);
 
       return {
         message: 'Successfully updated user password',
@@ -304,8 +329,10 @@ export class UserService {
         where: { id: userId },
         data: {
           password: await argon2.hash(body.password),
+          passwordChangedAt: new Date(),
         },
       });
+      await this.recordPasswordChange(userId);
 
       return {
         message: 'Successfully updated user password',

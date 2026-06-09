@@ -12,6 +12,7 @@ var PasswordResetService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PasswordResetService = void 0;
 const common_1 = require("@nestjs/common");
+const client_1 = require("@prisma/client");
 const crypto_1 = require("crypto");
 const argon2 = require("argon2");
 const prisma_service_1 = require("../prisma/prisma.service");
@@ -100,12 +101,28 @@ let PasswordResetService = PasswordResetService_1 = class PasswordResetService {
         const now = new Date();
         await this.prisma.user.update({
             where: { id: user.id },
-            data: { password: await argon2.hash(body.newPassword) },
+            data: {
+                password: await argon2.hash(body.newPassword),
+                passwordChangedAt: now,
+            },
         });
         await this.prisma.passwordReset.update({
             where: { id: reset.id },
             data: { consumedAt: now, resetTokenHash: null },
         });
+        try {
+            await this.prisma.securityEvent.create({
+                data: {
+                    userId: user.id,
+                    type: client_1.SecurityEventType.PASSWORD_RESET_COMPLETED,
+                    actorId: user.id,
+                },
+            });
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.logger.warn(`Failed to record SecurityEvent for password reset (user ${user.id}): ${message}`);
+        }
         return {
             message: 'Password has been reset successfully. You can now log in.',
             statusCode: 200,
@@ -155,6 +172,7 @@ let PasswordResetService = PasswordResetService_1 = class PasswordResetService {
         });
         const result = await this.mail.sendPasswordReset({
             to: user.email,
+            userId: user.id,
             firstName: user.firstName,
             otp,
             expiresInMinutes: PasswordResetService_1.OTP_TTL_MINUTES,

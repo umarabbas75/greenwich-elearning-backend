@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EmailType, Prisma } from '@prisma/client';
 import { Resend } from 'resend';
+import { PrismaService } from '../prisma/prisma.service';
 import {
   EngagementReminderMail,
   MailSendResult,
@@ -9,6 +11,13 @@ import {
 import { renderEngagementReminder } from './templates/engagement-reminder.template';
 import { renderPasswordReset } from './templates/password-reset.template';
 import { RenderedEmail } from './templates/mail-layout';
+
+/** Audit context recorded to EmailLog alongside each send. */
+interface SendAudit {
+  type: EmailType;
+  userId?: string | null;
+  metadata?: Prisma.InputJsonValue;
+}
 
 const DEFAULT_FROM =
   'Greenwich Training & Consulting <noreply@greenwichtc-elearning.com>';
@@ -29,7 +38,10 @@ export class MailService {
   private readonly client: Resend | null;
   private readonly from: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     const apiKey = this.config.get<string>('RESEND_API_KEY');
     this.from = this.config.get<string>('MAIL_FROM') ?? DEFAULT_FROM;
     this.client = apiKey ? new Resend(apiKey) : null;
@@ -51,6 +63,14 @@ export class MailService {
       mail.to,
       renderEngagementReminder(mail),
       'engagement reminder',
+      {
+        type: EmailType.ENGAGEMENT_REMINDER,
+        userId: mail.userId ?? null,
+        metadata: {
+          reminderType: mail.reminderType,
+          courseTitle: mail.courseTitle,
+        },
+      },
     );
   }
 
@@ -60,7 +80,10 @@ export class MailService {
    * failed send as an error, since here email is the only delivery channel.
    */
   async sendPasswordReset(mail: PasswordResetMail): Promise<MailSendResult> {
-    return this.send(mail.to, renderPasswordReset(mail), 'password reset');
+    return this.send(mail.to, renderPasswordReset(mail), 'password reset', {
+      type: EmailType.PASSWORD_RESET,
+      userId: mail.userId ?? null,
+    });
   }
 
   /** Shared send path. Best-effort: resolves to a result, never throws. */
@@ -68,8 +91,13 @@ export class MailService {
     to: string,
     rendered: RenderedEmail,
     label: string,
+    audit: SendAudit,
   ): Promise<MailSendResult> {
     if (!this.client) {
+      await this.recordEmailLog(to, audit, {
+        status: 'SKIPPED',
+        error: 'mail-disabled',
+      });
       return { sent: false, reason: 'mail-disabled' };
     }
     try {
@@ -84,13 +112,58 @@ export class MailService {
         this.logger.error(
           `Resend rejected ${label} to ${to}: ${error.name} — ${error.message}`,
         );
+        await this.recordEmailLog(to, audit, {
+          status: 'FAILED',
+          error: error.message,
+        });
         return { sent: false, reason: error.message };
       }
+      await this.recordEmailLog(to, audit, {
+        status: 'SENT',
+        providerId: data?.id,
+      });
       return { sent: true, id: data?.id };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Failed to send ${label} to ${to}: ${message}`);
+      await this.recordEmailLog(to, audit, {
+        status: 'FAILED',
+        error: message,
+      });
       return { sent: false, reason: message };
+    }
+  }
+
+  /**
+   * Persist an EmailLog row. Best-effort: a logging failure must never affect
+   * the send result, so errors are swallowed (and logged) like LoginEvent.
+   */
+  private async recordEmailLog(
+    recipient: string,
+    audit: SendAudit,
+    outcome: {
+      status: 'SENT' | 'FAILED' | 'SKIPPED';
+      providerId?: string;
+      error?: string;
+    },
+  ): Promise<void> {
+    try {
+      await this.prisma.emailLog.create({
+        data: {
+          recipient,
+          type: audit.type,
+          userId: audit.userId ?? null,
+          metadata: audit.metadata,
+          status: outcome.status,
+          providerId: outcome.providerId ?? null,
+          error: outcome.error ?? null,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Failed to record EmailLog for ${recipient}: ${message}`,
+      );
     }
   }
 }

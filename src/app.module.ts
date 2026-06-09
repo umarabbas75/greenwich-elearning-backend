@@ -13,6 +13,7 @@ import { AssignmentModule } from './assignment/assignment.module';
 import { CourseAssessmentModule } from './course-assessment/course-assessment.module';
 import { EngagementModule } from './engagement/engagement.module';
 import { TrackingModule } from './tracking/tracking.module';
+import { AdminDashboardModule } from './admin-dashboard/admin-dashboard.module';
 
 import { HealthModule } from './health/health.module';
 
@@ -33,6 +34,7 @@ import { HealthModule } from './health/health.module';
     CourseAssessmentModule,
     EngagementModule,
     TrackingModule,
+    AdminDashboardModule,
   ],
 })
 export class AppModule {}

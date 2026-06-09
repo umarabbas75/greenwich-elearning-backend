@@ -46,7 +46,9 @@
       "Bash(grep -o \"make_interval\\(days => \\\\${.*}::int\\)\" dist/src/engagement/engagement.service.js)",
       "Bash(git add *)",
       "Bash(git commit -q -m 'fix\\(engagement\\): cast make_interval arg to int; throttle Resend sends to 2/s *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(awk '/model LoginEvent \\\\{/,/^}/' prisma/schema.prisma)",
+      "Bash(awk '/model SectionTimeSpent \\\\{/,/^}/' prisma/schema.prisma)"
     ],
     "additionalDirectories": [
       "/Users/appal/Documents/greenwichPorjects/greenwich-elearning-backend/src"

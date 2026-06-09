@@ -6,6 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { timingSafeEqual } from 'crypto';
+import { SecurityEventType } from '@prisma/client';
 import { ResponseDto, LoginDto, ForceChangePasswordDto } from '../dto';
 import * as argon2 from 'argon2';
 
@@ -146,8 +147,25 @@ export class AuthService {
         data: {
           password: await argon2.hash(body.newPassword),
           mustChangePassword: false,
+          passwordChangedAt: new Date(),
         },
       });
+
+      // Audit (best-effort): never fail the change on a logging hiccup.
+      try {
+        await this.prisma.securityEvent.create({
+          data: {
+            userId: user.id,
+            type: SecurityEventType.PASSWORD_CHANGED_FIRST_LOGIN,
+            actorId: user.id,
+          },
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        AuthService.logger.warn(
+          `Failed to record SecurityEvent for first-login password change (user ${user.id}): ${message}`,
+        );
+      }
 
       // Issue a fresh token so the client can proceed without re-logging in.
       const jwt = await this.signToken(user.id, body.email);

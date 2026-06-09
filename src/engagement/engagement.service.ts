@@ -357,6 +357,7 @@ export class EngagementService {
     const sendOne = (c: Candidate) =>
       this.mail.sendEngagementReminder({
         to: c.email,
+        userId: c.userId,
         firstName: c.firstName,
         courseTitle: c.courseTitle,
         reminderType,

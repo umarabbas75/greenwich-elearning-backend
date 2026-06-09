@@ -13,13 +13,16 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.MailService = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
+const client_1 = require("@prisma/client");
 const resend_1 = require("resend");
+const prisma_service_1 = require("../prisma/prisma.service");
 const engagement_reminder_template_1 = require("./templates/engagement-reminder.template");
 const password_reset_template_1 = require("./templates/password-reset.template");
 const DEFAULT_FROM = 'Greenwich Training & Consulting <noreply@greenwichtc-elearning.com>';
 let MailService = MailService_1 = class MailService {
-    constructor(config) {
+    constructor(config, prisma) {
         this.config = config;
+        this.prisma = prisma;
         this.logger = new common_1.Logger(MailService_1.name);
         const apiKey = this.config.get('RESEND_API_KEY');
         this.from = this.config.get('MAIL_FROM') ?? DEFAULT_FROM;
@@ -32,13 +35,27 @@ let MailService = MailService_1 = class MailService {
         return this.client !== null;
     }
     async sendEngagementReminder(mail) {
-        return this.send(mail.to, (0, engagement_reminder_template_1.renderEngagementReminder)(mail), 'engagement reminder');
+        return this.send(mail.to, (0, engagement_reminder_template_1.renderEngagementReminder)(mail), 'engagement reminder', {
+            type: client_1.EmailType.ENGAGEMENT_REMINDER,
+            userId: mail.userId ?? null,
+            metadata: {
+                reminderType: mail.reminderType,
+                courseTitle: mail.courseTitle,
+            },
+        });
     }
     async sendPasswordReset(mail) {
-        return this.send(mail.to, (0, password_reset_template_1.renderPasswordReset)(mail), 'password reset');
+        return this.send(mail.to, (0, password_reset_template_1.renderPasswordReset)(mail), 'password reset', {
+            type: client_1.EmailType.PASSWORD_RESET,
+            userId: mail.userId ?? null,
+        });
     }
-    async send(to, rendered, label) {
+    async send(to, rendered, label, audit) {
         if (!this.client) {
+            await this.recordEmailLog(to, audit, {
+                status: 'SKIPPED',
+                error: 'mail-disabled',
+            });
             return { sent: false, reason: 'mail-disabled' };
         }
         try {
@@ -51,20 +68,52 @@ let MailService = MailService_1 = class MailService {
             });
             if (error) {
                 this.logger.error(`Resend rejected ${label} to ${to}: ${error.name} — ${error.message}`);
+                await this.recordEmailLog(to, audit, {
+                    status: 'FAILED',
+                    error: error.message,
+                });
                 return { sent: false, reason: error.message };
             }
+            await this.recordEmailLog(to, audit, {
+                status: 'SENT',
+                providerId: data?.id,
+            });
             return { sent: true, id: data?.id };
         }
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             this.logger.error(`Failed to send ${label} to ${to}: ${message}`);
+            await this.recordEmailLog(to, audit, {
+                status: 'FAILED',
+                error: message,
+            });
             return { sent: false, reason: message };
+        }
+    }
+    async recordEmailLog(recipient, audit, outcome) {
+        try {
+            await this.prisma.emailLog.create({
+                data: {
+                    recipient,
+                    type: audit.type,
+                    userId: audit.userId ?? null,
+                    metadata: audit.metadata,
+                    status: outcome.status,
+                    providerId: outcome.providerId ?? null,
+                    error: outcome.error ?? null,
+                },
+            });
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.logger.warn(`Failed to record EmailLog for ${recipient}: ${message}`);
         }
     }
 };
 exports.MailService = MailService;
 exports.MailService = MailService = MailService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [config_1.ConfigService])
+    __metadata("design:paramtypes", [config_1.ConfigService,
+        prisma_service_1.PrismaService])
 ], MailService);
 //# sourceMappingURL=mail.service.js.map

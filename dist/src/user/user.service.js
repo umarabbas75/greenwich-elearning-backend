@@ -8,15 +8,31 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var UserService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UserService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const argon2 = require("argon2");
 const prisma_service_1 = require("../prisma/prisma.service");
-let UserService = class UserService {
+let UserService = UserService_1 = class UserService {
     constructor(prisma) {
         this.prisma = prisma;
+    }
+    async recordPasswordChange(userId) {
+        try {
+            await this.prisma.securityEvent.create({
+                data: {
+                    userId,
+                    type: client_1.SecurityEventType.PASSWORD_CHANGED,
+                    actorId: userId,
+                },
+            });
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            UserService_1.logger.warn(`Failed to record SecurityEvent for password change (user ${userId}): ${message}`);
+        }
     }
     async getUser(id) {
         try {
@@ -230,8 +246,10 @@ let UserService = class UserService {
                 where: { id: userId },
                 data: {
                     password: await argon2.hash(body.password),
+                    passwordChangedAt: new Date(),
                 },
             });
+            await this.recordPasswordChange(userId);
             return {
                 message: 'Successfully updated user password',
                 statusCode: 200,
@@ -259,8 +277,10 @@ let UserService = class UserService {
                 where: { id: userId },
                 data: {
                     password: await argon2.hash(body.password),
+                    passwordChangedAt: new Date(),
                 },
             });
+            await this.recordPasswordChange(userId);
             return {
                 message: 'Successfully updated user password',
                 statusCode: 200,
@@ -547,7 +567,8 @@ let UserService = class UserService {
     }
 };
 exports.UserService = UserService;
-exports.UserService = UserService = __decorate([
+UserService.logger = new common_1.Logger(UserService_1.name);
+exports.UserService = UserService = UserService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService])
 ], UserService);

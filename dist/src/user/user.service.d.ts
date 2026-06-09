@@ -3,7 +3,9 @@ import { ResponseDto, BodyDto, BodyUpdateDto, ChangePasswordDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 export declare class UserService {
     private prisma;
+    private static readonly logger;
     constructor(prisma: PrismaService);
+    private recordPasswordChange;
     getUser(id: string): Promise<ResponseDto>;
     getAllUsers(): Promise<ResponseDto>;
     createUser(body: BodyDto): Promise<ResponseDto>;

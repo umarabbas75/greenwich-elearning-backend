@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { SecurityEventType } from '@prisma/client';
 import { randomInt, randomBytes } from 'crypto';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
@@ -163,12 +164,32 @@ export class PasswordResetService {
     const now = new Date();
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { password: await argon2.hash(body.newPassword) },
+      data: {
+        password: await argon2.hash(body.newPassword),
+        passwordChangedAt: now,
+      },
     });
     await this.prisma.passwordReset.update({
       where: { id: reset.id },
       data: { consumedAt: now, resetTokenHash: null },
     });
+
+    // Audit (best-effort): the reset is the source of truth, so a logging
+    // failure must not fail the reset.
+    try {
+      await this.prisma.securityEvent.create({
+        data: {
+          userId: user.id,
+          type: SecurityEventType.PASSWORD_RESET_COMPLETED,
+          actorId: user.id, // self-service via OTP
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Failed to record SecurityEvent for password reset (user ${user.id}): ${message}`,
+      );
+    }
 
     return {
       message: 'Password has been reset successfully. You can now log in.',
@@ -241,6 +262,7 @@ export class PasswordResetService {
 
     const result = await this.mail.sendPasswordReset({
       to: user.email,
+      userId: user.id,
       firstName: user.firstName,
       otp,
       expiresInMinutes: PasswordResetService.OTP_TTL_MINUTES,

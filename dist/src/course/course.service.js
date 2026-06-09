@@ -8,6 +8,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var CourseService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CourseService = void 0;
 const common_1 = require("@nestjs/common");
@@ -16,7 +17,7 @@ const dto_1 = require("../dto");
 const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../prisma/prisma.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
-let CourseService = class CourseService {
+let CourseService = CourseService_1 = class CourseService {
     constructor(prisma, config) {
         this.prisma = prisma;
         this.config = config;
@@ -2548,6 +2549,7 @@ let CourseService = class CourseService {
                         moduleId: body.moduleId,
                     },
                 });
+                await this._checkContentCompletion(userId, body.courseId);
             }
             return {
                 message: 'User course progress updated successfully',
@@ -2567,6 +2569,40 @@ let CourseService = class CourseService {
             }, common_1.HttpStatus.FORBIDDEN, {
                 cause: error,
             });
+        }
+    }
+    async _checkContentCompletion(userId, courseId) {
+        try {
+            const totalSections = await this.prisma.section.count({
+                where: {
+                    isActive: true,
+                    chapter: { module: { courseId } },
+                },
+            });
+            if (totalSections === 0)
+                return;
+            const progressed = await this.prisma.userCourseProgress.findMany({
+                where: { userId, courseId },
+                select: { sectionId: true },
+                distinct: ['sectionId'],
+            });
+            if (progressed.length < totalSections)
+                return;
+            const existing = await this.prisma.courseCompletion.findUnique({
+                where: { userId_courseId: { userId, courseId } },
+                select: { courseCompletedAt: true },
+            });
+            if (existing?.courseCompletedAt)
+                return;
+            await this.prisma.courseCompletion.upsert({
+                where: { userId_courseId: { userId, courseId } },
+                create: { userId, courseId, courseCompletedAt: new Date() },
+                update: { courseCompletedAt: new Date() },
+            });
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            CourseService_1.completionLogger.warn(`Content-completion check failed for user ${userId}, course ${courseId}: ${message}`);
         }
     }
     async getUserChapterProgress(userId, courseId, chapterId) {
@@ -2915,7 +2951,8 @@ let CourseService = class CourseService {
     }
 };
 exports.CourseService = CourseService;
-exports.CourseService = CourseService = __decorate([
+CourseService.completionLogger = new common_1.Logger(CourseService_1.name);
+exports.CourseService = CourseService = CourseService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         config_1.ConfigService])

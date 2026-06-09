@@ -23,6 +23,7 @@ export declare class JwtAdminStrategy extends JwtAdminStrategy_base {
         updatedAt: Date;
         deletedAt: Date;
         status: import(".prisma/client").$Enums.UserStatus;
+        passwordChangedAt: Date;
     }>;
 }
 declare const JwtUserStrategy_base: new (...args: any[]) => any;
@@ -48,6 +49,7 @@ export declare class JwtUserStrategy extends JwtUserStrategy_base {
         updatedAt: Date;
         deletedAt: Date;
         status: import(".prisma/client").$Enums.UserStatus;
+        passwordChangedAt: Date;
     }>;
 }
 declare const JwtCombineStrategy_base: new (...args: any[]) => any;
@@ -74,6 +76,7 @@ export declare class JwtCombineStrategy extends JwtCombineStrategy_base {
         updatedAt: Date;
         deletedAt: Date;
         status: import(".prisma/client").$Enums.UserStatus;
+        passwordChangedAt: Date;
     }>;
 }
 export {};

@@ -13,6 +13,8 @@ export enum ReminderType {
 /** Data needed to render a single engagement reminder email. */
 export interface EngagementReminderMail {
   to: string;
+  /** Recipient user id, recorded to EmailLog for the admin dashboard. */
+  userId?: string | null;
   firstName: string;
   courseTitle: string;
   reminderType: ReminderType;
@@ -30,6 +32,8 @@ export interface EngagementReminderMail {
 /** Data needed to render a password-reset OTP email. */
 export interface PasswordResetMail {
   to: string;
+  /** Recipient user id, recorded to EmailLog for the admin dashboard. */
+  userId?: string | null;
   firstName: string;
   /** The 6-digit one-time code (plaintext, only here in memory for sending). */
   otp: string;

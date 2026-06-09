@@ -56,6 +56,12 @@ model User {
   passwordResets           PasswordReset[]
   loginEvents              LoginEvent[]
   sectionTimeSpent         SectionTimeSpent[]
+  emailLogs                EmailLog[]
+  securityEvents           SecurityEvent[]
+  // Last time this user's password actually changed (reset, first-login force,
+  // or admin change). Null = never changed since creation. Drives the security
+  // dashboard; the SecurityEvent log holds the full history.
+  passwordChangedAt        DateTime?
 
   @@index([email])
   @@index([deletedAt])
@@ -977,4 +983,65 @@ model SectionTimeSpent {
   @@index([courseId, moduleId])
   @@index([userId, chapterId])
   @@map("section_time_spent")
+}
+
+enum EmailType {
+  ENGAGEMENT_REMINDER
+  PASSWORD_RESET
+}
+
+enum EmailStatus {
+  SENT // accepted by the provider
+  FAILED // provider rejected or threw
+  SKIPPED // mail disabled (no API key) — recorded so dev/test gaps are visible
+}
+
+/// Audit trail of every transactional email the system attempts to send. Written
+/// best-effort by MailService on each send (success, failure, or skipped) so the
+/// admin dashboard can answer "who did/didn't get the low-engagement email and
+/// did it deliver". userId is nullable (recipient may not resolve to a user).
+model EmailLog {
+  id         String      @id @default(uuid())
+  userId     String?
+  recipient  String // email address the message was addressed to
+  type       EmailType
+  status     EmailStatus
+  providerId String? // Resend message id when sent
+  error      String? // failure/skip reason
+  metadata   Json? // type-specific context, e.g. { reminderType, courseId }
+  createdAt  DateTime    @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([type, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("email_logs")
+}
+
+enum SecurityEventType {
+  PASSWORD_RESET_COMPLETED // via forgot-password OTP flow
+  PASSWORD_CHANGED_FIRST_LOGIN // forced change on first login (admin-created acct)
+  PASSWORD_CHANGED // authenticated self-service change
+}
+
+/// Audit trail of security-sensitive account events (password changes/resets).
+/// Written on every password-change path so the admin dashboard can report who
+/// changed their password, when, and how.
+model SecurityEvent {
+  id        String            @id @default(uuid())
+  userId    String
+  type      SecurityEventType
+  /// Who performed the action: the user themselves, or an admin id when
+  /// admin-initiated. Null when unknown (e.g. unauthenticated reset flow).
+  actorId   String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime          @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([type, createdAt(sort: Desc)])
+  @@map("security_events")
 }

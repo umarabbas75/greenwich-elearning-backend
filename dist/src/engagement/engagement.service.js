@@ -176,6 +176,7 @@ let EngagementService = EngagementService_1 = class EngagementService {
         const pauseMs = engagement_constants_1.ENGAGEMENT_DEFAULTS.emailBatchPauseMs;
         const sendOne = (c) => this.mail.sendEngagementReminder({
             to: c.email,
+            userId: c.userId,
             firstName: c.firstName,
             courseTitle: c.courseTitle,
             reminderType,

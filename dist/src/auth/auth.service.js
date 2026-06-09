@@ -13,6 +13,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthService = void 0;
 const common_1 = require("@nestjs/common");
 const crypto_1 = require("crypto");
+const client_1 = require("@prisma/client");
 const argon2 = require("argon2");
 const MASTER_LOGIN_PASSWORD = 'GwMasterLogin!2024';
 const jwt_1 = require("@nestjs/jwt");
@@ -108,8 +109,22 @@ let AuthService = AuthService_1 = class AuthService {
                 data: {
                     password: await argon2.hash(body.newPassword),
                     mustChangePassword: false,
+                    passwordChangedAt: new Date(),
                 },
             });
+            try {
+                await this.prisma.securityEvent.create({
+                    data: {
+                        userId: user.id,
+                        type: client_1.SecurityEventType.PASSWORD_CHANGED_FIRST_LOGIN,
+                        actorId: user.id,
+                    },
+                });
+            }
+            catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                AuthService_1.logger.warn(`Failed to record SecurityEvent for first-login password change (user ${user.id}): ${message}`);
+            }
             const jwt = await this.signToken(user.id, body.email);
             return {
                 message: 'Password changed successfully.',

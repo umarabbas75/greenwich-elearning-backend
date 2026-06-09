@@ -4,6 +4,7 @@ export declare enum ReminderType {
 }
 export interface EngagementReminderMail {
     to: string;
+    userId?: string | null;
     firstName: string;
     courseTitle: string;
     reminderType: ReminderType;
@@ -14,6 +15,7 @@ export interface EngagementReminderMail {
 }
 export interface PasswordResetMail {
     to: string;
+    userId?: string | null;
     firstName: string;
     otp: string;
     expiresInMinutes: number;
