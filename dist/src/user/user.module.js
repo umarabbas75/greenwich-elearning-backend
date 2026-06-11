@@ -12,12 +12,13 @@ const user_controller_1 = require("./user.controller");
 const user_service_1 = require("./user.service");
 const jwt_1 = require("@nestjs/jwt");
 const strategy_1 = require("../strategy");
+const mail_module_1 = require("../mail/mail.module");
 let UserModule = class UserModule {
 };
 exports.UserModule = UserModule;
 exports.UserModule = UserModule = __decorate([
     (0, common_1.Module)({
-        imports: [jwt_1.JwtModule.register({})],
+        imports: [jwt_1.JwtModule.register({}), mail_module_1.MailModule],
         providers: [
             user_service_1.UserService,
             strategy_1.JwtUserStrategy,

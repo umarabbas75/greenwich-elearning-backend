@@ -14,6 +14,7 @@ exports.NotificationService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
+const mail_service_1 = require("../mail/mail.service");
 const NOTIFICATION_INCLUDE = {
     thread: { select: { title: true } },
     commenter: {
@@ -21,8 +22,9 @@ const NOTIFICATION_INCLUDE = {
     },
 };
 let NotificationService = NotificationService_1 = class NotificationService {
-    constructor(prisma) {
+    constructor(prisma, mail) {
         this.prisma = prisma;
+        this.mail = mail;
     }
     async listNotifications(userId, params) {
         const limit = Math.min(Math.max(params.limit ?? NotificationService_1.DEFAULT_LIMIT, 1), NotificationService_1.MAX_LIMIT);
@@ -132,7 +134,7 @@ let NotificationService = NotificationService_1 = class NotificationService {
         };
     }
     async createNotification(input) {
-        await this.prisma.notification.createMany({
+        const result = await this.prisma.notification.createMany({
             data: [
                 {
                     userId: input.userId,
@@ -148,11 +150,14 @@ let NotificationService = NotificationService_1 = class NotificationService {
             ],
             skipDuplicates: true,
         });
+        if (input.email && result.count > 0) {
+            await this.dispatchNotificationEmails([input.userId], input.email);
+        }
     }
     async createNotificationForMany(input) {
         if (input.userIds.length === 0)
             return;
-        await this.prisma.notification.createMany({
+        const result = await this.prisma.notification.createMany({
             data: input.userIds.map((userId) => ({
                 userId,
                 type: input.type,
@@ -166,16 +171,81 @@ let NotificationService = NotificationService_1 = class NotificationService {
             })),
             skipDuplicates: true,
         });
+        if (!input.email)
+            return;
+        let recipients = result.count > 0 ? input.userIds : [];
+        if (result.count > 0 && input.dedupeKeyFor) {
+            const keys = input.userIds
+                .map((u) => input.dedupeKeyFor(u))
+                .filter((k) => !!k);
+            if (keys.length > 0) {
+                const fresh = await this.prisma.notification.findMany({
+                    where: {
+                        dedupeKey: { in: keys },
+                        createdAt: { gte: new Date(Date.now() - 5 * 60000) },
+                    },
+                    select: { userId: true },
+                });
+                const freshIds = new Set(fresh.map((r) => r.userId));
+                recipients = input.userIds.filter((u) => freshIds.has(u));
+            }
+        }
+        const ccOnly = (input.emailCcUserIds ?? []).filter((id) => !recipients.includes(id));
+        const allRecipients = [...new Set([...recipients, ...ccOnly])];
+        if (allRecipients.length === 0)
+            return;
+        await this.dispatchNotificationEmails(allRecipients, input.email);
+    }
+    async dispatchNotificationEmails(userIds, directive) {
+        try {
+            const targets = userIds.filter((id) => id && id !== directive.excludeUserId);
+            if (targets.length === 0)
+                return;
+            const users = await this.prisma.user.findMany({
+                where: { id: { in: targets }, deletedAt: null },
+                select: { id: true, email: true, firstName: true },
+            });
+            const emails = users
+                .map((u) => u.email
+                ? directive.build({
+                    id: u.id,
+                    email: u.email,
+                    firstName: u.firstName ?? '',
+                })
+                : null)
+                .filter((m) => m !== null);
+            for (let i = 0; i < emails.length; i += NotificationService_1.EMAIL_BATCH) {
+                const batch = emails.slice(i, i + NotificationService_1.EMAIL_BATCH);
+                await Promise.all(batch.map((m) => this.mail.sendNotificationEmail(m)));
+                if (i + NotificationService_1.EMAIL_BATCH < emails.length) {
+                    await new Promise((r) => setTimeout(r, NotificationService_1.EMAIL_BATCH_PAUSE_MS));
+                }
+            }
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            NotificationService_1.logger.warn(`Notification email dispatch failed (best-effort): ${message}`);
+        }
     }
     async notifyAllUsersForNewThread(args) {
-        const users = await this.prisma.user.findMany({
-            where: args.courseId
-                ? { UserCourse: { some: { courseId: args.courseId, isActive: true } } }
-                : undefined,
-            select: { id: true },
-        });
+        const [users, admins] = await Promise.all([
+            this.prisma.user.findMany({
+                where: args.courseId
+                    ? {
+                        UserCourse: { some: { courseId: args.courseId, isActive: true } },
+                    }
+                    : undefined,
+                select: { id: true },
+            }),
+            this.prisma.user.findMany({
+                where: { role: 'admin', deletedAt: null },
+                select: { id: true },
+            }),
+        ]);
+        const creatorName = `${args.creator.firstName} ${args.creator.lastName}`.trim();
         await this.createNotificationForMany({
             userIds: users.map((u) => u.id),
+            emailCcUserIds: admins.map((a) => a.id),
             type: client_1.NotificationType.FORUM_THREAD,
             message: 'A new thread has been created by the admin.',
             payload: {
@@ -188,14 +258,30 @@ let NotificationService = NotificationService_1 = class NotificationService {
             threadId: args.threadId,
             commenterId: args.creator.id,
             dedupeKeyFor: (userId) => `thread-created:${args.threadId}:${userId}`,
+            email: {
+                excludeUserId: args.creator.id,
+                build: (r) => ({
+                    kind: 'FORUM_THREAD',
+                    to: r.email,
+                    userId: r.id,
+                    recipientFirstName: r.firstName,
+                    threadId: args.threadId,
+                    threadTitle: args.threadTitle,
+                    creatorName,
+                }),
+            },
         });
     }
 };
 exports.NotificationService = NotificationService;
 NotificationService.DEFAULT_LIMIT = 20;
 NotificationService.MAX_LIMIT = 50;
+NotificationService.logger = new common_1.Logger(NotificationService_1.name);
+NotificationService.EMAIL_BATCH = 2;
+NotificationService.EMAIL_BATCH_PAUSE_MS = 1100;
 exports.NotificationService = NotificationService = NotificationService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        mail_service_1.MailService])
 ], NotificationService);
 //# sourceMappingURL=notification.service.js.map

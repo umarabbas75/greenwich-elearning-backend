@@ -988,6 +988,13 @@ model SectionTimeSpent {
 enum EmailType {
   ENGAGEMENT_REMINDER
   PASSWORD_RESET
+  WELCOME // sent when a user self-registers
+  CONTACT_MESSAGE // a "contact us" message, emailed to admins
+  // Notification mirror emails — one per in-app NotificationType.
+  NOTIFICATION_FORUM_THREAD
+  NOTIFICATION_FORUM_COMMENT
+  NOTIFICATION_ASSESSMENT_SUBMITTED
+  NOTIFICATION_ASSESSMENT_GRADED
 }
 
 enum EmailStatus {

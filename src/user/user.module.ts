@@ -7,8 +7,9 @@ import {
   JwtCombineStrategy,
   JwtUserStrategy,
 } from 'src/strategy';
+import { MailModule } from '../mail/mail.module';
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [JwtModule.register({}), MailModule],
   providers: [
     UserService,
     JwtUserStrategy,

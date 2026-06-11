@@ -58,6 +58,12 @@ export class BodyDto {
   @IsString()
   @IsOptional()
   photoBase64?: string;
+
+  // True when the public signup form created this account (vs an admin). Drives
+  // the welcome email + skips the force-password-change-on-first-login gate.
+  @IsBoolean()
+  @IsOptional()
+  selfRegistered?: boolean;
 }
 export class BodyUpdateDto {
   @IsOptional()

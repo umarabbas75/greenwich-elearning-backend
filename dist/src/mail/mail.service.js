@@ -18,6 +18,15 @@ const resend_1 = require("resend");
 const prisma_service_1 = require("../prisma/prisma.service");
 const engagement_reminder_template_1 = require("./templates/engagement-reminder.template");
 const password_reset_template_1 = require("./templates/password-reset.template");
+const notification_template_1 = require("./templates/notification.template");
+const welcome_template_1 = require("./templates/welcome.template");
+const contact_message_template_1 = require("./templates/contact-message.template");
+const NOTIFICATION_EMAIL_TYPE = {
+    FORUM_THREAD: client_1.EmailType.NOTIFICATION_FORUM_THREAD,
+    FORUM_COMMENT: client_1.EmailType.NOTIFICATION_FORUM_COMMENT,
+    ASSESSMENT_SUBMITTED: client_1.EmailType.NOTIFICATION_ASSESSMENT_SUBMITTED,
+    ASSESSMENT_GRADED: client_1.EmailType.NOTIFICATION_ASSESSMENT_GRADED,
+};
 const DEFAULT_FROM = 'Greenwich Training & Consulting <noreply@greenwichtc-elearning.com>';
 let MailService = MailService_1 = class MailService {
     constructor(config, prisma) {
@@ -48,6 +57,22 @@ let MailService = MailService_1 = class MailService {
         return this.send(mail.to, (0, password_reset_template_1.renderPasswordReset)(mail), 'password reset', {
             type: client_1.EmailType.PASSWORD_RESET,
             userId: mail.userId ?? null,
+        });
+    }
+    async sendNotificationEmail(mail) {
+        return this.send(mail.to, (0, notification_template_1.renderNotificationEmail)(mail), `notification:${mail.kind}`, { type: NOTIFICATION_EMAIL_TYPE[mail.kind], userId: mail.userId ?? null });
+    }
+    async sendWelcome(mail) {
+        return this.send(mail.to, (0, welcome_template_1.renderWelcome)(mail), 'welcome', {
+            type: client_1.EmailType.WELCOME,
+            userId: mail.userId ?? null,
+        });
+    }
+    async sendContactMessage(mail) {
+        return this.send(mail.to, (0, contact_message_template_1.renderContactMessage)(mail), 'contact message', {
+            type: client_1.EmailType.CONTACT_MESSAGE,
+            userId: mail.userId ?? null,
+            metadata: { senderEmail: mail.senderEmail },
         });
     }
     async send(to, rendered, label, audit) {

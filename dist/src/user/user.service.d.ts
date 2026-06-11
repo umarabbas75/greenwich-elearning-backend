@@ -1,10 +1,12 @@
 import { User } from '@prisma/client';
 import { ResponseDto, BodyDto, BodyUpdateDto, ChangePasswordDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 export declare class UserService {
     private prisma;
+    private mail;
     private static readonly logger;
-    constructor(prisma: PrismaService);
+    constructor(prisma: PrismaService, mail: MailService);
     private recordPasswordChange;
     getUser(id: string): Promise<ResponseDto>;
     getAllUsers(): Promise<ResponseDto>;

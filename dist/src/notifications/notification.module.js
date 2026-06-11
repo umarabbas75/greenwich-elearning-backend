@@ -12,12 +12,13 @@ const notification_service_1 = require("./notification.service");
 const notification_controller_1 = require("./notification.controller");
 const jwt_1 = require("@nestjs/jwt");
 const strategy_1 = require("../strategy");
+const mail_module_1 = require("../mail/mail.module");
 let NotificationModule = class NotificationModule {
 };
 exports.NotificationModule = NotificationModule;
 exports.NotificationModule = NotificationModule = __decorate([
     (0, common_1.Module)({
-        imports: [jwt_1.JwtModule.register({})],
+        imports: [jwt_1.JwtModule.register({}), mail_module_1.MailModule],
         providers: [
             notification_service_1.NotificationService,
             strategy_1.JwtUserStrategy,

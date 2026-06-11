@@ -790,6 +790,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                 }),
             ]);
             if (assessment && student) {
+                const studentName = `${student.firstName} ${student.lastName}`.trim();
                 await this.notificationService.createNotification({
                     userId: assessment.createdByAdminId,
                     type: client_1.NotificationType.ASSESSMENT_SUBMITTED,
@@ -805,6 +806,18 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                     dedupeKey: `submitted:${attemptId}`,
                     referenceId: attemptId,
                     commenterId: userId,
+                    email: {
+                        excludeUserId: userId,
+                        build: (r) => ({
+                            kind: 'ASSESSMENT_SUBMITTED',
+                            to: r.email,
+                            userId: r.id,
+                            recipientFirstName: r.firstName,
+                            studentName,
+                            assessmentTitle: assessment.title,
+                            attemptId,
+                        }),
+                    },
                 });
             }
             return {
@@ -1047,6 +1060,18 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                 dedupeKey: `graded:${attemptId}:${finalizedAt.getTime()}`,
                 referenceId: attemptId,
                 commenterId: adminId,
+                email: {
+                    excludeUserId: adminId,
+                    build: (r) => ({
+                        kind: 'ASSESSMENT_GRADED',
+                        to: r.email,
+                        userId: r.id,
+                        recipientFirstName: r.firstName,
+                        assessmentTitle: attempt.snapshotTitle,
+                        passed: isPassed,
+                        scorePct: percentage,
+                    }),
+                },
             });
             const finalized = await this.prisma.assessmentAttempt.findUnique({
                 where: { id: attemptId },

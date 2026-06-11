@@ -44,19 +44,28 @@ let ForumCommentService = class ForumCommentService {
                 },
                 select: { id: true },
             });
-            const subscribedUsers = await this.prisma.threadSubscription.findMany({
-                where: { threadId: body.threadId, userId: { not: userId } },
-                select: { userId: true },
-            });
+            const [subscribedUsers, admins] = await Promise.all([
+                this.prisma.threadSubscription.findMany({
+                    where: { threadId: body.threadId, userId: { not: userId } },
+                    select: { userId: true },
+                }),
+                this.prisma.user.findMany({
+                    where: { role: 'admin', deletedAt: null, id: { not: userId } },
+                    select: { id: true },
+                }),
+            ]);
+            const excerpt = buildExcerpt(body.content ?? '');
+            const commenterName = `${user.firstName} ${user.lastName}`.trim();
             await this.notificationService.createNotificationForMany({
                 userIds: subscribedUsers.map((s) => s.userId),
+                emailCcUserIds: admins.map((a) => a.id),
                 type: client_1.NotificationType.FORUM_COMMENT,
                 message: body.content,
                 payload: {
                     threadId: thread.id,
                     threadTitle: thread.title,
                     commentId: comment.id,
-                    commentExcerpt: buildExcerpt(body.content ?? ''),
+                    commentExcerpt: excerpt,
                     commenterFirstName: user.firstName,
                     commenterLastName: user.lastName,
                 },
@@ -64,6 +73,19 @@ let ForumCommentService = class ForumCommentService {
                 threadId: thread.id,
                 commenterId: userId,
                 dedupeKeyFor: (recipientId) => `comment:${comment.id}:${recipientId}`,
+                email: {
+                    excludeUserId: userId,
+                    build: (r) => ({
+                        kind: 'FORUM_COMMENT',
+                        to: r.email,
+                        userId: r.id,
+                        recipientFirstName: r.firstName,
+                        threadId: thread.id,
+                        threadTitle: thread.title,
+                        commenterName,
+                        excerpt,
+                    }),
+                },
             });
             return {
                 message: 'Successfully create quiz record',

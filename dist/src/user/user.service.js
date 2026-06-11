@@ -15,9 +15,11 @@ const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const argon2 = require("argon2");
 const prisma_service_1 = require("../prisma/prisma.service");
+const mail_service_1 = require("../mail/mail.service");
 let UserService = UserService_1 = class UserService {
-    constructor(prisma) {
+    constructor(prisma, mail) {
         this.prisma = prisma;
+        this.mail = mail;
     }
     async recordPasswordChange(userId) {
         try {
@@ -166,6 +168,7 @@ let UserService = UserService_1 = class UserService {
                 throw new Error('User already exists in the system');
             }
             const password = await argon2.hash(body.password);
+            const selfRegistered = body.selfRegistered === true;
             delete body.password;
             const user = await this.prisma.user.create({
                 data: {
@@ -177,10 +180,23 @@ let UserService = UserService_1 = class UserService {
                     role: body.role,
                     photo: body?.photo ?? null,
                     photoBase64: body?.photoBase64 ?? null,
-                    mustChangePassword: true,
+                    mustChangePassword: !selfRegistered,
                 },
             });
             delete user.password;
+            if (selfRegistered && user.email) {
+                try {
+                    await this.mail.sendWelcome({
+                        to: user.email,
+                        userId: user.id,
+                        firstName: user.firstName,
+                    });
+                }
+                catch (mailErr) {
+                    const m = mailErr instanceof Error ? mailErr.message : String(mailErr);
+                    UserService_1.logger.warn(`Welcome email failed for user ${user.id}: ${m}`);
+                }
+            }
             return {
                 message: 'Successfully create user record',
                 statusCode: 200,
@@ -509,6 +525,31 @@ let UserService = UserService_1 = class UserService {
                     isSeen: false,
                 },
             });
+            try {
+                const admins = await this.prisma.user.findMany({
+                    where: { role: 'admin', deletedAt: null },
+                    select: { id: true, email: true },
+                });
+                const senderName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
+                const recipients = admins.filter((a) => a.email);
+                for (let i = 0; i < recipients.length; i += 2) {
+                    const batch = recipients.slice(i, i + 2);
+                    await Promise.all(batch.map((admin) => this.mail.sendContactMessage({
+                        to: admin.email,
+                        userId: admin.id,
+                        senderName: senderName || 'A user',
+                        senderEmail: user.email,
+                        message: body.message,
+                    })));
+                    if (i + 2 < recipients.length) {
+                        await new Promise((r) => setTimeout(r, 1100));
+                    }
+                }
+            }
+            catch (mailErr) {
+                const m = mailErr instanceof Error ? mailErr.message : String(mailErr);
+                UserService_1.logger.warn(`Contact-message email failed: ${m}`);
+            }
             return {
                 message: 'Successfully sent a message to admin',
                 statusCode: 200,
@@ -570,6 +611,7 @@ exports.UserService = UserService;
 UserService.logger = new common_1.Logger(UserService_1.name);
 exports.UserService = UserService = UserService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        mail_service_1.MailService])
 ], UserService);
 //# sourceMappingURL=user.service.js.map

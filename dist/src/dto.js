@@ -59,6 +59,11 @@ __decorate([
     (0, class_validator_1.IsOptional)(),
     __metadata("design:type", String)
 ], BodyDto.prototype, "photoBase64", void 0);
+__decorate([
+    (0, class_validator_1.IsBoolean)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Boolean)
+], BodyDto.prototype, "selfRegistered", void 0);
 class BodyUpdateDto {
 }
 exports.BodyUpdateDto = BodyUpdateDto;

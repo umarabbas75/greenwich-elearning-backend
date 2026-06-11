@@ -41,6 +41,68 @@ export interface PasswordResetMail {
   expiresInMinutes: number;
 }
 
+/**
+ * Notification-mirror emails. One discriminated shape per in-app NotificationType
+ * the engagement/forum/assessment flows raise. `to` + `userId` identify the
+ * recipient; the rest is template data. Deep links are built in the template
+ * from BRAND.website + the ids here.
+ */
+export type NotificationEmail =
+  | {
+      kind: 'FORUM_THREAD';
+      to: string;
+      userId?: string | null;
+      recipientFirstName: string;
+      threadId: string;
+      threadTitle: string;
+      creatorName: string;
+    }
+  | {
+      kind: 'FORUM_COMMENT';
+      to: string;
+      userId?: string | null;
+      recipientFirstName: string;
+      threadId: string;
+      threadTitle: string;
+      commenterName: string;
+      excerpt: string;
+    }
+  | {
+      kind: 'ASSESSMENT_SUBMITTED';
+      to: string;
+      userId?: string | null;
+      recipientFirstName: string; // the admin
+      studentName: string;
+      assessmentTitle: string;
+      attemptId: string;
+    }
+  | {
+      kind: 'ASSESSMENT_GRADED';
+      to: string;
+      userId?: string | null;
+      recipientFirstName: string; // the student
+      assessmentTitle: string;
+      passed?: boolean | null;
+      scorePct?: number | null;
+    };
+
+/** Data for the welcome email sent on self-registration. */
+export interface WelcomeMail {
+  to: string;
+  userId?: string | null;
+  firstName: string;
+}
+
+/** A "contact us" message emailed to an admin. `to` is the admin's address. */
+export interface ContactMessageMail {
+  to: string;
+  /** Admin user id (recipient), for EmailLog. */
+  userId?: string | null;
+  senderName: string;
+  senderEmail: string;
+  message: string;
+}
+
 /** Result of a send attempt — never throws to the caller; email is best-effort. */
 export interface MailSendResult {
   sent: boolean;

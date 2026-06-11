@@ -1,11 +1,21 @@
 import { NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
+import { NotificationEmail } from '../mail/mail.types';
 type NotificationListFilter = 'all' | 'unread';
 export interface NotificationListParams {
     cursor?: string;
     limit?: number;
     filter?: NotificationListFilter;
     type?: NotificationType;
+}
+interface NotificationEmailDirective {
+    excludeUserId?: string | null;
+    build: (recipient: {
+        id: string;
+        email: string;
+        firstName: string;
+    }) => NotificationEmail | null;
 }
 interface CreateNotificationInput {
     userId: string;
@@ -17,16 +27,22 @@ interface CreateNotificationInput {
     referenceId?: string | null;
     threadId?: string | null;
     commenterId?: string | null;
+    email?: NotificationEmailDirective | null;
 }
 interface BulkCreateNotificationInput extends Omit<CreateNotificationInput, 'userId'> {
     userIds: string[];
     dedupeKeyFor?: (userId: string) => string | null;
+    emailCcUserIds?: string[];
 }
 export declare class NotificationService {
     private prisma;
+    private mail;
     private static readonly DEFAULT_LIMIT;
     private static readonly MAX_LIMIT;
-    constructor(prisma: PrismaService);
+    private static readonly logger;
+    private static readonly EMAIL_BATCH;
+    private static readonly EMAIL_BATCH_PAUSE_MS;
+    constructor(prisma: PrismaService, mail: MailService);
     listNotifications(userId: string, params: NotificationListParams): Promise<{
         message: string;
         statusCode: number;
@@ -85,6 +101,7 @@ export declare class NotificationService {
     }>;
     createNotification(input: CreateNotificationInput): Promise<void>;
     createNotificationForMany(input: BulkCreateNotificationInput): Promise<void>;
+    private dispatchNotificationEmails;
     notifyAllUsersForNewThread(args: {
         threadId: string;
         threadTitle: string;

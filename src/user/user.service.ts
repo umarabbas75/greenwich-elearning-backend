@@ -3,12 +3,16 @@ import { Prisma, SecurityEventType, User } from '@prisma/client';
 import { ResponseDto, BodyDto, BodyUpdateDto, ChangePasswordDto } from '../dto';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class UserService {
   private static readonly logger = new Logger(UserService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private mail: MailService,
+  ) {}
 
   /**
    * Best-effort audit of an authenticated self-service password change. Never
@@ -187,6 +191,7 @@ export class UserService {
         throw new Error('User already exists in the system');
       }
       const password = await argon2.hash(body.password);
+      const selfRegistered = body.selfRegistered === true;
       delete body.password;
 
       const user: User = await this.prisma.user.create({
@@ -199,12 +204,32 @@ export class UserService {
           role: body.role,
           photo: body?.photo ?? null,
           photoBase64: body?.photoBase64 ?? null,
-          // Admin-created account: the admin set this temporary password, so the
-          // user must set their own on first login (cleared in forceChangePassword).
-          mustChangePassword: true,
+          // Admin-created accounts get a temporary password the admin chose, so
+          // the user must set their own on first login. Self-registered users
+          // chose their own password, so no forced change.
+          mustChangePassword: !selfRegistered,
         },
       });
       delete user.password;
+
+      // Self-registration → welcome email. Best-effort: never fail account
+      // creation on a mail hiccup.
+      if (selfRegistered && user.email) {
+        try {
+          await this.mail.sendWelcome({
+            to: user.email,
+            userId: user.id,
+            firstName: user.firstName,
+          });
+        } catch (mailErr) {
+          const m =
+            mailErr instanceof Error ? mailErr.message : String(mailErr);
+          UserService.logger.warn(
+            `Welcome email failed for user ${user.id}: ${m}`,
+          );
+        }
+      }
+
       return {
         message: 'Successfully create user record',
         statusCode: 200,
@@ -666,6 +691,42 @@ export class UserService {
           isSeen: false, // Defaults to false when a message is created
         },
       });
+
+      // Email every admin so a contact message is actioned, not just stored.
+      // Best-effort: a mail failure must not fail the user's submission.
+      try {
+        const admins = await this.prisma.user.findMany({
+          where: { role: 'admin', deletedAt: null },
+          select: { id: true, email: true },
+        });
+        const senderName = `${user.firstName ?? ''} ${
+          user.lastName ?? ''
+        }`.trim();
+        const recipients = admins.filter((a) => a.email);
+        // Throttle to ~2/sec to respect Resend's rate limit (matches the
+        // NotificationService dispatch). Sends are best-effort and never throw.
+        for (let i = 0; i < recipients.length; i += 2) {
+          const batch = recipients.slice(i, i + 2);
+          await Promise.all(
+            batch.map((admin) =>
+              this.mail.sendContactMessage({
+                to: admin.email,
+                userId: admin.id,
+                senderName: senderName || 'A user',
+                senderEmail: user.email,
+                message: body.message,
+              }),
+            ),
+          );
+          if (i + 2 < recipients.length) {
+            await new Promise((r) => setTimeout(r, 1100));
+          }
+        }
+      } catch (mailErr) {
+        const m = mailErr instanceof Error ? mailErr.message : String(mailErr);
+        UserService.logger.warn(`Contact-message email failed: ${m}`);
+      }
+
       return {
         message: 'Successfully sent a message to admin',
         statusCode: 200,

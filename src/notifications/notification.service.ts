@@ -1,6 +1,8 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
+import { NotificationEmail } from '../mail/mail.types';
 
 type NotificationListFilter = 'all' | 'unread';
 
@@ -9,6 +11,22 @@ export interface NotificationListParams {
   limit?: number;
   filter?: NotificationListFilter;
   type?: NotificationType;
+}
+
+/**
+ * Optional "also email this notification" directive. Given a resolved recipient
+ * (id, email, firstName), `build` returns the NotificationEmail to send — or
+ * null to skip emailing that particular recipient. Returning null lets callers
+ * suppress e.g. recipients with no email. The service additionally skips the
+ * actor (excludeUserId) and recipients suppressed by notification dedupe.
+ */
+interface NotificationEmailDirective {
+  excludeUserId?: string | null;
+  build: (recipient: {
+    id: string;
+    email: string;
+    firstName: string;
+  }) => NotificationEmail | null;
 }
 
 interface CreateNotificationInput {
@@ -21,6 +39,7 @@ interface CreateNotificationInput {
   referenceId?: string | null;
   threadId?: string | null;
   commenterId?: string | null;
+  email?: NotificationEmailDirective | null;
 }
 
 interface BulkCreateNotificationInput
@@ -28,6 +47,14 @@ interface BulkCreateNotificationInput
   userIds: string[];
   // dedupeKey may be a function of userId for per-recipient idempotency
   dedupeKeyFor?: (userId: string) => string | null;
+  /**
+   * Extra recipients who receive only the EMAIL mirror — no in-app notification
+   * row. Used to CC admins on forum activity for oversight without polluting
+   * their notification bell or bypassing the in-app course-scoping of userIds.
+   * Always emailed (not gated on dedupe, since they have no notification row);
+   * still excluded by the directive's excludeUserId and de-duplicated vs userIds.
+   */
+  emailCcUserIds?: string[];
 }
 
 const NOTIFICATION_INCLUDE = {
@@ -41,8 +68,15 @@ const NOTIFICATION_INCLUDE = {
 export class NotificationService {
   private static readonly DEFAULT_LIMIT = 20;
   private static readonly MAX_LIMIT = 50;
+  private static readonly logger = new Logger(NotificationService.name);
+  /** Resend allows ~2 req/s; send notification emails in small throttled batches. */
+  private static readonly EMAIL_BATCH = 2;
+  private static readonly EMAIL_BATCH_PAUSE_MS = 1100;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private mail: MailService,
+  ) {}
 
   // ────────────────────────────────────────────────────────────────────────
   // READS
@@ -201,7 +235,7 @@ export class NotificationService {
    * the partial unique index we added in migration.
    */
   async createNotification(input: CreateNotificationInput): Promise<void> {
-    await this.prisma.notification.createMany({
+    const result = await this.prisma.notification.createMany({
       data: [
         {
           userId: input.userId,
@@ -217,6 +251,12 @@ export class NotificationService {
       ],
       skipDuplicates: true,
     });
+
+    // Email only if the row was actually inserted (not a dedupe no-op) and an
+    // email directive was supplied. Best-effort — never throws into the caller.
+    if (input.email && result.count > 0) {
+      await this.dispatchNotificationEmails([input.userId], input.email);
+    }
   }
 
   /**
@@ -227,7 +267,7 @@ export class NotificationService {
     input: BulkCreateNotificationInput,
   ): Promise<void> {
     if (input.userIds.length === 0) return;
-    await this.prisma.notification.createMany({
+    const result = await this.prisma.notification.createMany({
       data: input.userIds.map((userId) => ({
         userId,
         type: input.type,
@@ -241,6 +281,93 @@ export class NotificationService {
       })),
       skipDuplicates: true,
     });
+
+    if (!input.email) return;
+
+    // In-app recipients to email: only those whose row was freshly inserted this
+    // call (not a dedupe no-op). When a dedupeKey is provided we identify the new
+    // rows by re-reading those keys; without one we conservatively email all
+    // (no idempotency guarantee — documented on the input).
+    let recipients: string[] = result.count > 0 ? input.userIds : [];
+    if (result.count > 0 && input.dedupeKeyFor) {
+      const keys = input.userIds
+        .map((u) => input.dedupeKeyFor!(u))
+        .filter((k): k is string => !!k);
+      if (keys.length > 0) {
+        const fresh = await this.prisma.notification.findMany({
+          where: {
+            dedupeKey: { in: keys },
+            createdAt: { gte: new Date(Date.now() - 5 * 60_000) },
+          },
+          select: { userId: true },
+        });
+        const freshIds = new Set(fresh.map((r) => r.userId));
+        recipients = input.userIds.filter((u) => freshIds.has(u));
+      }
+    }
+
+    // CC recipients (e.g. admins) get the email only — no in-app row — so they
+    // are always emailed, de-duplicated against the in-app recipients.
+    const ccOnly = (input.emailCcUserIds ?? []).filter(
+      (id) => !recipients.includes(id),
+    );
+    const allRecipients = [...new Set([...recipients, ...ccOnly])];
+    if (allRecipients.length === 0) return;
+    await this.dispatchNotificationEmails(allRecipients, input.email);
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // EMAIL DISPATCH (best-effort mirror of in-app notifications)
+  // ────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Resolves recipient emails and sends the notification mirror email, skipping
+   * the actor, soft-deleted users, and anyone the directive returns null for.
+   * Throttled to stay under Resend's rate limit. Best-effort: any failure is
+   * logged and swallowed so it never affects the in-app notification write.
+   */
+  private async dispatchNotificationEmails(
+    userIds: string[],
+    directive: NotificationEmailDirective,
+  ): Promise<void> {
+    try {
+      const targets = userIds.filter(
+        (id) => id && id !== directive.excludeUserId,
+      );
+      if (targets.length === 0) return;
+
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: targets }, deletedAt: null },
+        select: { id: true, email: true, firstName: true },
+      });
+
+      const emails = users
+        .map((u) =>
+          u.email
+            ? directive.build({
+                id: u.id,
+                email: u.email,
+                firstName: u.firstName ?? '',
+              })
+            : null,
+        )
+        .filter((m): m is NotificationEmail => m !== null);
+
+      for (let i = 0; i < emails.length; i += NotificationService.EMAIL_BATCH) {
+        const batch = emails.slice(i, i + NotificationService.EMAIL_BATCH);
+        await Promise.all(batch.map((m) => this.mail.sendNotificationEmail(m)));
+        if (i + NotificationService.EMAIL_BATCH < emails.length) {
+          await new Promise((r) =>
+            setTimeout(r, NotificationService.EMAIL_BATCH_PAUSE_MS),
+          );
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      NotificationService.logger.warn(
+        `Notification email dispatch failed (best-effort): ${message}`,
+      );
+    }
   }
 
   /**
@@ -254,16 +381,29 @@ export class NotificationService {
     courseId?: string | null;
     creator: { id: string; firstName: string; lastName: string };
   }): Promise<void> {
-    // Course-scoped threads notify only enrolled users; legacy global
-    // threads (no courseId) still fan out to everyone.
-    const users = await this.prisma.user.findMany({
-      where: args.courseId
-        ? { UserCourse: { some: { courseId: args.courseId, isActive: true } } }
-        : undefined,
-      select: { id: true },
-    });
+    // Course-scoped threads notify only enrolled users (in-app); legacy global
+    // threads (no courseId) still fan out to everyone. Admins are CC'd by EMAIL
+    // only — no in-app row — preserving the course-scoped bell.
+    const [users, admins] = await Promise.all([
+      this.prisma.user.findMany({
+        where: args.courseId
+          ? {
+              UserCourse: { some: { courseId: args.courseId, isActive: true } },
+            }
+          : undefined,
+        select: { id: true },
+      }),
+      this.prisma.user.findMany({
+        where: { role: 'admin', deletedAt: null },
+        select: { id: true },
+      }),
+    ]);
+
+    const creatorName =
+      `${args.creator.firstName} ${args.creator.lastName}`.trim();
     await this.createNotificationForMany({
       userIds: users.map((u) => u.id),
+      emailCcUserIds: admins.map((a) => a.id),
       type: NotificationType.FORUM_THREAD,
       message: 'A new thread has been created by the admin.',
       payload: {
@@ -276,6 +416,18 @@ export class NotificationService {
       threadId: args.threadId,
       commenterId: args.creator.id,
       dedupeKeyFor: (userId) => `thread-created:${args.threadId}:${userId}`,
+      email: {
+        excludeUserId: args.creator.id, // don't email the creator about their own thread
+        build: (r) => ({
+          kind: 'FORUM_THREAD',
+          to: r.email,
+          userId: r.id,
+          recipientFirstName: r.firstName,
+          threadId: args.threadId,
+          threadTitle: args.threadTitle,
+          creatorName,
+        }),
+      },
     });
   }
 }

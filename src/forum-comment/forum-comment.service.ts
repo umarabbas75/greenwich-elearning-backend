@@ -40,20 +40,32 @@ export class ForumCommentService {
         select: { id: true },
       });
 
-      const subscribedUsers = await this.prisma.threadSubscription.findMany({
-        where: { threadId: body.threadId, userId: { not: userId } },
-        select: { userId: true },
-      });
+      // In-app notifications go to thread subscribers (minus the commenter).
+      // Admins are CC'd by EMAIL only — no in-app row — so the bell stays
+      // subscriber-scoped as before.
+      const [subscribedUsers, admins] = await Promise.all([
+        this.prisma.threadSubscription.findMany({
+          where: { threadId: body.threadId, userId: { not: userId } },
+          select: { userId: true },
+        }),
+        this.prisma.user.findMany({
+          where: { role: 'admin', deletedAt: null, id: { not: userId } },
+          select: { id: true },
+        }),
+      ]);
 
+      const excerpt = buildExcerpt(body.content ?? '');
+      const commenterName = `${user.firstName} ${user.lastName}`.trim();
       await this.notificationService.createNotificationForMany({
         userIds: subscribedUsers.map((s) => s.userId),
+        emailCcUserIds: admins.map((a) => a.id),
         type: NotificationType.FORUM_COMMENT,
         message: body.content,
         payload: {
           threadId: thread.id,
           threadTitle: thread.title,
           commentId: comment.id,
-          commentExcerpt: buildExcerpt(body.content ?? ''),
+          commentExcerpt: excerpt,
           commenterFirstName: user.firstName,
           commenterLastName: user.lastName,
         },
@@ -61,6 +73,19 @@ export class ForumCommentService {
         threadId: thread.id,
         commenterId: userId,
         dedupeKeyFor: (recipientId) => `comment:${comment.id}:${recipientId}`,
+        email: {
+          excludeUserId: userId, // don't email the commenter about their own comment
+          build: (r) => ({
+            kind: 'FORUM_COMMENT',
+            to: r.email,
+            userId: r.id,
+            recipientFirstName: r.firstName,
+            threadId: thread.id,
+            threadTitle: thread.title,
+            commenterName,
+            excerpt,
+          }),
+        },
       });
 
       return {

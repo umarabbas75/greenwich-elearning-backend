@@ -4,13 +4,27 @@ import { EmailType, Prisma } from '@prisma/client';
 import { Resend } from 'resend';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  ContactMessageMail,
   EngagementReminderMail,
   MailSendResult,
+  NotificationEmail,
   PasswordResetMail,
+  WelcomeMail,
 } from './mail.types';
 import { renderEngagementReminder } from './templates/engagement-reminder.template';
 import { renderPasswordReset } from './templates/password-reset.template';
+import { renderNotificationEmail } from './templates/notification.template';
+import { renderWelcome } from './templates/welcome.template';
+import { renderContactMessage } from './templates/contact-message.template';
 import { RenderedEmail } from './templates/mail-layout';
+
+/** Maps a notification email kind → the EmailLog EmailType for auditing. */
+const NOTIFICATION_EMAIL_TYPE: Record<NotificationEmail['kind'], EmailType> = {
+  FORUM_THREAD: EmailType.NOTIFICATION_FORUM_THREAD,
+  FORUM_COMMENT: EmailType.NOTIFICATION_FORUM_COMMENT,
+  ASSESSMENT_SUBMITTED: EmailType.NOTIFICATION_ASSESSMENT_SUBMITTED,
+  ASSESSMENT_GRADED: EmailType.NOTIFICATION_ASSESSMENT_GRADED,
+};
 
 /** Audit context recorded to EmailLog alongside each send. */
 interface SendAudit {
@@ -83,6 +97,35 @@ export class MailService {
     return this.send(mail.to, renderPasswordReset(mail), 'password reset', {
       type: EmailType.PASSWORD_RESET,
       userId: mail.userId ?? null,
+    });
+  }
+
+  /** Mirror of an in-app notification, sent to the notification's recipient. */
+  async sendNotificationEmail(
+    mail: NotificationEmail,
+  ): Promise<MailSendResult> {
+    return this.send(
+      mail.to,
+      renderNotificationEmail(mail),
+      `notification:${mail.kind}`,
+      { type: NOTIFICATION_EMAIL_TYPE[mail.kind], userId: mail.userId ?? null },
+    );
+  }
+
+  /** Welcome email sent when a user self-registers. */
+  async sendWelcome(mail: WelcomeMail): Promise<MailSendResult> {
+    return this.send(mail.to, renderWelcome(mail), 'welcome', {
+      type: EmailType.WELCOME,
+      userId: mail.userId ?? null,
+    });
+  }
+
+  /** "Contact us" message emailed to a single admin recipient. */
+  async sendContactMessage(mail: ContactMessageMail): Promise<MailSendResult> {
+    return this.send(mail.to, renderContactMessage(mail), 'contact message', {
+      type: EmailType.CONTACT_MESSAGE,
+      userId: mail.userId ?? null,
+      metadata: { senderEmail: mail.senderEmail },
     });
   }
 

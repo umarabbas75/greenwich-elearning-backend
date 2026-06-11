@@ -20,6 +20,52 @@ export interface PasswordResetMail {
     otp: string;
     expiresInMinutes: number;
 }
+export type NotificationEmail = {
+    kind: 'FORUM_THREAD';
+    to: string;
+    userId?: string | null;
+    recipientFirstName: string;
+    threadId: string;
+    threadTitle: string;
+    creatorName: string;
+} | {
+    kind: 'FORUM_COMMENT';
+    to: string;
+    userId?: string | null;
+    recipientFirstName: string;
+    threadId: string;
+    threadTitle: string;
+    commenterName: string;
+    excerpt: string;
+} | {
+    kind: 'ASSESSMENT_SUBMITTED';
+    to: string;
+    userId?: string | null;
+    recipientFirstName: string;
+    studentName: string;
+    assessmentTitle: string;
+    attemptId: string;
+} | {
+    kind: 'ASSESSMENT_GRADED';
+    to: string;
+    userId?: string | null;
+    recipientFirstName: string;
+    assessmentTitle: string;
+    passed?: boolean | null;
+    scorePct?: number | null;
+};
+export interface WelcomeMail {
+    to: string;
+    userId?: string | null;
+    firstName: string;
+}
+export interface ContactMessageMail {
+    to: string;
+    userId?: string | null;
+    senderName: string;
+    senderEmail: string;
+    message: string;
+}
 export interface MailSendResult {
     sent: boolean;
     id?: string;

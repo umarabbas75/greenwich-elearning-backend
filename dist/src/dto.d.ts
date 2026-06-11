@@ -8,6 +8,7 @@ export declare class BodyDto {
     role: Role;
     photo?: string;
     photoBase64?: string;
+    selfRegistered?: boolean;
 }
 export declare class BodyUpdateDto {
     firstName?: string;
