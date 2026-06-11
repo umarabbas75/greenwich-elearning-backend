@@ -9,14 +9,14 @@ export declare class ForumCommentController {
         statusCode: number;
         data: ({
             user: {
+                id: string;
+                createdAt: Date;
                 firstName: string;
                 lastName: string;
                 email: string;
                 phone: string;
                 role: import(".prisma/client").$Enums.Role;
                 photo: string;
-                id: string;
-                createdAt: Date;
                 updatedAt: Date;
                 timezone: string;
             };

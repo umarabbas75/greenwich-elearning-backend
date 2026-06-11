@@ -3,6 +3,7 @@ import {
   FeedbackReceivedAdminMail,
   FeedbackReceivedMail,
   FeedbackRequestMail,
+  PendingFeedbackOutstandingMail,
 } from '../mail.types';
 import {
   adminFeedback,
@@ -66,6 +67,34 @@ export function renderFeedbackRequest(
     }, we would value your feedback. It takes only a couple of minutes.\n\nGive feedback: ${ctaUrl}\n\nKind regards,\nThe ${
       BRAND.name
     } Team`,
+  };
+}
+
+/** One-off backfill: completed 100% but feedback still outstanding. */
+export function renderPendingFeedbackOutstanding(
+  mail: PendingFeedbackOutstandingMail,
+): RenderedEmail {
+  const name = escapeHtml(mail.firstName || 'there');
+  const title = escapeHtml(mail.courseTitle);
+  const ctaUrl = studentCourseFeedback(mail.courseId);
+  const completedLine = mail.completedAt
+    ? `<p style="margin-top:8px;color:${BRAND.muted};font-size:13px;">You completed this course on ${escapeHtml(mail.completedAt)}.</p>`
+    : '';
+  const body = `<p>Dear ${name},</p>
+    <p style="margin-top:12px;">Our records show you have <strong>completed</strong> <strong>${title}</strong>, but we have not yet received your course feedback.</p>
+    ${completedLine}
+    <p style="margin-top:12px;">Your feedback helps us improve the learning experience for future students. It only takes a couple of minutes.</p>`;
+  return {
+    subject: `Feedback still needed for ${mail.courseTitle}`,
+    html: layout({
+      heading: 'We are missing your feedback',
+      bodyHtml: body,
+      ctaLabel: 'Complete feedback form',
+      ctaUrl,
+    }),
+    text: `Dear ${mail.firstName || 'there'},\n\nOur records show you have completed ${mail.courseTitle}, but we have not yet received your course feedback.${
+      mail.completedAt ? ` You completed on ${mail.completedAt}.` : ''
+    }\n\nIt only takes a couple of minutes.\n\nComplete feedback: ${ctaUrl}\n\nKind regards,\nThe ${BRAND.name} Team`,
   };
 }
 

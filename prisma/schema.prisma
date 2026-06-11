@@ -1054,6 +1054,7 @@ enum EmailType {
   COURSE_COMPLETED // congratulations when a user completes a course
   FEEDBACK_REQUEST // ask a user to fill the course feedback form
   FEEDBACK_REMINDER // periodic nudge for pending required feedback
+  FEEDBACK_OUTSTANDING // one-off backfill: completed course, feedback not submitted
   FEEDBACK_RECEIVED // confirm to the user their feedback was registered
   FEEDBACK_RECEIVED_ADMIN // notify the admin of a new feedback submission
   // Notification mirror emails — one per in-app NotificationType.

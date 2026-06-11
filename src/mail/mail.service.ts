@@ -10,6 +10,7 @@ import {
   FeedbackReceivedAdminMail,
   FeedbackReceivedMail,
   FeedbackRequestMail,
+  PendingFeedbackOutstandingMail,
   MailSendResult,
   NotificationEmail,
   PasswordResetMail,
@@ -26,6 +27,7 @@ import {
   renderFeedbackReceivedAdmin,
   renderFeedbackRequest,
   renderFeedbackReminder,
+  renderPendingFeedbackOutstanding,
 } from './templates/course-feedback.template';
 import { RenderedEmail } from './templates/mail-layout';
 
@@ -160,6 +162,26 @@ export class MailService {
       userId: mail.userId ?? null,
       metadata: { courseTitle: mail.courseTitle, courseId: mail.courseId },
     });
+  }
+
+  /** One-off outreach for learners who completed but never submitted feedback. */
+  async sendPendingFeedbackOutstanding(
+    mail: PendingFeedbackOutstandingMail,
+  ): Promise<MailSendResult> {
+    return this.send(
+      mail.to,
+      renderPendingFeedbackOutstanding(mail),
+      'pending feedback outstanding',
+      {
+        type: EmailType.FEEDBACK_OUTSTANDING,
+        userId: mail.userId ?? null,
+        metadata: {
+          courseTitle: mail.courseTitle,
+          courseId: mail.courseId,
+          completedAt: mail.completedAt ?? null,
+        },
+      },
+    );
   }
 
   /** Periodic reminder for pending required course feedback. */

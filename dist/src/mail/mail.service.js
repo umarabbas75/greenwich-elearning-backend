@@ -90,6 +90,17 @@ let MailService = MailService_1 = class MailService {
             metadata: { courseTitle: mail.courseTitle, courseId: mail.courseId },
         });
     }
+    async sendPendingFeedbackOutstanding(mail) {
+        return this.send(mail.to, (0, course_feedback_template_1.renderPendingFeedbackOutstanding)(mail), 'pending feedback outstanding', {
+            type: client_1.EmailType.FEEDBACK_OUTSTANDING,
+            userId: mail.userId ?? null,
+            metadata: {
+                courseTitle: mail.courseTitle,
+                courseId: mail.courseId,
+                completedAt: mail.completedAt ?? null,
+            },
+        });
+    }
     async sendFeedbackReminder(mail) {
         return this.send(mail.to, (0, course_feedback_template_1.renderFeedbackReminder)(mail), 'feedback reminder', {
             type: client_1.EmailType.FEEDBACK_REMINDER,

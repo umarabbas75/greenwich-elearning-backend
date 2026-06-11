@@ -125,6 +125,17 @@ export interface FeedbackRequestMail {
   courseId?: string;
 }
 
+/** One-off outreach: learner finished the course but has not submitted feedback. */
+export interface PendingFeedbackOutstandingMail {
+  to: string;
+  userId?: string | null;
+  firstName: string;
+  courseTitle: string;
+  courseId: string;
+  /** When the learner reached 100% content, if known. */
+  completedAt?: string | null;
+}
+
 /** Confirms to the user that their course feedback was registered. */
 export interface FeedbackReceivedMail {
   to: string;

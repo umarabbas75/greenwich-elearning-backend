@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.renderFeedbackReceivedAdmin = exports.renderFeedbackReceived = exports.renderFeedbackReminder = exports.renderFeedbackRequest = exports.renderCourseCompleted = void 0;
+exports.renderFeedbackReceivedAdmin = exports.renderFeedbackReceived = exports.renderFeedbackReminder = exports.renderPendingFeedbackOutstanding = exports.renderFeedbackRequest = exports.renderCourseCompleted = void 0;
 const mail_paths_1 = require("../mail-paths");
 const mail_layout_1 = require("./mail-layout");
 function renderCourseCompleted(mail) {
@@ -44,6 +44,29 @@ function renderFeedbackRequest(mail) {
     };
 }
 exports.renderFeedbackRequest = renderFeedbackRequest;
+function renderPendingFeedbackOutstanding(mail) {
+    const name = (0, mail_layout_1.escapeHtml)(mail.firstName || 'there');
+    const title = (0, mail_layout_1.escapeHtml)(mail.courseTitle);
+    const ctaUrl = (0, mail_paths_1.studentCourseFeedback)(mail.courseId);
+    const completedLine = mail.completedAt
+        ? `<p style="margin-top:8px;color:${mail_layout_1.BRAND.muted};font-size:13px;">You completed this course on ${(0, mail_layout_1.escapeHtml)(mail.completedAt)}.</p>`
+        : '';
+    const body = `<p>Dear ${name},</p>
+    <p style="margin-top:12px;">Our records show you have <strong>completed</strong> <strong>${title}</strong>, but we have not yet received your course feedback.</p>
+    ${completedLine}
+    <p style="margin-top:12px;">Your feedback helps us improve the learning experience for future students. It only takes a couple of minutes.</p>`;
+    return {
+        subject: `Feedback still needed for ${mail.courseTitle}`,
+        html: (0, mail_layout_1.layout)({
+            heading: 'We are missing your feedback',
+            bodyHtml: body,
+            ctaLabel: 'Complete feedback form',
+            ctaUrl,
+        }),
+        text: `Dear ${mail.firstName || 'there'},\n\nOur records show you have completed ${mail.courseTitle}, but we have not yet received your course feedback.${mail.completedAt ? ` You completed on ${mail.completedAt}.` : ''}\n\nIt only takes a couple of minutes.\n\nComplete feedback: ${ctaUrl}\n\nKind regards,\nThe ${mail_layout_1.BRAND.name} Team`,
+    };
+}
+exports.renderPendingFeedbackOutstanding = renderPendingFeedbackOutstanding;
 function renderFeedbackReminder(mail) {
     const name = (0, mail_layout_1.escapeHtml)(mail.firstName || 'there');
     const title = (0, mail_layout_1.escapeHtml)(mail.courseTitle);

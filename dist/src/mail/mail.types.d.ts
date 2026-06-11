@@ -82,6 +82,14 @@ export interface FeedbackRequestMail {
     courseTitle: string;
     courseId?: string;
 }
+export interface PendingFeedbackOutstandingMail {
+    to: string;
+    userId?: string | null;
+    firstName: string;
+    courseTitle: string;
+    courseId: string;
+    completedAt?: string | null;
+}
 export interface FeedbackReceivedMail {
     to: string;
     userId?: string | null;
