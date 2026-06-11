@@ -22,7 +22,9 @@
     "script:reset-assessment": "ts-node -r tsconfig-paths/register scripts/reset-assessment-progress.ts",
     "script:reset-assessment:dry": "ts-node -r tsconfig-paths/register scripts/reset-assessment-progress.ts --dry-run",
     "script:pending-feedback:dry": "ts-node -r tsconfig-paths/register scripts/send-pending-feedback-emails.ts",
-    "script:pending-feedback:send": "ts-node -r tsconfig-paths/register scripts/send-pending-feedback-emails.ts --send"
+    "script:pending-feedback:send": "ts-node -r tsconfig-paths/register scripts/send-pending-feedback-emails.ts --send",
+    "script:email-previews:generate": "ts-node -r tsconfig-paths/register scripts/generate-email-previews.ts",
+    "script:email-previews:serve": "yarn script:email-previews:generate && cd docs/email-previews && python3 -m http.server 3456"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
