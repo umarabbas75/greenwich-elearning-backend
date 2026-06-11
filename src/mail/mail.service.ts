@@ -5,7 +5,11 @@ import { Resend } from 'resend';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ContactMessageMail,
+  CourseCompletedMail,
   EngagementReminderMail,
+  FeedbackReceivedAdminMail,
+  FeedbackReceivedMail,
+  FeedbackRequestMail,
   MailSendResult,
   NotificationEmail,
   PasswordResetMail,
@@ -16,6 +20,13 @@ import { renderPasswordReset } from './templates/password-reset.template';
 import { renderNotificationEmail } from './templates/notification.template';
 import { renderWelcome } from './templates/welcome.template';
 import { renderContactMessage } from './templates/contact-message.template';
+import {
+  renderCourseCompleted,
+  renderFeedbackReceived,
+  renderFeedbackReceivedAdmin,
+  renderFeedbackRequest,
+  renderFeedbackReminder,
+} from './templates/course-feedback.template';
 import { RenderedEmail } from './templates/mail-layout';
 
 /** Maps a notification email kind → the EmailLog EmailType for auditing. */
@@ -127,6 +138,79 @@ export class MailService {
       userId: mail.userId ?? null,
       metadata: { senderEmail: mail.senderEmail },
     });
+  }
+
+  /** Congratulations email on course completion. */
+  async sendCourseCompleted(
+    mail: CourseCompletedMail,
+  ): Promise<MailSendResult> {
+    return this.send(mail.to, renderCourseCompleted(mail), 'course completed', {
+      type: EmailType.COURSE_COMPLETED,
+      userId: mail.userId ?? null,
+      metadata: { courseTitle: mail.courseTitle },
+    });
+  }
+
+  /** Asks the user to provide course feedback (after completion). */
+  async sendFeedbackRequest(
+    mail: FeedbackRequestMail,
+  ): Promise<MailSendResult> {
+    return this.send(mail.to, renderFeedbackRequest(mail), 'feedback request', {
+      type: EmailType.FEEDBACK_REQUEST,
+      userId: mail.userId ?? null,
+      metadata: { courseTitle: mail.courseTitle, courseId: mail.courseId },
+    });
+  }
+
+  /** Periodic reminder for pending required course feedback. */
+  async sendFeedbackReminder(
+    mail: FeedbackRequestMail,
+  ): Promise<MailSendResult> {
+    return this.send(
+      mail.to,
+      renderFeedbackReminder(mail),
+      'feedback reminder',
+      {
+        type: EmailType.FEEDBACK_REMINDER,
+        userId: mail.userId ?? null,
+        metadata: { courseTitle: mail.courseTitle, courseId: mail.courseId },
+      },
+    );
+  }
+
+  /** Confirms to the user that their feedback was registered. */
+  async sendFeedbackReceived(
+    mail: FeedbackReceivedMail,
+  ): Promise<MailSendResult> {
+    return this.send(
+      mail.to,
+      renderFeedbackReceived(mail),
+      'feedback received',
+      {
+        type: EmailType.FEEDBACK_RECEIVED,
+        userId: mail.userId ?? null,
+        metadata: { courseTitle: mail.courseTitle },
+      },
+    );
+  }
+
+  /** Notifies the admin of a new feedback submission. */
+  async sendFeedbackReceivedAdmin(
+    mail: FeedbackReceivedAdminMail,
+  ): Promise<MailSendResult> {
+    return this.send(
+      mail.to,
+      renderFeedbackReceivedAdmin(mail),
+      'feedback received (admin)',
+      {
+        type: EmailType.FEEDBACK_RECEIVED_ADMIN,
+        userId: mail.userId ?? null,
+        metadata: {
+          courseTitle: mail.courseTitle,
+          studentEmail: mail.studentEmail,
+        },
+      },
+    );
   }
 
   /** Shared send path. Best-effort: resolves to a result, never throws. */

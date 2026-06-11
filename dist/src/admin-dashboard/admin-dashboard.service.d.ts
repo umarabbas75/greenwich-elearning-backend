@@ -20,6 +20,14 @@ export declare class AdminDashboardService {
         limit: number;
         userId?: string;
     }): Promise<ResponseDto>;
+    getForumViews(params: {
+        days: number;
+        cursor?: string;
+        limit: number;
+        userId?: string;
+        threadId?: string;
+        scope?: 'list' | 'thread';
+    }): Promise<ResponseDto>;
     getDailyActiveUsers(days: number): Promise<ResponseDto>;
     getCompletions(params: {
         courseId?: string;

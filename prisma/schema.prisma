@@ -55,6 +55,7 @@ model User {
   courseCompletions        CourseCompletion[]
   passwordResets           PasswordReset[]
   loginEvents              LoginEvent[]
+  forumViewEvents          ForumViewEvent[]
   sectionTimeSpent         SectionTimeSpent[]
   emailLogs                EmailLog[]
   securityEvents           SecurityEvent[]
@@ -137,6 +138,7 @@ model Course {
   questions            Question[]
   courseCompletions    CourseCompletion[]
   ForumThread          ForumThread[]
+  forumViewEvents      ForumViewEvent[]
 
   @@map("courses")
 }
@@ -284,22 +286,35 @@ model CourseFeedbackForm {
 }
 
 model CourseFeedbackSubmission {
-  id                    String              @id @default(uuid())
+  id                    String                   @id @default(uuid())
   courseId              String
   userId                String
   feedbackFormId        String
-  responses             Json                // User's responses to the form
-  submittedAt           DateTime            @default(now())
-  createdAt             DateTime            @default(now())
-  updatedAt             DateTime            @updatedAt
-  course                Course              @relation(fields: [courseId], references: [id])
-  user                  User                @relation(fields: [userId], references: [id])
-  feedbackForm          CourseFeedbackForm  @relation(fields: [feedbackFormId], references: [id])
+  formVersion           String?
+  responses             Json                     // formData verbatim (legacy name kept for compat)
+  meanRating            Decimal?                 @db.Decimal(3, 2)
+  overallRating         FeedbackOverallRating?
+  learnerEmail          String?
+  submittedAt           DateTime                 @default(now())
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  course                Course                   @relation(fields: [courseId], references: [id])
+  user                  User                     @relation(fields: [userId], references: [id])
+  feedbackForm          CourseFeedbackForm       @relation(fields: [feedbackFormId], references: [id])
 
   @@unique([userId, courseId]) // One submission per user per course
   @@index([courseId])
   @@index([userId])
+  @@index([courseId, submittedAt(sort: Desc)])
   @@map("course_feedback_submissions")
+}
+
+enum FeedbackOverallRating {
+  excellent
+  very_good
+  good
+  fair
+  poor
 }
 
 model TodoItem {
@@ -497,8 +512,33 @@ model ForumThread {
   course              Course?               @relation(fields: [courseId], references: [id])
   Notification        Notification[]
   ThreadSubscription  ThreadSubscription[]
+  viewEvents          ForumViewEvent[]
 
   @@map("forum_threads")
+}
+
+/// Append-only log: who opened the forum list or viewed a specific thread, when.
+model ForumViewEvent {
+  id        String          @id @default(uuid())
+  userId    String
+  threadId  String?         // null = opened forum list (no specific thread)
+  courseId  String?
+  scope     ForumViewScope  @default(thread)
+  createdAt DateTime        @default(now())
+
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread ForumThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  course Course?      @relation(fields: [courseId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([threadId, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("forum_view_events")
+}
+
+enum ForumViewScope {
+  list
+  thread
 }
 
 model ForumComment {
@@ -707,6 +747,7 @@ enum NotificationType {
   ASSESSMENT_SUBMITTED
   ASSESSMENT_GRADED
   ENGAGEMENT_REMINDER // automated low-engagement nudge; reminderType (never_started|stalled) lives in payload
+  COURSE_FEEDBACK_REQUIRED // completed course with required feedback not yet submitted
 }
 
 enum QuestionType {
@@ -989,7 +1030,12 @@ enum EmailType {
   ENGAGEMENT_REMINDER
   PASSWORD_RESET
   WELCOME // sent when a user self-registers
-  CONTACT_MESSAGE // a "contact us" message, emailed to admins
+  CONTACT_MESSAGE // a "contact us" message, emailed to the admin
+  COURSE_COMPLETED // congratulations when a user completes a course
+  FEEDBACK_REQUEST // ask a user to fill the course feedback form
+  FEEDBACK_REMINDER // periodic nudge for pending required feedback
+  FEEDBACK_RECEIVED // confirm to the user their feedback was registered
+  FEEDBACK_RECEIVED_ADMIN // notify the admin of a new feedback submission
   // Notification mirror emails — one per in-app NotificationType.
   NOTIFICATION_FORUM_THREAD
   NOTIFICATION_FORUM_COMMENT

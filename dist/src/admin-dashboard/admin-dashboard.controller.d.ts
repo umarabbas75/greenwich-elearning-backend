@@ -10,6 +10,7 @@ export declare class AdminDashboardController {
     loginsBreakdown(days?: string): Promise<ResponseDto>;
     activity(days?: string, cursor?: string, limit?: string, userId?: string): Promise<ResponseDto>;
     dailyActive(days?: string): Promise<ResponseDto>;
+    forumViews(days?: string, cursor?: string, limit?: string, userId?: string, threadId?: string, scope?: 'list' | 'thread'): Promise<ResponseDto>;
     completions(courseId?: string, from?: string, to?: string, passed?: string, cursor?: string, limit?: string): Promise<ResponseDto>;
     completionsByCourse(): Promise<ResponseDto>;
     engagementCohorts(): Promise<ResponseDto>;

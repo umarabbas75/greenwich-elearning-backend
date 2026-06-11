@@ -15,6 +15,7 @@ const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const mail_service_1 = require("../mail/mail.service");
+const mail_layout_1 = require("../mail/templates/mail-layout");
 const NOTIFICATION_INCLUDE = {
     thread: { select: { title: true } },
     commenter: {
@@ -190,21 +191,19 @@ let NotificationService = NotificationService_1 = class NotificationService {
                 recipients = input.userIds.filter((u) => freshIds.has(u));
             }
         }
-        const ccOnly = (input.emailCcUserIds ?? []).filter((id) => !recipients.includes(id));
-        const allRecipients = [...new Set([...recipients, ...ccOnly])];
-        if (allRecipients.length === 0)
+        if (recipients.length === 0 && !input.emailCcAddresses?.length)
             return;
-        await this.dispatchNotificationEmails(allRecipients, input.email);
+        await this.dispatchNotificationEmails(recipients, input.email, input.emailCcAddresses);
     }
-    async dispatchNotificationEmails(userIds, directive) {
+    async dispatchNotificationEmails(userIds, directive, ccAddresses = []) {
         try {
             const targets = userIds.filter((id) => id && id !== directive.excludeUserId);
-            if (targets.length === 0)
-                return;
-            const users = await this.prisma.user.findMany({
-                where: { id: { in: targets }, deletedAt: null },
-                select: { id: true, email: true, firstName: true },
-            });
+            const users = targets.length
+                ? await this.prisma.user.findMany({
+                    where: { id: { in: targets }, deletedAt: null },
+                    select: { id: true, email: true, firstName: true },
+                })
+                : [];
             const emails = users
                 .map((u) => u.email
                 ? directive.build({
@@ -214,6 +213,16 @@ let NotificationService = NotificationService_1 = class NotificationService {
                 })
                 : null)
                 .filter((m) => m !== null);
+            const resolvedTo = new Set(emails.map((m) => m.to));
+            for (const addr of new Set(ccAddresses)) {
+                if (!addr || resolvedTo.has(addr))
+                    continue;
+                const built = directive.build({ id: '', email: addr, firstName: '' });
+                if (built)
+                    emails.push(built);
+            }
+            if (emails.length === 0)
+                return;
             for (let i = 0; i < emails.length; i += NotificationService_1.EMAIL_BATCH) {
                 const batch = emails.slice(i, i + NotificationService_1.EMAIL_BATCH);
                 await Promise.all(batch.map((m) => this.mail.sendNotificationEmail(m)));
@@ -228,24 +237,18 @@ let NotificationService = NotificationService_1 = class NotificationService {
         }
     }
     async notifyAllUsersForNewThread(args) {
-        const [users, admins] = await Promise.all([
-            this.prisma.user.findMany({
-                where: args.courseId
-                    ? {
-                        UserCourse: { some: { courseId: args.courseId, isActive: true } },
-                    }
-                    : undefined,
-                select: { id: true },
-            }),
-            this.prisma.user.findMany({
-                where: { role: 'admin', deletedAt: null },
-                select: { id: true },
-            }),
-        ]);
+        const users = await this.prisma.user.findMany({
+            where: args.courseId
+                ? {
+                    UserCourse: { some: { courseId: args.courseId, isActive: true } },
+                }
+                : undefined,
+            select: { id: true },
+        });
         const creatorName = `${args.creator.firstName} ${args.creator.lastName}`.trim();
         await this.createNotificationForMany({
             userIds: users.map((u) => u.id),
-            emailCcUserIds: admins.map((a) => a.id),
+            emailCcAddresses: [mail_layout_1.ADMIN_EMAIL],
             type: client_1.NotificationType.FORUM_THREAD,
             message: 'A new thread has been created by the admin.',
             payload: {

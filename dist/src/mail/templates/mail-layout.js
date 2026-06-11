@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.layout = exports.escapeHtml = exports.BRAND = void 0;
+exports.layout = exports.escapeHtml = exports.ADMIN_EMAIL = exports.BRAND = void 0;
 exports.BRAND = {
     name: 'Greenwich Training & Consulting',
     logoUrl: 'https://res.cloudinary.com/dp9urvlsz/image/upload/v1780840754/greenwich_logo_s9mgyc.png',
@@ -14,6 +14,7 @@ exports.BRAND = {
     card: '#ffffff',
     website: 'https://www.greenwichtc-elearning.com',
 };
+exports.ADMIN_EMAIL = 'umarabbas75@gmail.com';
 function escapeHtml(value) {
     return value
         .replace(/&/g, '&amp;')

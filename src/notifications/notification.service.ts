@@ -3,6 +3,7 @@ import { NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationEmail } from '../mail/mail.types';
+import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
 
 type NotificationListFilter = 'all' | 'unread';
 
@@ -48,13 +49,12 @@ interface BulkCreateNotificationInput
   // dedupeKey may be a function of userId for per-recipient idempotency
   dedupeKeyFor?: (userId: string) => string | null;
   /**
-   * Extra recipients who receive only the EMAIL mirror — no in-app notification
-   * row. Used to CC admins on forum activity for oversight without polluting
-   * their notification bell or bypassing the in-app course-scoping of userIds.
-   * Always emailed (not gated on dedupe, since they have no notification row);
-   * still excluded by the directive's excludeUserId and de-duplicated vs userIds.
+   * Extra raw email addresses that receive only the EMAIL mirror — no in-app
+   * notification row. Used to CC the fixed admin inbox on forum activity for
+   * oversight without polluting any notification bell or bypassing the in-app
+   * course-scoping of userIds. Always emailed (no notification row to dedupe on).
    */
-  emailCcUserIds?: string[];
+  emailCcAddresses?: string[];
 }
 
 const NOTIFICATION_INCLUDE = {
@@ -306,14 +306,14 @@ export class NotificationService {
       }
     }
 
-    // CC recipients (e.g. admins) get the email only — no in-app row — so they
-    // are always emailed, de-duplicated against the in-app recipients.
-    const ccOnly = (input.emailCcUserIds ?? []).filter(
-      (id) => !recipients.includes(id),
+    // In-app recipients are resolved to emails by user id; CC addresses (the
+    // fixed admin inbox) are emailed directly. Both via the throttled dispatch.
+    if (recipients.length === 0 && !input.emailCcAddresses?.length) return;
+    await this.dispatchNotificationEmails(
+      recipients,
+      input.email,
+      input.emailCcAddresses,
     );
-    const allRecipients = [...new Set([...recipients, ...ccOnly])];
-    if (allRecipients.length === 0) return;
-    await this.dispatchNotificationEmails(allRecipients, input.email);
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -329,17 +329,19 @@ export class NotificationService {
   private async dispatchNotificationEmails(
     userIds: string[],
     directive: NotificationEmailDirective,
+    ccAddresses: string[] = [],
   ): Promise<void> {
     try {
       const targets = userIds.filter(
         (id) => id && id !== directive.excludeUserId,
       );
-      if (targets.length === 0) return;
 
-      const users = await this.prisma.user.findMany({
-        where: { id: { in: targets }, deletedAt: null },
-        select: { id: true, email: true, firstName: true },
-      });
+      const users = targets.length
+        ? await this.prisma.user.findMany({
+            where: { id: { in: targets }, deletedAt: null },
+            select: { id: true, email: true, firstName: true },
+          })
+        : [];
 
       const emails = users
         .map((u) =>
@@ -352,6 +354,17 @@ export class NotificationService {
             : null,
         )
         .filter((m): m is NotificationEmail => m !== null);
+
+      // Raw CC addresses (e.g. the fixed admin inbox): no user record, so build
+      // with empty id/firstName. De-duplicated against already-resolved emails.
+      const resolvedTo = new Set(emails.map((m) => m.to));
+      for (const addr of new Set(ccAddresses)) {
+        if (!addr || resolvedTo.has(addr)) continue;
+        const built = directive.build({ id: '', email: addr, firstName: '' });
+        if (built) emails.push(built);
+      }
+
+      if (emails.length === 0) return;
 
       for (let i = 0; i < emails.length; i += NotificationService.EMAIL_BATCH) {
         const batch = emails.slice(i, i + NotificationService.EMAIL_BATCH);
@@ -382,28 +395,22 @@ export class NotificationService {
     creator: { id: string; firstName: string; lastName: string };
   }): Promise<void> {
     // Course-scoped threads notify only enrolled users (in-app); legacy global
-    // threads (no courseId) still fan out to everyone. Admins are CC'd by EMAIL
-    // only — no in-app row — preserving the course-scoped bell.
-    const [users, admins] = await Promise.all([
-      this.prisma.user.findMany({
-        where: args.courseId
-          ? {
-              UserCourse: { some: { courseId: args.courseId, isActive: true } },
-            }
-          : undefined,
-        select: { id: true },
-      }),
-      this.prisma.user.findMany({
-        where: { role: 'admin', deletedAt: null },
-        select: { id: true },
-      }),
-    ]);
+    // threads (no courseId) still fan out to everyone. The admin inbox is CC'd
+    // by EMAIL only — no in-app row — preserving the course-scoped bell.
+    const users = await this.prisma.user.findMany({
+      where: args.courseId
+        ? {
+            UserCourse: { some: { courseId: args.courseId, isActive: true } },
+          }
+        : undefined,
+      select: { id: true },
+    });
 
     const creatorName =
       `${args.creator.firstName} ${args.creator.lastName}`.trim();
     await this.createNotificationForMany({
       userIds: users.map((u) => u.id),
-      emailCcUserIds: admins.map((a) => a.id),
+      emailCcAddresses: [ADMIN_EMAIL],
       type: NotificationType.FORUM_THREAD,
       message: 'A new thread has been created by the admin.',
       payload: {

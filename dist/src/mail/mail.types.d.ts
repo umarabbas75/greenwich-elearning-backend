@@ -1,6 +1,7 @@
 export declare enum ReminderType {
     NEVER_STARTED = "never_started",
-    STALLED = "stalled"
+    STALLED = "stalled",
+    FEEDBACK_REMINDER = "feedback_reminder"
 }
 export interface EngagementReminderMail {
     to: string;
@@ -65,6 +66,32 @@ export interface ContactMessageMail {
     senderName: string;
     senderEmail: string;
     message: string;
+}
+export interface CourseCompletedMail {
+    to: string;
+    userId?: string | null;
+    firstName: string;
+    courseTitle: string;
+}
+export interface FeedbackRequestMail {
+    to: string;
+    userId?: string | null;
+    firstName: string;
+    courseTitle: string;
+    courseId?: string;
+}
+export interface FeedbackReceivedMail {
+    to: string;
+    userId?: string | null;
+    firstName: string;
+    courseTitle: string;
+}
+export interface FeedbackReceivedAdminMail {
+    to: string;
+    userId?: string | null;
+    studentName: string;
+    studentEmail: string;
+    courseTitle: string;
 }
 export interface MailSendResult {
     sent: boolean;

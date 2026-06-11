@@ -79,6 +79,26 @@ export class AdminDashboardController {
     return this.dashboard.getDailyActiveUsers(this.toInt(days, 7));
   }
 
+  /** Who opened the forum list or viewed a specific thread, and when. */
+  @Get('forum/views')
+  forumViews(
+    @Query('days') days?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+    @Query('userId') userId?: string,
+    @Query('threadId') threadId?: string,
+    @Query('scope') scope?: 'list' | 'thread',
+  ): Promise<ResponseDto> {
+    return this.dashboard.getForumViews({
+      days: this.toInt(days, 30),
+      cursor,
+      limit: this.toInt(limit, 50),
+      userId,
+      threadId,
+      scope,
+    });
+  }
+
   // ── Completions ───────────────────────────────────────────────────────────
 
   /** Filterable list of course completions (courseId, date range, passed). */

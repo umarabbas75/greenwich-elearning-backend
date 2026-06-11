@@ -14,6 +14,7 @@ const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const notification_service_1 = require("../notifications/notification.service");
+const mail_layout_1 = require("../mail/templates/mail-layout");
 function buildExcerpt(content, maxLen = 140) {
     return content.replace(/<[^>]*>/g, '').slice(0, maxLen);
 }
@@ -44,21 +45,15 @@ let ForumCommentService = class ForumCommentService {
                 },
                 select: { id: true },
             });
-            const [subscribedUsers, admins] = await Promise.all([
-                this.prisma.threadSubscription.findMany({
-                    where: { threadId: body.threadId, userId: { not: userId } },
-                    select: { userId: true },
-                }),
-                this.prisma.user.findMany({
-                    where: { role: 'admin', deletedAt: null, id: { not: userId } },
-                    select: { id: true },
-                }),
-            ]);
+            const subscribedUsers = await this.prisma.threadSubscription.findMany({
+                where: { threadId: body.threadId, userId: { not: userId } },
+                select: { userId: true },
+            });
             const excerpt = buildExcerpt(body.content ?? '');
             const commenterName = `${user.firstName} ${user.lastName}`.trim();
             await this.notificationService.createNotificationForMany({
                 userIds: subscribedUsers.map((s) => s.userId),
-                emailCcUserIds: admins.map((a) => a.id),
+                emailCcAddresses: [mail_layout_1.ADMIN_EMAIL],
                 type: client_1.NotificationType.FORUM_COMMENT,
                 message: body.content,
                 payload: {

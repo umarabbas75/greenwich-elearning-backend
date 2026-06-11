@@ -8,13 +8,14 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var ForumThreadService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ForumThreadService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const client_1 = require("@prisma/client");
 const notification_service_1 = require("../notifications/notification.service");
-let ForumThreadService = class ForumThreadService {
+let ForumThreadService = ForumThreadService_1 = class ForumThreadService {
     constructor(prisma, notificationService) {
         this.prisma = prisma;
         this.notificationService = notificationService;
@@ -186,6 +187,7 @@ let ForumThreadService = class ForumThreadService {
                         : undefined,
                 }),
             ]);
+            void this.recordForumView(user.id, { scope: client_1.ForumViewScope.list });
             const favoriteThreadIds = new Set(favoriteThreads.map((fav) => fav.threadId));
             const subscribedThreadIds = new Set(subscribedThreads.map((sub) => sub.threadId));
             const sortedForums = forums
@@ -337,7 +339,7 @@ let ForumThreadService = class ForumThreadService {
             }
         }
     }
-    async getForumThread(forumThreadId) {
+    async getForumThread(forumThreadId, userId) {
         try {
             const forum = await this.prisma.forumThread.findUnique({
                 where: { id: forumThreadId },
@@ -358,6 +360,13 @@ let ForumThreadService = class ForumThreadService {
                     },
                 },
             });
+            if (userId && forum) {
+                void this.recordForumView(userId, {
+                    scope: client_1.ForumViewScope.thread,
+                    threadId: forum.id,
+                    courseId: forum.courseId,
+                });
+            }
             return {
                 message: 'Successfully fetch Quiz info',
                 statusCode: 200,
@@ -373,9 +382,39 @@ let ForumThreadService = class ForumThreadService {
             });
         }
     }
+    async recordForumView(userId, args) {
+        try {
+            if (args.scope === client_1.ForumViewScope.list) {
+                const oneHourAgo = new Date(Date.now() - 3600000);
+                const recent = await this.prisma.forumViewEvent.findFirst({
+                    where: {
+                        userId,
+                        scope: client_1.ForumViewScope.list,
+                        createdAt: { gte: oneHourAgo },
+                    },
+                    select: { id: true },
+                });
+                if (recent)
+                    return;
+            }
+            await this.prisma.forumViewEvent.create({
+                data: {
+                    userId,
+                    scope: args.scope,
+                    threadId: args.threadId ?? null,
+                    courseId: args.courseId ?? null,
+                },
+            });
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            ForumThreadService_1.logger.warn(`Failed to record forum view for user ${userId}: ${message}`);
+        }
+    }
 };
 exports.ForumThreadService = ForumThreadService;
-exports.ForumThreadService = ForumThreadService = __decorate([
+ForumThreadService.logger = new common_1.Logger(ForumThreadService_1.name);
+exports.ForumThreadService = ForumThreadService = ForumThreadService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         notification_service_1.NotificationService])

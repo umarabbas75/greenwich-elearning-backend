@@ -199,7 +199,7 @@ let CourseController = class CourseController {
         return this.appService.updateLastSeenSection(user.id, body.chapterId, body.sectionId, body.moduleId, body.courseId, user.email);
     }
     async submitCourseFeedback(user, courseId, body) {
-        return this.appService.submitCourseFeedback(user.id, courseId, body.formData);
+        return this.appService.submitCourseFeedback(user.id, courseId, body);
     }
     async getCourseFeedbackStatus(user, courseId) {
         return this.appService.getCourseFeedbackStatus(user.id, courseId);

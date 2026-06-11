@@ -17,10 +17,14 @@ const dto_1 = require("../dto");
 const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../prisma/prisma.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
+const mail_service_1 = require("../mail/mail.service");
+const feedback_service_1 = require("../feedback/feedback.service");
 let CourseService = CourseService_1 = class CourseService {
-    constructor(prisma, config) {
+    constructor(prisma, config, mail, feedbackService) {
         this.prisma = prisma;
         this.config = config;
+        this.mail = mail;
+        this.feedbackService = feedbackService;
     }
     shuffleArray(arr) {
         const a = [...arr];
@@ -2373,6 +2377,9 @@ let CourseService = CourseService_1 = class CourseService {
                                 },
                             },
                             _count: { select: { UserCourseProgress: { where: { userId } } } },
+                            feedbackForm: {
+                                select: { isRequired: true, isActive: true },
+                            },
                             LastSeenSection: {
                                 where: { userId },
                                 take: 1,
@@ -2392,6 +2399,12 @@ let CourseService = CourseService_1 = class CourseService {
                     data: [],
                 };
             }
+            const courseIds = assignedCourses.map((uc) => uc.courseId);
+            const feedbackSubmissions = await this.prisma.courseFeedbackSubmission.findMany({
+                where: { userId, courseId: { in: courseIds } },
+                select: { courseId: true },
+            });
+            const feedbackSubmittedIds = new Set(feedbackSubmissions.map((s) => s.courseId));
             const coursesWithDetails = assignedCourses.map((userCourse) => {
                 const { course, isActive, isPaid } = userCourse;
                 const formStatus = {
@@ -2445,6 +2458,12 @@ let CourseService = CourseService_1 = class CourseService {
                     ...course,
                     isActive,
                     isPaid,
+                    feedbackForm: course.feedbackForm
+                        ? {
+                            isRequired: course.feedbackForm.isRequired,
+                            isCompleted: feedbackSubmittedIds.has(course.id),
+                        }
+                        : null,
                     percentage: sectionsCount > 0
                         ? (userCourseProgressCount * 100) / sectionsCount
                         : 0,
@@ -2600,10 +2619,57 @@ let CourseService = CourseService_1 = class CourseService {
                 create: { userId, courseId, courseCompletedAt: new Date() },
                 update: { courseCompletedAt: new Date() },
             });
+            await this._sendCompletionEmails(userId, courseId);
+            await this.feedbackService.notifyFeedbackRequiredIfNeeded(userId, courseId);
         }
         catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             CourseService_1.completionLogger.warn(`Content-completion check failed for user ${userId}, course ${courseId}: ${message}`);
+        }
+    }
+    async _sendCompletionEmails(userId, courseId) {
+        try {
+            const [user, course] = await Promise.all([
+                this.prisma.user.findUnique({
+                    where: { id: userId },
+                    select: { email: true, firstName: true, deletedAt: true },
+                }),
+                this.prisma.course.findUnique({
+                    where: { id: courseId },
+                    select: { title: true },
+                }),
+            ]);
+            if (!user?.email || user.deletedAt || !course)
+                return;
+            await this.mail.sendCourseCompleted({
+                to: user.email,
+                userId,
+                firstName: user.firstName ?? '',
+                courseTitle: course.title,
+            });
+            const [form, alreadySubmitted] = await Promise.all([
+                this.prisma.courseFeedbackForm.findFirst({
+                    where: { courseId, isActive: true },
+                    select: { id: true },
+                }),
+                this.prisma.courseFeedbackSubmission.findFirst({
+                    where: { userId, courseId },
+                    select: { id: true },
+                }),
+            ]);
+            if (form && !alreadySubmitted) {
+                await this.mail.sendFeedbackRequest({
+                    to: user.email,
+                    userId,
+                    firstName: user.firstName ?? '',
+                    courseTitle: course.title,
+                    courseId,
+                });
+            }
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            CourseService_1.completionLogger.warn(`Completion emails failed for user ${userId}, course ${courseId}: ${message}`);
         }
     }
     async getUserChapterProgress(userId, courseId, chapterId) {
@@ -2709,143 +2775,14 @@ let CourseService = CourseService_1 = class CourseService {
             });
         }
     }
-    async submitCourseFeedback(studentId, courseId, formData) {
-        try {
-            const course = await this.prisma.course.findUnique({
-                where: { id: courseId },
-            });
-            if (!course) {
-                throw new Error('Course not found');
-            }
-            const feedbackForm = await this.prisma.courseFeedbackForm.findFirst({
-                where: {
-                    courseId: courseId,
-                },
-            });
-            if (!feedbackForm) {
-                throw new Error('No feedback form found for this course');
-            }
-            const enrollment = await this.prisma.userCourse.findFirst({
-                where: {
-                    userId: studentId,
-                    courseId: courseId,
-                    isActive: true,
-                },
-            });
-            if (!enrollment) {
-                throw new Error('You are not enrolled in this course');
-            }
-            const existingCompletion = await this.prisma.courseFeedbackSubmission.findFirst({
-                where: {
-                    userId: studentId,
-                    courseId: courseId,
-                },
-            });
-            if (existingCompletion) {
-                throw new Error('You have already completed the feedback form for this course');
-            }
-            const completion = await this.prisma.courseFeedbackSubmission.create({
-                data: {
-                    userId: studentId,
-                    courseId: courseId,
-                    feedbackFormId: feedbackForm.id,
-                    responses: formData,
-                },
-            });
-            return {
-                message: 'Course feedback submitted successfully',
-                statusCode: 200,
-                data: completion,
-            };
-        }
-        catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Failed to submit feedback',
-            }, common_1.HttpStatus.FORBIDDEN);
-        }
+    async submitCourseFeedback(studentId, courseId, body) {
+        return this.feedbackService.submitCourseFeedback(studentId, courseId, body);
     }
     async getCourseFeedbackStatus(studentId, courseId) {
-        try {
-            const feedbackForm = await this.prisma.courseFeedbackForm.findFirst({
-                where: {
-                    courseId: courseId,
-                },
-            });
-            if (!feedbackForm) {
-                throw new Error('No feedback form found for this course');
-            }
-            const completion = await this.prisma.courseFeedbackSubmission.findFirst({
-                where: {
-                    userId: studentId,
-                    courseId: courseId,
-                },
-            });
-            return {
-                message: 'Course feedback status fetched successfully',
-                statusCode: 200,
-                data: {
-                    hasFeedbackForm: true,
-                    isCompleted: !!completion,
-                    feedbackForm: {
-                        formName: feedbackForm.formName,
-                        isRequired: feedbackForm.isRequired,
-                        submittedAt: completion?.submittedAt || null,
-                    },
-                },
-            };
-        }
-        catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Failed to fetch feedback status',
-            }, common_1.HttpStatus.FORBIDDEN);
-        }
+        return this.feedbackService.getCourseFeedbackStatus(studentId, courseId);
     }
     async getCourseFeedbackSubmissions(courseId, adminId) {
-        try {
-            const admin = await this.prisma.user.findUnique({
-                where: { id: adminId },
-            });
-            if (!admin || admin.role !== 'admin') {
-                throw new Error('Only admins can view feedback submissions');
-            }
-            const completions = await this.prisma.courseFeedbackSubmission.findMany({
-                where: {
-                    courseId: courseId,
-                },
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            firstName: true,
-                            lastName: true,
-                            email: true,
-                        },
-                    },
-                },
-                orderBy: { submittedAt: 'desc' },
-            });
-            return {
-                message: 'Course feedback submissions fetched successfully',
-                statusCode: 200,
-                data: {
-                    courseId,
-                    submissions: completions.map((completion) => ({
-                        user: completion.user,
-                        submittedAt: completion.submittedAt,
-                        responses: completion.responses,
-                    })),
-                    totalSubmissions: completions.length,
-                },
-            };
-        }
-        catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Failed to fetch feedback submissions',
-            }, common_1.HttpStatus.FORBIDDEN);
-        }
+        return this.feedbackService.getCourseFeedbackSubmissions(courseId, adminId);
     }
     async resetUserCourseProgress(adminId, userId, courseId) {
         try {
@@ -2956,6 +2893,8 @@ CourseService.completionLogger = new common_1.Logger(CourseService_1.name);
 exports.CourseService = CourseService = CourseService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        config_1.ConfigService])
+        config_1.ConfigService,
+        mail_service_1.MailService,
+        feedback_service_1.FeedbackService])
 ], CourseService);
 //# sourceMappingURL=course.service.js.map

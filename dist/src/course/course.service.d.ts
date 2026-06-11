@@ -2,11 +2,15 @@ import { Role } from '@prisma/client';
 import { CourseDto, ModuleDto, ResponseDto, UpdateCourseDto, CreateSectionDto, CreateMatchAndLearnSectionDto, CreateVisualActivitySectionDto, CreateOrderingSectionDto, CreateMatchingSectionDto, UpdateSectionDto, UpdateMatchAndLearnSectionDto, UpdateVisualActivitySectionDto, UpdateOrderingSectionDto, UpdateMatchingSectionDto, UpdateSectionOrderDto } from '../dto';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
+import { FeedbackService } from '../feedback/feedback.service';
 export declare class CourseService {
     private prisma;
     private config;
+    private mail;
+    private feedbackService;
     private static readonly completionLogger;
-    constructor(prisma: PrismaService, config: ConfigService);
+    constructor(prisma: PrismaService, config: ConfigService, mail: MailService, feedbackService: FeedbackService);
     private shuffleArray;
     private assertValidOrderingItems;
     private sanitizeLessonSectionForStudent;
@@ -82,10 +86,14 @@ export declare class CourseService {
     getAllAssignedCoursesPublic(userId: string): Promise<any>;
     updateUserChapterProgress(userId: string, body: any, userEmail?: string | null): Promise<ResponseDto>;
     private _checkContentCompletion;
+    private _sendCompletionEmails;
     getUserChapterProgress(userId: string, courseId: string, chapterId: string): Promise<ResponseDto>;
     getLastSeenSection(userId: string, chapterId: string): Promise<ResponseDto>;
     updateLastSeenSection(userId: string, chapterId: string, sectionId: string, moduleId: string, courseId: string, userEmail?: string | null): Promise<ResponseDto>;
-    submitCourseFeedback(studentId: string, courseId: string, formData: any): Promise<ResponseDto>;
+    submitCourseFeedback(studentId: string, courseId: string, body: {
+        formVersion?: string;
+        formData: unknown;
+    }): Promise<ResponseDto>;
     getCourseFeedbackStatus(studentId: string, courseId: string): Promise<ResponseDto>;
     getCourseFeedbackSubmissions(courseId: string, adminId: string): Promise<ResponseDto>;
     resetUserCourseProgress(adminId: string, userId: string, courseId: string): Promise<ResponseDto>;

@@ -31,6 +31,13 @@ export const BRAND = {
   website: 'https://www.greenwichtc-elearning.com',
 } as const;
 
+/**
+ * Single admin recipient for admin-facing emails (contact messages, new
+ * feedback submissions, etc.). Centralised so there's one place to change it.
+ * Not derived from DB admin users — the business wants one fixed inbox.
+ */
+export const ADMIN_EMAIL = 'umarabbas75@gmail.com';
+
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')

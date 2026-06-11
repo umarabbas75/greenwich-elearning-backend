@@ -32,7 +32,7 @@ interface CreateNotificationInput {
 interface BulkCreateNotificationInput extends Omit<CreateNotificationInput, 'userId'> {
     userIds: string[];
     dedupeKeyFor?: (userId: string) => string | null;
-    emailCcUserIds?: string[];
+    emailCcAddresses?: string[];
 }
 export declare class NotificationService {
     private prisma;

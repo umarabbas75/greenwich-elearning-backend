@@ -16,6 +16,7 @@ const client_1 = require("@prisma/client");
 const argon2 = require("argon2");
 const prisma_service_1 = require("../prisma/prisma.service");
 const mail_service_1 = require("../mail/mail.service");
+const mail_layout_1 = require("../mail/templates/mail-layout");
 let UserService = UserService_1 = class UserService {
     constructor(prisma, mail) {
         this.prisma = prisma;
@@ -526,25 +527,13 @@ let UserService = UserService_1 = class UserService {
                 },
             });
             try {
-                const admins = await this.prisma.user.findMany({
-                    where: { role: 'admin', deletedAt: null },
-                    select: { id: true, email: true },
-                });
                 const senderName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
-                const recipients = admins.filter((a) => a.email);
-                for (let i = 0; i < recipients.length; i += 2) {
-                    const batch = recipients.slice(i, i + 2);
-                    await Promise.all(batch.map((admin) => this.mail.sendContactMessage({
-                        to: admin.email,
-                        userId: admin.id,
-                        senderName: senderName || 'A user',
-                        senderEmail: user.email,
-                        message: body.message,
-                    })));
-                    if (i + 2 < recipients.length) {
-                        await new Promise((r) => setTimeout(r, 1100));
-                    }
-                }
+                await this.mail.sendContactMessage({
+                    to: mail_layout_1.ADMIN_EMAIL,
+                    senderName: senderName || 'A user',
+                    senderEmail: user.email,
+                    message: body.message,
+                });
             }
             catch (mailErr) {
                 const m = mailErr instanceof Error ? mailErr.message : String(mailErr);

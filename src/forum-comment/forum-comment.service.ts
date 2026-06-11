@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
+import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
 
 /** Truncate to N chars after stripping HTML-ish tags. Cheap defensive scrub
  * — comment content is plain text today but this protects against future
@@ -41,24 +42,18 @@ export class ForumCommentService {
       });
 
       // In-app notifications go to thread subscribers (minus the commenter).
-      // Admins are CC'd by EMAIL only — no in-app row — so the bell stays
-      // subscriber-scoped as before.
-      const [subscribedUsers, admins] = await Promise.all([
-        this.prisma.threadSubscription.findMany({
-          where: { threadId: body.threadId, userId: { not: userId } },
-          select: { userId: true },
-        }),
-        this.prisma.user.findMany({
-          where: { role: 'admin', deletedAt: null, id: { not: userId } },
-          select: { id: true },
-        }),
-      ]);
+      // The admin inbox is CC'd by EMAIL only — no in-app row — so the bell
+      // stays subscriber-scoped as before.
+      const subscribedUsers = await this.prisma.threadSubscription.findMany({
+        where: { threadId: body.threadId, userId: { not: userId } },
+        select: { userId: true },
+      });
 
       const excerpt = buildExcerpt(body.content ?? '');
       const commenterName = `${user.firstName} ${user.lastName}`.trim();
       await this.notificationService.createNotificationForMany({
         userIds: subscribedUsers.map((s) => s.userId),
-        emailCcUserIds: admins.map((a) => a.id),
+        emailCcAddresses: [ADMIN_EMAIL],
         type: NotificationType.FORUM_COMMENT,
         message: body.content,
         payload: {

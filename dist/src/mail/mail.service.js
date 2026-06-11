@@ -21,6 +21,7 @@ const password_reset_template_1 = require("./templates/password-reset.template")
 const notification_template_1 = require("./templates/notification.template");
 const welcome_template_1 = require("./templates/welcome.template");
 const contact_message_template_1 = require("./templates/contact-message.template");
+const course_feedback_template_1 = require("./templates/course-feedback.template");
 const NOTIFICATION_EMAIL_TYPE = {
     FORUM_THREAD: client_1.EmailType.NOTIFICATION_FORUM_THREAD,
     FORUM_COMMENT: client_1.EmailType.NOTIFICATION_FORUM_COMMENT,
@@ -73,6 +74,44 @@ let MailService = MailService_1 = class MailService {
             type: client_1.EmailType.CONTACT_MESSAGE,
             userId: mail.userId ?? null,
             metadata: { senderEmail: mail.senderEmail },
+        });
+    }
+    async sendCourseCompleted(mail) {
+        return this.send(mail.to, (0, course_feedback_template_1.renderCourseCompleted)(mail), 'course completed', {
+            type: client_1.EmailType.COURSE_COMPLETED,
+            userId: mail.userId ?? null,
+            metadata: { courseTitle: mail.courseTitle },
+        });
+    }
+    async sendFeedbackRequest(mail) {
+        return this.send(mail.to, (0, course_feedback_template_1.renderFeedbackRequest)(mail), 'feedback request', {
+            type: client_1.EmailType.FEEDBACK_REQUEST,
+            userId: mail.userId ?? null,
+            metadata: { courseTitle: mail.courseTitle, courseId: mail.courseId },
+        });
+    }
+    async sendFeedbackReminder(mail) {
+        return this.send(mail.to, (0, course_feedback_template_1.renderFeedbackReminder)(mail), 'feedback reminder', {
+            type: client_1.EmailType.FEEDBACK_REMINDER,
+            userId: mail.userId ?? null,
+            metadata: { courseTitle: mail.courseTitle, courseId: mail.courseId },
+        });
+    }
+    async sendFeedbackReceived(mail) {
+        return this.send(mail.to, (0, course_feedback_template_1.renderFeedbackReceived)(mail), 'feedback received', {
+            type: client_1.EmailType.FEEDBACK_RECEIVED,
+            userId: mail.userId ?? null,
+            metadata: { courseTitle: mail.courseTitle },
+        });
+    }
+    async sendFeedbackReceivedAdmin(mail) {
+        return this.send(mail.to, (0, course_feedback_template_1.renderFeedbackReceivedAdmin)(mail), 'feedback received (admin)', {
+            type: client_1.EmailType.FEEDBACK_RECEIVED_ADMIN,
+            userId: mail.userId ?? null,
+            metadata: {
+                courseTitle: mail.courseTitle,
+                studentEmail: mail.studentEmail,
+            },
         });
     }
     async send(to, rendered, label, audit) {

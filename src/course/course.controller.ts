@@ -454,14 +454,11 @@ export class CourseController {
     @Param('courseId') courseId: string,
     @Body()
     body: {
-      formData: any; // User's responses to the feedback form
+      formVersion?: string;
+      formData: unknown;
     },
   ): Promise<ResponseDto> {
-    return this.appService.submitCourseFeedback(
-      user.id,
-      courseId,
-      body.formData,
-    );
+    return this.appService.submitCourseFeedback(user.id, courseId, body);
   }
 
   // Student: check course feedback completion status

@@ -19,6 +19,7 @@ const mail_service_1 = require("../mail/mail.service");
 const mail_types_1 = require("../mail/mail.types");
 const with_db_retry_1 = require("../utils/with-db-retry");
 const engagement_constants_1 = require("./engagement.constants");
+const feedback_constants_1 = require("../feedback/feedback.constants");
 let EngagementService = EngagementService_1 = class EngagementService {
     constructor(prisma, mail, config) {
         this.prisma = prisma;
@@ -48,14 +49,18 @@ let EngagementService = EngagementService_1 = class EngagementService {
         const neverStarted = await this.dispatch(neverStartedCandidates, mail_types_1.ReminderType.NEVER_STARTED, (0, engagement_constants_1.cooldownBucket)(now, neverStartedCooldown));
         const stalledCandidates = await this.findStalled(stalledDays, limit);
         const stalled = await this.dispatch(stalledCandidates, mail_types_1.ReminderType.STALLED, (0, engagement_constants_1.cooldownBucket)(now, stalledCooldown));
+        const feedbackCandidates = await this.findFeedbackReminders(limit);
+        const feedbackReminder = await this.dispatchFeedbackReminders(feedbackCandidates, (0, feedback_constants_1.feedbackReminderBucket)(now, feedback_constants_1.FEEDBACK_REMINDER_COOLDOWN_DAYS));
         const summary = {
             neverStarted,
             stalled,
+            feedbackReminder,
             ranAt: now.toISOString(),
         };
         this.logger.log(`Engagement sweep: never_started ${neverStarted.notified}/${neverStarted.candidates} notified, ` +
             `${neverStarted.emailed} emailed; stalled ${stalled.notified}/${stalled.candidates} notified, ` +
-            `${stalled.emailed} emailed.`);
+            `${stalled.emailed} emailed; feedback ${feedbackReminder.notified}/${feedbackReminder.candidates} notified, ` +
+            `${feedbackReminder.emailed} emailed.`);
         return summary;
     }
     async findNeverStarted(daysEnrolled, limit) {
@@ -124,6 +129,114 @@ let EngagementService = EngagementService_1 = class EngagementService {
            ORDER BY uc."userId", uc."courseId"
            LIMIT ${limit}
         `, { mode: 'read' });
+    }
+    async findFeedbackReminders(limit) {
+        const cutoff = client_1.Prisma.sql `(now() - make_interval(days => ${feedback_constants_1.FEEDBACK_REMINDER_AFTER_DAYS}::int))`;
+        const maxNotifications = feedback_constants_1.FEEDBACK_REMINDER_LIFETIME_CAP + 1;
+        return (0, with_db_retry_1.withDbRetry)(() => this.prisma.$queryRaw `
+          SELECT cc."userId"   AS "userId",
+                 cc."courseId" AS "courseId",
+                 u."email"     AS "email",
+                 u."firstName" AS "firstName",
+                 c."title"     AS "courseTitle"
+            FROM "course_completions" cc
+            JOIN "users" u ON u."id" = cc."userId"
+            JOIN "courses" c ON c."id" = cc."courseId"
+            JOIN "course_feedback_forms" ff ON ff."courseId" = cc."courseId"
+            LEFT JOIN "course_feedback_submissions" fs
+                   ON fs."userId" = cc."userId" AND fs."courseId" = cc."courseId"
+           WHERE cc."courseCompletedAt" IS NOT NULL
+             AND cc."courseCompletedAt" < ${cutoff}
+             AND ff."isRequired" = true
+             AND ff."isActive" = true
+             AND fs."id" IS NULL
+             AND c."isActive" = true
+             AND u."status" = 'active'
+             AND u."deletedAt" IS NULL
+             AND (
+               SELECT COUNT(*)::int
+                 FROM "notifications" n
+                WHERE n."userId" = cc."userId"
+                  AND n."referenceId" = cc."courseId"
+                  AND n."type" = 'COURSE_FEEDBACK_REQUIRED'
+             ) < ${maxNotifications}
+           ORDER BY cc."userId", cc."courseId"
+           LIMIT ${limit}
+        `, { mode: 'read' });
+    }
+    async dispatchFeedbackReminders(candidates, bucket) {
+        if (candidates.length === 0) {
+            return { candidates: 0, notified: 0, emailed: 0 };
+        }
+        const rows = candidates.map((c) => {
+            const daysOverdue = Math.min(30, feedback_constants_1.FEEDBACK_REMINDER_AFTER_DAYS);
+            return {
+                userId: c.userId,
+                type: client_1.NotificationType.COURSE_FEEDBACK_REQUIRED,
+                message: `Please share your feedback for ${c.courseTitle}.`,
+                payload: {
+                    courseId: c.courseId,
+                    courseTitle: c.courseTitle,
+                    daysOverdue,
+                    reminderType: mail_types_1.ReminderType.FEEDBACK_REMINDER,
+                },
+                groupKey: (0, feedback_constants_1.feedbackGroupKey)(c.courseId),
+                dedupeKey: (0, feedback_constants_1.feedbackDedupeKey)(c.courseId, c.userId, bucket),
+                referenceId: c.courseId,
+            };
+        });
+        const inserted = await (0, with_db_retry_1.withDbRetry)(() => this.prisma.notification.createMany({
+            data: rows,
+            skipDuplicates: true,
+        }), { mode: 'write' });
+        let emailed = 0;
+        if (inserted.count > 0 && this.mail.isEnabled) {
+            const freshKeys = await this.freshlyInsertedFeedbackKeys(rows);
+            const toEmail = candidates.filter((c) => freshKeys.has((0, feedback_constants_1.feedbackDedupeKey)(c.courseId, c.userId, bucket)));
+            emailed = await this.sendFeedbackReminderEmails(toEmail);
+        }
+        return {
+            candidates: candidates.length,
+            notified: inserted.count,
+            emailed,
+        };
+    }
+    async sendFeedbackReminderEmails(recipients) {
+        const batchSize = Math.max(1, Math.trunc(this.num(engagement_constants_1.ENGAGEMENT_ENV.emailConcurrency, engagement_constants_1.ENGAGEMENT_DEFAULTS.emailConcurrency)));
+        const pauseMs = engagement_constants_1.ENGAGEMENT_DEFAULTS.emailBatchPauseMs;
+        const sendOne = (c) => this.mail.sendFeedbackReminder({
+            to: c.email,
+            userId: c.userId,
+            firstName: c.firstName,
+            courseTitle: c.courseTitle,
+            courseId: c.courseId,
+        });
+        let sent = 0;
+        for (let i = 0; i < recipients.length; i += batchSize) {
+            const chunk = recipients.slice(i, i + batchSize);
+            const results = await Promise.all(chunk.map(sendOne));
+            sent += results.filter((r) => r.sent).length;
+            if (i + batchSize < recipients.length)
+                await this.sleep(pauseMs);
+        }
+        return sent;
+    }
+    async freshlyInsertedFeedbackKeys(rows) {
+        const keys = rows
+            .map((r) => r.dedupeKey)
+            .filter((k) => typeof k === 'string');
+        if (keys.length === 0)
+            return new Set();
+        const found = await (0, with_db_retry_1.withDbRetry)(() => this.prisma.notification.findMany({
+            where: {
+                dedupeKey: { in: keys },
+                createdAt: { gte: new Date(Date.now() - 5 * 60000) },
+            },
+            select: { dedupeKey: true },
+        }), { mode: 'read' });
+        return new Set(found
+            .map((f) => f.dedupeKey)
+            .filter((k) => typeof k === 'string'));
     }
     async dispatch(candidates, reminderType, bucket) {
         if (candidates.length === 0) {

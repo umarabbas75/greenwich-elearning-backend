@@ -4,6 +4,7 @@ import { ResponseDto, BodyDto, BodyUpdateDto, ChangePasswordDto } from '../dto';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
 
 @Injectable()
 export class UserService {
@@ -692,36 +693,18 @@ export class UserService {
         },
       });
 
-      // Email every admin so a contact message is actioned, not just stored.
-      // Best-effort: a mail failure must not fail the user's submission.
+      // Email the single admin inbox so a contact message is actioned, not just
+      // stored. Best-effort: a mail failure must not fail the user's submission.
       try {
-        const admins = await this.prisma.user.findMany({
-          where: { role: 'admin', deletedAt: null },
-          select: { id: true, email: true },
-        });
         const senderName = `${user.firstName ?? ''} ${
           user.lastName ?? ''
         }`.trim();
-        const recipients = admins.filter((a) => a.email);
-        // Throttle to ~2/sec to respect Resend's rate limit (matches the
-        // NotificationService dispatch). Sends are best-effort and never throw.
-        for (let i = 0; i < recipients.length; i += 2) {
-          const batch = recipients.slice(i, i + 2);
-          await Promise.all(
-            batch.map((admin) =>
-              this.mail.sendContactMessage({
-                to: admin.email,
-                userId: admin.id,
-                senderName: senderName || 'A user',
-                senderEmail: user.email,
-                message: body.message,
-              }),
-            ),
-          );
-          if (i + 2 < recipients.length) {
-            await new Promise((r) => setTimeout(r, 1100));
-          }
-        }
+        await this.mail.sendContactMessage({
+          to: ADMIN_EMAIL,
+          senderName: senderName || 'A user',
+          senderEmail: user.email,
+          message: body.message,
+        });
       } catch (mailErr) {
         const m = mailErr instanceof Error ? mailErr.message : String(mailErr);
         UserService.logger.warn(`Contact-message email failed: ${m}`);

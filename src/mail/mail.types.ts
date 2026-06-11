@@ -8,6 +8,8 @@ export enum ReminderType {
   NEVER_STARTED = 'never_started',
   /** Was active, then went quiet past the stalled threshold. */
   STALLED = 'stalled',
+  /** Completed a course but has not submitted required feedback. */
+  FEEDBACK_REMINDER = 'feedback_reminder',
 }
 
 /** Data needed to render a single engagement reminder email. */
@@ -101,6 +103,41 @@ export interface ContactMessageMail {
   senderName: string;
   senderEmail: string;
   message: string;
+}
+
+/** Congratulations email when a user completes a course (100% content). */
+export interface CourseCompletedMail {
+  to: string;
+  userId?: string | null;
+  firstName: string;
+  courseTitle: string;
+}
+
+/** Asks a user to fill the course feedback form (sent after completion). */
+export interface FeedbackRequestMail {
+  to: string;
+  userId?: string | null;
+  firstName: string;
+  courseTitle: string;
+  /** When set, deep-links to the feedback modal for that course. */
+  courseId?: string;
+}
+
+/** Confirms to the user that their course feedback was registered. */
+export interface FeedbackReceivedMail {
+  to: string;
+  userId?: string | null;
+  firstName: string;
+  courseTitle: string;
+}
+
+/** Notifies the admin that a user submitted course feedback. */
+export interface FeedbackReceivedAdminMail {
+  to: string;
+  userId?: string | null;
+  studentName: string;
+  studentEmail: string;
+  courseTitle: string;
 }
 
 /** Result of a send attempt — never throws to the caller; email is best-effort. */

@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { ContactMessageMail, EngagementReminderMail, MailSendResult, NotificationEmail, PasswordResetMail, WelcomeMail } from './mail.types';
+import { ContactMessageMail, CourseCompletedMail, EngagementReminderMail, FeedbackReceivedAdminMail, FeedbackReceivedMail, FeedbackRequestMail, MailSendResult, NotificationEmail, PasswordResetMail, WelcomeMail } from './mail.types';
 export declare class MailService {
     private readonly config;
     private readonly prisma;
@@ -14,6 +14,11 @@ export declare class MailService {
     sendNotificationEmail(mail: NotificationEmail): Promise<MailSendResult>;
     sendWelcome(mail: WelcomeMail): Promise<MailSendResult>;
     sendContactMessage(mail: ContactMessageMail): Promise<MailSendResult>;
+    sendCourseCompleted(mail: CourseCompletedMail): Promise<MailSendResult>;
+    sendFeedbackRequest(mail: FeedbackRequestMail): Promise<MailSendResult>;
+    sendFeedbackReminder(mail: FeedbackRequestMail): Promise<MailSendResult>;
+    sendFeedbackReceived(mail: FeedbackReceivedMail): Promise<MailSendResult>;
+    sendFeedbackReceivedAdmin(mail: FeedbackReceivedAdminMail): Promise<MailSendResult>;
     private send;
     private recordEmailLog;
 }

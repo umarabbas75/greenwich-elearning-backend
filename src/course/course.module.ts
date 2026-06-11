@@ -7,9 +7,11 @@ import {
   JwtCombineStrategy,
   JwtUserStrategy,
 } from '../strategy';
+import { MailModule } from '../mail/mail.module';
+import { FeedbackModule } from '../feedback/feedback.module';
 
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [JwtModule.register({}), MailModule, FeedbackModule],
   providers: [
     CourseService,
     JwtUserStrategy,

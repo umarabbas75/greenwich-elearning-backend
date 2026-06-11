@@ -49,6 +49,16 @@ let AdminDashboardController = class AdminDashboardController {
     dailyActive(days) {
         return this.dashboard.getDailyActiveUsers(this.toInt(days, 7));
     }
+    forumViews(days, cursor, limit, userId, threadId, scope) {
+        return this.dashboard.getForumViews({
+            days: this.toInt(days, 30),
+            cursor,
+            limit: this.toInt(limit, 50),
+            userId,
+            threadId,
+            scope,
+        });
+    }
     completions(courseId, from, to, passed, cursor, limit) {
         return this.dashboard.getCompletions({
             courseId,
@@ -150,6 +160,18 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], AdminDashboardController.prototype, "dailyActive", null);
+__decorate([
+    (0, common_1.Get)('forum/views'),
+    __param(0, (0, common_1.Query)('days')),
+    __param(1, (0, common_1.Query)('cursor')),
+    __param(2, (0, common_1.Query)('limit')),
+    __param(3, (0, common_1.Query)('userId')),
+    __param(4, (0, common_1.Query)('threadId')),
+    __param(5, (0, common_1.Query)('scope')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String, String, String, String]),
+    __metadata("design:returntype", Promise)
+], AdminDashboardController.prototype, "forumViews", null);
 __decorate([
     (0, common_1.Get)('completions'),
     __param(0, (0, common_1.Query)('courseId')),

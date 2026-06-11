@@ -1,0 +1,13 @@
+import { FeedbackOverallRating } from '@prisma/client';
+export declare const FEEDBACK_FORM_VERSION = "lms-elearning-v1-2026-06";
+export declare const FEEDBACK_LIKERT_KEYS: readonly ["objectivesClear", "contentRelevant", "lmsEasyToUse", "materialsAccurate", "videosEffective", "structureLogical", "paceAppropriate", "assessmentsReflectContent", "instructionsClear", "tutorSupportProfessional", "tutorFeedbackTimely", "technicalSupportAvailable", "engagingInteractive", "knowledgeImproved", "confidentInApplication", "metExpectations", "overallSatisfied", "wouldRecommend"];
+export type FeedbackLikertKey = (typeof FEEDBACK_LIKERT_KEYS)[number];
+export declare const FEEDBACK_OVERALL_RATINGS: FeedbackOverallRating[];
+export declare const FEEDBACK_REMINDER_AFTER_DAYS = 2;
+export declare const FEEDBACK_REMINDER_COOLDOWN_DAYS = 3;
+export declare const FEEDBACK_REMINDER_LIFETIME_CAP = 4;
+export declare function feedbackGroupKey(courseId: string): string;
+export declare function feedbackDedupeKey(courseId: string, userId: string, bucket: number | string): string;
+export declare function feedbackReminderBucket(now: Date, cooldownDays: number): number;
+export declare function computeMeanLikertRating(formData: Record<string, unknown>): number;
+export declare function validateFeedbackFormData(formData: unknown): Record<string, unknown>;

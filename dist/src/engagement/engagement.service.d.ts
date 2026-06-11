@@ -12,6 +12,11 @@ export interface SweepSummary {
         notified: number;
         emailed: number;
     };
+    feedbackReminder: {
+        candidates: number;
+        notified: number;
+        emailed: number;
+    };
     ranAt: string;
 }
 export declare class EngagementService {
@@ -27,6 +32,10 @@ export declare class EngagementService {
     private static readonly ACTIVITY_CTE;
     private findNeverStarted;
     private findStalled;
+    private findFeedbackReminders;
+    private dispatchFeedbackReminders;
+    private sendFeedbackReminderEmails;
+    private freshlyInsertedFeedbackKeys;
     private dispatch;
     private sendEmails;
     private sleep;

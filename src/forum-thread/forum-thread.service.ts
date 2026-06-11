@@ -1,10 +1,12 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ForumThread, Prisma } from '@prisma/client';
+import { ForumThread, ForumViewScope, Prisma } from '@prisma/client';
 import { NotificationService } from '../notifications/notification.service';
 
 @Injectable()
 export class ForumThreadService {
+  private static readonly logger = new Logger(ForumThreadService.name);
+
   constructor(
     private prisma: PrismaService,
     private notificationService: NotificationService,
@@ -194,6 +196,8 @@ export class ForumThreadService {
               : undefined,
         }),
       ]);
+
+      void this.recordForumView(user.id, { scope: ForumViewScope.list });
 
       const favoriteThreadIds = new Set(
         favoriteThreads.map((fav) => fav.threadId),
@@ -398,7 +402,7 @@ export class ForumThreadService {
     }
   }
 
-  async getForumThread(forumThreadId: any): Promise<any> {
+  async getForumThread(forumThreadId: string, userId?: string): Promise<any> {
     try {
       const forum = await this.prisma.forumThread.findUnique({
         where: { id: forumThreadId },
@@ -420,6 +424,14 @@ export class ForumThreadService {
         },
       });
 
+      if (userId && forum) {
+        void this.recordForumView(userId, {
+          scope: ForumViewScope.thread,
+          threadId: forum.id,
+          courseId: forum.courseId,
+        });
+      }
+
       return {
         message: 'Successfully fetch Quiz info',
         statusCode: 200,
@@ -435,6 +447,48 @@ export class ForumThreadService {
         {
           cause: error,
         },
+      );
+    }
+  }
+
+  /**
+   * Append a forum view event. Best-effort: never throws into the caller.
+   * List views are throttled to once per user per hour to avoid noisy refetches.
+   */
+  private async recordForumView(
+    userId: string,
+    args: {
+      scope: ForumViewScope;
+      threadId?: string | null;
+      courseId?: string | null;
+    },
+  ): Promise<void> {
+    try {
+      if (args.scope === ForumViewScope.list) {
+        const oneHourAgo = new Date(Date.now() - 3_600_000);
+        const recent = await this.prisma.forumViewEvent.findFirst({
+          where: {
+            userId,
+            scope: ForumViewScope.list,
+            createdAt: { gte: oneHourAgo },
+          },
+          select: { id: true },
+        });
+        if (recent) return;
+      }
+
+      await this.prisma.forumViewEvent.create({
+        data: {
+          userId,
+          scope: args.scope,
+          threadId: args.threadId ?? null,
+          courseId: args.courseId ?? null,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      ForumThreadService.logger.warn(
+        `Failed to record forum view for user ${userId}: ${message}`,
       );
     }
   }

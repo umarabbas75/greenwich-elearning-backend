@@ -39,8 +39,8 @@ let ForumThreadController = class ForumThreadController {
     async getAllForumThreads(user) {
         return this.forumThreadService.getAllForumThreads(user);
     }
-    async getForumThread(params) {
-        return this.forumThreadService.getForumThread(params.forumThreadId);
+    async getForumThread(params, user) {
+        return this.forumThreadService.getForumThread(params.forumThreadId, user.id);
     }
     updateForumThread(params, body, user) {
         return this.forumThreadService.updateForumThread(params.forumThreadId, body, user?.id);
@@ -107,8 +107,9 @@ __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/:forumThreadId'),
     __param(0, (0, common_1.Param)()),
+    __param(1, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], ForumThreadController.prototype, "getForumThread", null);
 __decorate([

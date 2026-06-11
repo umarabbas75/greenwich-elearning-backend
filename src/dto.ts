@@ -393,6 +393,8 @@ export interface ResponseDto {
   message: string;
   statusCode: number;
   data: object | object[];
+  /** Present on paginated admin list endpoints. */
+  total?: number;
 }
 
 // Section DTOs

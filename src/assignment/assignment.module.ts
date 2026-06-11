@@ -7,9 +7,10 @@ import {
 } from '../strategy';
 import { AssignmentService } from './assignment.service';
 import { AssignmentController } from './assignment.controller';
+import { FeedbackModule } from '../feedback/feedback.module';
 
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [JwtModule.register({}), FeedbackModule],
   providers: [
     AssignmentService,
     JwtUserStrategy,

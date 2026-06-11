@@ -3,6 +3,7 @@ import { NotificationService } from '../notifications/notification.service';
 export declare class ForumThreadService {
     private prisma;
     private notificationService;
+    private static readonly logger;
     constructor(prisma: PrismaService, notificationService: NotificationService);
     subscribeForumThread(body: any, userId: string): Promise<any>;
     unSubscribeForumThread(params: any, userId: string): Promise<any>;
@@ -12,5 +13,6 @@ export declare class ForumThreadService {
     createForumThread(body: any, userId: string): Promise<any>;
     updateForumThread(forumThreadId: string, body: any, userId: any): Promise<any>;
     deleteForumThread(forumThreadId: any): Promise<any>;
-    getForumThread(forumThreadId: any): Promise<any>;
+    getForumThread(forumThreadId: string, userId?: string): Promise<any>;
+    private recordForumView;
 }

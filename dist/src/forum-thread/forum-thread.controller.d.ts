@@ -9,7 +9,7 @@ export declare class ForumThreadController {
     unFavoriteForumThread(params: any, user: User): Promise<any>;
     createForumThread(body: any, user: User): Promise<any>;
     getAllForumThreads(user: User): Promise<any>;
-    getForumThread(params: any): Promise<any>;
+    getForumThread(params: any, user: User): Promise<any>;
     updateForumThread(params: any, body: any, user: User): Promise<any>;
     deleteForumThread(params: any): Promise<any>;
 }

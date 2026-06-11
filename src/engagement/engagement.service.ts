@@ -12,6 +12,14 @@ import {
   engagementDedupeKey,
   engagementGroupKey,
 } from './engagement.constants';
+import {
+  FEEDBACK_REMINDER_AFTER_DAYS,
+  FEEDBACK_REMINDER_COOLDOWN_DAYS,
+  FEEDBACK_REMINDER_LIFETIME_CAP,
+  feedbackDedupeKey,
+  feedbackGroupKey,
+  feedbackReminderBucket,
+} from '../feedback/feedback.constants';
 
 /** One disengaged (user, course) candidate returned by the detection queries. */
 interface Candidate {
@@ -30,6 +38,7 @@ interface Candidate {
 export interface SweepSummary {
   neverStarted: { candidates: number; notified: number; emailed: number };
   stalled: { candidates: number; notified: number; emailed: number };
+  feedbackReminder: { candidates: number; notified: number; emailed: number };
   ranAt: string;
 }
 
@@ -117,15 +126,23 @@ export class EngagementService {
       cooldownBucket(now, stalledCooldown),
     );
 
+    const feedbackCandidates = await this.findFeedbackReminders(limit);
+    const feedbackReminder = await this.dispatchFeedbackReminders(
+      feedbackCandidates,
+      feedbackReminderBucket(now, FEEDBACK_REMINDER_COOLDOWN_DAYS),
+    );
+
     const summary: SweepSummary = {
       neverStarted,
       stalled,
+      feedbackReminder,
       ranAt: now.toISOString(),
     };
     this.logger.log(
       `Engagement sweep: never_started ${neverStarted.notified}/${neverStarted.candidates} notified, ` +
         `${neverStarted.emailed} emailed; stalled ${stalled.notified}/${stalled.candidates} notified, ` +
-        `${stalled.emailed} emailed.`,
+        `${stalled.emailed} emailed; feedback ${feedbackReminder.notified}/${feedbackReminder.candidates} notified, ` +
+        `${feedbackReminder.emailed} emailed.`,
     );
     return summary;
   }
@@ -252,6 +269,156 @@ export class EngagementService {
            LIMIT ${limit}
         `,
       { mode: 'read' },
+    );
+  }
+
+  private async findFeedbackReminders(limit: number): Promise<Candidate[]> {
+    const cutoff = Prisma.sql`(now() - make_interval(days => ${FEEDBACK_REMINDER_AFTER_DAYS}::int))`;
+    const maxNotifications = FEEDBACK_REMINDER_LIFETIME_CAP + 1;
+
+    return withDbRetry(
+      () =>
+        this.prisma.$queryRaw<Candidate[]>`
+          SELECT cc."userId"   AS "userId",
+                 cc."courseId" AS "courseId",
+                 u."email"     AS "email",
+                 u."firstName" AS "firstName",
+                 c."title"     AS "courseTitle"
+            FROM "course_completions" cc
+            JOIN "users" u ON u."id" = cc."userId"
+            JOIN "courses" c ON c."id" = cc."courseId"
+            JOIN "course_feedback_forms" ff ON ff."courseId" = cc."courseId"
+            LEFT JOIN "course_feedback_submissions" fs
+                   ON fs."userId" = cc."userId" AND fs."courseId" = cc."courseId"
+           WHERE cc."courseCompletedAt" IS NOT NULL
+             AND cc."courseCompletedAt" < ${cutoff}
+             AND ff."isRequired" = true
+             AND ff."isActive" = true
+             AND fs."id" IS NULL
+             AND c."isActive" = true
+             AND u."status" = 'active'
+             AND u."deletedAt" IS NULL
+             AND (
+               SELECT COUNT(*)::int
+                 FROM "notifications" n
+                WHERE n."userId" = cc."userId"
+                  AND n."referenceId" = cc."courseId"
+                  AND n."type" = 'COURSE_FEEDBACK_REQUIRED'
+             ) < ${maxNotifications}
+           ORDER BY cc."userId", cc."courseId"
+           LIMIT ${limit}
+        `,
+      { mode: 'read' },
+    );
+  }
+
+  private async dispatchFeedbackReminders(
+    candidates: Candidate[],
+    bucket: number,
+  ): Promise<{ candidates: number; notified: number; emailed: number }> {
+    if (candidates.length === 0) {
+      return { candidates: 0, notified: 0, emailed: 0 };
+    }
+
+    const rows: Prisma.NotificationCreateManyInput[] = candidates.map((c) => {
+      const daysOverdue = Math.min(30, FEEDBACK_REMINDER_AFTER_DAYS);
+      return {
+        userId: c.userId,
+        type: NotificationType.COURSE_FEEDBACK_REQUIRED,
+        message: `Please share your feedback for ${c.courseTitle}.`,
+        payload: {
+          courseId: c.courseId,
+          courseTitle: c.courseTitle,
+          daysOverdue,
+          reminderType: ReminderType.FEEDBACK_REMINDER,
+        },
+        groupKey: feedbackGroupKey(c.courseId),
+        dedupeKey: feedbackDedupeKey(c.courseId, c.userId, bucket),
+        referenceId: c.courseId,
+      };
+    });
+
+    const inserted = await withDbRetry(
+      () =>
+        this.prisma.notification.createMany({
+          data: rows,
+          skipDuplicates: true,
+        }),
+      { mode: 'write' },
+    );
+
+    let emailed = 0;
+    if (inserted.count > 0 && this.mail.isEnabled) {
+      const freshKeys = await this.freshlyInsertedFeedbackKeys(rows);
+      const toEmail = candidates.filter((c) =>
+        freshKeys.has(feedbackDedupeKey(c.courseId, c.userId, bucket)),
+      );
+      emailed = await this.sendFeedbackReminderEmails(toEmail);
+    }
+
+    return {
+      candidates: candidates.length,
+      notified: inserted.count,
+      emailed,
+    };
+  }
+
+  private async sendFeedbackReminderEmails(
+    recipients: Candidate[],
+  ): Promise<number> {
+    const batchSize = Math.max(
+      1,
+      Math.trunc(
+        this.num(
+          ENGAGEMENT_ENV.emailConcurrency,
+          ENGAGEMENT_DEFAULTS.emailConcurrency,
+        ),
+      ),
+    );
+    const pauseMs = ENGAGEMENT_DEFAULTS.emailBatchPauseMs;
+
+    const sendOne = (c: Candidate) =>
+      this.mail.sendFeedbackReminder({
+        to: c.email,
+        userId: c.userId,
+        firstName: c.firstName,
+        courseTitle: c.courseTitle,
+        courseId: c.courseId,
+      });
+
+    let sent = 0;
+    for (let i = 0; i < recipients.length; i += batchSize) {
+      const chunk = recipients.slice(i, i + batchSize);
+      const results = await Promise.all(chunk.map(sendOne));
+      sent += results.filter((r) => r.sent).length;
+      if (i + batchSize < recipients.length) await this.sleep(pauseMs);
+    }
+    return sent;
+  }
+
+  private async freshlyInsertedFeedbackKeys(
+    rows: Prisma.NotificationCreateManyInput[],
+  ): Promise<Set<string>> {
+    const keys = rows
+      .map((r) => r.dedupeKey)
+      .filter((k): k is string => typeof k === 'string');
+    if (keys.length === 0) return new Set();
+
+    const found = await withDbRetry(
+      () =>
+        this.prisma.notification.findMany({
+          where: {
+            dedupeKey: { in: keys },
+            createdAt: { gte: new Date(Date.now() - 5 * 60_000) },
+          },
+          select: { dedupeKey: true },
+        }),
+      { mode: 'read' },
+    );
+    return new Set(
+      found
+        .map((f) => f.dedupeKey)
+        .filter((k): k is string => typeof k === 'string'),
     );
   }
 

@@ -149,6 +149,7 @@ export class AdminDashboardService {
         UNION SELECT "studentId" AS "userId" FROM "assignment_submissions" WHERE "updatedAt" >= ${since}
         UNION SELECT "userId" FROM "section_time_spent" WHERE "updatedAt" >= ${since}
         UNION SELECT "userId" FROM "login_events" WHERE "createdAt" >= ${since}
+        UNION SELECT "userId" FROM "forum_view_events" WHERE "createdAt" >= ${since}
       ) a
     `);
     return this.n(row.n);
@@ -306,6 +307,7 @@ export class AdminDashboardService {
           courseId: string | null;
           detail: string | null;
           occurredAt: Date;
+          threadId: string | null;
           firstName: string | null;
           lastName: string | null;
           email: string | null;
@@ -313,37 +315,46 @@ export class AdminDashboardService {
         }[]
       >(Prisma.sql`
         WITH a AS (
-          SELECT "userId", 'SECTION_PROGRESS' AS type, "courseId", NULL::text AS detail, "updatedAt" AS "occurredAt"
+          SELECT "userId", 'SECTION_PROGRESS' AS type, "courseId", NULL::text AS detail, "updatedAt" AS "occurredAt", NULL::text AS "threadId"
             FROM "UserCourseProgress"
           UNION ALL
-          SELECT "userId", 'SECTION_VIEW', "courseId", NULL, "updatedAt" FROM "LastSeenSection"
+          SELECT "userId", 'SECTION_VIEW', "courseId", NULL, "updatedAt", NULL FROM "LastSeenSection"
           UNION ALL
           SELECT qp."userId", 'QUIZ', m."courseId",
-                 CASE WHEN qp."isPassed" THEN 'passed' ELSE 'attempted' END, qp."updatedAt"
+                 CASE WHEN qp."isPassed" THEN 'passed' ELSE 'attempted' END, qp."updatedAt", NULL
             FROM "quiz_progress" qp
             JOIN "chapters" c ON c."id" = qp."chapterId"
             JOIN "modules" m ON m."id" = c."moduleId"
           UNION ALL
           SELECT aa."userId", 'ASSESSMENT', ass."courseId",
-                 aa."status"::text, GREATEST(aa."updatedAt", aa."startedAt")
+                 aa."status"::text, GREATEST(aa."updatedAt", aa."startedAt"), NULL
             FROM "assessment_attempts" aa
             JOIN "assessments" ass ON ass."id" = aa."assessmentId"
           UNION ALL
-          SELECT s."studentId", 'ASSIGNMENT', ag."courseId", s."status"::text, s."updatedAt"
+          SELECT s."studentId", 'ASSIGNMENT', ag."courseId", s."status"::text, s."updatedAt", NULL
             FROM "assignment_submissions" s
             JOIN "assignments" ag ON ag."id" = s."assignmentId"
           UNION ALL
-          SELECT "userId", 'FORUM_THREAD', "courseId", "title", "createdAt" FROM "forum_threads"
+          SELECT "userId", 'FORUM_THREAD', "courseId", "title", "createdAt", "id" FROM "forum_threads"
           UNION ALL
-          SELECT fc."userId", 'FORUM_COMMENT', ft."courseId", left(fc."content", 80), fc."createdAt"
+          SELECT fc."userId", 'FORUM_COMMENT', ft."courseId", left(fc."content", 80), fc."createdAt", fc."threadId"
             FROM "forum_comments" fc
             JOIN "forum_threads" ft ON ft."id" = fc."threadId"
           UNION ALL
+          SELECT fv."userId",
+                 CASE WHEN fv."scope" = 'list' THEN 'FORUM_LIST' ELSE 'FORUM_VIEW' END,
+                 fv."courseId",
+                 CASE WHEN fv."scope" = 'list' THEN 'Opened forum' ELSE COALESCE(ft."title", 'Viewed thread') END,
+                 fv."createdAt",
+                 fv."threadId"
+            FROM "forum_view_events" fv
+            LEFT JOIN "forum_threads" ft ON ft."id" = fv."threadId"
+          UNION ALL
           SELECT "userId", 'COURSE_COMPLETED', "courseId",
-                 CASE WHEN "isPassed" THEN 'passed' ELSE 'completed' END, COALESCE("assessmentPassedAt", "updatedAt")
+                 CASE WHEN "isPassed" THEN 'passed' ELSE 'completed' END, COALESCE("assessmentPassedAt", "updatedAt"), NULL
             FROM "course_completions"
         )
-        SELECT a."userId", a."type", a."courseId", a."detail", a."occurredAt",
+        SELECT a."userId", a."type", a."courseId", a."detail", a."occurredAt", a."threadId",
                u."firstName", u."lastName", u."email", c."title" AS "courseTitle"
           FROM a
           JOIN "users" u ON u."id" = a."userId"
@@ -368,11 +379,93 @@ export class AdminDashboardService {
           type: r.type,
           courseId: r.courseId,
           courseTitle: r.courseTitle,
+          threadId: r.threadId,
           detail: r.detail,
           at: r.occurredAt,
         })),
         nextCursor: hasMore
           ? data[data.length - 1].occurredAt.toISOString()
+          : null,
+      };
+    });
+  }
+
+  /** Paginated log of forum list opens and thread views. */
+  async getForumViews(params: {
+    days: number;
+    cursor?: string;
+    limit: number;
+    userId?: string;
+    threadId?: string;
+    scope?: 'list' | 'thread';
+  }): Promise<ResponseDto> {
+    return this.wrap('Forum views fetched successfully', async () => {
+      const limit = Math.min(Math.max(params.limit, 1), 100);
+      const userFilter = params.userId
+        ? Prisma.sql`AND fv."userId" = ${params.userId}`
+        : Prisma.empty;
+      const threadFilter = params.threadId
+        ? Prisma.sql`AND fv."threadId" = ${params.threadId}`
+        : Prisma.empty;
+      const scopeFilter =
+        params.scope === 'list'
+          ? Prisma.sql`AND fv."scope" = 'list'::"ForumViewScope"`
+          : params.scope === 'thread'
+            ? Prisma.sql`AND fv."scope" = 'thread'::"ForumViewScope"`
+            : Prisma.empty;
+      const cursorFilter = params.cursor
+        ? Prisma.sql`AND fv."createdAt" < ${new Date(params.cursor)}`
+        : Prisma.empty;
+
+      const rows = await this.read<
+        {
+          id: string;
+          userId: string;
+          threadId: string | null;
+          courseId: string | null;
+          scope: string;
+          createdAt: Date;
+          firstName: string | null;
+          lastName: string | null;
+          email: string | null;
+          threadTitle: string | null;
+          courseTitle: string | null;
+        }[]
+      >(Prisma.sql`
+        SELECT fv."id", fv."userId", fv."threadId", fv."courseId", fv."scope"::text,
+               fv."createdAt", u."firstName", u."lastName", u."email",
+               ft."title" AS "threadTitle", c."title" AS "courseTitle"
+          FROM "forum_view_events" fv
+          JOIN "users" u ON u."id" = fv."userId"
+          LEFT JOIN "forum_threads" ft ON ft."id" = fv."threadId"
+          LEFT JOIN "courses" c ON c."id" = fv."courseId"
+         WHERE fv."createdAt" >= now() - make_interval(days => ${params.days}::int)
+           ${userFilter}
+           ${threadFilter}
+           ${scopeFilter}
+           ${cursorFilter}
+         ORDER BY fv."createdAt" DESC
+         LIMIT ${limit + 1}
+      `);
+
+      const hasMore = rows.length > limit;
+      const slice = hasMore ? rows.slice(0, limit) : rows;
+      return {
+        days: params.days,
+        data: slice.map((r) => ({
+          id: r.id,
+          userId: r.userId,
+          name: r.firstName ? `${r.firstName} ${r.lastName}` : null,
+          email: r.email,
+          scope: r.scope,
+          threadId: r.threadId,
+          threadTitle: r.threadTitle,
+          courseId: r.courseId,
+          courseTitle: r.courseTitle,
+          at: r.createdAt,
+        })),
+        nextCursor: hasMore
+          ? slice[slice.length - 1].createdAt.toISOString()
           : null,
       };
     });
@@ -389,6 +482,7 @@ export class AdminDashboardService {
             UNION ALL SELECT "userId", "updatedAt" FROM "assessment_attempts"
             UNION ALL SELECT "studentId", "updatedAt" FROM "assignment_submissions"
             UNION ALL SELECT "userId", "updatedAt" FROM "section_time_spent"
+            UNION ALL SELECT "userId", "createdAt" AS "updatedAt" FROM "forum_view_events"
           ) a
          WHERE "occurredAt" >= now() - make_interval(days => ${days}::int)
          GROUP BY 1

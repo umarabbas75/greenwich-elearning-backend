@@ -1,9 +1,11 @@
 import { AssignmentService } from './assignment.service';
+import { FeedbackService } from '../feedback/feedback.service';
 import { ResponseDto } from '../dto';
 import { AssignmentFileType, AssignmentSubmissionStatus, User } from '@prisma/client';
 export declare class AssignmentController {
     private readonly assignmentService;
-    constructor(assignmentService: AssignmentService);
+    private readonly feedbackService;
+    constructor(assignmentService: AssignmentService, feedbackService: FeedbackService);
     submit(user: User, body: {
         assignmentId: string;
         fileUrl: string;
@@ -47,13 +49,18 @@ export declare class AssignmentController {
         assignmentFileType?: AssignmentFileType;
         isActive?: boolean;
     }): Promise<ResponseDto>;
+    getPendingFeedback(user: User): Promise<ResponseDto>;
+    getFeedbackAggregate(user: User, courseId?: string): Promise<ResponseDto>;
+    listFeedbackSubmissions(user: User, courseId?: string, from?: string, to?: string, search?: string, page?: string, limit?: string): Promise<ResponseDto>;
+    getFeedbackSubmissionDetail(user: User, submissionId: string): Promise<ResponseDto>;
+    submitCourseFeedback(user: User, courseId: string, body: {
+        formVersion?: string;
+        formData: unknown;
+    }): Promise<ResponseDto>;
+    getCourseFeedbackStatus(user: User, courseId: string): Promise<ResponseDto>;
+    getCourseFeedbackSubmissions(user: User, courseId: string): Promise<ResponseDto>;
     getAvailableAssignments(user: User): Promise<ResponseDto>;
     getAssignment(id: string): Promise<ResponseDto>;
     getAssignmentStatus(user: User, id: string): Promise<ResponseDto>;
     getAssignmentSubmissions(user: User, id: string, status?: AssignmentSubmissionStatus): Promise<ResponseDto>;
-    submitCourseFeedback(user: User, courseId: string, body: {
-        formData: any;
-    }): Promise<ResponseDto>;
-    getCourseFeedbackStatus(user: User, courseId: string): Promise<ResponseDto>;
-    getCourseFeedbackSubmissions(user: User, courseId: string): Promise<ResponseDto>;
 }

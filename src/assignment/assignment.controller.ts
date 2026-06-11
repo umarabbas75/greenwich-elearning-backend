@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AssignmentService } from './assignment.service';
+import { FeedbackService } from '../feedback/feedback.service';
 import { GetUser } from '../decorator';
 import { ResponseDto } from '../dto';
 import {
@@ -19,7 +20,10 @@ import {
 
 @Controller('assignments')
 export class AssignmentController {
-  constructor(private readonly assignmentService: AssignmentService) {}
+  constructor(
+    private readonly assignmentService: AssignmentService,
+    private readonly feedbackService: FeedbackService,
+  ) {}
 
   // Student: submit to a specific admin-created assignment
   @UseGuards(AuthGuard('cJwt'))
@@ -125,6 +129,88 @@ export class AssignmentController {
     return this.assignmentService.updateAssignment(user.id, body);
   }
 
+  // ── Course feedback (contract §2–§4) — static paths before :id ───────────
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('feedback/pending/me')
+  async getPendingFeedback(@GetUser() user: User): Promise<ResponseDto> {
+    return this.feedbackService.getPendingFeedbackForUser(user.id);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('feedback/admin/aggregate')
+  async getFeedbackAggregate(
+    @GetUser() user: User,
+    @Query('courseId') courseId?: string,
+  ): Promise<ResponseDto> {
+    return this.feedbackService.getAdminAggregate(user.id, courseId);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('feedback/admin')
+  async listFeedbackSubmissions(
+    @GetUser() user: User,
+    @Query('courseId') courseId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ): Promise<ResponseDto> {
+    return this.feedbackService.listAdminSubmissions(user.id, {
+      courseId,
+      from,
+      to,
+      search,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('feedback/admin/:submissionId')
+  async getFeedbackSubmissionDetail(
+    @GetUser() user: User,
+    @Param('submissionId') submissionId: string,
+  ): Promise<ResponseDto> {
+    return this.feedbackService.getAdminSubmissionDetail(user.id, submissionId);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('course/:courseId/feedback')
+  async submitCourseFeedback(
+    @GetUser() user: User,
+    @Param('courseId') courseId: string,
+    @Body()
+    body: {
+      formVersion?: string;
+      formData: unknown;
+    },
+  ): Promise<ResponseDto> {
+    return this.feedbackService.submitCourseFeedback(user.id, courseId, body);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('course/:courseId/feedback-status')
+  async getCourseFeedbackStatus(
+    @GetUser() user: User,
+    @Param('courseId') courseId: string,
+  ): Promise<ResponseDto> {
+    return this.feedbackService.getCourseFeedbackStatus(user.id, courseId);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Get('course/:courseId/feedback-submissions')
+  async getCourseFeedbackSubmissions(
+    @GetUser() user: User,
+    @Param('courseId') courseId: string,
+  ): Promise<ResponseDto> {
+    return this.feedbackService.getCourseFeedbackSubmissions(
+      courseId,
+      user.id,
+    );
+  }
+
   // Students: get assignments for courses they're enrolled in
   @UseGuards(AuthGuard('cJwt'))
   @Get('available')
@@ -158,46 +244,5 @@ export class AssignmentController {
     @Query('status') status?: AssignmentSubmissionStatus,
   ): Promise<ResponseDto> {
     return this.assignmentService.getAssignmentSubmissions(id, user.id, status);
-  }
-
-  // Student: submit course completion feedback
-  @UseGuards(AuthGuard('cJwt'))
-  @Post('course/:courseId/feedback')
-  async submitCourseFeedback(
-    @GetUser() user: User,
-    @Param('courseId') courseId: string,
-    @Body()
-    body: {
-      formData: any; // User's responses to the feedback form
-    },
-  ): Promise<ResponseDto> {
-    return this.assignmentService.submitCourseFeedback(
-      user.id,
-      courseId,
-      body.formData,
-    );
-  }
-
-  // Student: check course feedback completion status
-  @UseGuards(AuthGuard('cJwt'))
-  @Get('course/:courseId/feedback-status')
-  async getCourseFeedbackStatus(
-    @GetUser() user: User,
-    @Param('courseId') courseId: string,
-  ): Promise<ResponseDto> {
-    return this.assignmentService.getCourseFeedbackStatus(user.id, courseId);
-  }
-
-  // Admin: get all feedback submissions for a course
-  @UseGuards(AuthGuard('cJwt'))
-  @Get('course/:courseId/feedback-submissions')
-  async getCourseFeedbackSubmissions(
-    @GetUser() user: User,
-    @Param('courseId') courseId: string,
-  ): Promise<ResponseDto> {
-    return this.assignmentService.getCourseFeedbackSubmissions(
-      courseId,
-      user.id,
-    );
   }
 }
