@@ -134,6 +134,7 @@ export class FeedbackService {
             userId: studentId,
             firstName: student.firstName ?? '',
             courseTitle: course.title,
+            courseId,
           });
         }
         await this.mail.sendFeedbackReceivedAdmin({

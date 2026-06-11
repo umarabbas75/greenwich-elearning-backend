@@ -52,6 +52,7 @@ export type NotificationEmail = {
     userId?: string | null;
     recipientFirstName: string;
     assessmentTitle: string;
+    courseId?: string;
     passed?: boolean | null;
     scorePct?: number | null;
 };
@@ -72,6 +73,7 @@ export interface CourseCompletedMail {
     userId?: string | null;
     firstName: string;
     courseTitle: string;
+    courseId?: string;
 }
 export interface FeedbackRequestMail {
     to: string;
@@ -85,6 +87,7 @@ export interface FeedbackReceivedMail {
     userId?: string | null;
     firstName: string;
     courseTitle: string;
+    courseId?: string;
 }
 export interface FeedbackReceivedAdminMail {
     to: string;

@@ -1,0 +1,8 @@
+export declare function studentCoursesList(): string;
+export declare function studentCourseDetail(courseId: string): string;
+export declare function studentCourseFeedback(courseId: string): string;
+export declare function forumThread(threadId: string): string;
+export declare function assessmentGrade(attemptId: string): string;
+export declare function adminFeedback(): string;
+export declare function adminContactInbox(): string;
+export declare function appHome(): string;

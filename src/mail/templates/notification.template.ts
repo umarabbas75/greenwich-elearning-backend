@@ -1,4 +1,10 @@
 import { NotificationEmail } from '../mail.types';
+import {
+  assessmentGrade,
+  forumThread,
+  studentCourseDetail,
+  studentCoursesList,
+} from '../mail-paths';
 import { BRAND, escapeHtml, layout, RenderedEmail } from './mail-layout';
 
 /**
@@ -15,7 +21,7 @@ export function renderNotificationEmail(
       const name = escapeHtml(mail.recipientFirstName || 'there');
       const title = escapeHtml(mail.threadTitle);
       const creator = escapeHtml(mail.creatorName);
-      const url = `${BRAND.website}/forum/${mail.threadId}`;
+      const url = forumThread(mail.threadId);
       const body = `<p>Dear ${name},</p>
         <p style="margin-top:12px;">A new discussion, <strong>${title}</strong>, has been posted by ${creator}. Join the conversation when you have a moment.</p>`;
       return {
@@ -39,7 +45,7 @@ export function renderNotificationEmail(
       const title = escapeHtml(mail.threadTitle);
       const commenter = escapeHtml(mail.commenterName);
       const excerpt = escapeHtml(mail.excerpt);
-      const url = `${BRAND.website}/forum/${mail.threadId}`;
+      const url = forumThread(mail.threadId);
       const body = `<p>Dear ${name},</p>
         <p style="margin-top:12px;">${commenter} replied in <strong>${title}</strong>:</p>
         <p style="margin-top:8px;padding:12px 16px;background:#f4f5f7;border-radius:8px;font-style:italic;">"${excerpt}"</p>`;
@@ -63,7 +69,7 @@ export function renderNotificationEmail(
       const name = escapeHtml(mail.recipientFirstName || 'there');
       const student = escapeHtml(mail.studentName);
       const title = escapeHtml(mail.assessmentTitle);
-      const url = `${BRAND.website}/assessment/grade/${mail.attemptId}`;
+      const url = assessmentGrade(mail.attemptId);
       const body = `<p>Dear ${name},</p>
         <p style="margin-top:12px;">${student} has submitted the assessment <strong>${title}</strong> and it is ready for grading.</p>`;
       return {
@@ -87,7 +93,9 @@ export function renderNotificationEmail(
     case 'ASSESSMENT_GRADED': {
       const name = escapeHtml(mail.recipientFirstName || 'there');
       const title = escapeHtml(mail.assessmentTitle);
-      const url = `${BRAND.website}/studentCourses`;
+      const url = mail.courseId
+        ? studentCourseDetail(mail.courseId)
+        : studentCoursesList();
       const outcome =
         mail.passed == null
           ? ''

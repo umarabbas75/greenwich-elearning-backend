@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.renderNotificationEmail = void 0;
+const mail_paths_1 = require("../mail-paths");
 const mail_layout_1 = require("./mail-layout");
 function renderNotificationEmail(mail) {
     switch (mail.kind) {
@@ -8,7 +9,7 @@ function renderNotificationEmail(mail) {
             const name = (0, mail_layout_1.escapeHtml)(mail.recipientFirstName || 'there');
             const title = (0, mail_layout_1.escapeHtml)(mail.threadTitle);
             const creator = (0, mail_layout_1.escapeHtml)(mail.creatorName);
-            const url = `${mail_layout_1.BRAND.website}/forum/${mail.threadId}`;
+            const url = (0, mail_paths_1.forumThread)(mail.threadId);
             const body = `<p>Dear ${name},</p>
         <p style="margin-top:12px;">A new discussion, <strong>${title}</strong>, has been posted by ${creator}. Join the conversation when you have a moment.</p>`;
             return {
@@ -27,7 +28,7 @@ function renderNotificationEmail(mail) {
             const title = (0, mail_layout_1.escapeHtml)(mail.threadTitle);
             const commenter = (0, mail_layout_1.escapeHtml)(mail.commenterName);
             const excerpt = (0, mail_layout_1.escapeHtml)(mail.excerpt);
-            const url = `${mail_layout_1.BRAND.website}/forum/${mail.threadId}`;
+            const url = (0, mail_paths_1.forumThread)(mail.threadId);
             const body = `<p>Dear ${name},</p>
         <p style="margin-top:12px;">${commenter} replied in <strong>${title}</strong>:</p>
         <p style="margin-top:8px;padding:12px 16px;background:#f4f5f7;border-radius:8px;font-style:italic;">"${excerpt}"</p>`;
@@ -46,7 +47,7 @@ function renderNotificationEmail(mail) {
             const name = (0, mail_layout_1.escapeHtml)(mail.recipientFirstName || 'there');
             const student = (0, mail_layout_1.escapeHtml)(mail.studentName);
             const title = (0, mail_layout_1.escapeHtml)(mail.assessmentTitle);
-            const url = `${mail_layout_1.BRAND.website}/assessment/grade/${mail.attemptId}`;
+            const url = (0, mail_paths_1.assessmentGrade)(mail.attemptId);
             const body = `<p>Dear ${name},</p>
         <p style="margin-top:12px;">${student} has submitted the assessment <strong>${title}</strong> and it is ready for grading.</p>`;
             return {
@@ -63,7 +64,9 @@ function renderNotificationEmail(mail) {
         case 'ASSESSMENT_GRADED': {
             const name = (0, mail_layout_1.escapeHtml)(mail.recipientFirstName || 'there');
             const title = (0, mail_layout_1.escapeHtml)(mail.assessmentTitle);
-            const url = `${mail_layout_1.BRAND.website}/studentCourses`;
+            const url = mail.courseId
+                ? (0, mail_paths_1.studentCourseDetail)(mail.courseId)
+                : (0, mail_paths_1.studentCoursesList)();
             const outcome = mail.passed == null
                 ? ''
                 : mail.passed

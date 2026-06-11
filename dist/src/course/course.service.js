@@ -2646,6 +2646,7 @@ let CourseService = CourseService_1 = class CourseService {
                 userId,
                 firstName: user.firstName ?? '',
                 courseTitle: course.title,
+                courseId,
             });
             const [form, alreadySubmitted] = await Promise.all([
                 this.prisma.courseFeedbackForm.findFirst({

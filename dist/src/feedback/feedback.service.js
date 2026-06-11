@@ -88,6 +88,7 @@ let FeedbackService = FeedbackService_1 = class FeedbackService {
                         userId: studentId,
                         firstName: student.firstName ?? '',
                         courseTitle: course.title,
+                        courseId,
                     });
                 }
                 await this.mail.sendFeedbackReceivedAdmin({

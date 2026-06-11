@@ -4,15 +4,13 @@ import {
   FeedbackReceivedMail,
   FeedbackRequestMail,
 } from '../mail.types';
+import {
+  adminFeedback,
+  studentCourseDetail,
+  studentCourseFeedback,
+  studentCoursesList,
+} from '../mail-paths';
 import { BRAND, escapeHtml, layout, RenderedEmail } from './mail-layout';
-
-const STUDENT_COURSES_URL = `${BRAND.website}/studentCourses`;
-
-function feedbackCoursesUrl(courseId?: string): string {
-  return courseId
-    ? `${STUDENT_COURSES_URL}?feedbackCourseId=${encodeURIComponent(courseId)}`
-    : STUDENT_COURSES_URL;
-}
 
 /** Congratulations on completing a course. */
 export function renderCourseCompleted(
@@ -20,6 +18,9 @@ export function renderCourseCompleted(
 ): RenderedEmail {
   const name = escapeHtml(mail.firstName || 'there');
   const title = escapeHtml(mail.courseTitle);
+  const ctaUrl = mail.courseId
+    ? studentCourseFeedback(mail.courseId)
+    : studentCoursesList();
   const body = `<p>Dear ${name},</p>
     <p style="margin-top:12px;">Congratulations on completing <strong>${title}</strong>! You have worked through all of the course content — a real achievement.</p>
     <p style="margin-top:12px;">You can revisit the material at any time from your dashboard.</p>`;
@@ -28,14 +29,14 @@ export function renderCourseCompleted(
     html: layout({
       heading: 'Course completed 🎉',
       bodyHtml: body,
-      ctaLabel: 'Go to my courses',
-      ctaUrl: STUDENT_COURSES_URL,
+      ctaLabel: mail.courseId ? 'Continue' : 'Go to my courses',
+      ctaUrl,
     }),
     text: `Dear ${
       mail.firstName || 'there'
     },\n\nCongratulations on completing ${
       mail.courseTitle
-    }! You have worked through all of the course content.\n\nYour courses: ${STUDENT_COURSES_URL}\n\nKind regards,\nThe ${
+    }! You have worked through all of the course content.\n\nContinue: ${ctaUrl}\n\nKind regards,\nThe ${
       BRAND.name
     } Team`,
   };
@@ -47,7 +48,9 @@ export function renderFeedbackRequest(
 ): RenderedEmail {
   const name = escapeHtml(mail.firstName || 'there');
   const title = escapeHtml(mail.courseTitle);
-  const ctaUrl = feedbackCoursesUrl(mail.courseId);
+  const ctaUrl = mail.courseId
+    ? studentCourseFeedback(mail.courseId)
+    : studentCoursesList();
   const body = `<p>Dear ${name},</p>
     <p style="margin-top:12px;">Now that you have completed <strong>${title}</strong>, we would value your feedback. It takes only a couple of minutes and helps us improve the course for future learners.</p>`;
   return {
@@ -72,7 +75,9 @@ export function renderFeedbackReminder(
 ): RenderedEmail {
   const name = escapeHtml(mail.firstName || 'there');
   const title = escapeHtml(mail.courseTitle);
-  const ctaUrl = feedbackCoursesUrl(mail.courseId);
+  const ctaUrl = mail.courseId
+    ? studentCourseFeedback(mail.courseId)
+    : studentCoursesList();
   const body = `<p>Hi ${name},</p>
     <p style="margin-top:12px;">You finished <strong>${title}</strong> — would you mind sharing a few words about your experience? It takes about 2 minutes.</p>`;
   return {
@@ -97,6 +102,9 @@ export function renderFeedbackReceived(
 ): RenderedEmail {
   const name = escapeHtml(mail.firstName || 'there');
   const title = escapeHtml(mail.courseTitle);
+  const ctaUrl = mail.courseId
+    ? studentCourseDetail(mail.courseId)
+    : studentCoursesList();
   const body = `<p>Dear ${name},</p>
     <p style="margin-top:12px;">Thank you — your feedback for <strong>${title}</strong> has been registered. We appreciate you taking the time to help us improve.</p>`;
   return {
@@ -104,14 +112,16 @@ export function renderFeedbackReceived(
     html: layout({
       heading: 'Feedback received',
       bodyHtml: body,
-      ctaLabel: 'Go to my courses',
-      ctaUrl: STUDENT_COURSES_URL,
+      ctaLabel: 'View your course',
+      ctaUrl,
     }),
     text: `Dear ${
       mail.firstName || 'there'
     },\n\nThank you — your feedback for ${
       mail.courseTitle
-    } has been registered.\n\nKind regards,\nThe ${BRAND.name} Team`,
+    } has been registered.\n\nView your course: ${ctaUrl}\n\nKind regards,\nThe ${
+      BRAND.name
+    } Team`,
   };
 }
 
@@ -122,7 +132,7 @@ export function renderFeedbackReceivedAdmin(
   const student = escapeHtml(mail.studentName || 'A student');
   const studentEmail = escapeHtml(mail.studentEmail);
   const title = escapeHtml(mail.courseTitle);
-  const url = `${BRAND.website}`;
+  const url = adminFeedback();
   const body = `<p>A new course feedback submission has been received.</p>
     <p style="margin-top:12px;"><strong>Student:</strong> ${student} (${studentEmail})</p>
     <p style="margin-top:4px;"><strong>Course:</strong> ${title}</p>
@@ -132,13 +142,13 @@ export function renderFeedbackReceivedAdmin(
     html: layout({
       heading: 'New course feedback',
       bodyHtml: body,
-      ctaLabel: 'Open dashboard',
+      ctaLabel: 'View feedback',
       ctaUrl: url,
     }),
     text: `New course feedback received.\n\nStudent: ${
       mail.studentName || 'A student'
     } (${mail.studentEmail})\nCourse: ${
       mail.courseTitle
-    }\n\nReview it in the dashboard: ${url}`,
+    }\n\nView feedback: ${url}`,
   };
 }

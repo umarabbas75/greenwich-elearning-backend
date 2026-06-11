@@ -1,4 +1,5 @@
 import { ContactMessageMail } from '../mail.types';
+import { adminContactInbox } from '../mail-paths';
 import { BRAND, escapeHtml, layout, RenderedEmail } from './mail-layout';
 
 /** "Contact us" message, emailed to an admin so they can follow up. */
@@ -6,7 +7,7 @@ export function renderContactMessage(mail: ContactMessageMail): RenderedEmail {
   const sender = escapeHtml(mail.senderName || 'A user');
   const senderEmail = escapeHtml(mail.senderEmail);
   const message = escapeHtml(mail.message);
-  const url = `${BRAND.website}`;
+  const url = adminContactInbox();
   const body = `<p>A new message has been submitted through the contact form.</p>
     <p style="margin-top:12px;"><strong>From:</strong> ${sender} (${senderEmail})</p>
     <p style="margin-top:12px;"><strong>Message:</strong></p>
@@ -16,11 +17,11 @@ export function renderContactMessage(mail: ContactMessageMail): RenderedEmail {
     html: layout({
       heading: 'New contact message',
       bodyHtml: body,
-      ctaLabel: 'Open dashboard',
+      ctaLabel: 'View messages',
       ctaUrl: url,
     }),
     text: `New contact message.\n\nFrom: ${mail.senderName || 'A user'} (${
       mail.senderEmail
-    })\n\nMessage:\n${mail.message}\n\nOpen the dashboard: ${url}`,
+    })\n\nMessage:\n${mail.message}\n\nView messages: ${url}`,
   };
 }

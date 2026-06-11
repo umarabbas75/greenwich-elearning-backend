@@ -84,6 +84,7 @@ export type NotificationEmail =
       userId?: string | null;
       recipientFirstName: string; // the student
       assessmentTitle: string;
+      courseId?: string;
       passed?: boolean | null;
       scorePct?: number | null;
     };
@@ -111,6 +112,7 @@ export interface CourseCompletedMail {
   userId?: string | null;
   firstName: string;
   courseTitle: string;
+  courseId?: string;
 }
 
 /** Asks a user to fill the course feedback form (sent after completion). */
@@ -129,6 +131,7 @@ export interface FeedbackReceivedMail {
   userId?: string | null;
   firstName: string;
   courseTitle: string;
+  courseId?: string;
 }
 
 /** Notifies the admin that a user submitted course feedback. */

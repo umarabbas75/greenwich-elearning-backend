@@ -1068,6 +1068,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                         userId: r.id,
                         recipientFirstName: r.firstName,
                         assessmentTitle: attempt.snapshotTitle,
+                        courseId: attempt.assessment?.courseId,
                         passed: isPassed,
                         scorePct: percentage,
                     }),

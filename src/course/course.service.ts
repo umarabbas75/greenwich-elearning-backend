@@ -3533,6 +3533,7 @@ export class CourseService {
         userId,
         firstName: user.firstName ?? '',
         courseTitle: course.title,
+        courseId,
       });
 
       // 2) Feedback request — only if an active feedback form exists for the

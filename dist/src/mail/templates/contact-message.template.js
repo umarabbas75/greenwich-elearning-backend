@@ -1,12 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.renderContactMessage = void 0;
+const mail_paths_1 = require("../mail-paths");
 const mail_layout_1 = require("./mail-layout");
 function renderContactMessage(mail) {
     const sender = (0, mail_layout_1.escapeHtml)(mail.senderName || 'A user');
     const senderEmail = (0, mail_layout_1.escapeHtml)(mail.senderEmail);
     const message = (0, mail_layout_1.escapeHtml)(mail.message);
-    const url = `${mail_layout_1.BRAND.website}`;
+    const url = (0, mail_paths_1.adminContactInbox)();
     const body = `<p>A new message has been submitted through the contact form.</p>
     <p style="margin-top:12px;"><strong>From:</strong> ${sender} (${senderEmail})</p>
     <p style="margin-top:12px;"><strong>Message:</strong></p>
@@ -16,10 +17,10 @@ function renderContactMessage(mail) {
         html: (0, mail_layout_1.layout)({
             heading: 'New contact message',
             bodyHtml: body,
-            ctaLabel: 'Open dashboard',
+            ctaLabel: 'View messages',
             ctaUrl: url,
         }),
-        text: `New contact message.\n\nFrom: ${mail.senderName || 'A user'} (${mail.senderEmail})\n\nMessage:\n${mail.message}\n\nOpen the dashboard: ${url}`,
+        text: `New contact message.\n\nFrom: ${mail.senderName || 'A user'} (${mail.senderEmail})\n\nMessage:\n${mail.message}\n\nView messages: ${url}`,
     };
 }
 exports.renderContactMessage = renderContactMessage;
