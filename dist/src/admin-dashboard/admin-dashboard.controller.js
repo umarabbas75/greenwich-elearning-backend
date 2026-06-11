@@ -97,10 +97,11 @@ let AdminDashboardController = class AdminDashboardController {
     recentAccounts(days) {
         return this.dashboard.getRecentAccounts(this.toInt(days, 7));
     }
-    timeLeaderboard(courseId, limit) {
+    timeLeaderboard(courseId, limit, days) {
         return this.dashboard.getTimeLeaderboard({
             courseId,
             limit: this.toInt(limit, 20),
+            days: this.toInt(days, 30),
         });
     }
     toInt(value, def) {
@@ -233,8 +234,9 @@ __decorate([
     (0, common_1.Get)('leaderboards/time'),
     __param(0, (0, common_1.Query)('courseId')),
     __param(1, (0, common_1.Query)('limit')),
+    __param(2, (0, common_1.Query)('days')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:paramtypes", [String, String, String]),
     __metadata("design:returntype", Promise)
 ], AdminDashboardController.prototype, "timeLeaderboard", null);
 exports.AdminDashboardController = AdminDashboardController = __decorate([

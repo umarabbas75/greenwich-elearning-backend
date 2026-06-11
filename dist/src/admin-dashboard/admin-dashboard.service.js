@@ -633,6 +633,7 @@ let AdminDashboardService = class AdminDashboardService {
     async getTimeLeaderboard(params) {
         return this.wrap('Time leaderboard fetched successfully', async () => {
             const limit = Math.min(Math.max(params.limit, 1), 100);
+            const days = Math.min(Math.max(params.days, 1), 90);
             const courseFilter = params.courseId
                 ? client_1.Prisma.sql `WHERE sts."courseId" = ${params.courseId}`
                 : client_1.Prisma.empty;
@@ -647,8 +648,35 @@ let AdminDashboardService = class AdminDashboardService {
          ORDER BY total_seconds DESC
          LIMIT ${limit}
       `);
+            const userIds = rows.map((r) => r.userId);
+            const dailyByUser = new Map();
+            if (userIds.length > 0) {
+                const courseDailyFilter = params.courseId
+                    ? client_1.Prisma.sql `AND std."courseId" = ${params.courseId}`
+                    : client_1.Prisma.empty;
+                const dailyRows = await this.read(client_1.Prisma.sql `
+          SELECT std."userId",
+                 std."day",
+                 SUM(std."totalSeconds")::bigint AS total_seconds
+            FROM "section_time_spent_daily" std
+           WHERE std."userId" IN (${client_1.Prisma.join(userIds)})
+             AND std."day" >= (CURRENT_DATE - make_interval(days => ${days - 1}::int))::date
+             ${courseDailyFilter}
+           GROUP BY std."userId", std."day"
+           ORDER BY std."userId", std."day" DESC
+        `);
+                for (const d of dailyRows) {
+                    const list = dailyByUser.get(d.userId) ?? [];
+                    list.push({
+                        day: d.day.toISOString().slice(0, 10),
+                        totalSeconds: this.n(d.total_seconds),
+                    });
+                    dailyByUser.set(d.userId, list);
+                }
+            }
             return {
                 courseId: params.courseId ?? null,
+                days,
                 leaderboard: rows.map((r, i) => ({
                     rank: i + 1,
                     userId: r.userId,
@@ -657,6 +685,7 @@ let AdminDashboardService = class AdminDashboardService {
                     totalSeconds: this.n(r.total_seconds),
                     totalHours: Math.round((this.n(r.total_seconds) / 3600) * 10) / 10,
                     coursesTouched: this.n(r.courses),
+                    dailyBreakdown: dailyByUser.get(r.userId) ?? [],
                 })),
             };
         });

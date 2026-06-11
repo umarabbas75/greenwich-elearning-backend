@@ -82,7 +82,21 @@ let TrackingService = TrackingService_1 = class TrackingService {
                 lastHeartbeatAt: now,
             },
         });
+        if (creditSeconds > 0) {
+            await this.accrueDailyTime(userId, courseId, now, creditSeconds);
+        }
         return this.heartbeatResult(row.totalSeconds);
+    }
+    utcDay(d) {
+        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    }
+    async accrueDailyTime(userId, courseId, at, seconds) {
+        const day = this.utcDay(at);
+        await this.prisma.sectionTimeSpentDaily.upsert({
+            where: { userId_courseId_day: { userId, courseId, day } },
+            create: { userId, courseId, day, totalSeconds: seconds },
+            update: { totalSeconds: { increment: seconds } },
+        });
     }
     async getLoginHistory(userId, limit = 50) {
         const safeLimit = Math.min(Math.max(limit, 1), 200);

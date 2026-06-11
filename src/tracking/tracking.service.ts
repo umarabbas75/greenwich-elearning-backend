@@ -158,7 +158,32 @@ export class TrackingService {
       },
     });
 
+    if (creditSeconds > 0) {
+      await this.accrueDailyTime(userId, courseId, now, creditSeconds);
+    }
+
     return this.heartbeatResult(row.totalSeconds);
+  }
+
+  /** UTC calendar-day bucket for daily time roll-ups. */
+  private utcDay(d: Date): Date {
+    return new Date(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+    );
+  }
+
+  private async accrueDailyTime(
+    userId: string,
+    courseId: string,
+    at: Date,
+    seconds: number,
+  ): Promise<void> {
+    const day = this.utcDay(at);
+    await this.prisma.sectionTimeSpentDaily.upsert({
+      where: { userId_courseId_day: { userId, courseId, day } },
+      create: { userId, courseId, day, totalSeconds: seconds },
+      update: { totalSeconds: { increment: seconds } },
+    });
   }
 
   // ── Reports ──────────────────────────────────────────────────────────────

@@ -57,6 +57,7 @@ model User {
   loginEvents              LoginEvent[]
   forumViewEvents          ForumViewEvent[]
   sectionTimeSpent         SectionTimeSpent[]
+  sectionTimeSpentDaily    SectionTimeSpentDaily[]
   emailLogs                EmailLog[]
   securityEvents           SecurityEvent[]
   // Last time this user's password actually changed (reset, first-login force,
@@ -1024,6 +1025,25 @@ model SectionTimeSpent {
   @@index([courseId, moduleId])
   @@index([userId, chapterId])
   @@map("section_time_spent")
+}
+
+/// Daily roll-up of active seconds per user per course (UTC calendar day).
+/// Written alongside section_time_spent heartbeats for admin time breakdowns.
+model SectionTimeSpentDaily {
+  id           String   @id @default(uuid())
+  userId       String
+  courseId     String
+  day          DateTime @db.Date
+  totalSeconds Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId, day])
+  @@index([userId, day])
+  @@index([day])
+  @@map("section_time_spent_daily")
 }
 
 enum EmailType {

@@ -188,10 +188,12 @@ export class AdminDashboardController {
   timeLeaderboard(
     @Query('courseId') courseId?: string,
     @Query('limit') limit?: string,
+    @Query('days') days?: string,
   ): Promise<ResponseDto> {
     return this.dashboard.getTimeLeaderboard({
       courseId,
       limit: this.toInt(limit, 20),
+      days: this.toInt(days, 30),
     });
   }
 

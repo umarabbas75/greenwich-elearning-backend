@@ -14,6 +14,8 @@ export declare class TrackingService {
             totalSeconds: number;
         };
     }>;
+    private utcDay;
+    private accrueDailyTime;
     getLoginHistory(userId: string, limit?: number): Promise<{
         message: string;
         statusCode: number;

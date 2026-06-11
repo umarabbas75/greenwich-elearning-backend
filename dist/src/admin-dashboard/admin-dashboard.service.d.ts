@@ -56,6 +56,7 @@ export declare class AdminDashboardService {
     getTimeLeaderboard(params: {
         courseId?: string;
         limit: number;
+        days: number;
     }): Promise<ResponseDto>;
     private activityRollupCte;
     private read;

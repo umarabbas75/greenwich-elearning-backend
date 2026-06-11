@@ -18,6 +18,6 @@ export declare class AdminDashboardController {
     passwordEvents(from?: string, to?: string, cursor?: string, limit?: string): Promise<ResponseDto>;
     pendingFirstLogin(): Promise<ResponseDto>;
     recentAccounts(days?: string): Promise<ResponseDto>;
-    timeLeaderboard(courseId?: string, limit?: string): Promise<ResponseDto>;
+    timeLeaderboard(courseId?: string, limit?: string, days?: string): Promise<ResponseDto>;
     private toInt;
 }
