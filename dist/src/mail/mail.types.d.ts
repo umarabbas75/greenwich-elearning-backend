@@ -55,6 +55,34 @@ export type NotificationEmail = {
     courseId?: string;
     passed?: boolean | null;
     scorePct?: number | null;
+} | {
+    kind: 'ASSIGNMENT_CREATED';
+    to: string;
+    userId?: string | null;
+    recipientFirstName: string;
+    assignmentId: string;
+    assignmentTitle: string;
+    courseTitle: string;
+    dueAt?: string | null;
+} | {
+    kind: 'ASSIGNMENT_SUBMITTED';
+    to: string;
+    userId?: string | null;
+    recipientFirstName: string;
+    studentName: string;
+    assignmentId: string;
+    assignmentTitle: string;
+} | {
+    kind: 'ASSIGNMENT_GRADED';
+    to: string;
+    userId?: string | null;
+    recipientFirstName: string;
+    assignmentId: string;
+    assignmentTitle: string;
+    submissionStatus: 'submitted' | 'in_review' | 'approved' | 'rejected' | 'returned';
+    score?: number | null;
+    maxPoints?: number | null;
+    feedback?: string | null;
 };
 export interface WelcomeMail {
     to: string;

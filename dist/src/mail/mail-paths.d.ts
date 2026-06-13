@@ -4,5 +4,7 @@ export declare function studentCourseFeedback(courseId: string): string;
 export declare function forumThread(threadId: string): string;
 export declare function assessmentGrade(attemptId: string): string;
 export declare function adminFeedback(): string;
+export declare function studentAssignmentDetail(assignmentId: string): string;
+export declare function adminAssignmentSubmissions(assignmentId: string): string;
 export declare function adminContactInbox(): string;
 export declare function appHome(): string;

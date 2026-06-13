@@ -36,7 +36,7 @@ export const BRAND = {
  * feedback submissions, etc.). Centralised so there's one place to change it.
  * Not derived from DB admin users — the business wants one fixed inbox.
  */
-export const ADMIN_EMAIL = ' greenwichtc@outlook.com';
+export const ADMIN_EMAIL = 'greenwichtc@outlook.com';
 
 export function escapeHtml(value: string): string {
   return value

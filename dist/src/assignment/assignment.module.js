@@ -13,12 +13,13 @@ const strategy_1 = require("../strategy");
 const assignment_service_1 = require("./assignment.service");
 const assignment_controller_1 = require("./assignment.controller");
 const feedback_module_1 = require("../feedback/feedback.module");
+const notification_module_1 = require("../notifications/notification.module");
 let AssignmentModule = class AssignmentModule {
 };
 exports.AssignmentModule = AssignmentModule;
 exports.AssignmentModule = AssignmentModule = __decorate([
     (0, common_1.Module)({
-        imports: [jwt_1.JwtModule.register({}), feedback_module_1.FeedbackModule],
+        imports: [jwt_1.JwtModule.register({}), feedback_module_1.FeedbackModule, notification_module_1.NotificationModule],
         providers: [
             assignment_service_1.AssignmentService,
             strategy_1.JwtUserStrategy,

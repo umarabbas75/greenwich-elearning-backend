@@ -12,14 +12,14 @@ export declare class ForumCommentService {
             user: {
                 id: string;
                 createdAt: Date;
+                updatedAt: Date;
                 firstName: string;
                 lastName: string;
                 email: string;
                 phone: string;
-                role: import(".prisma/client").$Enums.Role;
                 photo: string;
-                updatedAt: Date;
                 timezone: string;
+                role: import(".prisma/client").$Enums.Role;
             };
         } & {
             id: string;

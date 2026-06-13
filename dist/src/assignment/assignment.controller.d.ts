@@ -8,9 +8,21 @@ export declare class AssignmentController {
     constructor(assignmentService: AssignmentService, feedbackService: FeedbackService);
     submit(user: User, body: {
         assignmentId: string;
-        fileUrl: string;
+        courseId?: string;
+        assignedToAdminId?: string;
+        submissionAttachments?: Array<{
+            fileUrl: string;
+            fileName?: string;
+            fileType: AssignmentFileType;
+        }>;
+        submissionFiles?: Array<{
+            fileUrl: string;
+            fileName?: string;
+            fileType: AssignmentFileType;
+        }>;
+        fileUrl?: string;
         fileName?: string;
-        fileType: AssignmentFileType;
+        fileType?: AssignmentFileType;
     }): Promise<ResponseDto>;
     mySubmissions(user: User): Promise<ResponseDto>;
     assignedToMe(user: User, status?: AssignmentSubmissionStatus): Promise<ResponseDto>;
@@ -30,6 +42,11 @@ export declare class AssignmentController {
         maxPoints?: number;
         allowResubmissions?: boolean;
         maxAttempts?: number;
+        assignmentFiles?: Array<{
+            fileUrl: string;
+            fileName?: string;
+            fileType: AssignmentFileType;
+        }>;
         assignmentFileUrl?: string;
         assignmentFileName?: string;
         assignmentFileType?: AssignmentFileType;
@@ -44,6 +61,11 @@ export declare class AssignmentController {
         maxPoints?: number;
         allowResubmissions?: boolean;
         maxAttempts?: number;
+        assignmentFiles?: Array<{
+            fileUrl: string;
+            fileName?: string;
+            fileType: AssignmentFileType;
+        }>;
         assignmentFileUrl?: string;
         assignmentFileName?: string;
         assignmentFileType?: AssignmentFileType;

@@ -151,8 +151,11 @@ let NotificationService = NotificationService_1 = class NotificationService {
             ],
             skipDuplicates: true,
         });
-        if (input.email && result.count > 0) {
-            await this.dispatchNotificationEmails([input.userId], input.email);
+        if (input.email) {
+            const recipients = result.count > 0 ? [input.userId] : [];
+            if (recipients.length > 0 || input.emailCcAddresses?.length) {
+                await this.dispatchNotificationEmails(recipients, input.email, input.emailCcAddresses);
+            }
         }
     }
     async createNotificationForMany(input) {

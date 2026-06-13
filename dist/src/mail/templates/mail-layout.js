@@ -14,7 +14,7 @@ exports.BRAND = {
     card: '#ffffff',
     website: 'https://www.greenwichtc-elearning.com',
 };
-exports.ADMIN_EMAIL = 'umarabbas75@gmail.com';
+exports.ADMIN_EMAIL = 'greenwichtc@outlook.com';
 function escapeHtml(value) {
     return value
         .replace(/&/g, '&amp;')

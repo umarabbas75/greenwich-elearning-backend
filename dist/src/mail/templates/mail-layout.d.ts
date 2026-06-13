@@ -16,7 +16,7 @@ export declare const BRAND: {
     readonly card: "#ffffff";
     readonly website: "https://www.greenwichtc-elearning.com";
 };
-export declare const ADMIN_EMAIL = "umarabbas75@gmail.com";
+export declare const ADMIN_EMAIL = "greenwichtc@outlook.com";
 export declare function escapeHtml(value: string): string;
 export declare function layout(args: {
     heading: string;

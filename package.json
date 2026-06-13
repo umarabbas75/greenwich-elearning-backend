@@ -24,7 +24,9 @@
     "script:pending-feedback:dry": "ts-node -r tsconfig-paths/register scripts/send-pending-feedback-emails.ts",
     "script:pending-feedback:send": "ts-node -r tsconfig-paths/register scripts/send-pending-feedback-emails.ts --send",
     "script:email-previews:generate": "ts-node -r tsconfig-paths/register scripts/generate-email-previews.ts",
-    "script:email-previews:serve": "yarn script:email-previews:generate && cd docs/email-previews && python3 -m http.server 3456"
+    "script:email-previews:serve": "yarn script:email-previews:generate && cd docs/email-previews && python3 -m http.server 3456",
+    "script:delete-assignment:dry": "ts-node -r tsconfig-paths/register scripts/delete-assignment.ts",
+    "script:delete-assignment": "ts-node -r tsconfig-paths/register scripts/delete-assignment.ts --delete"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

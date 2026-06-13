@@ -15,6 +15,7 @@ const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const notification_service_1 = require("../notifications/notification.service");
+const mail_layout_1 = require("../mail/templates/mail-layout");
 let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessmentService {
     constructor(prisma, notificationService) {
         this.prisma = prisma;
@@ -793,6 +794,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                 const studentName = `${student.firstName} ${student.lastName}`.trim();
                 await this.notificationService.createNotification({
                     userId: assessment.createdByAdminId,
+                    emailCcAddresses: [mail_layout_1.ADMIN_EMAIL],
                     type: client_1.NotificationType.ASSESSMENT_SUBMITTED,
                     message: `A student has submitted the assessment: ${attempt.snapshotTitle}`,
                     payload: {
@@ -1048,6 +1050,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             }
             await this.notificationService.createNotification({
                 userId: attempt.userId,
+                emailCcAddresses: [mail_layout_1.ADMIN_EMAIL],
                 type: client_1.NotificationType.ASSESSMENT_GRADED,
                 message: `Your assessment "${attempt.snapshotTitle}" has been graded. You ${isPassed ? 'passed' : 'did not pass'}.`,
                 payload: {

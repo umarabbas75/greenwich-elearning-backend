@@ -1,11 +1,19 @@
 import { AssignmentSubmissionStatus, AssignmentFileType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from '../notifications/notification.service';
 import { ResponseDto } from '../dto';
-interface CreateSubmissionInput {
-    assignmentId: string;
+interface FileInput {
     fileUrl: string;
     fileName?: string;
     fileType: AssignmentFileType;
+}
+interface CreateSubmissionInput {
+    assignmentId: string;
+    submissionAttachments?: FileInput[];
+    submissionFiles?: FileInput[];
+    fileUrl?: string;
+    fileName?: string;
+    fileType?: AssignmentFileType;
 }
 interface ReviewSubmissionInput {
     submissionId: string;
@@ -15,7 +23,10 @@ interface ReviewSubmissionInput {
 }
 export declare class AssignmentService {
     private prisma;
-    constructor(prisma: PrismaService);
+    private notificationService;
+    private static readonly logger;
+    constructor(prisma: PrismaService, notificationService: NotificationService);
+    private safeNotify;
     createSubmission(studentId: string, input: CreateSubmissionInput): Promise<ResponseDto>;
     getMySubmissions(studentId: string): Promise<ResponseDto>;
     listAssignedToAdmin(adminId: string, status?: AssignmentSubmissionStatus): Promise<ResponseDto>;
@@ -30,6 +41,7 @@ export declare class AssignmentService {
         maxPoints?: number;
         allowResubmissions?: boolean;
         maxAttempts?: number;
+        assignmentFiles?: FileInput[];
         assignmentFileUrl?: string;
         assignmentFileName?: string;
         assignmentFileType?: AssignmentFileType;
@@ -44,6 +56,7 @@ export declare class AssignmentService {
         maxPoints?: number;
         allowResubmissions?: boolean;
         maxAttempts?: number;
+        assignmentFiles?: FileInput[];
         assignmentFileUrl?: string;
         assignmentFileName?: string;
         assignmentFileType?: AssignmentFileType;
@@ -53,5 +66,8 @@ export declare class AssignmentService {
     getAssignmentById(assignmentId: string): Promise<ResponseDto>;
     getAssignmentStatusForStudent(studentId: string, assignmentId: string): Promise<ResponseDto>;
     getAssignmentSubmissions(assignmentId: string, adminId: string, status?: AssignmentSubmissionStatus): Promise<ResponseDto>;
+    private notifyAssignmentCreated;
+    private notifyAssignmentSubmitted;
+    private notifyAssignmentGraded;
 }
 export {};

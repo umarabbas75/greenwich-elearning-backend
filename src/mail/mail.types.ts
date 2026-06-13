@@ -87,6 +87,42 @@ export type NotificationEmail =
       courseId?: string;
       passed?: boolean | null;
       scorePct?: number | null;
+    }
+  | {
+      kind: 'ASSIGNMENT_CREATED';
+      to: string;
+      userId?: string | null;
+      recipientFirstName: string; // the enrolled student
+      assignmentId: string;
+      assignmentTitle: string;
+      courseTitle: string;
+      dueAt?: string | null; // ISO timestamp
+    }
+  | {
+      kind: 'ASSIGNMENT_SUBMITTED';
+      to: string;
+      userId?: string | null;
+      recipientFirstName: string; // the assigned-to admin
+      studentName: string;
+      assignmentId: string;
+      assignmentTitle: string;
+    }
+  | {
+      kind: 'ASSIGNMENT_GRADED';
+      to: string;
+      userId?: string | null;
+      recipientFirstName: string; // the student
+      assignmentId: string;
+      assignmentTitle: string;
+      submissionStatus:
+        | 'submitted'
+        | 'in_review'
+        | 'approved'
+        | 'rejected'
+        | 'returned';
+      score?: number | null;
+      maxPoints?: number | null;
+      feedback?: string | null;
     };
 
 /** Data for the welcome email sent on self-registration. */

@@ -33,9 +33,21 @@ export class AssignmentController {
     @Body()
     body: {
       assignmentId: string;
-      fileUrl: string;
+      courseId?: string;
+      assignedToAdminId?: string;
+      submissionAttachments?: Array<{
+        fileUrl: string;
+        fileName?: string;
+        fileType: AssignmentFileType;
+      }>;
+      submissionFiles?: Array<{
+        fileUrl: string;
+        fileName?: string;
+        fileType: AssignmentFileType;
+      }>;
+      fileUrl?: string;
       fileName?: string;
-      fileType: AssignmentFileType; // 'pdf' | 'docx'
+      fileType?: AssignmentFileType; // 'pdf' | 'docx'
     },
   ): Promise<ResponseDto> {
     return this.assignmentService.createSubmission(user.id, body);
@@ -90,6 +102,11 @@ export class AssignmentController {
       maxPoints?: number;
       allowResubmissions?: boolean;
       maxAttempts?: number;
+      assignmentFiles?: Array<{
+        fileUrl: string;
+        fileName?: string;
+        fileType: AssignmentFileType;
+      }>;
       assignmentFileUrl?: string;
       assignmentFileName?: string;
       assignmentFileType?: AssignmentFileType;
@@ -120,6 +137,11 @@ export class AssignmentController {
       maxPoints?: number;
       allowResubmissions?: boolean;
       maxAttempts?: number;
+      assignmentFiles?: Array<{
+        fileUrl: string;
+        fileName?: string;
+        fileType: AssignmentFileType;
+      }>;
       assignmentFileUrl?: string;
       assignmentFileName?: string;
       assignmentFileType?: AssignmentFileType;

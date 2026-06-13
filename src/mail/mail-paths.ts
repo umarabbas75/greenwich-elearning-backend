@@ -26,6 +26,14 @@ export function adminFeedback(): string {
   return `${BRAND.website}/feedback`;
 }
 
+export function studentAssignmentDetail(assignmentId: string): string {
+  return `${BRAND.website}/assignments/${encodeURIComponent(assignmentId)}`;
+}
+
+export function adminAssignmentSubmissions(assignmentId: string): string {
+  return `${BRAND.website}/admin/assignments/${encodeURIComponent(assignmentId)}/submissions`;
+}
+
 export function adminContactInbox(): string {
   return `${BRAND.website}/contact-us`;
 }

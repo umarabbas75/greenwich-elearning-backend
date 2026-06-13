@@ -41,6 +41,13 @@ interface CreateNotificationInput {
   threadId?: string | null;
   commenterId?: string | null;
   email?: NotificationEmailDirective | null;
+  /**
+   * Extra raw email addresses that receive only the EMAIL mirror — no in-app
+   * notification row. Used to CC a fixed oversight inbox (e.g. ADMIN_EMAIL)
+   * without polluting the recipient's bell. Always emailed when supplied; the
+   * primary recipient is still gated by the dedupe behaviour above.
+   */
+  emailCcAddresses?: string[];
 }
 
 interface BulkCreateNotificationInput
@@ -252,10 +259,19 @@ export class NotificationService {
       skipDuplicates: true,
     });
 
-    // Email only if the row was actually inserted (not a dedupe no-op) and an
-    // email directive was supplied. Best-effort — never throws into the caller.
-    if (input.email && result.count > 0) {
-      await this.dispatchNotificationEmails([input.userId], input.email);
+    // Email only if an email directive was supplied. The primary recipient is
+    // emailed only when the row was freshly inserted (dedupe-aware); CC
+    // addresses are emailed unconditionally (they have no in-app row to dedupe
+    // on). Best-effort — never throws into the caller.
+    if (input.email) {
+      const recipients = result.count > 0 ? [input.userId] : [];
+      if (recipients.length > 0 || input.emailCcAddresses?.length) {
+        await this.dispatchNotificationEmails(
+          recipients,
+          input.email,
+          input.emailCcAddresses,
+        );
+      }
     }
   }
 

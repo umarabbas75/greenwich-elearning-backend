@@ -688,9 +688,9 @@ model Assignment {
   maxAttempts        Int?
   createdByAdminId   String
   assignedToAdminId  String    // Admin who will review submissions for this assignment
-  assignmentFileUrl  String?   // URL to the assignment file (PDF/DOCX)
-  assignmentFileName String?   // Original filename
-  assignmentFileType AssignmentFileType? // Type of assignment file
+  assignmentFileUrl  String?   // Deprecated: first attachment URL (kept for backward compatibility)
+  assignmentFileName String?   // Deprecated: first attachment filename
+  assignmentFileType AssignmentFileType? // Deprecated: first attachment type
   isActive           Boolean   @default(true) // Admin can deactivate assignments
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -698,6 +698,7 @@ model Assignment {
   course         Course                 @relation(fields: [courseId], references: [id])
   createdByAdmin User                   @relation("AssignmentsCreatedByAdmin", fields: [createdByAdminId], references: [id])
   submissions    AssignmentSubmission[]
+  attachments    AssignmentAttachment[]
   assignedToAdmin User                  @relation("AssignmentReviewer", fields: [assignedToAdminId], references: [id])
 
   @@index([courseId])
@@ -707,6 +708,23 @@ model Assignment {
   @@map("assignments")
 }
 
+/// Admin-uploaded files attached to an assignment (max 5 per assignment)
+model AssignmentAttachment {
+  id           String             @id @default(uuid())
+  assignmentId String
+  fileUrl      String
+  fileName     String?
+  fileType     AssignmentFileType
+  sortOrder    Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId])
+  @@map("assignment_attachments")
+}
+
 /// A file submission by a student for a specific admin-created assignment
 model AssignmentSubmission {
   id                String                     @id @default(uuid())
@@ -714,9 +732,9 @@ model AssignmentSubmission {
   studentId         String
   assignedToAdminId String                     // Admin who will review this submission
   reviewedByAdminId String?
-  fileUrl           String
-  fileName          String?
-  fileType          AssignmentFileType
+  fileUrl           String                     // Deprecated: first attachment URL (kept for backward compatibility)
+  fileName          String?                    // Deprecated: first attachment filename
+  fileType          AssignmentFileType         // Deprecated: first attachment type
   status            AssignmentSubmissionStatus @default(submitted)
   feedback          String?
   score             Float?
@@ -729,6 +747,7 @@ model AssignmentSubmission {
   student         User       @relation("StudentSubmissions", fields: [studentId], references: [id])
   assignedToAdmin User       @relation("AdminAssignedSubmissions", fields: [assignedToAdminId], references: [id])
   reviewedByAdmin User?      @relation("AdminReviewedSubmissions", fields: [reviewedByAdminId], references: [id])
+  attachments     AssignmentSubmissionAttachment[]
 
   @@unique([assignmentId, studentId]) // One submission per student per assignment
   @@index([studentId])
@@ -736,6 +755,23 @@ model AssignmentSubmission {
   @@index([status])
   @@index([assignmentId])
   @@map("assignment_submissions")
+}
+
+/// Student-uploaded files attached to a submission (max 5 per submission)
+model AssignmentSubmissionAttachment {
+  id           String             @id @default(uuid())
+  submissionId String
+  fileUrl      String
+  fileName     String?
+  fileType     AssignmentFileType
+  sortOrder    Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  submission AssignmentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@map("assignment_submission_attachments")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -749,6 +785,9 @@ enum NotificationType {
   ASSESSMENT_GRADED
   ENGAGEMENT_REMINDER // automated low-engagement nudge; reminderType (never_started|stalled) lives in payload
   COURSE_FEEDBACK_REQUIRED // completed course with required feedback not yet submitted
+  ASSIGNMENT_CREATED // admin created a new assignment for a course
+  ASSIGNMENT_SUBMITTED // student submitted to an assignment; recipient is the assigned reviewer
+  ASSIGNMENT_GRADED // admin reviewed/graded a submission; recipient is the student
 }
 
 enum QuestionType {
@@ -1062,6 +1101,9 @@ enum EmailType {
   NOTIFICATION_FORUM_COMMENT
   NOTIFICATION_ASSESSMENT_SUBMITTED
   NOTIFICATION_ASSESSMENT_GRADED
+  NOTIFICATION_ASSIGNMENT_CREATED
+  NOTIFICATION_ASSIGNMENT_SUBMITTED
+  NOTIFICATION_ASSIGNMENT_GRADED
 }
 
 enum EmailStatus {

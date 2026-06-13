@@ -28,6 +28,7 @@ interface CreateNotificationInput {
     threadId?: string | null;
     commenterId?: string | null;
     email?: NotificationEmailDirective | null;
+    emailCcAddresses?: string[];
 }
 interface BulkCreateNotificationInput extends Omit<CreateNotificationInput, 'userId'> {
     userIds: string[];

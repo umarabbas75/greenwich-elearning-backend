@@ -9,6 +9,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
+import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
 import {
   AddAssessmentQuestionDto,
   CreateAssessmentDto,
@@ -1031,6 +1032,7 @@ export class CourseAssessmentService {
         const studentName = `${student.firstName} ${student.lastName}`.trim();
         await this.notificationService.createNotification({
           userId: assessment.createdByAdminId,
+          emailCcAddresses: [ADMIN_EMAIL],
           type: NotificationType.ASSESSMENT_SUBMITTED,
           message: `A student has submitted the assessment: ${attempt.snapshotTitle}`,
           payload: {
@@ -1342,6 +1344,7 @@ export class CourseAssessmentService {
       // rather than silently swallowing it.
       await this.notificationService.createNotification({
         userId: attempt.userId,
+        emailCcAddresses: [ADMIN_EMAIL],
         type: NotificationType.ASSESSMENT_GRADED,
         message: `Your assessment "${
           attempt.snapshotTitle

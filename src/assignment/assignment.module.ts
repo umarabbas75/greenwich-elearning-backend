@@ -8,9 +8,10 @@ import {
 import { AssignmentService } from './assignment.service';
 import { AssignmentController } from './assignment.controller';
 import { FeedbackModule } from '../feedback/feedback.module';
+import { NotificationModule } from '../notifications/notification.module';
 
 @Module({
-  imports: [JwtModule.register({}), FeedbackModule],
+  imports: [JwtModule.register({}), FeedbackModule, NotificationModule],
   providers: [
     AssignmentService,
     JwtUserStrategy,
