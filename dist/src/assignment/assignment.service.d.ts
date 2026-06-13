@@ -62,6 +62,7 @@ export declare class AssignmentService {
         assignmentFileType?: AssignmentFileType;
         isActive?: boolean;
     }): Promise<ResponseDto>;
+    deleteAssignment(adminId: string, assignmentId: string): Promise<ResponseDto>;
     getAvailableAssignments(studentId: string): Promise<ResponseDto>;
     getAssignmentById(assignmentId: string): Promise<ResponseDto>;
     getAssignmentStatusForStudent(studentId: string, assignmentId: string): Promise<ResponseDto>;

@@ -47,11 +47,19 @@ export declare class AssignmentController {
             fileName?: string;
             fileType: AssignmentFileType;
         }>;
+        assignmentAttachments?: Array<{
+            fileUrl: string;
+            fileName?: string;
+            fileType: AssignmentFileType;
+        }>;
         assignmentFileUrl?: string;
         assignmentFileName?: string;
         assignmentFileType?: AssignmentFileType;
     }): Promise<ResponseDto>;
     adminCreatedAssignments(user: User): Promise<ResponseDto>;
+    deleteAssignment(user: User, body: {
+        assignmentId: string;
+    }): Promise<ResponseDto>;
     updateAssignment(user: User, body: {
         assignmentId: string;
         title?: string;
@@ -62,6 +70,11 @@ export declare class AssignmentController {
         allowResubmissions?: boolean;
         maxAttempts?: number;
         assignmentFiles?: Array<{
+            fileUrl: string;
+            fileName?: string;
+            fileType: AssignmentFileType;
+        }>;
+        assignmentAttachments?: Array<{
             fileUrl: string;
             fileName?: string;
             fileType: AssignmentFileType;

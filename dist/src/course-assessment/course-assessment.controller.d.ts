@@ -174,8 +174,8 @@ export declare class CourseAssessmentController {
         statusCode: number;
         data: ({
             _count: {
-                assessmentQuestions: number;
                 attempts: number;
+                assessmentQuestions: number;
             };
         } & {
             id: string;
@@ -540,10 +540,10 @@ export declare class CourseAssessmentController {
                 id: string;
                 title: string;
                 description: string;
+                maxAttempts: number;
                 mode: import(".prisma/client").$Enums.AssessmentMode;
                 passingPercentage: number;
                 timeLimitMinutes: number;
-                maxAttempts: number;
             };
             isEligible: boolean;
             remainingAttempts: number;
@@ -558,15 +558,15 @@ export declare class CourseAssessmentController {
                     remainingSeconds: number;
                     graceSeconds: number;
                 };
-                status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
                 id: string;
+                status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
+                submittedAt: Date;
+                isPassed: boolean;
+                percentage: number;
                 snapshotTimeLimitMin: number;
                 totalMarks: number;
                 marksObtained: number;
-                percentage: number;
-                isPassed: boolean;
                 startedAt: Date;
-                submittedAt: Date;
                 finalizedAt: Date;
             }[];
         }[];
@@ -611,17 +611,17 @@ export declare class CourseAssessmentController {
         data: ({
             questionSnapshots: {
                 id: string;
-                maxMarks: number;
                 orderIndex: number;
-                questionType: import(".prisma/client").$Enums.QuestionType;
                 questionText: string;
-                questionImageUrl: string;
+                maxMarks: number;
                 studentAnswer: import(".prisma/client").Prisma.JsonValue;
+                adminFeedback: string;
+                questionType: import(".prisma/client").$Enums.QuestionType;
+                questionImageUrl: string;
                 isAnswered: boolean;
                 isLocked: boolean;
                 systemScore: number;
                 finalScore: number;
-                adminFeedback: string;
             }[];
         } & {
             id: string;
@@ -650,9 +650,9 @@ export declare class CourseAssessmentController {
         data: {
             bestAttempt: {
                 id: string;
-                percentage: number;
-                isPassed: boolean;
                 submittedAt: Date;
+                isPassed: boolean;
+                percentage: number;
                 finalizedAt: Date;
             };
         } & {

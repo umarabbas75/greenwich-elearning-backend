@@ -157,14 +157,40 @@ async function main() {
     return;
   }
 
+  const submissionIdRows = await prisma.assignmentSubmission.findMany({
+    where: { assignmentId: assignment.id },
+    select: { id: true },
+  });
+  const submissionIds = submissionIdRows.map((row) => row.id);
+
   const deleted = await prisma.$transaction(async (tx) => {
+    const notifications = await tx.notification.deleteMany({
+      where: {
+        OR: [
+          { groupKey: `assignment-created:${assignment.id}` },
+          { groupKey: `assignment-submitted:${assignment.id}` },
+          ...(submissionIds.length
+            ? [
+                {
+                  type: 'ASSIGNMENT_GRADED' as const,
+                  referenceId: { in: submissionIds },
+                },
+              ]
+            : []),
+        ],
+      },
+    });
     const submissions = await tx.assignmentSubmission.deleteMany({
       where: { assignmentId: assignment.id },
     });
     const assignments = await tx.assignment.deleteMany({
       where: { id: assignment.id },
     });
-    return { submissions: submissions.count, assignments: assignments.count };
+    return {
+      submissions: submissions.count,
+      assignments: assignments.count,
+      notifications: notifications.count,
+    };
   });
 
   const [usersAfter, coursesAfter, stillThere] = await Promise.all([
@@ -174,6 +200,7 @@ async function main() {
   ]);
 
   console.log('🗑️  Deleted:');
+  console.log(`  ✓ ${deleted.notifications} notifications (bell entries)`);
   console.log(`  ✓ ${deleted.submissions} assignment_submissions`);
   console.log(`  ✓ ${deleted.assignments} assignments`);
   console.log();

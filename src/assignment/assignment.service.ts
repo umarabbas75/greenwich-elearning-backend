@@ -26,6 +26,8 @@ interface LegacyFileFields {
 
 interface AssignmentFileBody {
   assignmentFiles?: FileInput[];
+  /** Frontend alias accepted as input — symmetric with submissionAttachments. */
+  assignmentAttachments?: FileInput[];
   assignmentFileUrl?: string;
   assignmentFileName?: string;
   assignmentFileType?: AssignmentFileType;
@@ -90,10 +92,18 @@ function validateFiles(
   }
 }
 
+function pickAssignmentFilesArray(
+  body: AssignmentFileBody,
+): FileInput[] | undefined {
+  // Accept either `assignmentFiles` (canonical) or `assignmentAttachments`
+  // (frontend alias). If both are sent, prefer the explicit canonical one.
+  return body.assignmentFiles ?? body.assignmentAttachments;
+}
+
 function resolveAssignmentFiles(
   body: AssignmentFileBody,
 ): FileInput[] | undefined {
-  return resolveFiles(body.assignmentFiles, {
+  return resolveFiles(pickAssignmentFilesArray(body), {
     fileUrl: body.assignmentFileUrl,
     fileName: body.assignmentFileName,
     fileType: body.assignmentFileType,
@@ -104,8 +114,9 @@ function resolveAssignmentFilesForUpdate(body: AssignmentFileBody): {
   shouldUpdate: boolean;
   files?: FileInput[];
 } {
-  if (body.assignmentFiles !== undefined) {
-    return { shouldUpdate: true, files: body.assignmentFiles };
+  const filesArray = pickAssignmentFilesArray(body);
+  if (filesArray !== undefined) {
+    return { shouldUpdate: true, files: filesArray };
   }
 
   const hasLegacyField =
@@ -633,6 +644,10 @@ export class AssignmentService {
         data: formatAssignment(assignment),
       };
     } catch (error) {
+      AssignmentService.logger.error(
+        `createAssignment failed: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -812,6 +827,102 @@ export class AssignmentService {
         {
           status: HttpStatus.FORBIDDEN,
           error: error?.message || 'Failed to update assignment',
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+
+  /**
+   * Admin: delete an assignment they created. Atomically wipes the assignment,
+   * all of its student submissions (with their attachments), the admin
+   * attachment rows, AND every in-app notification the lifecycle had emitted
+   * for this assignment so students/admins don't see ghost bell entries
+   * pointing at a deleted assignment.
+   */
+  async deleteAssignment(
+    adminId: string,
+    assignmentId: string,
+  ): Promise<ResponseDto> {
+    try {
+      if (!assignmentId) {
+        throw new Error('assignmentId is required');
+      }
+
+      const assignment = await this.prisma.assignment.findUnique({
+        where: { id: assignmentId },
+        select: { id: true, createdByAdminId: true },
+      });
+      if (!assignment) {
+        throw new Error('Assignment not found');
+      }
+      if (assignment.createdByAdminId !== adminId) {
+        throw new Error('You can only delete your own assignments');
+      }
+
+      // Resolve submission ids up-front: needed both to delete the submission
+      // rows and to clear the ASSIGNMENT_GRADED notifications, which carry
+      // submissionId in their `referenceId` (assignment id only lives in the
+      // payload there).
+      const submissions = await this.prisma.assignmentSubmission.findMany({
+        where: { assignmentId },
+        select: { id: true },
+      });
+      const submissionIds = submissions.map((s) => s.id);
+
+      const result = await this.prisma.$transaction(async (tx) => {
+        // 1. Bell cleanup — three event types raised over the assignment's
+        //    lifecycle. Created/submitted notifications are keyed by groupKey
+        //    embedding the assignmentId; graded notifications are keyed by the
+        //    submission's id (their groupKey is unset).
+        const notificationsDeleted = await tx.notification.deleteMany({
+          where: {
+            OR: [
+              { groupKey: `assignment-created:${assignmentId}` },
+              { groupKey: `assignment-submitted:${assignmentId}` },
+              ...(submissionIds.length
+                ? [
+                    {
+                      type: NotificationType.ASSIGNMENT_GRADED,
+                      referenceId: { in: submissionIds },
+                    } as const,
+                  ]
+                : []),
+            ],
+          },
+        });
+
+        // 2. Submissions don't cascade to the assignment (only their
+        //    attachments cascade to the submission). Wipe submissions first,
+        //    then the assignment — its attachment rows cascade with it.
+        const submissionsResult = await tx.assignmentSubmission.deleteMany({
+          where: { assignmentId },
+        });
+        await tx.assignment.delete({ where: { id: assignmentId } });
+        return {
+          submissionsDeleted: submissionsResult.count,
+          notificationsDeleted: notificationsDeleted.count,
+        };
+      });
+
+      return {
+        message: 'Assignment deleted successfully',
+        statusCode: 200,
+        data: {
+          assignmentId,
+          submissionsDeleted: result.submissionsDeleted,
+          notificationsDeleted: result.notificationsDeleted,
+        },
+      };
+    } catch (error) {
+      AssignmentService.logger.error(
+        `deleteAssignment failed: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Failed to delete assignment',
         },
         HttpStatus.FORBIDDEN,
       );

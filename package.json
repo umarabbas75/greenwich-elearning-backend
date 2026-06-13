@@ -26,7 +26,11 @@
     "script:email-previews:generate": "ts-node -r tsconfig-paths/register scripts/generate-email-previews.ts",
     "script:email-previews:serve": "yarn script:email-previews:generate && cd docs/email-previews && python3 -m http.server 3456",
     "script:delete-assignment:dry": "ts-node -r tsconfig-paths/register scripts/delete-assignment.ts",
-    "script:delete-assignment": "ts-node -r tsconfig-paths/register scripts/delete-assignment.ts --delete"
+    "script:delete-assignment": "ts-node -r tsconfig-paths/register scripts/delete-assignment.ts --delete",
+    "script:delete-all-assignments:dry": "ts-node -r tsconfig-paths/register scripts/delete-all-assignments.ts",
+    "script:delete-all-assignments": "ts-node -r tsconfig-paths/register scripts/delete-all-assignments.ts --delete",
+    "script:dedupe-assignments:dry": "ts-node -r tsconfig-paths/register scripts/dedupe-assignments.ts",
+    "script:dedupe-assignments": "ts-node -r tsconfig-paths/register scripts/dedupe-assignments.ts --delete"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

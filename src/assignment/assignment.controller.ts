@@ -107,6 +107,12 @@ export class AssignmentController {
         fileName?: string;
         fileType: AssignmentFileType;
       }>;
+      // Frontend alias for assignmentFiles (symmetric with submissionAttachments).
+      assignmentAttachments?: Array<{
+        fileUrl: string;
+        fileName?: string;
+        fileType: AssignmentFileType;
+      }>;
       assignmentFileUrl?: string;
       assignmentFileName?: string;
       assignmentFileType?: AssignmentFileType;
@@ -120,6 +126,16 @@ export class AssignmentController {
   @Get('admin/created')
   async adminCreatedAssignments(@GetUser() user: User): Promise<ResponseDto> {
     return this.assignmentService.getAdminCreatedAssignments(user.id);
+  }
+
+  // Admin: delete an assignment they created (and all its submissions)
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('admin/delete')
+  async deleteAssignment(
+    @GetUser() user: User,
+    @Body() body: { assignmentId: string },
+  ): Promise<ResponseDto> {
+    return this.assignmentService.deleteAssignment(user.id, body.assignmentId);
   }
 
   // Admin: update assignment details
@@ -138,6 +154,12 @@ export class AssignmentController {
       allowResubmissions?: boolean;
       maxAttempts?: number;
       assignmentFiles?: Array<{
+        fileUrl: string;
+        fileName?: string;
+        fileType: AssignmentFileType;
+      }>;
+      // Frontend alias for assignmentFiles (symmetric with submissionAttachments).
+      assignmentAttachments?: Array<{
         fileUrl: string;
         fileName?: string;
         fileType: AssignmentFileType;

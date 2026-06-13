@@ -58,16 +58,20 @@ function validateFiles(files, options = {}) {
         }
     }
 }
+function pickAssignmentFilesArray(body) {
+    return body.assignmentFiles ?? body.assignmentAttachments;
+}
 function resolveAssignmentFiles(body) {
-    return resolveFiles(body.assignmentFiles, {
+    return resolveFiles(pickAssignmentFilesArray(body), {
         fileUrl: body.assignmentFileUrl,
         fileName: body.assignmentFileName,
         fileType: body.assignmentFileType,
     });
 }
 function resolveAssignmentFilesForUpdate(body) {
-    if (body.assignmentFiles !== undefined) {
-        return { shouldUpdate: true, files: body.assignmentFiles };
+    const filesArray = pickAssignmentFilesArray(body);
+    if (filesArray !== undefined) {
+        return { shouldUpdate: true, files: filesArray };
     }
     const hasLegacyField = body.assignmentFileUrl !== undefined ||
         body.assignmentFileName !== undefined ||
@@ -404,6 +408,7 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
             };
         }
         catch (error) {
+            AssignmentService_1.logger.error(`createAssignment failed: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Failed to create assignment',
@@ -539,6 +544,70 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Failed to update assignment',
+            }, common_1.HttpStatus.FORBIDDEN);
+        }
+    }
+    async deleteAssignment(adminId, assignmentId) {
+        try {
+            if (!assignmentId) {
+                throw new Error('assignmentId is required');
+            }
+            const assignment = await this.prisma.assignment.findUnique({
+                where: { id: assignmentId },
+                select: { id: true, createdByAdminId: true },
+            });
+            if (!assignment) {
+                throw new Error('Assignment not found');
+            }
+            if (assignment.createdByAdminId !== adminId) {
+                throw new Error('You can only delete your own assignments');
+            }
+            const submissions = await this.prisma.assignmentSubmission.findMany({
+                where: { assignmentId },
+                select: { id: true },
+            });
+            const submissionIds = submissions.map((s) => s.id);
+            const result = await this.prisma.$transaction(async (tx) => {
+                const notificationsDeleted = await tx.notification.deleteMany({
+                    where: {
+                        OR: [
+                            { groupKey: `assignment-created:${assignmentId}` },
+                            { groupKey: `assignment-submitted:${assignmentId}` },
+                            ...(submissionIds.length
+                                ? [
+                                    {
+                                        type: client_1.NotificationType.ASSIGNMENT_GRADED,
+                                        referenceId: { in: submissionIds },
+                                    },
+                                ]
+                                : []),
+                        ],
+                    },
+                });
+                const submissionsResult = await tx.assignmentSubmission.deleteMany({
+                    where: { assignmentId },
+                });
+                await tx.assignment.delete({ where: { id: assignmentId } });
+                return {
+                    submissionsDeleted: submissionsResult.count,
+                    notificationsDeleted: notificationsDeleted.count,
+                };
+            });
+            return {
+                message: 'Assignment deleted successfully',
+                statusCode: 200,
+                data: {
+                    assignmentId,
+                    submissionsDeleted: result.submissionsDeleted,
+                    notificationsDeleted: result.notificationsDeleted,
+                },
+            };
+        }
+        catch (error) {
+            AssignmentService_1.logger.error(`deleteAssignment failed: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Failed to delete assignment',
             }, common_1.HttpStatus.FORBIDDEN);
         }
     }
