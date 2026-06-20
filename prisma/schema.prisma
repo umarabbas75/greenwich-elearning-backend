@@ -114,6 +114,11 @@ model Course {
   duration             String
   price                String?
   assessment           String
+  // Number of days a learner retains access after completing the course
+  // (content completion). Access is computed live on each request; once
+  // completedAt + validityDays has passed, the learner is locked out.
+  // Defaults to 365 (one year) when the admin doesn't specify it.
+  validityDays         Int                    @default(365)
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
   syllabusOverview     String
@@ -406,9 +411,10 @@ model Section {
   // ORDERING — orderable items in `items` JSON; correct sequence in `config.correctOrder`
   // MATCHING — `config.pairs` as [{ id, left, right }]; optional `questionText`
   
-  LastSeenSection  LastSeenSection[]
-  chapter          Chapter           @relation(fields: [chapterId], references: [id])
-  module           Module?           @relation(fields: [moduleId], references: [id]) // Added this line
+  LastSeenSection    LastSeenSection[]
+  UserCourseProgress UserCourseProgress[]
+  chapter            Chapter           @relation(fields: [chapterId], references: [id])
+  module             Module?           @relation(fields: [moduleId], references: [id]) // Added this line
 
   @@map("sections")
 }
@@ -425,6 +431,10 @@ model UserCourseProgress {
   Chapter   Chapter  @relation(fields: [chapterId], references: [id])
   Course    Course   @relation(fields: [courseId], references: [id])
   Module    Module   @relation(fields: [moduleId], references: [id]) // Added this line
+  // FK to Section with cascade delete: when a section is removed, its progress
+  // rows go with it. Without this, deleting a section left orphaned progress
+  // that still counted toward completion and inflated progress past 100%.
+  Section   Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
 
   @@unique([userId, courseId, chapterId, sectionId])
   // Supports the engagement sweep's MAX(updatedAt) GROUP BY (userId, courseId).
@@ -487,7 +497,9 @@ model LastSeenSection {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   chapter   Chapter  @relation(fields: [chapterId], references: [id])
-  section   Section  @relation(fields: [sectionId], references: [id])
+  // Cascade on section delete so removing a section cleans up its last-seen
+  // rows automatically (previously deleted by hand in deleteSection()).
+  section   Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id])
   course    Course   @relation(fields: [courseId], references: [id])
 

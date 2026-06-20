@@ -16,6 +16,7 @@ import {
   ValidateNested,
   ArrayMinSize,
   IsObject,
+  IsInt,
   Min,
   Max,
   MinLength,
@@ -192,6 +193,13 @@ export class CourseDto {
   @IsOptional()
   @IsArray()
   policies?: Array<any>;
+
+  // Days a learner keeps access after completing the course. Optional — when
+  // omitted the DB default of 365 (one year) applies.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  validityDays?: number;
 }
 
 export class SetCourseActiveDto {
@@ -284,6 +292,13 @@ export class UpdateCourseDto {
   @IsOptional()
   @IsArray()
   policies?: Array<any>;
+
+  // Days a learner keeps access after completing the course. Omit to leave the
+  // existing value unchanged.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  validityDays?: number;
 }
 export class UpdateCourseProgress {
   @IsString()

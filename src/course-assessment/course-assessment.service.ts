@@ -1,4 +1,9 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+} from '@nestjs/common';
 import {
   AssessmentAttemptStatus,
   AssessmentMode,
@@ -641,6 +646,7 @@ export class CourseAssessmentService {
         where: { userId, courseId, isActive: true },
       });
       if (!enrollment) throw new Error('You are not enrolled in this course');
+      await this._assertNotExpired(userId, courseId);
 
       const assessments = await this.prisma.assessment.findMany({
         where: { courseId, isActive: true },
@@ -749,6 +755,7 @@ export class CourseAssessmentService {
         where: { userId, courseId, isActive: true },
       });
       if (!enrollment) throw new Error('You are not enrolled in this course');
+      await this._assertNotExpired(userId, courseId);
 
       // 3. Course content completion check
       const isComplete = await this._isCourseContentCompleted(userId, courseId);
@@ -1413,6 +1420,42 @@ export class CourseAssessmentService {
   // PRIVATE HELPERS
   // ────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Throws if the learner's post-completion access window has elapsed. Access
+   * lasts course.validityDays days (default 365) from courseCompletedAt. No-op
+   * if the course isn't completed yet. Keeps the student assessment flow in
+   * step with the course-content access rule.
+   */
+  private async _assertNotExpired(
+    userId: string,
+    courseId: string,
+  ): Promise<void> {
+    const [completion, course] = await Promise.all([
+      this.prisma.courseCompletion.findUnique({
+        where: { userId_courseId: { userId, courseId } },
+        select: { courseCompletedAt: true },
+      }),
+      this.prisma.course.findUnique({
+        where: { id: courseId },
+        select: { validityDays: true },
+      }),
+    ]);
+    if (!completion?.courseCompletedAt) return;
+
+    const expiresAt = new Date(completion.courseCompletedAt);
+    expiresAt.setDate(expiresAt.getDate() + (course?.validityDays ?? 365));
+    if (new Date() > expiresAt) {
+      // ForbiddenException (an HttpException) is re-thrown unchanged by
+      // throwMapped, so this surfaces as a clean 403 — which the client uses to
+      // distinguish "expired" from other assessment errors.
+      throw new ForbiddenException({
+        detail: `Your access to this course expired on ${
+          expiresAt.toISOString().split('T')[0]
+        }. Please contact your administrator to renew access.`,
+      });
+    }
+  }
+
   private async _isCourseContentCompleted(
     userId: string,
     courseId: string,
@@ -1422,8 +1465,17 @@ export class CourseAssessmentService {
     });
     if (totalSections === 0) return true;
 
+    // Count distinct progressed sections that still exist. Counting raw
+    // progress rows would include stale rows (section deleted/moved after
+    // completion) and could mark content complete when it isn't.
+    const liveSectionIds = (
+      await this.prisma.section.findMany({
+        where: { chapter: { module: { courseId } } },
+        select: { id: true },
+      })
+    ).map((s) => s.id);
     const completedSections = await this.prisma.userCourseProgress.count({
-      where: { userId, courseId },
+      where: { userId, courseId, sectionId: { in: liveSectionIds } },
     });
 
     return completedSections >= totalSections;

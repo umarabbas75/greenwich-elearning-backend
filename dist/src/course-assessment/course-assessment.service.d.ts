@@ -485,15 +485,15 @@ export declare class CourseAssessmentService {
         message: string;
         statusCode: number;
         data: ({
-            assessment: {
-                id: string;
-                title: string;
-            };
             user: {
                 id: string;
                 firstName: string;
                 lastName: string;
                 email: string;
+            };
+            assessment: {
+                id: string;
+                title: string;
             };
         } & {
             id: string;

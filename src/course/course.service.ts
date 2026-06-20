@@ -113,19 +113,7 @@ export class CourseService {
       });
     }
 
-    const enrollmentWhere: Prisma.UserCourseWhereInput =
-      userRole === Role.user
-        ? { userId, courseId, isActive: true }
-        : { userId, courseId };
-    const enrollment = await this.prisma.userCourse.findFirst({
-      where: enrollmentWhere,
-    });
-    if (!enrollment) {
-      throw new ForbiddenException({
-        detail:
-          'You are not assigned to this course, or the enrolment is inactive',
-      });
-    }
+    await this._assertEnrollmentUsable(userId, courseId, userRole);
 
     const existing = await this.prisma.userFormCompletion.findUnique({
       where: {
@@ -185,19 +173,7 @@ export class CourseService {
       completedAt: Date | null;
     }>;
   }> {
-    const enrollmentWhere: Prisma.UserCourseWhereInput =
-      userRole === Role.user
-        ? { userId, courseId, isActive: true }
-        : { userId, courseId };
-    const enrollment = await this.prisma.userCourse.findFirst({
-      where: enrollmentWhere,
-    });
-    if (!enrollment) {
-      throw new ForbiddenException({
-        detail:
-          'You are not assigned to this course, or the enrolment is inactive',
-      });
-    }
+    await this._assertEnrollmentUsable(userId, courseId, userRole);
 
     const forms = await this.prisma.courseForm.findMany({
       where: { courseId },
@@ -504,15 +480,29 @@ export class CourseService {
       // Step 2: Calculate progress and contribution for each chapter
       course.modules.forEach((module) => {
         module.chapters.forEach((chapter) => {
-          const userCourseProgress = chapter._count.UserCourseProgress;
           const totalSectionsInChapter = chapter._count.sections;
+          // Clamp completed sections to the number of sections that actually
+          // exist in this chapter. UserCourseProgress rows can outlive the
+          // sections they reference (e.g. a section was deleted or moved after
+          // the learner completed it), and counting those stale rows pushes
+          // progress above 100%. A learner can never complete more sections
+          // than the chapter currently has.
+          const userCourseProgress = Math.min(
+            chapter._count.UserCourseProgress,
+            totalSectionsInChapter,
+          );
 
           // Calculate progress percentage
-          const progress = (userCourseProgress * 100) / totalSectionsInChapter;
+          const progress =
+            totalSectionsInChapter === 0
+              ? 0
+              : (userCourseProgress * 100) / totalSectionsInChapter;
 
           // Calculate contribution percentage
           const contribution =
-            (userCourseProgress * 100) / totalSectionsInCourse;
+            totalSectionsInCourse === 0
+              ? 0
+              : (userCourseProgress * 100) / totalSectionsInCourse;
 
           // Add progress and contribution to chapter
           chapter.progress = progress.toFixed(2); // Optional: format to 2 decimal places
@@ -1044,6 +1034,10 @@ export class CourseService {
             resources: body.resources,
             syllabus: body.syllabus,
             price: body.price,
+            // Omit when not provided so the schema default (365) applies.
+            ...(body.validityDays != null
+              ? { validityDays: body.validityDays }
+              : {}),
           },
         });
 
@@ -1341,6 +1335,27 @@ export class CourseService {
           statusCode: 403,
           data: { canAccessContent: false },
         };
+      }
+
+      // Post-completion access window: once the course is completed, access
+      // lasts course.validityDays days (default 365). After that the learner is
+      // locked out until an admin renews access. Computed live; no row mutated.
+      const completion = await this.prisma.courseCompletion.findUnique({
+        where: { userId_courseId: { userId, courseId } },
+        select: { courseCompletedAt: true },
+      });
+      if (completion?.courseCompletedAt) {
+        const expiresAt = new Date(completion.courseCompletedAt);
+        expiresAt.setDate(expiresAt.getDate() + (course.validityDays ?? 365));
+        if (new Date() > expiresAt) {
+          return {
+            message: `Your access to this course expired on ${
+              expiresAt.toISOString().split('T')[0]
+            }. Please contact your administrator to renew access.`,
+            statusCode: 403,
+            data: { canAccessContent: false, expired: true, expiresAt },
+          };
+        }
       }
 
       // Now get all required data in parallel
@@ -2632,21 +2647,9 @@ export class CourseService {
         throw new Error('Section not found');
       }
 
-      // Find dependent records in LastSeenSection table
-      const dependentRecords = await this.prisma.lastSeenSection.findMany({
-        where: { sectionId: id },
-      });
-
-      // Delete dependent records
-      await Promise.all(
-        dependentRecords.map(async (record) => {
-          await this.prisma.lastSeenSection.delete({
-            where: { id: record.id },
-          });
-        }),
-      );
-
-      // Now that dependent records are deleted, delete the section
+      // Dependent LastSeenSection and UserCourseProgress rows are removed
+      // automatically by the ON DELETE CASCADE foreign keys on sections, so
+      // deleting the section cleans up all related progress in one step.
       await this.prisma.section.delete({
         where: { id },
       });
@@ -3151,13 +3154,25 @@ export class CourseService {
       }
 
       const courseIds = assignedCourses.map((uc) => uc.courseId);
-      const feedbackSubmissions =
-        await this.prisma.courseFeedbackSubmission.findMany({
+      const [feedbackSubmissions, completions] = await Promise.all([
+        this.prisma.courseFeedbackSubmission.findMany({
           where: { userId, courseId: { in: courseIds } },
           select: { courseId: true },
-        });
+        }),
+        // Completion timestamps drive the post-completion access window so the
+        // list can flag expired courses without a per-course gate fetch.
+        this.prisma.courseCompletion.findMany({
+          where: { userId, courseId: { in: courseIds } },
+          select: { courseId: true, courseCompletedAt: true },
+        }),
+      ]);
       const feedbackSubmittedIds = new Set(
         feedbackSubmissions.map((s) => s.courseId),
+      );
+      const completedAtByCourse = new Map(
+        completions
+          .filter((c) => c.courseCompletedAt)
+          .map((c) => [c.courseId, c.courseCompletedAt as Date]),
       );
 
       const coursesWithDetails = assignedCourses.map((userCourse) => {
@@ -3243,15 +3258,25 @@ export class CourseService {
           // allRequiredPoliciesCompleted &&
           allRequiredItemsCompleted;
 
-        console.log({
-          allRequiredPoliciesCompleted,
-          allRequiredItemsCompleted,
-          requiredPolicies,
-        });
+        // Post-completion access window: once completed, access lasts
+        // validityDays (default 365) from courseCompletedAt. Computed live;
+        // mirrors the canAccessCourseContent gate so list CTAs can show an
+        // "expired" state without a per-course gate fetch. Learners only.
+        const completedAt = completedAtByCourse.get(course.id);
+        let expired = false;
+        let expiresAt: Date | null = null;
+        if (completedAt) {
+          expiresAt = new Date(completedAt);
+          expiresAt.setDate(expiresAt.getDate() + (course.validityDays ?? 365));
+          expired = role === 'user' && new Date() > expiresAt;
+        }
+
         return {
           ...course,
           isActive,
           isPaid,
+          expired,
+          expiresAt,
           feedbackForm: course.feedbackForm
             ? {
                 isRequired: course.feedbackForm.isRequired,
@@ -3445,6 +3470,66 @@ export class CourseService {
   }
 
   /**
+   * Resolve a learner's enrollment for a course and assert it is currently
+   * usable. Enforces, for `user`-role callers only (admins/staff bypass):
+   *   1. an enrollment exists and is active (UserCourse.isActive), and
+   *   2. the post-completion access window has not elapsed — once a course is
+   *      completed (CourseCompletion.courseCompletedAt), access lasts
+   *      course.validityDays days (default 365). Expiry is computed live; the
+   *      enrollment row is left untouched.
+   *
+   * Returns the enrollment on success. Throws ForbiddenException otherwise, so
+   * callers can replace their existing inline enrollment lookup with this.
+   */
+  private async _assertEnrollmentUsable(
+    userId: string,
+    courseId: string,
+    userRole: Role,
+  ): Promise<any> {
+    const isLearner = userRole === Role.user;
+    const enrollment = await this.prisma.userCourse.findFirst({
+      where: isLearner
+        ? { userId, courseId, isActive: true }
+        : { userId, courseId },
+    });
+    if (!enrollment) {
+      throw new ForbiddenException({
+        detail:
+          'You are not assigned to this course, or the enrolment is inactive',
+      });
+    }
+
+    // Expiry only applies to learners and only once the course is completed.
+    if (isLearner) {
+      const [completion, course] = await Promise.all([
+        this.prisma.courseCompletion.findUnique({
+          where: { userId_courseId: { userId, courseId } },
+          select: { courseCompletedAt: true },
+        }),
+        this.prisma.course.findUnique({
+          where: { id: courseId },
+          select: { validityDays: true },
+        }),
+      ]);
+
+      if (completion?.courseCompletedAt) {
+        const validityDays = course?.validityDays ?? 365;
+        const expiresAt = new Date(completion.courseCompletedAt);
+        expiresAt.setDate(expiresAt.getDate() + validityDays);
+        if (new Date() > expiresAt) {
+          throw new ForbiddenException({
+            detail: `Your access to this course expired on ${
+              expiresAt.toISOString().split('T')[0]
+            }. Please contact your administrator to renew access.`,
+          });
+        }
+      }
+    }
+
+    return enrollment;
+  }
+
+  /**
    * Content-completion check. A course is "completed" once the user has a
    * UserCourseProgress row for every active section in the course — this is the
    * completion criterion for ALL courses (many courses have no assessment).
@@ -3469,9 +3554,18 @@ export class CourseService {
       });
       if (totalSections === 0) return; // nothing to complete
 
-      // Distinct sections this user has progressed through for this course.
+      // Distinct sections this user has progressed through for this course,
+      // restricted to sections that still exist and are active. Stale progress
+      // rows (section deleted/moved after completion) must not count toward
+      // completion, otherwise a course could be marked complete prematurely.
+      const liveSectionIds = (
+        await this.prisma.section.findMany({
+          where: { isActive: true, chapter: { module: { courseId } } },
+          select: { id: true },
+        })
+      ).map((s) => s.id);
       const progressed = await this.prisma.userCourseProgress.findMany({
-        where: { userId, courseId },
+        where: { userId, courseId, sectionId: { in: liveSectionIds } },
         select: { sectionId: true },
         distinct: ['sectionId'],
       });
