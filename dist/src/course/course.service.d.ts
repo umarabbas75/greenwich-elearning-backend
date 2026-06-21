@@ -11,6 +11,7 @@ export declare class CourseService {
     private feedbackService;
     private static readonly completionLogger;
     constructor(prisma: PrismaService, config: ConfigService, mail: MailService, feedbackService: FeedbackService);
+    private isCourseFrozen;
     private shuffleArray;
     private assertValidOrderingItems;
     private sanitizeLessonSectionForStudent;

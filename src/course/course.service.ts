@@ -42,6 +42,18 @@ export class CourseService {
     private feedbackService: FeedbackService,
   ) {}
 
+  /** True iff the learner has been certified-complete on this course. */
+  private async isCourseFrozen(
+    userId: string,
+    courseId: string,
+  ): Promise<boolean> {
+    const completion = await this.prisma.courseCompletion.findUnique({
+      where: { userId_courseId: { userId, courseId } },
+      select: { courseCompletedAt: true },
+    });
+    return !!completion?.courseCompletedAt;
+  }
+
   private shuffleArray<T>(arr: T[]): T[] {
     const a = [...arr];
     for (let i = a.length - 1; i > 0; i--) {
@@ -418,7 +430,7 @@ export class CourseService {
 
   async getCourseReport(courseId: any, userId: any): Promise<any> {
     try {
-      const [course, userDetails]: any = await Promise.all([
+      const [course, userDetails, completion]: any = await Promise.all([
         this.prisma.course.findUnique({
           where: { id: courseId },
           select: {
@@ -467,7 +479,13 @@ export class CourseService {
             id: userId,
           },
         }),
+        this.prisma.courseCompletion.findUnique({
+          where: { userId_courseId: { userId, courseId } },
+          select: { courseCompletedAt: true },
+        }),
       ]);
+
+      const isFrozen = !!completion?.courseCompletedAt;
 
       // Step 1: Calculate total number of sections in the entire course
       let totalSectionsInCourse = 0;
@@ -493,14 +511,18 @@ export class CourseService {
           );
 
           // Calculate progress percentage
-          const progress =
-            totalSectionsInChapter === 0
+          const progress = isFrozen
+            ? 100
+            : totalSectionsInChapter === 0
               ? 0
               : (userCourseProgress * 100) / totalSectionsInChapter;
 
           // Calculate contribution percentage
-          const contribution =
-            totalSectionsInCourse === 0
+          const contribution = isFrozen
+            ? totalSectionsInCourse === 0
+              ? 0
+              : (totalSectionsInChapter * 100) / totalSectionsInCourse
+            : totalSectionsInCourse === 0
               ? 0
               : (userCourseProgress * 100) / totalSectionsInCourse;
 
@@ -515,6 +537,8 @@ export class CourseService {
         statusCode: 200,
         data: course.modules,
         user: userDetails,
+        isCompleted: isFrozen,
+        completedAt: completion?.courseCompletedAt ?? null,
       };
     } catch (error) {
       throw new HttpException(
@@ -1795,54 +1819,80 @@ export class CourseService {
   }
   async getAllUserModules(id: string, userId: string): Promise<any> {
     try {
-      const courses: any = await this.prisma.course.findFirst({
-        where: { id },
-        select: {
-          id: true,
-          title: true,
-          modules: {
-            select: {
-              id: true,
-              title: true,
-              chapters: {
-                select: {
-                  id: true,
-                  title: true,
-                  _count: {
-                    select: {
-                      UserCourseProgress: {
-                        where: { userId }, // Filter by userId
+      const [courses, completion]: any = await Promise.all([
+        this.prisma.course.findFirst({
+          where: { id },
+          select: {
+            id: true,
+            title: true,
+            modules: {
+              select: {
+                id: true,
+                title: true,
+                chapters: {
+                  select: {
+                    id: true,
+                    title: true,
+                    _count: {
+                      select: {
+                        UserCourseProgress: {
+                          where: { userId }, // Filter by userId
+                        },
+                        sections: true,
+                        quizzes: true,
                       },
-                      sections: true,
-                      quizzes: true,
+                    },
+                    QuizProgress: {
+                      where: { userId },
                     },
                   },
-                  QuizProgress: {
-                    where: { userId },
+                  orderBy: {
+                    createdAt: 'asc',
                   },
                 },
-                orderBy: {
-                  createdAt: 'asc',
-                },
-              },
-              // Get the count of user course progress for each module
-              _count: {
-                select: {
-                  UserCourseProgress: {
-                    where: { userId }, // Filter by userId
+                // Get the count of user course progress for each module
+                _count: {
+                  select: {
+                    UserCourseProgress: {
+                      where: { userId }, // Filter by userId
+                    },
+                    sections: true,
                   },
-                  sections: true,
                 },
               },
             },
           },
-        },
-      });
+        }),
+        this.prisma.courseCompletion.findUnique({
+          where: { userId_courseId: { userId, courseId: id } },
+          select: { courseCompletedAt: true },
+        }),
+      ]);
+
+      const isFrozen = !!completion?.courseCompletedAt;
+
+      // Certified completers keep 100% at every aggregate level even when
+      // admin adds sections later. Clamp _count.UserCourseProgress so the FE
+      // ratio (progressed / total sections) stays at 100%.
+      if (isFrozen && courses?.modules) {
+        for (const mod of courses.modules) {
+          if (mod._count?.sections != null) {
+            mod._count.UserCourseProgress = mod._count.sections;
+          }
+          for (const chapter of mod.chapters ?? []) {
+            if (chapter._count?.sections != null) {
+              chapter._count.UserCourseProgress = chapter._count.sections;
+            }
+          }
+        }
+      }
 
       return {
         message: 'Successfully fetched all Modules info against course',
         statusCode: 200,
         data: courses?.modules,
+        isCompleted: isFrozen,
+        completedAt: completion?.courseCompletedAt ?? null,
       };
     } catch (error) {
       throw new HttpException(
@@ -3263,6 +3313,7 @@ export class CourseService {
         // mirrors the canAccessCourseContent gate so list CTAs can show an
         // "expired" state without a per-course gate fetch. Learners only.
         const completedAt = completedAtByCourse.get(course.id);
+        const isFrozen = !!completedAt;
         let expired = false;
         let expiresAt: Date | null = null;
         if (completedAt) {
@@ -3277,19 +3328,24 @@ export class CourseService {
           isPaid,
           expired,
           expiresAt,
+          isCompleted: isFrozen,
+          completedAt: completedAt ?? null,
           feedbackForm: course.feedbackForm
             ? {
                 isRequired: course.feedbackForm.isRequired,
                 isCompleted: feedbackSubmittedIds.has(course.id),
               }
             : null,
-          percentage:
-            sectionsCount > 0
+          percentage: isFrozen
+            ? 100
+            : sectionsCount > 0
               ? (userCourseProgressCount * 100) / sectionsCount
               : 0,
           _count: {
             totalSections: sectionsCount,
-            userCourseProgress: userCourseProgressCount,
+            userCourseProgress: isFrozen
+              ? sectionsCount
+              : userCourseProgressCount,
           },
           formStatus,
           policyStatus,
@@ -3665,19 +3721,25 @@ export class CourseService {
     chapterId: string,
   ): Promise<ResponseDto> {
     try {
-      const userCourseProgress = await this.prisma.userCourseProgress.findMany({
-        where: {
-          userId,
-          courseId,
-          chapterId,
-        },
-      });
+      const [userCourseProgress, completion, module] = await Promise.all([
+        this.prisma.userCourseProgress.findMany({
+          where: {
+            userId,
+            courseId,
+            chapterId,
+          },
+        }),
+        this.prisma.courseCompletion.findUnique({
+          where: { userId_courseId: { userId, courseId } },
+          select: { courseCompletedAt: true },
+        }),
+        this.prisma.module.findFirst({
+          where: {
+            courseId,
+          },
+        }),
+      ]);
 
-      const module = await this.prisma.module.findFirst({
-        where: {
-          courseId,
-        },
-      });
       const chapter = await this.prisma.chapter.findFirst({
         where: {
           moduleId: module.id,
@@ -3686,8 +3748,11 @@ export class CourseService {
           sections: true,
         },
       });
+      const isFrozen = !!completion?.courseCompletedAt;
       let percentage = 0;
-      if (chapter.sections.length > 0) {
+      if (isFrozen) {
+        percentage = 100;
+      } else if (chapter.sections.length > 0) {
         percentage =
           (userCourseProgress.length / chapter.sections.length) * 100;
       }
@@ -3697,6 +3762,8 @@ export class CourseService {
         data: {
           userCourseProgress: percentage,
           courseProgressData: userCourseProgress,
+          isCompleted: isFrozen,
+          completedAt: completion?.courseCompletedAt ?? null,
         },
       };
     } catch (error) {

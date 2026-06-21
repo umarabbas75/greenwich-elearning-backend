@@ -26,6 +26,13 @@ let CourseService = CourseService_1 = class CourseService {
         this.mail = mail;
         this.feedbackService = feedbackService;
     }
+    async isCourseFrozen(userId, courseId) {
+        const completion = await this.prisma.courseCompletion.findUnique({
+            where: { userId_courseId: { userId, courseId } },
+            select: { courseCompletedAt: true },
+        });
+        return !!completion?.courseCompletedAt;
+    }
     shuffleArray(arr) {
         const a = [...arr];
         for (let i = a.length - 1; i > 0; i--) {
@@ -306,7 +313,7 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async getCourseReport(courseId, userId) {
         try {
-            const [course, userDetails] = await Promise.all([
+            const [course, userDetails, completion] = await Promise.all([
                 this.prisma.course.findUnique({
                     where: { id: courseId },
                     select: {
@@ -354,7 +361,12 @@ let CourseService = CourseService_1 = class CourseService {
                         id: userId,
                     },
                 }),
+                this.prisma.courseCompletion.findUnique({
+                    where: { userId_courseId: { userId, courseId } },
+                    select: { courseCompletedAt: true },
+                }),
             ]);
+            const isFrozen = !!completion?.courseCompletedAt;
             let totalSectionsInCourse = 0;
             course.modules.forEach((module) => {
                 module.chapters.forEach((chapter) => {
@@ -365,12 +377,18 @@ let CourseService = CourseService_1 = class CourseService {
                 module.chapters.forEach((chapter) => {
                     const totalSectionsInChapter = chapter._count.sections;
                     const userCourseProgress = Math.min(chapter._count.UserCourseProgress, totalSectionsInChapter);
-                    const progress = totalSectionsInChapter === 0
-                        ? 0
-                        : (userCourseProgress * 100) / totalSectionsInChapter;
-                    const contribution = totalSectionsInCourse === 0
-                        ? 0
-                        : (userCourseProgress * 100) / totalSectionsInCourse;
+                    const progress = isFrozen
+                        ? 100
+                        : totalSectionsInChapter === 0
+                            ? 0
+                            : (userCourseProgress * 100) / totalSectionsInChapter;
+                    const contribution = isFrozen
+                        ? totalSectionsInCourse === 0
+                            ? 0
+                            : (totalSectionsInChapter * 100) / totalSectionsInCourse
+                        : totalSectionsInCourse === 0
+                            ? 0
+                            : (userCourseProgress * 100) / totalSectionsInCourse;
                     chapter.progress = progress.toFixed(2);
                     chapter.contribution = contribution.toFixed(2);
                 });
@@ -380,6 +398,8 @@ let CourseService = CourseService_1 = class CourseService {
                 statusCode: 200,
                 data: course.modules,
                 user: userDetails,
+                isCompleted: isFrozen,
+                completedAt: completion?.courseCompletedAt ?? null,
             };
         }
         catch (error) {
@@ -1419,52 +1439,73 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async getAllUserModules(id, userId) {
         try {
-            const courses = await this.prisma.course.findFirst({
-                where: { id },
-                select: {
-                    id: true,
-                    title: true,
-                    modules: {
-                        select: {
-                            id: true,
-                            title: true,
-                            chapters: {
-                                select: {
-                                    id: true,
-                                    title: true,
-                                    _count: {
-                                        select: {
-                                            UserCourseProgress: {
-                                                where: { userId },
+            const [courses, completion] = await Promise.all([
+                this.prisma.course.findFirst({
+                    where: { id },
+                    select: {
+                        id: true,
+                        title: true,
+                        modules: {
+                            select: {
+                                id: true,
+                                title: true,
+                                chapters: {
+                                    select: {
+                                        id: true,
+                                        title: true,
+                                        _count: {
+                                            select: {
+                                                UserCourseProgress: {
+                                                    where: { userId },
+                                                },
+                                                sections: true,
+                                                quizzes: true,
                                             },
-                                            sections: true,
-                                            quizzes: true,
+                                        },
+                                        QuizProgress: {
+                                            where: { userId },
                                         },
                                     },
-                                    QuizProgress: {
-                                        where: { userId },
+                                    orderBy: {
+                                        createdAt: 'asc',
                                     },
                                 },
-                                orderBy: {
-                                    createdAt: 'asc',
-                                },
-                            },
-                            _count: {
-                                select: {
-                                    UserCourseProgress: {
-                                        where: { userId },
+                                _count: {
+                                    select: {
+                                        UserCourseProgress: {
+                                            where: { userId },
+                                        },
+                                        sections: true,
                                     },
-                                    sections: true,
                                 },
                             },
                         },
                     },
-                },
-            });
+                }),
+                this.prisma.courseCompletion.findUnique({
+                    where: { userId_courseId: { userId, courseId: id } },
+                    select: { courseCompletedAt: true },
+                }),
+            ]);
+            const isFrozen = !!completion?.courseCompletedAt;
+            if (isFrozen && courses?.modules) {
+                for (const mod of courses.modules) {
+                    if (mod._count?.sections != null) {
+                        mod._count.UserCourseProgress = mod._count.sections;
+                    }
+                    for (const chapter of mod.chapters ?? []) {
+                        if (chapter._count?.sections != null) {
+                            chapter._count.UserCourseProgress = chapter._count.sections;
+                        }
+                    }
+                }
+            }
             return {
                 message: 'Successfully fetched all Modules info against course',
                 statusCode: 200,
                 data: courses?.modules,
+                isCompleted: isFrozen,
+                completedAt: completion?.courseCompletedAt ?? null,
             };
         }
         catch (error) {
@@ -2453,6 +2494,7 @@ let CourseService = CourseService_1 = class CourseService {
                 const canAccessContent = formsCompleted &&
                     allRequiredItemsCompleted;
                 const completedAt = completedAtByCourse.get(course.id);
+                const isFrozen = !!completedAt;
                 let expired = false;
                 let expiresAt = null;
                 if (completedAt) {
@@ -2466,18 +2508,24 @@ let CourseService = CourseService_1 = class CourseService {
                     isPaid,
                     expired,
                     expiresAt,
+                    isCompleted: isFrozen,
+                    completedAt: completedAt ?? null,
                     feedbackForm: course.feedbackForm
                         ? {
                             isRequired: course.feedbackForm.isRequired,
                             isCompleted: feedbackSubmittedIds.has(course.id),
                         }
                         : null,
-                    percentage: sectionsCount > 0
-                        ? (userCourseProgressCount * 100) / sectionsCount
-                        : 0,
+                    percentage: isFrozen
+                        ? 100
+                        : sectionsCount > 0
+                            ? (userCourseProgressCount * 100) / sectionsCount
+                            : 0,
                     _count: {
                         totalSections: sectionsCount,
-                        userCourseProgress: userCourseProgressCount,
+                        userCourseProgress: isFrozen
+                            ? sectionsCount
+                            : userCourseProgressCount,
                     },
                     formStatus,
                     policyStatus,
@@ -2723,18 +2771,24 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async getUserChapterProgress(userId, courseId, chapterId) {
         try {
-            const userCourseProgress = await this.prisma.userCourseProgress.findMany({
-                where: {
-                    userId,
-                    courseId,
-                    chapterId,
-                },
-            });
-            const module = await this.prisma.module.findFirst({
-                where: {
-                    courseId,
-                },
-            });
+            const [userCourseProgress, completion, module] = await Promise.all([
+                this.prisma.userCourseProgress.findMany({
+                    where: {
+                        userId,
+                        courseId,
+                        chapterId,
+                    },
+                }),
+                this.prisma.courseCompletion.findUnique({
+                    where: { userId_courseId: { userId, courseId } },
+                    select: { courseCompletedAt: true },
+                }),
+                this.prisma.module.findFirst({
+                    where: {
+                        courseId,
+                    },
+                }),
+            ]);
             const chapter = await this.prisma.chapter.findFirst({
                 where: {
                     moduleId: module.id,
@@ -2743,8 +2797,12 @@ let CourseService = CourseService_1 = class CourseService {
                     sections: true,
                 },
             });
+            const isFrozen = !!completion?.courseCompletedAt;
             let percentage = 0;
-            if (chapter.sections.length > 0) {
+            if (isFrozen) {
+                percentage = 100;
+            }
+            else if (chapter.sections.length > 0) {
                 percentage =
                     (userCourseProgress.length / chapter.sections.length) * 100;
             }
@@ -2754,6 +2812,8 @@ let CourseService = CourseService_1 = class CourseService {
                 data: {
                     userCourseProgress: percentage,
                     courseProgressData: userCourseProgress,
+                    isCompleted: isFrozen,
+                    completedAt: completion?.courseCompletedAt ?? null,
                 },
             };
         }
