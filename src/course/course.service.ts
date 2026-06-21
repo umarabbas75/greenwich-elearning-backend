@@ -1995,35 +1995,48 @@ export class CourseService {
     courseId: string,
   ): Promise<any> {
     try {
-      const [sections, userCourseProgress, chapter, lastSeenLesson] =
-        await Promise.all([
-          this.prisma.section.findMany({
-            where: { chapterId: id },
-            orderBy: {
-              createdAt: 'asc',
-            },
-          }),
-          this.prisma.userCourseProgress.findMany({
-            where: { userId, courseId, chapterId: id },
-          }),
-          this.prisma.chapter.findUnique({
-            where: { id },
-            include: {
-              quizzes: {
-                select: {
-                  id: true,
-                  question: true,
-                  options: true,
-                  answer: true,
-                },
+      const [
+        sections,
+        userCourseProgress,
+        chapter,
+        lastSeenLesson,
+        completion,
+      ] = await Promise.all([
+        this.prisma.section.findMany({
+          where: { chapterId: id },
+          orderBy: {
+            createdAt: 'asc',
+          },
+        }),
+        this.prisma.userCourseProgress.findMany({
+          where: { userId, courseId, chapterId: id },
+        }),
+        this.prisma.chapter.findUnique({
+          where: { id },
+          include: {
+            quizzes: {
+              select: {
+                id: true,
+                question: true,
+                options: true,
+                answer: true,
               },
             },
-          }),
+          },
+        }),
 
-          this.prisma.lastSeenSection.findUnique({
-            where: { userId_chapterId: { userId, chapterId: id } },
-          }),
-        ]);
+        this.prisma.lastSeenSection.findUnique({
+          where: { userId_chapterId: { userId, chapterId: id } },
+        }),
+        // Course-level completion signal so the FE can freeze the chapter
+        // header at 100% · N/N for certified completers while per-section
+        // isCompleted flags below stay truthful (Pattern C: future "New
+        // content" pill on sections added after courseCompletedAt).
+        this.prisma.courseCompletion.findUnique({
+          where: { userId_courseId: { userId, courseId } },
+          select: { courseCompletedAt: true },
+        }),
+      ]);
 
       // Sort sections: non-null orderIndex first (ascending), then nulls at the end
       const sortedSections = [...sections].sort((a, b) => {
@@ -2065,6 +2078,8 @@ export class CourseService {
         statusCode: 200,
         data: allSections,
         chapter: chapter,
+        isCompleted: !!completion?.courseCompletedAt,
+        completedAt: completion?.courseCompletedAt ?? null,
       };
     } catch (error) {
       if (error instanceof HttpException) {

@@ -1588,7 +1588,7 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async getAllUserSections(id, userId, courseId) {
         try {
-            const [sections, userCourseProgress, chapter, lastSeenLesson] = await Promise.all([
+            const [sections, userCourseProgress, chapter, lastSeenLesson, completion,] = await Promise.all([
                 this.prisma.section.findMany({
                     where: { chapterId: id },
                     orderBy: {
@@ -1613,6 +1613,10 @@ let CourseService = CourseService_1 = class CourseService {
                 }),
                 this.prisma.lastSeenSection.findUnique({
                     where: { userId_chapterId: { userId, chapterId: id } },
+                }),
+                this.prisma.courseCompletion.findUnique({
+                    where: { userId_courseId: { userId, courseId } },
+                    select: { courseCompletedAt: true },
                 }),
             ]);
             const sortedSections = [...sections].sort((a, b) => {
@@ -1646,6 +1650,8 @@ let CourseService = CourseService_1 = class CourseService {
                 statusCode: 200,
                 data: allSections,
                 chapter: chapter,
+                isCompleted: !!completion?.courseCompletedAt,
+                completedAt: completion?.courseCompletedAt ?? null,
             };
         }
         catch (error) {
