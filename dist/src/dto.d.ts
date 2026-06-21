@@ -65,6 +65,7 @@ export declare class CourseDto {
         formStructure: any;
     };
     policies?: Array<any>;
+    validityDays?: number;
 }
 export declare class SetCourseActiveDto {
     isActive: boolean;
@@ -103,6 +104,7 @@ export declare class UpdateCourseDto {
         formStructure: any;
     };
     policies?: Array<any>;
+    validityDays?: number;
 }
 export declare class UpdateCourseProgress {
     courseId: string;

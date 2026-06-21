@@ -85,6 +85,7 @@ export declare class CourseService {
     getAllAssignedCourses(userId: string, role: string): Promise<any>;
     getAllAssignedCoursesPublic(userId: string): Promise<any>;
     updateUserChapterProgress(userId: string, body: any, userEmail?: string | null): Promise<ResponseDto>;
+    private _assertEnrollmentUsable;
     private _checkContentCompletion;
     private _sendCompletionEmails;
     getUserChapterProgress(userId: string, courseId: string, chapterId: string): Promise<ResponseDto>;

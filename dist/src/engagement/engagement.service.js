@@ -103,10 +103,15 @@ let EngagementService = EngagementService_1 = class EngagementService {
                  u."firstName" AS "firstName",
                  c."title"     AS "courseTitle",
                  -- Progress = distinct sections the user has progressed through.
+                 -- Restricted to sections that still exist; stale progress rows
+                 -- (section deleted/moved after completion) would otherwise push
+                 -- completedSections past totalSections (>100%).
                  (SELECT COUNT(DISTINCT ucp."sectionId")
                     FROM "UserCourseProgress" ucp
                    WHERE ucp."userId" = uc."userId"
-                     AND ucp."courseId" = uc."courseId")::int AS "completedSections",
+                     AND ucp."courseId" = uc."courseId"
+                     AND EXISTS (SELECT 1 FROM "sections" s
+                                  WHERE s."id" = ucp."sectionId"))::int AS "completedSections",
                  -- Total sections in the course (sections → chapters → modules).
                  (SELECT COUNT(*)
                     FROM "sections" s

@@ -680,6 +680,7 @@ export declare class CourseAssessmentService {
             updatedAt: Date;
         };
     }>;
+    private _assertNotExpired;
     private _isCourseContentCompleted;
     private _buildQuestionList;
     private _shuffle;

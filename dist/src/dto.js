@@ -223,6 +223,12 @@ __decorate([
     (0, class_validator_1.IsArray)(),
     __metadata("design:type", Array)
 ], CourseDto.prototype, "policies", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], CourseDto.prototype, "validityDays", void 0);
 class SetCourseActiveDto {
 }
 exports.SetCourseActiveDto = SetCourseActiveDto;
@@ -336,6 +342,12 @@ __decorate([
     (0, class_validator_1.IsArray)(),
     __metadata("design:type", Array)
 ], UpdateCourseDto.prototype, "policies", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    __metadata("design:type", Number)
+], UpdateCourseDto.prototype, "validityDays", void 0);
 class UpdateCourseProgress {
 }
 exports.UpdateCourseProgress = UpdateCourseProgress;

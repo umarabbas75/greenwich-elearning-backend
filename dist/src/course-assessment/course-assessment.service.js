@@ -503,6 +503,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             });
             if (!enrollment)
                 throw new Error('You are not enrolled in this course');
+            await this._assertNotExpired(userId, courseId);
             const assessments = await this.prisma.assessment.findMany({
                 where: { courseId, isActive: true },
                 select: {
@@ -593,6 +594,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             });
             if (!enrollment)
                 throw new Error('You are not enrolled in this course');
+            await this._assertNotExpired(userId, courseId);
             const isComplete = await this._isCourseContentCompleted(userId, courseId);
             if (!isComplete)
                 throw new Error('You must complete all course content before attempting the assessment');
@@ -1107,14 +1109,39 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             this.throwMapped(error, 'Failed to set certificate');
         }
     }
+    async _assertNotExpired(userId, courseId) {
+        const [completion, course] = await Promise.all([
+            this.prisma.courseCompletion.findUnique({
+                where: { userId_courseId: { userId, courseId } },
+                select: { courseCompletedAt: true },
+            }),
+            this.prisma.course.findUnique({
+                where: { id: courseId },
+                select: { validityDays: true },
+            }),
+        ]);
+        if (!completion?.courseCompletedAt)
+            return;
+        const expiresAt = new Date(completion.courseCompletedAt);
+        expiresAt.setDate(expiresAt.getDate() + (course?.validityDays ?? 365));
+        if (new Date() > expiresAt) {
+            throw new common_1.ForbiddenException({
+                detail: `Your access to this course expired on ${expiresAt.toISOString().split('T')[0]}. Please contact your administrator to renew access.`,
+            });
+        }
+    }
     async _isCourseContentCompleted(userId, courseId) {
         const totalSections = await this.prisma.section.count({
             where: { chapter: { module: { courseId } } },
         });
         if (totalSections === 0)
             return true;
+        const liveSectionIds = (await this.prisma.section.findMany({
+            where: { chapter: { module: { courseId } } },
+            select: { id: true },
+        })).map((s) => s.id);
         const completedSections = await this.prisma.userCourseProgress.count({
-            where: { userId, courseId },
+            where: { userId, courseId, sectionId: { in: liveSectionIds } },
         });
         return completedSections >= totalSections;
     }

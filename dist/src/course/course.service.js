@@ -77,17 +77,7 @@ let CourseService = CourseService_1 = class CourseService {
                 detail: 'courseFormId does not match the given courseId and formId',
             });
         }
-        const enrollmentWhere = userRole === client_1.Role.user
-            ? { userId, courseId, isActive: true }
-            : { userId, courseId };
-        const enrollment = await this.prisma.userCourse.findFirst({
-            where: enrollmentWhere,
-        });
-        if (!enrollment) {
-            throw new common_1.ForbiddenException({
-                detail: 'You are not assigned to this course, or the enrolment is inactive',
-            });
-        }
+        await this._assertEnrollmentUsable(userId, courseId, userRole);
         const existing = await this.prisma.userFormCompletion.findUnique({
             where: {
                 userId_courseId_formId: { userId, courseId, formId },
@@ -129,17 +119,7 @@ let CourseService = CourseService_1 = class CourseService {
         });
     }
     async getStudentCourseFormsStatus(userId, userRole, courseId) {
-        const enrollmentWhere = userRole === client_1.Role.user
-            ? { userId, courseId, isActive: true }
-            : { userId, courseId };
-        const enrollment = await this.prisma.userCourse.findFirst({
-            where: enrollmentWhere,
-        });
-        if (!enrollment) {
-            throw new common_1.ForbiddenException({
-                detail: 'You are not assigned to this course, or the enrolment is inactive',
-            });
-        }
+        await this._assertEnrollmentUsable(userId, courseId, userRole);
         const forms = await this.prisma.courseForm.findMany({
             where: { courseId },
             orderBy: { createdAt: 'asc' },
@@ -383,10 +363,14 @@ let CourseService = CourseService_1 = class CourseService {
             });
             course.modules.forEach((module) => {
                 module.chapters.forEach((chapter) => {
-                    const userCourseProgress = chapter._count.UserCourseProgress;
                     const totalSectionsInChapter = chapter._count.sections;
-                    const progress = (userCourseProgress * 100) / totalSectionsInChapter;
-                    const contribution = (userCourseProgress * 100) / totalSectionsInCourse;
+                    const userCourseProgress = Math.min(chapter._count.UserCourseProgress, totalSectionsInChapter);
+                    const progress = totalSectionsInChapter === 0
+                        ? 0
+                        : (userCourseProgress * 100) / totalSectionsInChapter;
+                    const contribution = totalSectionsInCourse === 0
+                        ? 0
+                        : (userCourseProgress * 100) / totalSectionsInCourse;
                     chapter.progress = progress.toFixed(2);
                     chapter.contribution = contribution.toFixed(2);
                 });
@@ -811,6 +795,9 @@ let CourseService = CourseService_1 = class CourseService {
                         resources: body.resources,
                         syllabus: body.syllabus,
                         price: body.price,
+                        ...(body.validityDays != null
+                            ? { validityDays: body.validityDays }
+                            : {}),
                     },
                 });
                 if (body.courseForms && body.courseForms.length > 0) {
@@ -1046,6 +1033,21 @@ let CourseService = CourseService_1 = class CourseService {
                     statusCode: 403,
                     data: { canAccessContent: false },
                 };
+            }
+            const completion = await this.prisma.courseCompletion.findUnique({
+                where: { userId_courseId: { userId, courseId } },
+                select: { courseCompletedAt: true },
+            });
+            if (completion?.courseCompletedAt) {
+                const expiresAt = new Date(completion.courseCompletedAt);
+                expiresAt.setDate(expiresAt.getDate() + (course.validityDays ?? 365));
+                if (new Date() > expiresAt) {
+                    return {
+                        message: `Your access to this course expired on ${expiresAt.toISOString().split('T')[0]}. Please contact your administrator to renew access.`,
+                        statusCode: 403,
+                        data: { canAccessContent: false, expired: true, expiresAt },
+                    };
+                }
             }
             const [forms, policies, policyCompletions, policyItemCompletions] = await Promise.all([
                 this.prisma.courseForm.findMany({
@@ -2055,14 +2057,6 @@ let CourseService = CourseService_1 = class CourseService {
             if (!section) {
                 throw new Error('Section not found');
             }
-            const dependentRecords = await this.prisma.lastSeenSection.findMany({
-                where: { sectionId: id },
-            });
-            await Promise.all(dependentRecords.map(async (record) => {
-                await this.prisma.lastSeenSection.delete({
-                    where: { id: record.id },
-                });
-            }));
             await this.prisma.section.delete({
                 where: { id },
             });
@@ -2400,11 +2394,20 @@ let CourseService = CourseService_1 = class CourseService {
                 };
             }
             const courseIds = assignedCourses.map((uc) => uc.courseId);
-            const feedbackSubmissions = await this.prisma.courseFeedbackSubmission.findMany({
-                where: { userId, courseId: { in: courseIds } },
-                select: { courseId: true },
-            });
+            const [feedbackSubmissions, completions] = await Promise.all([
+                this.prisma.courseFeedbackSubmission.findMany({
+                    where: { userId, courseId: { in: courseIds } },
+                    select: { courseId: true },
+                }),
+                this.prisma.courseCompletion.findMany({
+                    where: { userId, courseId: { in: courseIds } },
+                    select: { courseId: true, courseCompletedAt: true },
+                }),
+            ]);
             const feedbackSubmittedIds = new Set(feedbackSubmissions.map((s) => s.courseId));
+            const completedAtByCourse = new Map(completions
+                .filter((c) => c.courseCompletedAt)
+                .map((c) => [c.courseId, c.courseCompletedAt]));
             const coursesWithDetails = assignedCourses.map((userCourse) => {
                 const { course, isActive, isPaid } = userCourse;
                 const formStatus = {
@@ -2449,15 +2452,20 @@ let CourseService = CourseService_1 = class CourseService {
                 const canAccessPolicies = formsCompleted;
                 const canAccessContent = formsCompleted &&
                     allRequiredItemsCompleted;
-                console.log({
-                    allRequiredPoliciesCompleted,
-                    allRequiredItemsCompleted,
-                    requiredPolicies,
-                });
+                const completedAt = completedAtByCourse.get(course.id);
+                let expired = false;
+                let expiresAt = null;
+                if (completedAt) {
+                    expiresAt = new Date(completedAt);
+                    expiresAt.setDate(expiresAt.getDate() + (course.validityDays ?? 365));
+                    expired = role === 'user' && new Date() > expiresAt;
+                }
                 return {
                     ...course,
                     isActive,
                     isPaid,
+                    expired,
+                    expiresAt,
                     feedbackForm: course.feedbackForm
                         ? {
                             isRequired: course.feedbackForm.isRequired,
@@ -2591,6 +2599,42 @@ let CourseService = CourseService_1 = class CourseService {
             });
         }
     }
+    async _assertEnrollmentUsable(userId, courseId, userRole) {
+        const isLearner = userRole === client_1.Role.user;
+        const enrollment = await this.prisma.userCourse.findFirst({
+            where: isLearner
+                ? { userId, courseId, isActive: true }
+                : { userId, courseId },
+        });
+        if (!enrollment) {
+            throw new common_1.ForbiddenException({
+                detail: 'You are not assigned to this course, or the enrolment is inactive',
+            });
+        }
+        if (isLearner) {
+            const [completion, course] = await Promise.all([
+                this.prisma.courseCompletion.findUnique({
+                    where: { userId_courseId: { userId, courseId } },
+                    select: { courseCompletedAt: true },
+                }),
+                this.prisma.course.findUnique({
+                    where: { id: courseId },
+                    select: { validityDays: true },
+                }),
+            ]);
+            if (completion?.courseCompletedAt) {
+                const validityDays = course?.validityDays ?? 365;
+                const expiresAt = new Date(completion.courseCompletedAt);
+                expiresAt.setDate(expiresAt.getDate() + validityDays);
+                if (new Date() > expiresAt) {
+                    throw new common_1.ForbiddenException({
+                        detail: `Your access to this course expired on ${expiresAt.toISOString().split('T')[0]}. Please contact your administrator to renew access.`,
+                    });
+                }
+            }
+        }
+        return enrollment;
+    }
     async _checkContentCompletion(userId, courseId) {
         try {
             const totalSections = await this.prisma.section.count({
@@ -2601,8 +2645,12 @@ let CourseService = CourseService_1 = class CourseService {
             });
             if (totalSections === 0)
                 return;
+            const liveSectionIds = (await this.prisma.section.findMany({
+                where: { isActive: true, chapter: { module: { courseId } } },
+                select: { id: true },
+            })).map((s) => s.id);
             const progressed = await this.prisma.userCourseProgress.findMany({
-                where: { userId, courseId },
+                where: { userId, courseId, sectionId: { in: liveSectionIds } },
                 select: { sectionId: true },
                 distinct: ['sectionId'],
             });
