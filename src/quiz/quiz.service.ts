@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { Chapter, Prisma, Quiz } from '@prisma/client';
 import { CheckQuiz, QuizDto, ResponseDto, UpdateQuizDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { CourseVersionService } from '../course-version/course-version.service';
 import {
   assertChapterAccessible,
   enrichQuizProgressReport,
@@ -20,6 +21,7 @@ export class QuizService {
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
+    private courseVersionService: CourseVersionService,
   ) {}
   async getQuiz(id: string, role: string): Promise<ResponseDto> {
     try {
@@ -106,7 +108,6 @@ export class QuizService {
     userId: string,
     userEmail?: string | null,
   ): Promise<ResponseDto> {
-    console.log({ role });
     try {
       if (role === 'user') {
         await assertChapterAccessible(
@@ -118,22 +119,62 @@ export class QuizService {
         );
       }
 
-      const chapter = await this.prisma.chapter.findUnique({
-        where: {
-          id: chapterId,
-        },
-
-        include: {
-          quizzes: {
-            select: {
-              id: true,
-              question: true,
-              options: true,
-              answer: true,
-            },
-          },
+      const chapterMeta = await this.prisma.chapter.findUnique({
+        where: { id: chapterId },
+        select: {
+          id: true,
+          module: { select: { courseId: true } },
         },
       });
+
+      if (!chapterMeta) {
+        throw new Error('Chapter not found');
+      }
+
+      const courseId = chapterMeta.module?.courseId;
+      let quizzes: Array<{
+        id: string;
+        question: string;
+        options: string[];
+        answer?: string;
+      }> = [];
+
+      if (courseId && role === 'user') {
+        const curriculum = await this.courseVersionService.resolveCurriculumTree(
+          userId,
+          courseId,
+        );
+        if (curriculum.mode === 'versioned') {
+          const found = this.courseVersionService.findVersionChapterBySourceId(
+            curriculum.version,
+            chapterId,
+          );
+          if (found) {
+            quizzes = this.courseVersionService.mapVersionQuizzesForLearner(
+              found.chapter.quizzes,
+              false,
+            ) as typeof quizzes;
+          }
+        }
+      }
+
+      if (quizzes.length === 0) {
+        const chapter = await this.prisma.chapter.findUnique({
+          where: { id: chapterId },
+          include: {
+            quizzes: {
+              where: { isArchived: false },
+              select: {
+                id: true,
+                question: true,
+                options: true,
+                answer: true,
+              },
+            },
+          },
+        });
+        quizzes = chapter?.quizzes ?? [];
+      }
 
       const userAnswers = await this.prisma.quizAnswer.findMany({
         where: {
@@ -142,9 +183,9 @@ export class QuizService {
         },
       });
 
-      const updatedUserQuizData = chapter?.quizzes?.map((item) => {
+      const updatedUserQuizData = quizzes?.map((item) => {
         const userAnswer = userAnswers.find(
-          (userAnswer) => userAnswer.quizId === item.id,
+          (ua) => ua.quizId === item.id,
         );
         return {
           ...item,
@@ -456,7 +497,22 @@ export class QuizService {
         throw new Error('chapter not exist');
       }
 
-      // Remove the course from the user's list of assigned courses
+      const referenced =
+        await this.courseVersionService.isReferencedByAnyVersion('quiz', quizId);
+      if (referenced) {
+        await this.prisma.quiz.update({
+          where: { id: quizId },
+          data: { isArchived: true, chapterId: null },
+        });
+        return {
+          message:
+            'Quiz is part of a published course version and was archived instead of unassigned',
+          statusCode: 200,
+          data: {},
+        };
+      }
+
+      // Remove the quiz from the chapter
       await this.prisma.chapter.update({
         where: { id: chapterId },
         data: {
@@ -529,6 +585,21 @@ export class QuizService {
       });
       if (!quiz) {
         throw new Error('Course not found');
+      }
+
+      const referenced =
+        await this.courseVersionService.isReferencedByAnyVersion('quiz', id);
+      if (referenced) {
+        const archived = await this.prisma.quiz.update({
+          where: { id },
+          data: { isArchived: true },
+        });
+        return {
+          message:
+            'Quiz is part of a published course version and was archived instead of deleted',
+          statusCode: 200,
+          data: archived,
+        };
       }
 
       await this.prisma.quiz.delete({

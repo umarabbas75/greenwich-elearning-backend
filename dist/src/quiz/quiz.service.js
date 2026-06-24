@@ -14,11 +14,13 @@ const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
+const course_version_service_1 = require("../course-version/course-version.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
 let QuizService = class QuizService {
-    constructor(prisma, config) {
+    constructor(prisma, config, courseVersionService) {
         this.prisma = prisma;
         this.config = config;
+        this.courseVersionService = courseVersionService;
     }
     async getQuiz(id, role) {
         try {
@@ -89,34 +91,56 @@ let QuizService = class QuizService {
         }
     }
     async getAllAssignQuizzes(chapterId, role, userId, userEmail) {
-        console.log({ role });
         try {
             if (role === 'user') {
                 await (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, chapterId, userEmail);
             }
-            const chapter = await this.prisma.chapter.findUnique({
-                where: {
-                    id: chapterId,
-                },
-                include: {
-                    quizzes: {
-                        select: {
-                            id: true,
-                            question: true,
-                            options: true,
-                            answer: true,
-                        },
-                    },
+            const chapterMeta = await this.prisma.chapter.findUnique({
+                where: { id: chapterId },
+                select: {
+                    id: true,
+                    module: { select: { courseId: true } },
                 },
             });
+            if (!chapterMeta) {
+                throw new Error('Chapter not found');
+            }
+            const courseId = chapterMeta.module?.courseId;
+            let quizzes = [];
+            if (courseId && role === 'user') {
+                const curriculum = await this.courseVersionService.resolveCurriculumTree(userId, courseId);
+                if (curriculum.mode === 'versioned') {
+                    const found = this.courseVersionService.findVersionChapterBySourceId(curriculum.version, chapterId);
+                    if (found) {
+                        quizzes = this.courseVersionService.mapVersionQuizzesForLearner(found.chapter.quizzes, false);
+                    }
+                }
+            }
+            if (quizzes.length === 0) {
+                const chapter = await this.prisma.chapter.findUnique({
+                    where: { id: chapterId },
+                    include: {
+                        quizzes: {
+                            where: { isArchived: false },
+                            select: {
+                                id: true,
+                                question: true,
+                                options: true,
+                                answer: true,
+                            },
+                        },
+                    },
+                });
+                quizzes = chapter?.quizzes ?? [];
+            }
             const userAnswers = await this.prisma.quizAnswer.findMany({
                 where: {
                     userId,
                     chapterId,
                 },
             });
-            const updatedUserQuizData = chapter?.quizzes?.map((item) => {
-                const userAnswer = userAnswers.find((userAnswer) => userAnswer.quizId === item.id);
+            const updatedUserQuizData = quizzes?.map((item) => {
+                const userAnswer = userAnswers.find((ua) => ua.quizId === item.id);
                 return {
                     ...item,
                     userAnswered: userAnswer?.answer ? true : false,
@@ -353,6 +377,18 @@ let QuizService = class QuizService {
             if (!isChapterExist) {
                 throw new Error('chapter not exist');
             }
+            const referenced = await this.courseVersionService.isReferencedByAnyVersion('quiz', quizId);
+            if (referenced) {
+                await this.prisma.quiz.update({
+                    where: { id: quizId },
+                    data: { isArchived: true, chapterId: null },
+                });
+                return {
+                    message: 'Quiz is part of a published course version and was archived instead of unassigned',
+                    statusCode: 200,
+                    data: {},
+                };
+            }
             await this.prisma.chapter.update({
                 where: { id: chapterId },
                 data: {
@@ -415,6 +451,18 @@ let QuizService = class QuizService {
             });
             if (!quiz) {
                 throw new Error('Course not found');
+            }
+            const referenced = await this.courseVersionService.isReferencedByAnyVersion('quiz', id);
+            if (referenced) {
+                const archived = await this.prisma.quiz.update({
+                    where: { id },
+                    data: { isArchived: true },
+                });
+                return {
+                    message: 'Quiz is part of a published course version and was archived instead of deleted',
+                    statusCode: 200,
+                    data: archived,
+                };
             }
             await this.prisma.quiz.delete({
                 where: { id },
@@ -528,6 +576,7 @@ exports.QuizService = QuizService;
 exports.QuizService = QuizService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        config_1.ConfigService])
+        config_1.ConfigService,
+        course_version_service_1.CourseVersionService])
 ], QuizService);
 //# sourceMappingURL=quiz.service.js.map

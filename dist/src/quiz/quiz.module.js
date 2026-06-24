@@ -12,12 +12,13 @@ const quiz_service_1 = require("./quiz.service");
 const quiz_controller_1 = require("./quiz.controller");
 const jwt_1 = require("@nestjs/jwt");
 const strategy_1 = require("../strategy");
+const course_version_module_1 = require("../course-version/course-version.module");
 let QuizModule = class QuizModule {
 };
 exports.QuizModule = QuizModule;
 exports.QuizModule = QuizModule = __decorate([
     (0, common_1.Module)({
-        imports: [jwt_1.JwtModule.register({})],
+        imports: [jwt_1.JwtModule.register({}), course_version_module_1.CourseVersionModule],
         providers: [
             quiz_service_1.QuizService,
             strategy_1.JwtUserStrategy,

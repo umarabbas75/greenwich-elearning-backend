@@ -410,6 +410,8 @@ export interface ResponseDto {
   data: object | object[];
   /** Present on paginated admin list endpoints. */
   total?: number;
+  /** Set when a structural edit auto-published a new course version. */
+  publishedVersion?: { versionNumber: number; versionId: string };
 }
 
 // Section DTOs

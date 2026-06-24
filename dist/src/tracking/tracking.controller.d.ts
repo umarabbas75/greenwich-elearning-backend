@@ -62,9 +62,9 @@ export declare class TrackingController {
             }[];
             perSection: {
                 title: string;
+                moduleId: string;
                 chapterId: string;
                 sectionId: string;
-                moduleId: string;
                 totalSeconds: number;
             }[];
         };

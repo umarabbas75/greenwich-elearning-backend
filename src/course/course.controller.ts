@@ -372,19 +372,28 @@ export class CourseController {
 
   @UseGuards(AuthGuard('jwt'))
   @Post('/module')
-  createModule(@Body() body: ModuleDto): Promise<ResponseDto> {
-    return this.appService.createModule(body);
+  createModule(
+    @GetUser() user: User,
+    @Body() body: ModuleDto,
+  ): Promise<ResponseDto> {
+    return this.appService.createModule(body, user.id);
   }
   @UseGuards(AuthGuard('jwt'))
   @Post('/chapter')
-  createChapter(@Body() body: ModuleDto): Promise<ResponseDto> {
-    return this.appService.createChapter(body);
+  createChapter(
+    @GetUser() user: User,
+    @Body() body: ModuleDto,
+  ): Promise<ResponseDto> {
+    return this.appService.createChapter(body, user.id);
   }
 
   @UseGuards(AuthGuard('jwt'))
   @Post('/section')
-  createSection(@Body() body: any): Promise<ResponseDto> {
-    return this.appService.createSection(body);
+  createSection(
+    @GetUser() user: User,
+    @Body() body: any,
+  ): Promise<ResponseDto> {
+    return this.appService.createSection(body, user.id);
   }
 
   @UseGuards(AuthGuard('jwt'))
@@ -395,18 +404,27 @@ export class CourseController {
 
   @UseGuards(AuthGuard('jwt'))
   @Delete('/module/:id')
-  deleteModule(@Param() params: ParamsDto): Promise<ResponseDto> {
-    return this.appService.deleteModule(params.id);
+  deleteModule(
+    @GetUser() user: User,
+    @Param() params: ParamsDto,
+  ): Promise<ResponseDto> {
+    return this.appService.deleteModule(params.id, user.id);
   }
   @UseGuards(AuthGuard('jwt'))
   @Delete('/chapter/:id')
-  deleteChapter(@Param() params: ParamsDto): Promise<ResponseDto> {
-    return this.appService.deleteChapter(params.id);
+  deleteChapter(
+    @GetUser() user: User,
+    @Param() params: ParamsDto,
+  ): Promise<ResponseDto> {
+    return this.appService.deleteChapter(params.id, user.id);
   }
   @UseGuards(AuthGuard('jwt'))
   @Delete('/section/:id')
-  deleteSection(@Param() params: ParamsDto): Promise<ResponseDto> {
-    return this.appService.deleteSection(params.id);
+  deleteSection(
+    @GetUser() user: User,
+    @Param() params: ParamsDto,
+  ): Promise<ResponseDto> {
+    return this.appService.deleteSection(params.id, user.id);
   }
 
   @UseGuards(AuthGuard('uJwt'))

@@ -9,9 +9,10 @@ import {
 } from '../strategy';
 import { MailModule } from '../mail/mail.module';
 import { FeedbackModule } from '../feedback/feedback.module';
+import { CourseVersionModule } from '../course-version/course-version.module';
 
 @Module({
-  imports: [JwtModule.register({}), MailModule, FeedbackModule],
+  imports: [JwtModule.register({}), MailModule, FeedbackModule, CourseVersionModule],
   providers: [
     CourseService,
     JwtUserStrategy,

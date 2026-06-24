@@ -14,12 +14,13 @@ const jwt_1 = require("@nestjs/jwt");
 const strategy_1 = require("../strategy");
 const mail_module_1 = require("../mail/mail.module");
 const feedback_module_1 = require("../feedback/feedback.module");
+const course_version_module_1 = require("../course-version/course-version.module");
 let CourseModule = class CourseModule {
 };
 exports.CourseModule = CourseModule;
 exports.CourseModule = CourseModule = __decorate([
     (0, common_1.Module)({
-        imports: [jwt_1.JwtModule.register({}), mail_module_1.MailModule, feedback_module_1.FeedbackModule],
+        imports: [jwt_1.JwtModule.register({}), mail_module_1.MailModule, feedback_module_1.FeedbackModule, course_version_module_1.CourseVersionModule],
         providers: [
             course_service_1.CourseService,
             strategy_1.JwtUserStrategy,

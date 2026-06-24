@@ -53,9 +53,9 @@ export declare class TrackingService {
             }[];
             perSection: {
                 title: string;
+                moduleId: string;
                 chapterId: string;
                 sectionId: string;
-                moduleId: string;
                 totalSeconds: number;
             }[];
         };

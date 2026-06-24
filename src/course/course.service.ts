@@ -31,6 +31,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { assertChapterAccessible } from '../utils/chapter-progression';
 import { MailService } from '../mail/mail.service';
 import { FeedbackService } from '../feedback/feedback.service';
+import { CourseVersionService } from '../course-version/course-version.service';
 @Injectable()
 export class CourseService {
   private static readonly completionLogger = new Logger(CourseService.name);
@@ -40,6 +41,7 @@ export class CourseService {
     private config: ConfigService,
     private mail: MailService,
     private feedbackService: FeedbackService,
+    private courseVersionService: CourseVersionService,
   ) {}
 
   /** True iff the learner has been certified-complete on this course. */
@@ -61,6 +63,57 @@ export class CourseService {
       [a[i], a[j]] = [a[j], a[i]];
     }
     return a;
+  }
+
+  /** Publishes a new version after admin structural edits (add/remove module/chapter/section). */
+  private async autoPublishAfterStructureChange(
+    courseId: string,
+    adminId: string | null | undefined,
+    changeNotes: string,
+  ): Promise<{ versionNumber: number; versionId: string } | null> {
+    try {
+      const published =
+        await this.courseVersionService.autoPublishAfterStructuralChange(
+          courseId,
+          adminId,
+          changeNotes,
+        );
+      CourseService.completionLogger.log(
+        `Auto-published v${published.versionNumber} for course ${courseId}`,
+      );
+      return published;
+    } catch (error) {
+      CourseService.completionLogger.error(
+        `Auto-publish failed for course ${courseId}: ${error?.message ?? error}`,
+      );
+      return null;
+    }
+  }
+
+  private async resolveCourseIdFromModuleId(
+    moduleId: string,
+  ): Promise<string> {
+    const mod = await this.prisma.module.findUnique({
+      where: { id: moduleId },
+      select: { courseId: true },
+    });
+    if (!mod) {
+      throw new Error('Module not found');
+    }
+    return mod.courseId;
+  }
+
+  private async resolveCourseIdFromChapterId(
+    chapterId: string,
+  ): Promise<string> {
+    const chapter = await this.prisma.chapter.findUnique({
+      where: { id: chapterId },
+      include: { module: { select: { courseId: true } } },
+    });
+    if (!chapter) {
+      throw new Error('Chapter not found');
+    }
+    return chapter.module.courseId;
   }
 
   private assertValidOrderingItems(
@@ -430,7 +483,105 @@ export class CourseService {
 
   async getCourseReport(courseId: any, userId: any): Promise<any> {
     try {
-      const [course, userDetails, completion]: any = await Promise.all([
+      const [userDetails, completion, curriculum] = await Promise.all([
+        this.prisma.user.findUnique({ where: { id: userId } }),
+        this.prisma.courseCompletion.findUnique({
+          where: { userId_courseId: { userId, courseId } },
+          select: { courseCompletedAt: true },
+        }),
+        this.courseVersionService.resolveCurriculumTree(userId, courseId),
+      ]);
+
+      const isFrozen = !!completion?.courseCompletedAt;
+      const newSinceCompletion =
+        await this.courseVersionService.summarizeNewSincePinnedVersion(
+          userId,
+          courseId,
+        );
+
+      if (curriculum.mode === 'versioned') {
+        const { version } = curriculum;
+        let totalSectionsInCourse = 0;
+
+        const progressRows = await this.prisma.userCourseProgress.findMany({
+          where: { userId, courseId },
+          select: { sectionId: true, chapterId: true },
+        });
+        const progressSectionIds = new Set(progressRows.map((p) => p.sectionId));
+
+        const modules = version.modules.map((mod) => {
+          const chapters = mod.chapters.map((chapter) => {
+            const sourceChapterId = chapter.sourceChapterId ?? chapter.id;
+            const versionSectionIds = chapter.sections
+              .filter((s) => s.isActive)
+              .map((s) => s.sourceSectionId)
+              .filter(Boolean) as string[];
+            const totalSectionsInChapter = versionSectionIds.length;
+            totalSectionsInCourse += totalSectionsInChapter;
+
+            const userCourseProgress = Math.min(
+              versionSectionIds.filter((id) => progressSectionIds.has(id))
+                .length,
+              totalSectionsInChapter,
+            );
+
+            const progress = isFrozen
+              ? 100
+              : totalSectionsInChapter === 0
+                ? 0
+                : (userCourseProgress * 100) / totalSectionsInChapter;
+
+            return {
+              id: sourceChapterId,
+              title: chapter.title,
+              _count: {
+                UserCourseProgress: userCourseProgress,
+                sections: totalSectionsInChapter,
+                quizzes: chapter.quizzes.length,
+                QuizAnswer: 0,
+                LastSeenSection: 0,
+              },
+              progress: progress.toFixed(2),
+              contribution: '0.00',
+            };
+          });
+
+          return {
+            id: mod.sourceModuleId ?? mod.id,
+            title: mod.title,
+            chapters,
+          };
+        });
+
+        modules.forEach((module) => {
+          module.chapters.forEach((chapter: any) => {
+            const totalSectionsInChapter = chapter._count.sections;
+            const userCourseProgress = chapter._count.UserCourseProgress;
+            chapter.contribution = isFrozen
+              ? totalSectionsInCourse === 0
+                ? '0.00'
+                : ((totalSectionsInChapter * 100) / totalSectionsInCourse).toFixed(
+                    2,
+                  )
+              : totalSectionsInCourse === 0
+                ? '0.00'
+                : ((userCourseProgress * 100) / totalSectionsInCourse).toFixed(2);
+          });
+        });
+
+        return {
+          message: 'Successfully retrieved datas',
+          statusCode: 200,
+          data: modules,
+          user: userDetails,
+          isCompleted: isFrozen,
+          completedAt: completion?.courseCompletedAt ?? null,
+          enrolledVersionNumber: version.versionNumber,
+          ...(newSinceCompletion ? { newSinceCompletion } : {}),
+        };
+      }
+
+      const [course]: any = await Promise.all([
         this.prisma.course.findUnique({
           where: { id: courseId },
           select: {
@@ -452,15 +603,15 @@ export class CourseService {
                     _count: {
                       select: {
                         UserCourseProgress: {
-                          where: { userId }, // Filter by userId
+                          where: { userId },
                         },
                         sections: true,
                         quizzes: true,
                         QuizAnswer: {
-                          where: { isAnswerCorrect: true, userId }, // Count correct answers
+                          where: { isAnswerCorrect: true, userId },
                         },
                         LastSeenSection: {
-                          where: { userId }, // 👈 Filter count by userId
+                          where: { userId },
                         },
                       },
                     },
@@ -469,23 +620,11 @@ export class CourseService {
                     createdAt: 'asc',
                   },
                 },
-                // Get the count of user course progress for each module
               },
             },
           },
         }),
-        this.prisma.user.findUnique({
-          where: {
-            id: userId,
-          },
-        }),
-        this.prisma.courseCompletion.findUnique({
-          where: { userId_courseId: { userId, courseId } },
-          select: { courseCompletedAt: true },
-        }),
       ]);
-
-      const isFrozen = !!completion?.courseCompletedAt;
 
       // Step 1: Calculate total number of sections in the entire course
       let totalSectionsInCourse = 0;
@@ -539,6 +678,7 @@ export class CourseService {
         user: userDetails,
         isCompleted: isFrozen,
         completedAt: completion?.courseCompletedAt ?? null,
+        ...(newSinceCompletion ? { newSinceCompletion } : {}),
       };
     } catch (error) {
       throw new HttpException(
@@ -1111,7 +1251,10 @@ export class CourseService {
       );
     }
   }
-  async createModule(body: ModuleDto): Promise<ResponseDto> {
+  async createModule(
+    body: ModuleDto,
+    adminId?: string,
+  ): Promise<ResponseDto> {
     try {
       const module: Module = await this.prisma.module.create({
         data: {
@@ -1121,10 +1264,18 @@ export class CourseService {
           courseId: body.id,
         },
       });
+      const publishedVersion = await this.autoPublishAfterStructureChange(
+        body.id,
+        adminId,
+        `Added module "${body.title}"`,
+      );
       return {
-        message: 'Successfully create module record',
+        message: publishedVersion
+          ? `Successfully created module (published v${publishedVersion.versionNumber})`
+          : 'Successfully create module record',
         statusCode: 200,
         data: module,
+        publishedVersion: publishedVersion ?? undefined,
       };
     } catch (error) {
       throw new HttpException(
@@ -1139,8 +1290,12 @@ export class CourseService {
       );
     }
   }
-  async createChapter(body: ModuleDto): Promise<ResponseDto> {
+  async createChapter(
+    body: ModuleDto,
+    adminId?: string,
+  ): Promise<ResponseDto> {
     try {
+      const courseId = await this.resolveCourseIdFromModuleId(body.id);
       const chapter: Chapter = await this.prisma.chapter.create({
         data: {
           title: body.title,
@@ -1149,10 +1304,18 @@ export class CourseService {
           moduleId: body.id,
         },
       });
+      const publishedVersion = await this.autoPublishAfterStructureChange(
+        courseId,
+        adminId,
+        `Added chapter "${body.title}"`,
+      );
       return {
-        message: 'Successfully create chapter record',
+        message: publishedVersion
+          ? `Successfully created chapter (published v${publishedVersion.versionNumber})`
+          : 'Successfully create chapter record',
         statusCode: 200,
         data: chapter,
+        publishedVersion: publishedVersion ?? undefined,
       };
     } catch (error) {
       throw new HttpException(
@@ -1174,6 +1337,7 @@ export class CourseService {
       | CreateVisualActivitySectionDto
       | CreateOrderingSectionDto
       | CreateMatchingSectionDto,
+    adminId?: string,
   ): Promise<ResponseDto> {
     try {
       const data: any = {
@@ -1250,10 +1414,21 @@ export class CourseService {
         data,
       });
 
+      const chapterId = section.chapterId;
+      const courseId = await this.resolveCourseIdFromChapterId(chapterId);
+      const publishedVersion = await this.autoPublishAfterStructureChange(
+        courseId,
+        adminId,
+        `Added section "${section.title}"`,
+      );
+
       return {
-        message: 'Successfully create section record',
+        message: publishedVersion
+          ? `Successfully created section (published v${publishedVersion.versionNumber})`
+          : 'Successfully create section record',
         statusCode: 200,
         data: section,
+        publishedVersion: publishedVersion ?? undefined,
       };
     } catch (error) {
       throw new HttpException(
@@ -1819,7 +1994,93 @@ export class CourseService {
   }
   async getAllUserModules(id: string, userId: string): Promise<any> {
     try {
-      const [courses, completion]: any = await Promise.all([
+      const [completion, curriculum, quizProgressRows] = await Promise.all([
+        this.prisma.courseCompletion.findUnique({
+          where: { userId_courseId: { userId, courseId: id } },
+          select: { courseCompletedAt: true },
+        }),
+        this.courseVersionService.resolveCurriculumTree(userId, id),
+        this.prisma.quizProgress.findMany({ where: { userId } }),
+      ]);
+
+      const isFrozen = !!completion?.courseCompletedAt;
+      const newSinceCompletion =
+        await this.courseVersionService.summarizeNewSincePinnedVersion(
+          userId,
+          id,
+        );
+
+      if (curriculum.mode === 'versioned') {
+        const progressRows = await this.prisma.userCourseProgress.findMany({
+          where: { userId, courseId: id },
+          select: { sectionId: true, chapterId: true, moduleId: true },
+        });
+        const progressByChapter = new Map<string, number>();
+        const progressByModule = new Map<string, number>();
+        const progressSectionIds = new Set(progressRows.map((p) => p.sectionId));
+
+        for (const mod of curriculum.version.modules) {
+          const sourceModuleId = mod.sourceModuleId ?? mod.id;
+          let modCount = 0;
+          for (const ch of mod.chapters) {
+            const sourceChapterId = ch.sourceChapterId ?? ch.id;
+            const sectionIds = ch.sections
+              .filter((s) => s.isActive && s.sourceSectionId)
+              .map((s) => s.sourceSectionId as string);
+            const chCount = sectionIds.filter((sid) =>
+              progressSectionIds.has(sid),
+            ).length;
+            progressByChapter.set(sourceChapterId, chCount);
+            modCount += chCount;
+          }
+          progressByModule.set(sourceModuleId, modCount);
+        }
+
+        let modules = this.courseVersionService.buildUserModulesFromVersion(
+          curriculum.version,
+          userId,
+          progressByChapter,
+          progressByModule,
+        );
+
+        const quizByChapter = new Map(
+          quizProgressRows.map((q) => [q.chapterId, q]),
+        );
+        modules = modules.map((mod) => ({
+          ...mod,
+          chapters: mod.chapters.map((ch) => ({
+            ...ch,
+            QuizProgress: quizByChapter.has(ch.id)
+              ? [quizByChapter.get(ch.id)]
+              : [],
+          })),
+        }));
+
+        if (isFrozen) {
+          for (const mod of modules) {
+            if (mod._count?.sections != null) {
+              mod._count.UserCourseProgress = mod._count.sections;
+            }
+            for (const chapter of mod.chapters ?? []) {
+              if (chapter._count?.sections != null) {
+                chapter._count.UserCourseProgress = chapter._count.sections;
+              }
+            }
+          }
+        }
+
+        return {
+          message: 'Successfully fetched all Modules info against course',
+          statusCode: 200,
+          data: modules,
+          isCompleted: isFrozen,
+          completedAt: completion?.courseCompletedAt ?? null,
+          enrolledVersionNumber: curriculum.versionNumber,
+          ...(newSinceCompletion ? { newSinceCompletion } : {}),
+        };
+      }
+
+      const [courses]: any = await Promise.all([
         this.prisma.course.findFirst({
           where: { id },
           select: {
@@ -1836,7 +2097,7 @@ export class CourseService {
                     _count: {
                       select: {
                         UserCourseProgress: {
-                          where: { userId }, // Filter by userId
+                          where: { userId },
                         },
                         sections: true,
                         quizzes: true,
@@ -1850,11 +2111,10 @@ export class CourseService {
                     createdAt: 'asc',
                   },
                 },
-                // Get the count of user course progress for each module
                 _count: {
                   select: {
                     UserCourseProgress: {
-                      where: { userId }, // Filter by userId
+                      where: { userId },
                     },
                     sections: true,
                   },
@@ -1863,13 +2123,7 @@ export class CourseService {
             },
           },
         }),
-        this.prisma.courseCompletion.findUnique({
-          where: { userId_courseId: { userId, courseId: id } },
-          select: { courseCompletedAt: true },
-        }),
       ]);
-
-      const isFrozen = !!completion?.courseCompletedAt;
 
       // Certified completers keep 100% at every aggregate level even when
       // admin adds sections later. Clamp _count.UserCourseProgress so the FE
@@ -1893,6 +2147,7 @@ export class CourseService {
         data: courses?.modules,
         isCompleted: isFrozen,
         completedAt: completion?.courseCompletedAt ?? null,
+        ...(newSinceCompletion ? { newSinceCompletion } : {}),
       };
     } catch (error) {
       throw new HttpException(
@@ -1995,26 +2250,98 @@ export class CourseService {
     courseId: string,
   ): Promise<any> {
     try {
-      const [
-        sections,
-        userCourseProgress,
-        chapter,
-        lastSeenLesson,
-        completion,
-      ] = await Promise.all([
+      const [userCourseProgress, lastSeenLesson, completion, curriculum] =
+        await Promise.all([
+          this.prisma.userCourseProgress.findMany({
+            where: { userId, courseId, chapterId: id },
+          }),
+          this.prisma.lastSeenSection.findUnique({
+            where: { userId_chapterId: { userId, chapterId: id } },
+          }),
+          this.prisma.courseCompletion.findUnique({
+            where: { userId_courseId: { userId, courseId } },
+            select: { courseCompletedAt: true },
+          }),
+          this.courseVersionService.resolveCurriculumTree(userId, courseId),
+        ]);
+
+      const newSinceCompletion =
+        await this.courseVersionService.summarizeNewSincePinnedVersion(
+          userId,
+          courseId,
+        );
+
+      if (curriculum.mode === 'versioned') {
+        const found = this.courseVersionService.findVersionChapterBySourceId(
+          curriculum.version,
+          id,
+        );
+        if (!found) {
+          throw new Error('Chapter not found in enrolled course version');
+        }
+
+        const { chapter: versionChapter } = found;
+        const allSections = this.courseVersionService.mapVersionSectionsForLearner(
+          versionChapter.sections.filter((s) => s.isActive),
+        );
+        const completedSections = userCourseProgress ?? [];
+
+        allSections.forEach((section: any) => {
+          const isCompleted = completedSections.some(
+            (completedSection: any) =>
+              completedSection.sectionId === section.id,
+          );
+          section.isLastSeen = lastSeenLesson?.sectionId === section.id;
+          section.isCompleted = isCompleted;
+
+          if (
+            section.type === SectionType.ORDERING ||
+            section.type === SectionType.MATCHING
+          ) {
+            this.sanitizeLessonSectionForStudent(section);
+          }
+        });
+
+        if (allSections.length === 0) {
+          throw new Error('No Sections found');
+        }
+
+        const quizzes = this.courseVersionService.mapVersionQuizzesForLearner(
+          versionChapter.quizzes,
+          false,
+        );
+
+        return {
+          message: 'Successfully fetch all Sections info against chapter',
+          statusCode: 200,
+          data: allSections,
+          chapter: {
+            id,
+            title: versionChapter.title,
+            description: versionChapter.description,
+            pdfFile: versionChapter.pdfFile,
+            moduleId: found.module.sourceModuleId,
+            quizzes,
+          },
+          isCompleted: !!completion?.courseCompletedAt,
+          completedAt: completion?.courseCompletedAt ?? null,
+          enrolledVersionNumber: curriculum.versionNumber,
+          ...(newSinceCompletion ? { newSinceCompletion } : {}),
+        };
+      }
+
+      const [sections, chapter] = await Promise.all([
         this.prisma.section.findMany({
-          where: { chapterId: id },
+          where: { chapterId: id, isArchived: false },
           orderBy: {
             createdAt: 'asc',
           },
-        }),
-        this.prisma.userCourseProgress.findMany({
-          where: { userId, courseId, chapterId: id },
         }),
         this.prisma.chapter.findUnique({
           where: { id },
           include: {
             quizzes: {
+              where: { isArchived: false },
               select: {
                 id: true,
                 question: true,
@@ -2023,18 +2350,6 @@ export class CourseService {
               },
             },
           },
-        }),
-
-        this.prisma.lastSeenSection.findUnique({
-          where: { userId_chapterId: { userId, chapterId: id } },
-        }),
-        // Course-level completion signal so the FE can freeze the chapter
-        // header at 100% · N/N for certified completers while per-section
-        // isCompleted flags below stay truthful (Pattern C: future "New
-        // content" pill on sections added after courseCompletedAt).
-        this.prisma.courseCompletion.findUnique({
-          where: { userId_courseId: { userId, courseId } },
-          select: { courseCompletedAt: true },
         }),
       ]);
 
@@ -2080,6 +2395,7 @@ export class CourseService {
         chapter: chapter,
         isCompleted: !!completion?.courseCompletedAt,
         completedAt: completion?.courseCompletedAt ?? null,
+        ...(newSinceCompletion ? { newSinceCompletion } : {}),
       };
     } catch (error) {
       if (error instanceof HttpException) {
@@ -2243,6 +2559,8 @@ export class CourseService {
         data: updateModule, // Pass the modified user object
       });
 
+      await this.courseVersionService.syncModuleToLatestVersion(id);
+
       return {
         message: 'Successfully updated module record',
         statusCode: 200,
@@ -2284,6 +2602,8 @@ export class CourseService {
         where: { id }, // Specify the unique identifier for the user you want to update
         data: updateChapter, // Pass the modified user object
       });
+
+      await this.courseVersionService.syncChapterToLatestVersion(id);
 
       return {
         message: 'Successfully updated chapter record',
@@ -2464,6 +2784,8 @@ export class CourseService {
         data: updateData,
       });
 
+      await this.courseVersionService.syncSectionToLatestVersion(id);
+
       return {
         message: 'Successfully update section record',
         statusCode: 200,
@@ -2509,6 +2831,10 @@ export class CourseService {
       );
 
       await this.prisma.$transaction(updatePromises);
+
+      await this.courseVersionService.syncChapterSectionOrderToLatestVersion(
+        body.chapterId,
+      );
 
       return {
         message: 'Successfully updated section order',
@@ -2577,23 +2903,53 @@ export class CourseService {
     }
   }
 
-  async deleteModule(id: string): Promise<ResponseDto> {
+  async deleteModule(id: string, adminId?: string): Promise<ResponseDto> {
     try {
-      const user = await this.prisma.module.findUnique({
+      const mod = await this.prisma.module.findUnique({
         where: { id },
       });
-      if (!user) {
+      if (!mod) {
         throw new Error('Module not found');
+      }
+
+      const referenced =
+        await this.courseVersionService.isReferencedByAnyVersion('module', id);
+      if (referenced) {
+        const archived = await this.prisma.module.update({
+          where: { id },
+          data: { isArchived: true },
+        });
+        const publishedVersion = await this.autoPublishAfterStructureChange(
+          mod.courseId,
+          adminId,
+          `Archived module "${mod.title}"`,
+        );
+        return {
+          message:
+            'Module is part of a published course version and was archived instead of deleted',
+          statusCode: 200,
+          data: archived,
+          publishedVersion: publishedVersion ?? undefined,
+        };
       }
 
       await this.prisma.module.delete({
         where: { id },
       });
 
+      const publishedVersion = await this.autoPublishAfterStructureChange(
+        mod.courseId,
+        adminId,
+        `Removed module "${mod.title}"`,
+      );
+
       return {
-        message: 'Successfully deleted module record',
+        message: publishedVersion
+          ? `Successfully deleted module (published v${publishedVersion.versionNumber})`
+          : 'Successfully deleted module record',
         statusCode: 200,
-        data: user,
+        data: mod,
+        publishedVersion: publishedVersion ?? undefined,
       };
     } catch (error) {
       if (
@@ -2625,23 +2981,55 @@ export class CourseService {
     }
   }
 
-  async deleteChapter(id: string): Promise<ResponseDto> {
+  async deleteChapter(id: string, adminId?: string): Promise<ResponseDto> {
     try {
-      const user = await this.prisma.chapter.findUnique({
+      const chapter = await this.prisma.chapter.findUnique({
         where: { id },
       });
-      if (!user) {
+      if (!chapter) {
         throw new Error('Chapter not found');
+      }
+
+      const courseId = await this.resolveCourseIdFromModuleId(chapter.moduleId);
+
+      const referenced =
+        await this.courseVersionService.isReferencedByAnyVersion('chapter', id);
+      if (referenced) {
+        const archived = await this.prisma.chapter.update({
+          where: { id },
+          data: { isArchived: true },
+        });
+        const publishedVersion = await this.autoPublishAfterStructureChange(
+          courseId,
+          adminId,
+          `Archived chapter "${chapter.title}"`,
+        );
+        return {
+          message:
+            'Chapter is part of a published course version and was archived instead of deleted',
+          statusCode: 200,
+          data: archived,
+          publishedVersion: publishedVersion ?? undefined,
+        };
       }
 
       await this.prisma.chapter.delete({
         where: { id },
       });
 
+      const publishedVersion = await this.autoPublishAfterStructureChange(
+        courseId,
+        adminId,
+        `Removed chapter "${chapter.title}"`,
+      );
+
       return {
-        message: 'Successfully deleted chapter record',
+        message: publishedVersion
+          ? `Successfully deleted chapter (published v${publishedVersion.versionNumber})`
+          : 'Successfully deleted chapter record',
         statusCode: 200,
-        data: user,
+        data: chapter,
+        publishedVersion: publishedVersion ?? undefined,
       };
     } catch (error) {
       if (
@@ -2673,7 +3061,7 @@ export class CourseService {
     }
   }
 
-  async deleteSection(id: string): Promise<ResponseDto> {
+  async deleteSection(id: string, adminId?: string): Promise<ResponseDto> {
     // try {
     //   const user = await this.prisma.section.findUnique({
     //     where: { id },
@@ -2712,17 +3100,46 @@ export class CourseService {
         throw new Error('Section not found');
       }
 
-      // Dependent LastSeenSection and UserCourseProgress rows are removed
-      // automatically by the ON DELETE CASCADE foreign keys on sections, so
-      // deleting the section cleans up all related progress in one step.
+      const courseId = await this.resolveCourseIdFromChapterId(section.chapterId);
+
+      const referenced =
+        await this.courseVersionService.isReferencedByAnyVersion('section', id);
+      if (referenced) {
+        const archived = await this.prisma.section.update({
+          where: { id },
+          data: { isArchived: true },
+        });
+        const publishedVersion = await this.autoPublishAfterStructureChange(
+          courseId,
+          adminId,
+          `Archived section "${section.title}"`,
+        );
+        return {
+          message:
+            'Section is part of a published course version and was archived instead of deleted',
+          statusCode: 200,
+          data: archived,
+          publishedVersion: publishedVersion ?? undefined,
+        };
+      }
+
       await this.prisma.section.delete({
         where: { id },
       });
 
+      const publishedVersion = await this.autoPublishAfterStructureChange(
+        courseId,
+        adminId,
+        `Removed section "${section.title}"`,
+      );
+
       return {
-        message: 'Successfully deleted section record',
+        message: publishedVersion
+          ? `Successfully deleted section (published v${publishedVersion.versionNumber})`
+          : 'Successfully deleted section record',
         statusCode: 200,
         data: section,
+        publishedVersion: publishedVersion ?? undefined,
       };
     } catch (error) {
       if (
@@ -3055,12 +3472,30 @@ export class CourseService {
       // first activation is the conservative choice).
       const isFirstActivation =
         isActive && !userCourse.isActive && !userCourse.activatedAt;
-      await this.prisma.userCourse.update({
-        where: { id: userCourse.id },
-        data: {
-          isActive,
-          ...(isFirstActivation ? { activatedAt: new Date() } : {}),
-        },
+
+      if (isFirstActivation && !userCourse.enrolledVersionId) {
+        await this.courseVersionService.syncPublishedVersionWithLiveTree(
+          courseId,
+          null,
+          'Sync before first enrollment activation',
+        );
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.userCourse.update({
+          where: { id: userCourse.id },
+          data: {
+            isActive,
+            ...(isFirstActivation ? { activatedAt: new Date() } : {}),
+          },
+        });
+
+        if (isFirstActivation && !userCourse.enrolledVersionId) {
+          await this.courseVersionService.pinEnrollmentToLatest(
+            userCourse.id,
+            tx,
+          );
+        }
       });
 
       return {
@@ -3174,7 +3609,7 @@ export class CourseService {
                     select: { isComplete: true },
                   },
                   items: {
-                    where: { isRequired: true }, // Only include required items for access control
+                    where: { isRequired: true },
                     include: {
                       completions: {
                         where: { userId },
@@ -3240,8 +3675,28 @@ export class CourseService {
           .map((c) => [c.courseId, c.courseCompletedAt as Date]),
       );
 
+      const versionIds = [
+        ...new Set(
+          assignedCourses
+            .map((uc) => uc.enrolledVersionId)
+            .filter((id): id is string => !!id),
+        ),
+      ];
+      const versionSectionCounts = new Map<string, number>();
+      if (versionIds.length > 0) {
+        const counts = await this.prisma.courseVersionSection.groupBy({
+          by: ['versionId'],
+          where: { versionId: { in: versionIds }, isActive: true },
+          _count: { id: true },
+        });
+        for (const row of counts) {
+          versionSectionCounts.set(row.versionId, row._count.id);
+        }
+      }
+
       const coursesWithDetails = assignedCourses.map((userCourse) => {
-        const { course, isActive, isPaid } = userCourse as any;
+        const { course, isActive, isPaid, enrolledVersionId } =
+          userCourse as any;
 
         // Form completion status (unchanged)
         const formStatus = {
@@ -3304,10 +3759,11 @@ export class CourseService {
             })) || [],
         };
 
-        const sectionsCount =
-          course.modules
-            ?.flatMap((module) => module.chapters)
-            ?.reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
+        const sectionsCount = enrolledVersionId
+          ? versionSectionCounts.get(enrolledVersionId) ?? 0
+          : course.modules
+              ?.flatMap((module) => module.chapters)
+              ?.reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
 
         const userCourseProgressCount = course._count?.UserCourseProgress || 0;
 
@@ -3616,31 +4072,19 @@ export class CourseService {
     courseId: string,
   ): Promise<void> {
     try {
-      // Total active sections in the course (Section → Chapter → Module → Course).
-      const totalSections = await this.prisma.section.count({
-        where: {
-          isActive: true,
-          chapter: { module: { courseId } },
-        },
-      });
-      if (totalSections === 0) return; // nothing to complete
+      const { total: totalSections, liveSectionIds } =
+        await this.courseVersionService.countCompletionDenominator(
+          userId,
+          courseId,
+        );
+      if (totalSections === 0) return;
 
-      // Distinct sections this user has progressed through for this course,
-      // restricted to sections that still exist and are active. Stale progress
-      // rows (section deleted/moved after completion) must not count toward
-      // completion, otherwise a course could be marked complete prematurely.
-      const liveSectionIds = (
-        await this.prisma.section.findMany({
-          where: { isActive: true, chapter: { module: { courseId } } },
-          select: { id: true },
-        })
-      ).map((s) => s.id);
       const progressed = await this.prisma.userCourseProgress.findMany({
         where: { userId, courseId, sectionId: { in: liveSectionIds } },
         select: { sectionId: true },
         distinct: ['sectionId'],
       });
-      if (progressed.length < totalSections) return; // not done yet
+      if (progressed.length < totalSections) return;
 
       // 100% of content done — mark complete (idempotent: don't overwrite an
       // existing courseCompletedAt). Preserve any assessment fields already set.
@@ -3736,7 +4180,7 @@ export class CourseService {
     chapterId: string,
   ): Promise<ResponseDto> {
     try {
-      const [userCourseProgress, completion, module] = await Promise.all([
+      const [userCourseProgress, completion, curriculum] = await Promise.all([
         this.prisma.userCourseProgress.findMany({
           where: {
             userId,
@@ -3748,37 +4192,117 @@ export class CourseService {
           where: { userId_courseId: { userId, courseId } },
           select: { courseCompletedAt: true },
         }),
-        this.prisma.module.findFirst({
-          where: {
-            courseId,
-          },
-        }),
+        this.courseVersionService.resolveCurriculumTree(userId, courseId),
       ]);
 
-      const chapter = await this.prisma.chapter.findFirst({
-        where: {
-          moduleId: module.id,
-        },
+      const newSinceCompletion =
+        await this.courseVersionService.summarizeNewSincePinnedVersion(
+          userId,
+          courseId,
+        );
+
+      if (curriculum.mode === 'versioned') {
+        const found = this.courseVersionService.findVersionChapterBySourceId(
+          curriculum.version,
+          chapterId,
+        );
+        if (!found) {
+          throw new HttpException(
+            { status: HttpStatus.NOT_FOUND, error: 'Chapter not found' },
+            HttpStatus.NOT_FOUND,
+          );
+        }
+
+        const versionSectionIds = found.chapter.sections
+          .filter((s) => s.isActive && s.sourceSectionId)
+          .map((s) => s.sourceSectionId as string);
+        const totalSections = versionSectionIds.length;
+        const progressSectionIds = new Set(
+          userCourseProgress.map((p) => p.sectionId),
+        );
+        const completedSections = Math.min(
+          versionSectionIds.filter((id) => progressSectionIds.has(id)).length,
+          totalSections,
+        );
+
+        const isFrozen = !!completion?.courseCompletedAt;
+        let percentage = 0;
+        if (isFrozen) {
+          percentage = 100;
+        } else if (totalSections > 0) {
+          percentage = (completedSections * 100) / totalSections;
+        }
+
+        return {
+          message: 'User course progress updated successfully',
+          statusCode: 200,
+          data: {
+            userCourseProgress: percentage,
+            courseProgressData: userCourseProgress,
+            totalSections,
+            completedSections: isFrozen ? totalSections : completedSections,
+            isCompleted: isFrozen,
+            completedAt: completion?.courseCompletedAt ?? null,
+            enrolledVersionNumber: curriculum.versionNumber,
+            ...(newSinceCompletion ? { newSinceCompletion } : {}),
+          },
+        };
+      }
+
+      const chapter = await this.prisma.chapter.findUnique({
+        where: { id: chapterId },
         include: {
-          sections: true,
+          sections: { where: { isArchived: false }, select: { id: true } },
+          module: { select: { courseId: true } },
         },
       });
+
+      if (!chapter) {
+        throw new HttpException(
+          { status: HttpStatus.NOT_FOUND, error: 'Chapter not found' },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      if (chapter.module?.courseId !== courseId) {
+        throw new HttpException(
+          {
+            status: HttpStatus.BAD_REQUEST,
+            error: 'Chapter does not belong to the specified course',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
       const isFrozen = !!completion?.courseCompletedAt;
+      const totalSections = chapter.sections.length;
+      // Clamp completed sections to the number of sections that actually
+      // exist in this chapter — UserCourseProgress rows can outlive the
+      // sections they reference (e.g. a section was deleted/moved after the
+      // learner completed it), and counting those would push percentage
+      // above 100% for in-progress users.
+      const completedSections = Math.min(
+        userCourseProgress.length,
+        totalSections,
+      );
+
       let percentage = 0;
       if (isFrozen) {
         percentage = 100;
-      } else if (chapter.sections.length > 0) {
-        percentage =
-          (userCourseProgress.length / chapter.sections.length) * 100;
+      } else if (totalSections > 0) {
+        percentage = (completedSections * 100) / totalSections;
       }
+
       return {
         message: 'User course progress updated successfully',
         statusCode: 200,
         data: {
           userCourseProgress: percentage,
           courseProgressData: userCourseProgress,
+          totalSections,
+          completedSections: isFrozen ? totalSections : completedSections,
           isCompleted: isFrozen,
           completedAt: completion?.courseCompletedAt ?? null,
+          ...(newSinceCompletion ? { newSinceCompletion } : {}),
         },
       };
     } catch (error) {

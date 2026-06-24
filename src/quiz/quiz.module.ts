@@ -8,8 +8,10 @@ import {
   JwtUserStrategy,
 } from '../strategy';
 
+import { CourseVersionModule } from '../course-version/course-version.module';
+
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [JwtModule.register({}), CourseVersionModule],
   providers: [
     QuizService,
     JwtUserStrategy,

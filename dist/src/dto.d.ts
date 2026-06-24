@@ -153,6 +153,10 @@ export interface ResponseDto {
     statusCode: number;
     data: object | object[];
     total?: number;
+    publishedVersion?: {
+        versionNumber: number;
+        versionId: string;
+    };
 }
 export declare enum SectionType {
     DEFAULT = "DEFAULT",

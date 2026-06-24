@@ -1,10 +1,12 @@
 import { ConfigService } from '@nestjs/config';
 import { CheckQuiz, QuizDto, ResponseDto, UpdateQuizDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { CourseVersionService } from '../course-version/course-version.service';
 export declare class QuizService {
     private prisma;
     private config;
-    constructor(prisma: PrismaService, config: ConfigService);
+    private courseVersionService;
+    constructor(prisma: PrismaService, config: ConfigService, courseVersionService: CourseVersionService);
     getQuiz(id: string, role: string): Promise<ResponseDto>;
     getAllQuizzes(role: string): Promise<ResponseDto>;
     getAllAssignQuizzes(chapterId: string, role: string, userId: string, userEmail?: string | null): Promise<ResponseDto>;

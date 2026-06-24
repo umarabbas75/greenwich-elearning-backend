@@ -53,7 +53,8 @@
       "Skill(code-review:*)"
     ],
     "additionalDirectories": [
-      "/Users/appal/Documents/greenwichPorjects/greenwich-elearning-backend/src"
+      "/Users/appal/Documents/greenwichPorjects/greenwich-elearning-backend/src",
+      "/Users/appal/.claude/projects/-Users-appal-Documents-greenwichPorjects-greenwich-elearning-backend"
     ]
   }
 }

@@ -165,26 +165,26 @@ let CourseController = class CourseController {
     getAllAssignedCoursesPublic(params) {
         return this.appService.getAllAssignedCoursesPublic(params.id);
     }
-    createModule(body) {
-        return this.appService.createModule(body);
+    createModule(user, body) {
+        return this.appService.createModule(body, user.id);
     }
-    createChapter(body) {
-        return this.appService.createChapter(body);
+    createChapter(user, body) {
+        return this.appService.createChapter(body, user.id);
     }
-    createSection(body) {
-        return this.appService.createSection(body);
+    createSection(user, body) {
+        return this.appService.createSection(body, user.id);
     }
     deleteCourse(params) {
         return this.appService.deleteCourse(params.id);
     }
-    deleteModule(params) {
-        return this.appService.deleteModule(params.id);
+    deleteModule(user, params) {
+        return this.appService.deleteModule(params.id, user.id);
     }
-    deleteChapter(params) {
-        return this.appService.deleteChapter(params.id);
+    deleteChapter(user, params) {
+        return this.appService.deleteChapter(params.id, user.id);
     }
-    deleteSection(params) {
-        return this.appService.deleteSection(params.id);
+    deleteSection(user, params) {
+        return this.appService.deleteSection(params.id, user.id);
     }
     updateUserChapterProgress(body, user) {
         return this.appService.updateUserChapterProgress(user.id, body, user.email);
@@ -593,25 +593,28 @@ __decorate([
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('/module'),
-    __param(0, (0, common_1.Body)()),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.ModuleDto]),
+    __metadata("design:paramtypes", [Object, dto_1.ModuleDto]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "createModule", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('/chapter'),
-    __param(0, (0, common_1.Body)()),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.ModuleDto]),
+    __metadata("design:paramtypes", [Object, dto_1.ModuleDto]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "createChapter", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('/section'),
-    __param(0, (0, common_1.Body)()),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "createSection", null);
 __decorate([
@@ -625,25 +628,28 @@ __decorate([
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Delete)('/module/:id'),
-    __param(0, (0, common_1.Param)()),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.ParamsDto]),
+    __metadata("design:paramtypes", [Object, dto_1.ParamsDto]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "deleteModule", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Delete)('/chapter/:id'),
-    __param(0, (0, common_1.Param)()),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.ParamsDto]),
+    __metadata("design:paramtypes", [Object, dto_1.ParamsDto]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "deleteChapter", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Delete)('/section/:id'),
-    __param(0, (0, common_1.Param)()),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.ParamsDto]),
+    __metadata("design:paramtypes", [Object, dto_1.ParamsDto]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "deleteSection", null);
 __decorate([
