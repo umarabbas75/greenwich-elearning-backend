@@ -49,14 +49,14 @@ let QuizController = class QuizController {
     updateQuiz(body, params) {
         return this.appService.updateQuiz(params.id, body);
     }
-    deleteQuiz(params) {
-        return this.appService.deleteQuiz(params.id);
+    deleteQuiz(user, params) {
+        return this.appService.deleteQuiz(params.id, user.id);
     }
-    assignQuiz(params) {
-        return this.appService.assignQuiz(params.quizId, params.chapterId);
+    assignQuiz(user, params) {
+        return this.appService.assignQuiz(params.quizId, params.chapterId, user.id);
     }
-    unAssignQuiz(body) {
-        return this.appService.unAssignQuiz(body.quizId, body.chapterId);
+    unAssignQuiz(user, body) {
+        return this.appService.unAssignQuiz(body.quizId, body.chapterId, user.id);
     }
     checkQuiz(body, user) {
         return this.appService.checkQuiz(user.id, body, user.email);
@@ -147,25 +147,28 @@ __decorate([
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Delete)('/:id'),
-    __param(0, (0, common_1.Param)()),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.ParamsDto]),
+    __metadata("design:paramtypes", [Object, dto_1.ParamsDto]),
     __metadata("design:returntype", Promise)
 ], QuizController.prototype, "deleteQuiz", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Put)('/assignQuiz/:quizId/:chapterId'),
-    __param(0, (0, common_1.Param)()),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.AssignQuizDto]),
+    __metadata("design:paramtypes", [Object, dto_1.AssignQuizDto]),
     __metadata("design:returntype", Promise)
 ], QuizController.prototype, "assignQuiz", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Put)('/user/unAssignQuiz'),
-    __param(0, (0, common_1.Body)()),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], QuizController.prototype, "unAssignQuiz", null);
 __decorate([

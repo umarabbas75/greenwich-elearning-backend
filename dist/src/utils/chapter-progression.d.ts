@@ -5,7 +5,8 @@ export declare function resolvePassingCriteria(stored?: number | null): number;
 export declare function isFreeRoamUser(email: string | null | undefined, config: ConfigService): boolean;
 export declare function getCourseIdForChapter(prisma: PrismaService, chapterId: string): Promise<string | null>;
 export declare function getOrderedChapterIdsInCourse(prisma: PrismaService, courseId: string): Promise<string[]>;
-export declare function getPreviousChapterId(prisma: PrismaService, courseId: string, chapterId: string): Promise<string | null>;
+export declare function getOrderedChapterIdsForUser(prisma: PrismaService, userId: string, courseId: string): Promise<string[]>;
+export declare function getPreviousChapterId(prisma: PrismaService, courseId: string, chapterId: string, userId?: string): Promise<string | null>;
 export type ChapterQuizGrade = {
     score: number;
     isPassed: boolean;

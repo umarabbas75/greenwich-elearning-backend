@@ -55,6 +55,11 @@ describe('QuizService — course versioning', () => {
       findVersionChapterBySourceId: jest.fn(),
       mapVersionQuizzesForLearner: jest.fn(),
       isReferencedByAnyVersion: jest.fn(),
+      autoPublishAfterStructuralChange: jest.fn().mockResolvedValue({
+        versionNumber: 2,
+        versionId: 'version-2',
+      }),
+      syncQuizToLatestVersion: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -130,7 +135,10 @@ describe('QuizService — course versioning', () => {
 
   describe('deleteQuiz', () => {
     it('archives quiz referenced by a version', async () => {
-      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.quiz.findUnique.mockResolvedValue({
+        id: 'quiz-1',
+        chapter: { module: { courseId: 'course-1' } },
+      });
       courseVersionService.isReferencedByAnyVersion.mockResolvedValue(true);
       prisma.quiz.update.mockResolvedValue({ id: 'quiz-1', isArchived: true });
 
@@ -142,10 +150,16 @@ describe('QuizService — course versioning', () => {
       });
       expect(prisma.quiz.delete).not.toHaveBeenCalled();
       expect(result.message).toContain('archived');
+      expect(
+        courseVersionService.autoPublishAfterStructuralChange,
+      ).toHaveBeenCalled();
     });
 
     it('hard-deletes quiz not in any version', async () => {
-      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.quiz.findUnique.mockResolvedValue({
+        id: 'quiz-1',
+        chapter: { module: { courseId: 'course-1' } },
+      });
       courseVersionService.isReferencedByAnyVersion.mockResolvedValue(false);
       prisma.quiz.delete.mockResolvedValue({});
 
@@ -160,7 +174,11 @@ describe('QuizService — course versioning', () => {
   describe('unAssignQuiz', () => {
     it('archives instead of disconnecting when referenced', async () => {
       prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
-      prisma.chapter.findUnique.mockResolvedValue({ id: 'ch-1' });
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        title: 'C',
+        module: { courseId: 'course-1' },
+      });
       courseVersionService.isReferencedByAnyVersion.mockResolvedValue(true);
       prisma.quiz.update.mockResolvedValue({});
 
@@ -176,7 +194,11 @@ describe('QuizService — course versioning', () => {
 
     it('disconnects quiz when not referenced', async () => {
       prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
-      prisma.chapter.findUnique.mockResolvedValue({ id: 'ch-1' });
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        title: 'C',
+        module: { courseId: 'course-1' },
+      });
       courseVersionService.isReferencedByAnyVersion.mockResolvedValue(false);
       prisma.chapter.update.mockResolvedValue({});
 

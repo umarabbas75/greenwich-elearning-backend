@@ -326,7 +326,7 @@ let QuizService = class QuizService {
             });
         }
     }
-    async assignQuiz(quizId, chapterId) {
+    async assignQuiz(quizId, chapterId, adminId) {
         try {
             const isQuizExist = await this.prisma.quiz.findUnique({
                 where: { id: quizId },
@@ -334,10 +334,11 @@ let QuizService = class QuizService {
             if (!isQuizExist) {
                 throw new Error('quiz not exist');
             }
-            const isChapterExist = await this.prisma.chapter.findUnique({
+            const chapter = await this.prisma.chapter.findUnique({
                 where: { id: chapterId },
+                include: { module: { select: { courseId: true } } },
             });
-            if (!isChapterExist) {
+            if (!chapter) {
                 throw new Error('chapter not exist');
             }
             await this.prisma.chapter.update({
@@ -348,10 +349,14 @@ let QuizService = class QuizService {
                     },
                 },
             });
+            const publishedVersion = await this.courseVersionService.autoPublishAfterStructuralChange(chapter.module.courseId, adminId, `Assigned quiz to chapter "${chapter.title}"`);
             return {
-                message: 'Successfully assign quiz to chapter',
+                message: publishedVersion
+                    ? `Successfully assigned quiz to chapter (published v${publishedVersion.versionNumber})`
+                    : 'Successfully assign quiz to chapter',
                 statusCode: 200,
                 data: {},
+                publishedVersion: publishedVersion ?? undefined,
             };
         }
         catch (error) {
@@ -363,7 +368,7 @@ let QuizService = class QuizService {
             });
         }
     }
-    async unAssignQuiz(quizId, chapterId) {
+    async unAssignQuiz(quizId, chapterId, adminId) {
         try {
             const isQuizExist = await this.prisma.quiz.findUnique({
                 where: { id: quizId },
@@ -371,10 +376,11 @@ let QuizService = class QuizService {
             if (!isQuizExist) {
                 throw new Error('quiz not exist');
             }
-            const isChapterExist = await this.prisma.chapter.findUnique({
+            const chapter = await this.prisma.chapter.findUnique({
                 where: { id: chapterId },
+                include: { module: { select: { courseId: true } } },
             });
-            if (!isChapterExist) {
+            if (!chapter) {
                 throw new Error('chapter not exist');
             }
             const referenced = await this.courseVersionService.isReferencedByAnyVersion('quiz', quizId);
@@ -383,10 +389,12 @@ let QuizService = class QuizService {
                     where: { id: quizId },
                     data: { isArchived: true, chapterId: null },
                 });
+                const publishedVersion = await this.courseVersionService.autoPublishAfterStructuralChange(chapter.module.courseId, adminId, `Archived quiz from chapter "${chapter.title}"`);
                 return {
                     message: 'Quiz is part of a published course version and was archived instead of unassigned',
                     statusCode: 200,
                     data: {},
+                    publishedVersion: publishedVersion ?? undefined,
                 };
             }
             await this.prisma.chapter.update({
@@ -397,10 +405,14 @@ let QuizService = class QuizService {
                     },
                 },
             });
+            const publishedVersion = await this.courseVersionService.autoPublishAfterStructuralChange(chapter.module.courseId, adminId, `Unassigned quiz from chapter "${chapter.title}"`);
             return {
-                message: 'Successfully unassigned quiz to module',
+                message: publishedVersion
+                    ? `Successfully unassigned quiz (published v${publishedVersion.versionNumber})`
+                    : 'Successfully unassigned quiz to module',
                 statusCode: 200,
                 data: {},
+                publishedVersion: publishedVersion ?? undefined,
             };
         }
         catch (error) {
@@ -429,6 +441,7 @@ let QuizService = class QuizService {
                 where: { id },
                 data: updateQuiz,
             });
+            await this.courseVersionService.syncQuizToLatestVersion(id);
             return {
                 message: 'Successfully create quiz record',
                 statusCode: 200,
@@ -444,33 +457,47 @@ let QuizService = class QuizService {
             });
         }
     }
-    async deleteQuiz(id) {
+    async deleteQuiz(id, adminId) {
         try {
             const quiz = await this.prisma.quiz.findUnique({
                 where: { id },
+                include: {
+                    chapter: { include: { module: { select: { courseId: true } } } },
+                },
             });
             if (!quiz) {
                 throw new Error('Course not found');
             }
+            const courseId = quiz.chapter?.module?.courseId ?? null;
             const referenced = await this.courseVersionService.isReferencedByAnyVersion('quiz', id);
             if (referenced) {
                 const archived = await this.prisma.quiz.update({
                     where: { id },
                     data: { isArchived: true },
                 });
+                const publishedVersion = courseId
+                    ? await this.courseVersionService.autoPublishAfterStructuralChange(courseId, adminId, 'Archived quiz')
+                    : null;
                 return {
                     message: 'Quiz is part of a published course version and was archived instead of deleted',
                     statusCode: 200,
                     data: archived,
+                    publishedVersion: publishedVersion ?? undefined,
                 };
             }
             await this.prisma.quiz.delete({
                 where: { id },
             });
+            const publishedVersion = courseId
+                ? await this.courseVersionService.autoPublishAfterStructuralChange(courseId, adminId, 'Removed quiz')
+                : null;
             return {
-                message: 'Successfully deleted quiz record',
+                message: publishedVersion
+                    ? `Successfully deleted quiz (published v${publishedVersion.versionNumber})`
+                    : 'Successfully deleted quiz record',
                 statusCode: 200,
                 data: {},
+                publishedVersion: publishedVersion ?? undefined,
             };
         }
         catch (error) {

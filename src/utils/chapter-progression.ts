@@ -41,10 +41,11 @@ export async function getOrderedChapterIdsInCourse(
   courseId: string,
 ): Promise<string[]> {
   const modules = await prisma.module.findMany({
-    where: { courseId },
+    where: { courseId, isArchived: false },
     orderBy: { createdAt: 'asc' },
     select: {
       chapters: {
+        where: { isArchived: false },
         select: { id: true },
         orderBy: { createdAt: 'asc' },
       },
@@ -53,12 +54,50 @@ export async function getOrderedChapterIdsInCourse(
   return modules.flatMap((m) => m.chapters.map((c) => c.id));
 }
 
+/**
+ * Version-aware chapter ordering. If the user's enrollment is pinned to a
+ * version, return that version's chapter ordering using sourceChapterId so
+ * the result aligns with live chapter ids. Falls back to live tree.
+ */
+export async function getOrderedChapterIdsForUser(
+  prisma: PrismaService,
+  userId: string,
+  courseId: string,
+): Promise<string[]> {
+  const uc = await prisma.userCourse.findUnique({
+    where: { userId_courseId: { userId, courseId } },
+    select: { enrolledVersionId: true },
+  });
+  if (uc?.enrolledVersionId) {
+    const versionModules = await prisma.courseVersionModule.findMany({
+      where: { versionId: uc.enrolledVersionId },
+      orderBy: { orderIndex: 'asc' },
+      select: {
+        chapters: {
+          orderBy: { orderIndex: 'asc' },
+          select: { sourceChapterId: true },
+        },
+      },
+    });
+    const ids = versionModules.flatMap((m) =>
+      m.chapters
+        .map((c) => c.sourceChapterId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    if (ids.length > 0) return ids;
+  }
+  return getOrderedChapterIdsInCourse(prisma, courseId);
+}
+
 export async function getPreviousChapterId(
   prisma: PrismaService,
   courseId: string,
   chapterId: string,
+  userId?: string,
 ): Promise<string | null> {
-  const ids = await getOrderedChapterIdsInCourse(prisma, courseId);
+  const ids = userId
+    ? await getOrderedChapterIdsForUser(prisma, userId, courseId)
+    : await getOrderedChapterIdsInCourse(prisma, courseId);
   const idx = ids.indexOf(chapterId);
   if (idx <= 0) return null;
   return ids[idx - 1];
@@ -124,20 +163,76 @@ export async function gradeChapterQuizFromStoredAnswers(
   };
 }
 
+/**
+ * Resolve the section/quiz denominator for a chapter respecting the learner's
+ * version pin. A pinned learner's denominator is the snapshot count; an
+ * unpinned learner sees the live (non-archived) count.
+ */
+async function resolveChapterDenominator(
+  prisma: PrismaService,
+  userId: string,
+  chapterId: string,
+): Promise<{ sectionCount: number; quizCount: number } | null> {
+  const chapter = await prisma.chapter.findUnique({
+    where: { id: chapterId },
+    select: { module: { select: { courseId: true } } },
+  });
+  if (!chapter) return null;
+
+  const uc = await prisma.userCourse.findUnique({
+    where: {
+      userId_courseId: { userId, courseId: chapter.module.courseId },
+    },
+    select: { enrolledVersionId: true },
+  });
+
+  if (uc?.enrolledVersionId) {
+    const versionChapter = await prisma.courseVersionChapter.findFirst({
+      where: {
+        versionId: uc.enrolledVersionId,
+        sourceChapterId: chapterId,
+      },
+      select: {
+        _count: {
+          select: {
+            sections: { where: { isActive: true } },
+            quizzes: true,
+          },
+        },
+      },
+    });
+    if (versionChapter) {
+      return {
+        sectionCount: versionChapter._count.sections,
+        quizCount: versionChapter._count.quizzes,
+      };
+    }
+  }
+
+  const [sectionCount, quizCount] = await Promise.all([
+    prisma.section.count({
+      where: { chapterId, isArchived: false, isActive: true },
+    }),
+    prisma.quiz.count({ where: { chapterId, isArchived: false } }),
+  ]);
+  return { sectionCount, quizCount };
+}
+
 export async function isChapterComplete(
   prisma: PrismaService,
   userId: string,
   chapterId: string,
 ): Promise<boolean> {
-  const [sectionCount, progressCount, chapter] = await Promise.all([
-    prisma.section.count({ where: { chapterId } }),
+  const denom = await resolveChapterDenominator(prisma, userId, chapterId);
+  if (!denom) return false;
+
+  const [progressCount, chapter] = await Promise.all([
     prisma.userCourseProgress.count({
       where: { userId, chapterId },
     }),
     prisma.chapter.findUnique({
       where: { id: chapterId },
       select: {
-        _count: { select: { quizzes: true } },
         QuizProgress: {
           where: { userId },
           select: { isPassed: true },
@@ -148,11 +243,12 @@ export async function isChapterComplete(
   ]);
 
   if (!chapter) return false;
+
+  const { sectionCount, quizCount } = denom;
   if (sectionCount > 0 && progressCount < sectionCount) {
     return false;
   }
 
-  const quizCount = chapter._count.quizzes;
   if (quizCount === 0) {
     return sectionCount === 0 || progressCount >= sectionCount;
   }
@@ -180,6 +276,7 @@ export async function assertChapterAccessible(
     prisma,
     courseId,
     chapterId,
+    userId,
   );
   if (!previousChapterId) {
     return;

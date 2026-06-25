@@ -251,6 +251,32 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             this.logger.warn(`Failed to sync module ${moduleId}: ${error?.message ?? error}`);
         }
     }
+    async syncQuizToLatestVersion(quizId) {
+        const quiz = await this.prisma.quiz.findUnique({
+            where: { id: quizId },
+            include: {
+                chapter: { include: { module: { select: { courseId: true } } } },
+            },
+        });
+        if (!quiz?.chapter?.module?.courseId)
+            return;
+        const latest = await this.getLatestPublishedVersion(quiz.chapter.module.courseId);
+        if (!latest)
+            return;
+        try {
+            await this.prisma.courseVersionQuiz.updateMany({
+                where: { versionId: latest.id, sourceQuizId: quiz.id },
+                data: {
+                    question: quiz.question,
+                    answer: quiz.answer,
+                    options: quiz.options,
+                },
+            });
+        }
+        catch (error) {
+            this.logger.warn(`Failed to sync quiz ${quizId}: ${error?.message ?? error}`);
+        }
+    }
     async syncChapterToLatestVersion(chapterId) {
         const chapter = await this.prisma.chapter.findUnique({
             where: { id: chapterId },

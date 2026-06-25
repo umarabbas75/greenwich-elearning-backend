@@ -57,6 +57,7 @@ export declare class CourseVersionService {
     syncSectionToLatestVersion(sectionId: string): Promise<void>;
     syncChapterSectionOrderToLatestVersion(chapterId: string): Promise<void>;
     syncModuleToLatestVersion(moduleId: string): Promise<void>;
+    syncQuizToLatestVersion(quizId: string): Promise<void>;
     syncChapterToLatestVersion(chapterId: string): Promise<void>;
     publishNewVersion(adminId: string | null | undefined, courseId: string, changeNotes?: string): Promise<{
         message: string;

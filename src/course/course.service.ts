@@ -503,11 +503,50 @@ export class CourseService {
         const { version } = curriculum;
         let totalSectionsInCourse = 0;
 
-        const progressRows = await this.prisma.userCourseProgress.findMany({
-          where: { userId, courseId },
-          select: { sectionId: true, chapterId: true },
-        });
+        const liveChapterIds = version.modules.flatMap((m) =>
+          m.chapters
+            .map((c) => c.sourceChapterId)
+            .filter((id): id is string => Boolean(id)),
+        );
+
+        const [progressRows, quizAnswerRows, lastSeenRows] = await Promise.all([
+          this.prisma.userCourseProgress.findMany({
+            where: { userId, courseId },
+            select: { sectionId: true, chapterId: true },
+          }),
+          liveChapterIds.length === 0
+            ? Promise.resolve([] as { chapterId: string | null }[])
+            : this.prisma.quizAnswer.findMany({
+                where: {
+                  userId,
+                  isAnswerCorrect: true,
+                  chapterId: { in: liveChapterIds },
+                },
+                select: { chapterId: true },
+              }),
+          liveChapterIds.length === 0
+            ? Promise.resolve([] as { chapterId: string }[])
+            : this.prisma.lastSeenSection.findMany({
+                where: { userId, chapterId: { in: liveChapterIds } },
+                select: { chapterId: true },
+              }),
+        ]);
         const progressSectionIds = new Set(progressRows.map((p) => p.sectionId));
+        const quizAnswerCountByChapter = new Map<string, number>();
+        for (const row of quizAnswerRows) {
+          if (!row.chapterId) continue;
+          quizAnswerCountByChapter.set(
+            row.chapterId,
+            (quizAnswerCountByChapter.get(row.chapterId) ?? 0) + 1,
+          );
+        }
+        const lastSeenCountByChapter = new Map<string, number>();
+        for (const row of lastSeenRows) {
+          lastSeenCountByChapter.set(
+            row.chapterId,
+            (lastSeenCountByChapter.get(row.chapterId) ?? 0) + 1,
+          );
+        }
 
         const modules = version.modules.map((mod) => {
           const chapters = mod.chapters.map((chapter) => {
@@ -538,8 +577,12 @@ export class CourseService {
                 UserCourseProgress: userCourseProgress,
                 sections: totalSectionsInChapter,
                 quizzes: chapter.quizzes.length,
-                QuizAnswer: 0,
-                LastSeenSection: 0,
+                QuizAnswer: chapter.sourceChapterId
+                  ? quizAnswerCountByChapter.get(chapter.sourceChapterId) ?? 0
+                  : 0,
+                LastSeenSection: chapter.sourceChapterId
+                  ? lastSeenCountByChapter.get(chapter.sourceChapterId) ?? 0
+                  : 0,
               },
               progress: progress.toFixed(2),
               contribution: '0.00',

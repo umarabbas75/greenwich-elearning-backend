@@ -348,6 +348,37 @@ export class CourseVersionService {
     }
   }
 
+  /** Mirrors a live quiz's question/answer/options into the latest snapshot. */
+  async syncQuizToLatestVersion(quizId: string): Promise<void> {
+    const quiz = await this.prisma.quiz.findUnique({
+      where: { id: quizId },
+      include: {
+        chapter: { include: { module: { select: { courseId: true } } } },
+      },
+    });
+    if (!quiz?.chapter?.module?.courseId) return;
+
+    const latest = await this.getLatestPublishedVersion(
+      quiz.chapter.module.courseId,
+    );
+    if (!latest) return;
+
+    try {
+      await this.prisma.courseVersionQuiz.updateMany({
+        where: { versionId: latest.id, sourceQuizId: quiz.id },
+        data: {
+          question: quiz.question,
+          answer: quiz.answer,
+          options: quiz.options,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to sync quiz ${quizId}: ${error?.message ?? error}`,
+      );
+    }
+  }
+
   /** Mirrors a live chapter's title/description/pdfFile into the latest snapshot. */
   async syncChapterToLatestVersion(chapterId: string): Promise<void> {
     const chapter = await this.prisma.chapter.findUnique({

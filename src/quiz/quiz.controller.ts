@@ -108,20 +108,33 @@ export class QuizController {
   }
   @UseGuards(AuthGuard('jwt'))
   @Delete('/:id')
-  deleteQuiz(@Param() params: ParamsDto): Promise<ResponseDto> {
-    return this.appService.deleteQuiz(params.id);
+  deleteQuiz(
+    @GetUser() user: User,
+    @Param() params: ParamsDto,
+  ): Promise<ResponseDto> {
+    return this.appService.deleteQuiz(params.id, user.id);
   }
 
   @UseGuards(AuthGuard('jwt'))
   @Put('/assignQuiz/:quizId/:chapterId')
-  assignQuiz(@Param() params: AssignQuizDto): Promise<ResponseDto> {
-    return this.appService.assignQuiz(params.quizId, params.chapterId);
+  assignQuiz(
+    @GetUser() user: User,
+    @Param() params: AssignQuizDto,
+  ): Promise<ResponseDto> {
+    return this.appService.assignQuiz(
+      params.quizId,
+      params.chapterId,
+      user.id,
+    );
   }
 
   @UseGuards(AuthGuard('jwt'))
   @Put('/user/unAssignQuiz')
-  unAssignQuiz(@Body() body: any): Promise<ResponseDto> {
-    return this.appService.unAssignQuiz(body.quizId, body.chapterId);
+  unAssignQuiz(
+    @GetUser() user: User,
+    @Body() body: any,
+  ): Promise<ResponseDto> {
+    return this.appService.unAssignQuiz(body.quizId, body.chapterId, user.id);
   }
 
   @UseGuards(AuthGuard('uJwt'))

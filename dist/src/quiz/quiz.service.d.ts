@@ -15,10 +15,10 @@ export declare class QuizService {
     createChapterQuizzesReport(userId: string, chapterId: string, userEmail?: string | null): Promise<ResponseDto>;
     retakeChapterQuiz(userId: string, chapterId: string, userEmail?: string | null): Promise<ResponseDto>;
     createQuiz(body: QuizDto): Promise<ResponseDto>;
-    assignQuiz(quizId: string, chapterId: string): Promise<ResponseDto>;
-    unAssignQuiz(quizId: string, chapterId: string): Promise<ResponseDto>;
+    assignQuiz(quizId: string, chapterId: string, adminId?: string): Promise<ResponseDto>;
+    unAssignQuiz(quizId: string, chapterId: string, adminId?: string): Promise<ResponseDto>;
     updateQuiz(id: string, body: UpdateQuizDto): Promise<ResponseDto>;
-    deleteQuiz(id: string): Promise<ResponseDto>;
+    deleteQuiz(id: string, adminId?: string): Promise<ResponseDto>;
     checkQuiz(userId: string, body: CheckQuiz, userEmail?: string | null): Promise<ResponseDto>;
     getUserQuizAnswers(userId: string, chapterId: string): Promise<ResponseDto>;
 }
