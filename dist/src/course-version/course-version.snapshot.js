@@ -8,7 +8,8 @@ exports.SNAPSHOT_TRANSACTION_OPTIONS = {
     timeout: 120000,
 };
 async function snapshotLiveTree(prisma, courseId, options) {
-    const { versionNumber, status = 'PUBLISHED', isLatest = false, publishedAt = status === 'PUBLISHED' ? new Date() : null, publishedByAdminId = null, changeNotes = null, } = options;
+    const { versionNumber, status = 'PUBLISHED', isLatest = false, publishedAt = status === 'PUBLISHED' ? new Date() : null, publishedByAdminId = null, changeNotes = null, excludeSourceSectionIds = [], } = options;
+    const excludedSectionIds = new Set(excludeSourceSectionIds);
     const versionId = (0, crypto_1.randomUUID)();
     const now = new Date();
     await prisma.courseVersion.create({
@@ -80,6 +81,9 @@ async function snapshotLiveTree(prisma, courseId, options) {
                 updatedAt: now,
             });
             for (const sec of ch.sections) {
+                if (excludedSectionIds.has(sec.id)) {
+                    continue;
+                }
                 sectionCount++;
                 sectionRows.push({
                     id: (0, crypto_1.randomUUID)(),

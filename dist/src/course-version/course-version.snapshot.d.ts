@@ -11,6 +11,7 @@ export type SnapshotLiveTreeOptions = {
     publishedAt?: Date | null;
     publishedByAdminId?: string | null;
     changeNotes?: string | null;
+    excludeSourceSectionIds?: string[];
 };
 export type SnapshotLiveTreeResult = {
     versionId: string;

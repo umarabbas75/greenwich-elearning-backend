@@ -126,6 +126,31 @@ yarn ts-node -r tsconfig-paths/register scripts/backfill-course-versions.ts --dr
 
 For every course: creates v1 from live tree, pins all started enrollments.
 
+**Do not re-run on production** after versioning is live unless you intend to
+snapshot the current live tree as a new v1. Structural changes that happened
+before versioning was deployed may require a targeted remediation script instead
+(see below).
+
+## NEBOSH Case Study remediation (one-time)
+
+The June-2026 backfill for NEBOSH IGC snapshotted v1 **after** Case Study
+sections were added, so in-progress learners saw progress drop (e.g. 7/8 = 88%).
+Auto-publish protects **future** edits; this script repairs the bad historical pin.
+
+```bash
+# Preview affected enrollments
+yarn ts-node -r tsconfig-paths/register scripts/remediate-nebosh-pre-case-study-v1.ts --dry-run
+
+# Apply (in-progress users only; completers stay on v2 / freeze)
+yarn ts-node -r tsconfig-paths/register scripts/remediate-nebosh-pre-case-study-v1.ts
+
+# Also re-pin certified completers to corrected v1 (optional)
+yarn ts-node -r tsconfig-paths/register scripts/remediate-nebosh-pre-case-study-v1.ts --include-completers
+```
+
+Result: corrected **v1** (111 sections, no Case Studies) for affected learners;
+poisoned snapshot promoted to **v2** (115 sections, `isLatest`) for new activations.
+
 ## Validation scripts
 
 ```bash
@@ -157,3 +182,4 @@ yarn ts-node -r tsconfig-paths/register scripts/_audit-version-coverage.ts
 - [src/course-version/](../src/course-version/) — publish, pin, resolve logic
 - [src/course/course.service.ts](../src/course/course.service.ts) — learner read rewrites
 - [scripts/backfill-course-versions.ts](../scripts/backfill-course-versions.ts) — one-time migration
+- [scripts/remediate-nebosh-pre-case-study-v1.ts](../scripts/remediate-nebosh-pre-case-study-v1.ts) — NEBOSH backfill fix

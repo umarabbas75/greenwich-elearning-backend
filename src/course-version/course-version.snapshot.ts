@@ -16,6 +16,8 @@ export type SnapshotLiveTreeOptions = {
   publishedAt?: Date | null;
   publishedByAdminId?: string | null;
   changeNotes?: string | null;
+  /** Live section ids to omit from the snapshot (e.g. post-cutover remediation). */
+  excludeSourceSectionIds?: string[];
 };
 
 export type SnapshotLiveTreeResult = {
@@ -44,7 +46,9 @@ export async function snapshotLiveTree(
     publishedAt = status === 'PUBLISHED' ? new Date() : null,
     publishedByAdminId = null,
     changeNotes = null,
+    excludeSourceSectionIds = [],
   } = options;
+  const excludedSectionIds = new Set(excludeSourceSectionIds);
 
   const versionId = randomUUID();
   const now = new Date();
@@ -126,6 +130,9 @@ export async function snapshotLiveTree(
       });
 
       for (const sec of ch.sections) {
+        if (excludedSectionIds.has(sec.id)) {
+          continue;
+        }
         sectionCount++;
         sectionRows.push({
           id: randomUUID(),
