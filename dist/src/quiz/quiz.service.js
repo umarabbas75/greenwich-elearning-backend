@@ -92,9 +92,6 @@ let QuizService = class QuizService {
     }
     async getAllAssignQuizzes(chapterId, role, userId, userEmail) {
         try {
-            if (role === 'user') {
-                await (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, chapterId, userEmail);
-            }
             const chapterMeta = await this.prisma.chapter.findUnique({
                 where: { id: chapterId },
                 select: {
@@ -107,14 +104,41 @@ let QuizService = class QuizService {
             }
             const courseId = chapterMeta.module?.courseId;
             let quizzes = [];
-            if (courseId && role === 'user') {
-                const curriculum = await this.courseVersionService.resolveCurriculumTree(userId, courseId);
-                if (curriculum.mode === 'versioned') {
-                    const found = this.courseVersionService.findVersionChapterBySourceId(curriculum.version, chapterId);
-                    if (found) {
-                        quizzes = this.courseVersionService.mapVersionQuizzesForLearner(found.chapter.quizzes, false);
+            let userAnswers = [];
+            if (role === 'user') {
+                const uc = courseId
+                    ? await this.prisma.userCourse.findUnique({
+                        where: { userId_courseId: { userId, courseId } },
+                        select: { id: true, enrolledVersionId: true },
+                    })
+                    : null;
+                const versionId = courseId && uc?.enrolledVersionId
+                    ? await this.courseVersionService.resolveEnrolledVersionId(userId, courseId, uc)
+                    : null;
+                const gateCtx = courseId
+                    ? {
+                        courseId,
+                        enrolledVersionId: versionId ?? uc?.enrolledVersionId ?? null,
                     }
+                    : undefined;
+                const [, versionQuizzes, answers] = await Promise.all([
+                    (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, chapterId, userEmail, gateCtx),
+                    courseId
+                        ? this.courseVersionService.getVersionQuizzesForChapter(userId, courseId, chapterId, false, versionId ?? uc?.enrolledVersionId ?? null)
+                        : Promise.resolve(null),
+                    this.prisma.quizAnswer.findMany({
+                        where: { userId, chapterId },
+                    }),
+                ]);
+                userAnswers = answers;
+                if (versionQuizzes !== null) {
+                    quizzes = versionQuizzes;
                 }
+            }
+            else {
+                userAnswers = await this.prisma.quizAnswer.findMany({
+                    where: { userId, chapterId },
+                });
             }
             if (quizzes.length === 0) {
                 const chapter = await this.prisma.chapter.findUnique({
@@ -133,12 +157,6 @@ let QuizService = class QuizService {
                 });
                 quizzes = chapter?.quizzes ?? [];
             }
-            const userAnswers = await this.prisma.quizAnswer.findMany({
-                where: {
-                    userId,
-                    chapterId,
-                },
-            });
             const updatedUserQuizData = quizzes?.map((item) => {
                 const userAnswer = userAnswers.find((ua) => ua.quizId === item.id);
                 return {

@@ -5,6 +5,15 @@ export declare function resolvePassingCriteria(stored?: number | null): number;
 export declare function isFreeRoamUser(email: string | null | undefined, config: ConfigService): boolean;
 export declare function getCourseIdForChapter(prisma: PrismaService, chapterId: string): Promise<string | null>;
 export declare function getOrderedChapterIdsInCourse(prisma: PrismaService, courseId: string): Promise<string[]>;
+export type ChapterProgressContext = {
+    courseId?: string;
+    enrolledVersionId?: string | null;
+};
+export type ChapterAccessContext = {
+    courseId?: string;
+    enrolledVersionId?: string | null;
+};
+export declare function getOrderedChapterIdsForVersion(prisma: PrismaService, versionId: string): Promise<string[]>;
 export declare function getOrderedChapterIdsForUser(prisma: PrismaService, userId: string, courseId: string): Promise<string[]>;
 export declare function getPreviousChapterId(prisma: PrismaService, courseId: string, chapterId: string, userId?: string): Promise<string | null>;
 export type ChapterQuizGrade = {
@@ -15,8 +24,8 @@ export type ChapterQuizGrade = {
     answeredQuestions: number;
 };
 export declare function gradeChapterQuizFromStoredAnswers(prisma: PrismaService, userId: string, chapterId: string, storedPassingCriteria?: number | null): Promise<ChapterQuizGrade>;
-export declare function isChapterComplete(prisma: PrismaService, userId: string, chapterId: string): Promise<boolean>;
-export declare function assertChapterAccessible(prisma: PrismaService, config: ConfigService, userId: string, chapterId: string, userEmail?: string | null): Promise<void>;
+export declare function isChapterComplete(prisma: PrismaService, userId: string, chapterId: string, ctx?: ChapterProgressContext): Promise<boolean>;
+export declare function assertChapterAccessible(prisma: PrismaService, config: ConfigService, userId: string, chapterId: string, userEmail?: string | null, accessCtx?: ChapterAccessContext): Promise<void>;
 export declare function enrichQuizProgressReport<T extends {
     passingCriteria?: number;
 }>(report: T | null): T | null;

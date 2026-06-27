@@ -36,17 +36,48 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
     }
     async resolveCurriculumTree(userId, courseId) {
         await this.syncPublishedVersionWithLiveTree(courseId, null, 'Sync before learner curriculum read');
-        const uc = await this.prisma.userCourse.findUnique({
-            where: { userId_courseId: { userId, courseId } },
-            select: { id: true, enrolledVersionId: true },
-        });
-        if (!uc?.enrolledVersionId) {
+        const enrolledVersionId = await this.resolveEnrolledVersionId(userId, courseId);
+        if (!enrolledVersionId) {
             return { mode: 'live' };
         }
-        let enrolledVersionId = uc.enrolledVersionId;
-        const progressCount = await this.prisma.userCourseProgress.count({
-            where: { userId, courseId },
+        const version = await this.prisma.courseVersion.findUnique({
+            where: { id: enrolledVersionId },
+            include: versionInclude,
         });
+        if (!version) {
+            this.logger.warn(`User ${userId} pinned to missing version ${enrolledVersionId}; falling back to live tree`);
+            return { mode: 'live' };
+        }
+        return {
+            mode: 'versioned',
+            versionId: version.id,
+            versionNumber: version.versionNumber,
+            version,
+        };
+    }
+    async resolveEnrolledVersionId(userId, courseId, preloadedUc) {
+        const uc = preloadedUc ??
+            (await this.prisma.userCourse.findUnique({
+                where: { userId_courseId: { userId, courseId } },
+                select: { id: true, enrolledVersionId: true },
+            }));
+        if (!uc?.enrolledVersionId) {
+            return null;
+        }
+        let enrolledVersionId = uc.enrolledVersionId;
+        const [progressCount, versionExists] = await Promise.all([
+            this.prisma.userCourseProgress.count({
+                where: { userId, courseId },
+            }),
+            this.prisma.courseVersion.findUnique({
+                where: { id: enrolledVersionId },
+                select: { id: true },
+            }),
+        ]);
+        if (!versionExists) {
+            this.logger.warn(`User ${userId} pinned to missing version ${enrolledVersionId}; falling back to live tree`);
+            return null;
+        }
         if (progressCount === 0) {
             const latest = await this.getLatestPublishedVersion(courseId);
             if (latest && latest.id !== enrolledVersionId) {
@@ -58,20 +89,25 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 this.logger.log(`Bumped zero-progress enrollment ${uc.id} to version ${latest.versionNumber}`);
             }
         }
-        const version = await this.prisma.courseVersion.findUnique({
-            where: { id: enrolledVersionId },
-            include: versionInclude,
-        });
-        if (!version) {
-            this.logger.warn(`User ${userId} pinned to missing version ${uc.enrolledVersionId}; falling back to live tree`);
-            return { mode: 'live' };
+        return enrolledVersionId;
+    }
+    async getVersionQuizzesForChapter(userId, courseId, sourceChapterId, includeAnswers = false, preResolvedVersionId) {
+        const versionId = preResolvedVersionId !== undefined
+            ? preResolvedVersionId
+            : await this.resolveEnrolledVersionId(userId, courseId);
+        if (!versionId) {
+            return null;
         }
-        return {
-            mode: 'versioned',
-            versionId: version.id,
-            versionNumber: version.versionNumber,
-            version,
-        };
+        const versionChapter = await this.prisma.courseVersionChapter.findFirst({
+            where: { versionId, sourceChapterId },
+            include: {
+                quizzes: { orderBy: { createdAt: 'asc' } },
+            },
+        });
+        if (!versionChapter) {
+            return [];
+        }
+        return this.mapVersionQuizzesForLearner(versionChapter.quizzes, includeAnswers);
     }
     async resolveCurriculumByEnrollment(enrolledVersionId) {
         if (!enrolledVersionId) {

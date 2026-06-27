@@ -214,17 +214,20 @@ describe('CourseVersionService', () => {
         id: 'uc-1',
         enrolledVersionId: 'version-1',
       });
+      prisma.userCourseProgress.count.mockResolvedValue(1);
       prisma.courseVersion.findUnique.mockResolvedValue({ id: 'version-1' });
-      prisma.courseVersionChapter.findFirst.mockResolvedValue({ id: 'vc-1' });
-      prisma.courseVersionQuiz.findMany.mockResolvedValue([
-        {
-          id: 'vq-1',
-          sourceQuizId: 'quiz-1',
-          question: 'Q?',
-          answer: 'A',
-          options: ['A', 'B'],
-        },
-      ]);
+      prisma.courseVersionChapter.findFirst.mockResolvedValue({
+        id: 'vc-1',
+        quizzes: [
+          {
+            id: 'vq-1',
+            sourceQuizId: 'quiz-1',
+            question: 'Q?',
+            answer: 'A',
+            options: ['A', 'B'],
+          },
+        ],
+      });
 
       const result = await service.getVersionQuizzesForChapter(
         'user-1',
@@ -237,11 +240,9 @@ describe('CourseVersionService', () => {
       ]);
       expect(prisma.courseVersionChapter.findFirst).toHaveBeenCalledWith({
         where: { versionId: 'version-1', sourceChapterId: 'ch-1' },
-        select: { id: true },
-      });
-      expect(prisma.courseVersionQuiz.findMany).toHaveBeenCalledWith({
-        where: { versionChapterId: 'vc-1' },
-        orderBy: { createdAt: 'asc' },
+        include: {
+          quizzes: { orderBy: { createdAt: 'asc' } },
+        },
       });
     });
   });

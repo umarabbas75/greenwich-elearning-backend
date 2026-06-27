@@ -20,12 +20,14 @@ describe('QuizService — course versioning', () => {
   beforeEach(async () => {
     prisma = {
       chapter: { findUnique: jest.fn(), update: jest.fn() },
+      userCourse: { findUnique: jest.fn() },
       quiz: { findUnique: jest.fn(), update: jest.fn(), delete: jest.fn() },
       quizAnswer: { findMany: jest.fn().mockResolvedValue([]) },
     };
 
     courseVersionService = {
       getVersionQuizzesForChapter: jest.fn(),
+      resolveEnrolledVersionId: jest.fn(),
       resolveCurriculumTree: jest.fn(),
       findVersionChapterBySourceId: jest.fn(),
       mapVersionQuizzesForLearner: jest.fn(),
@@ -56,6 +58,13 @@ describe('QuizService — course versioning', () => {
         id: 'ch-1',
         module: { courseId: 'course-1' },
       });
+      prisma.userCourse.findUnique.mockResolvedValue({
+        id: 'uc-1',
+        enrolledVersionId: 'version-1',
+      });
+      courseVersionService.resolveEnrolledVersionId.mockResolvedValue(
+        'version-1',
+      );
       courseVersionService.getVersionQuizzesForChapter.mockResolvedValue([
         { id: 'quiz-1', question: 'Version Q?', options: ['A', 'B'] },
       ]);
@@ -69,9 +78,20 @@ describe('QuizService — course versioning', () => {
       expect(result.statusCode).toBe(200);
       expect(result.data).toHaveLength(1);
       expect(result.data[0].id).toBe('quiz-1');
+      expect(courseVersionService.resolveEnrolledVersionId).toHaveBeenCalledWith(
+        'user-1',
+        'course-1',
+        { id: 'uc-1', enrolledVersionId: 'version-1' },
+      );
       expect(
         courseVersionService.getVersionQuizzesForChapter,
-      ).toHaveBeenCalledWith('user-1', 'course-1', 'ch-1', false);
+      ).toHaveBeenCalledWith(
+        'user-1',
+        'course-1',
+        'ch-1',
+        false,
+        'version-1',
+      );
       expect(courseVersionService.resolveCurriculumTree).not.toHaveBeenCalled();
     });
 

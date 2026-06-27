@@ -109,16 +109,6 @@ export class QuizService {
     userEmail?: string | null,
   ): Promise<ResponseDto> {
     try {
-      if (role === 'user') {
-        await assertChapterAccessible(
-          this.prisma,
-          this.config,
-          userId,
-          chapterId,
-          userEmail,
-        );
-      }
-
       const chapterMeta = await this.prisma.chapter.findUnique({
         where: { id: chapterId },
         select: {
@@ -138,18 +128,66 @@ export class QuizService {
         options: string[];
         answer?: string;
       }> = [];
+      let userAnswers: Array<{
+        quizId: string;
+        answer: string;
+        isAnswerCorrect: boolean;
+      }> = [];
 
-      if (courseId && role === 'user') {
-        const versionQuizzes =
-          await this.courseVersionService.getVersionQuizzesForChapter(
+      if (role === 'user') {
+        const uc = courseId
+          ? await this.prisma.userCourse.findUnique({
+              where: { userId_courseId: { userId, courseId } },
+              select: { id: true, enrolledVersionId: true },
+            })
+          : null;
+
+        const versionId =
+          courseId && uc?.enrolledVersionId
+            ? await this.courseVersionService.resolveEnrolledVersionId(
+                userId,
+                courseId,
+                uc,
+              )
+            : null;
+
+        const gateCtx = courseId
+          ? {
+              courseId,
+              enrolledVersionId: versionId ?? uc?.enrolledVersionId ?? null,
+            }
+          : undefined;
+
+        const [, versionQuizzes, answers] = await Promise.all([
+          assertChapterAccessible(
+            this.prisma,
+            this.config,
             userId,
-            courseId,
             chapterId,
-            false,
-          );
+            userEmail,
+            gateCtx,
+          ),
+          courseId
+            ? this.courseVersionService.getVersionQuizzesForChapter(
+                userId,
+                courseId,
+                chapterId,
+                false,
+                versionId ?? uc?.enrolledVersionId ?? null,
+              )
+            : Promise.resolve(null),
+          this.prisma.quizAnswer.findMany({
+            where: { userId, chapterId },
+          }),
+        ]);
+        userAnswers = answers;
         if (versionQuizzes !== null) {
           quizzes = versionQuizzes;
         }
+      } else {
+        userAnswers = await this.prisma.quizAnswer.findMany({
+          where: { userId, chapterId },
+        });
       }
 
       if (quizzes.length === 0) {
@@ -169,13 +207,6 @@ export class QuizService {
         });
         quizzes = chapter?.quizzes ?? [];
       }
-
-      const userAnswers = await this.prisma.quizAnswer.findMany({
-        where: {
-          userId,
-          chapterId,
-        },
-      });
 
       const updatedUserQuizData = quizzes?.map((item) => {
         const userAnswer = userAnswers.find(

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.enrichQuizProgressReport = exports.assertChapterAccessible = exports.isChapterComplete = exports.gradeChapterQuizFromStoredAnswers = exports.getPreviousChapterId = exports.getOrderedChapterIdsForUser = exports.getOrderedChapterIdsInCourse = exports.getCourseIdForChapter = exports.isFreeRoamUser = exports.resolvePassingCriteria = exports.DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = void 0;
+exports.enrichQuizProgressReport = exports.assertChapterAccessible = exports.isChapterComplete = exports.gradeChapterQuizFromStoredAnswers = exports.getPreviousChapterId = exports.getOrderedChapterIdsForUser = exports.getOrderedChapterIdsForVersion = exports.getOrderedChapterIdsInCourse = exports.getCourseIdForChapter = exports.isFreeRoamUser = exports.resolvePassingCriteria = exports.DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = void 0;
 const common_1 = require("@nestjs/common");
 exports.DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = 70;
 function resolvePassingCriteria(stored) {
@@ -44,25 +44,29 @@ async function getOrderedChapterIdsInCourse(prisma, courseId) {
     return modules.flatMap((m) => m.chapters.map((c) => c.id));
 }
 exports.getOrderedChapterIdsInCourse = getOrderedChapterIdsInCourse;
+async function getOrderedChapterIdsForVersion(prisma, versionId) {
+    const versionModules = await prisma.courseVersionModule.findMany({
+        where: { versionId },
+        orderBy: { orderIndex: 'asc' },
+        select: {
+            chapters: {
+                orderBy: { orderIndex: 'asc' },
+                select: { sourceChapterId: true },
+            },
+        },
+    });
+    return versionModules.flatMap((m) => m.chapters
+        .map((c) => c.sourceChapterId)
+        .filter((id) => Boolean(id)));
+}
+exports.getOrderedChapterIdsForVersion = getOrderedChapterIdsForVersion;
 async function getOrderedChapterIdsForUser(prisma, userId, courseId) {
     const uc = await prisma.userCourse.findUnique({
         where: { userId_courseId: { userId, courseId } },
         select: { enrolledVersionId: true },
     });
     if (uc?.enrolledVersionId) {
-        const versionModules = await prisma.courseVersionModule.findMany({
-            where: { versionId: uc.enrolledVersionId },
-            orderBy: { orderIndex: 'asc' },
-            select: {
-                chapters: {
-                    orderBy: { orderIndex: 'asc' },
-                    select: { sourceChapterId: true },
-                },
-            },
-        });
-        const ids = versionModules.flatMap((m) => m.chapters
-            .map((c) => c.sourceChapterId)
-            .filter((id) => Boolean(id)));
+        const ids = await getOrderedChapterIdsForVersion(prisma, uc.enrolledVersionId);
         if (ids.length > 0)
             return ids;
     }
@@ -118,23 +122,29 @@ async function gradeChapterQuizFromStoredAnswers(prisma, userId, chapterId, stor
     };
 }
 exports.gradeChapterQuizFromStoredAnswers = gradeChapterQuizFromStoredAnswers;
-async function resolveChapterDenominator(prisma, userId, chapterId) {
-    const chapter = await prisma.chapter.findUnique({
-        where: { id: chapterId },
-        select: { module: { select: { courseId: true } } },
-    });
-    if (!chapter)
-        return null;
-    const uc = await prisma.userCourse.findUnique({
-        where: {
-            userId_courseId: { userId, courseId: chapter.module.courseId },
-        },
-        select: { enrolledVersionId: true },
-    });
-    if (uc?.enrolledVersionId) {
+async function resolveChapterDenominator(prisma, userId, chapterId, ctx) {
+    let courseId = ctx?.courseId;
+    let enrolledVersionId = ctx?.enrolledVersionId;
+    if (courseId === undefined) {
+        const chapter = await prisma.chapter.findUnique({
+            where: { id: chapterId },
+            select: { module: { select: { courseId: true } } },
+        });
+        if (!chapter)
+            return null;
+        courseId = chapter.module.courseId;
+    }
+    if (enrolledVersionId === undefined) {
+        const uc = await prisma.userCourse.findUnique({
+            where: { userId_courseId: { userId, courseId } },
+            select: { enrolledVersionId: true },
+        });
+        enrolledVersionId = uc?.enrolledVersionId ?? null;
+    }
+    if (enrolledVersionId) {
         const versionChapter = await prisma.courseVersionChapter.findFirst({
             where: {
-                versionId: uc.enrolledVersionId,
+                versionId: enrolledVersionId,
                 sourceChapterId: chapterId,
             },
             select: {
@@ -161,26 +171,18 @@ async function resolveChapterDenominator(prisma, userId, chapterId) {
     ]);
     return { sectionCount, quizCount };
 }
-async function isChapterComplete(prisma, userId, chapterId) {
-    const denom = await resolveChapterDenominator(prisma, userId, chapterId);
-    if (!denom)
-        return false;
-    const [progressCount, chapter] = await Promise.all([
+async function isChapterComplete(prisma, userId, chapterId, ctx) {
+    const [denom, progressCount, quizProgress] = await Promise.all([
+        resolveChapterDenominator(prisma, userId, chapterId, ctx),
         prisma.userCourseProgress.count({
             where: { userId, chapterId },
         }),
-        prisma.chapter.findUnique({
-            where: { id: chapterId },
-            select: {
-                QuizProgress: {
-                    where: { userId },
-                    select: { isPassed: true },
-                    take: 1,
-                },
-            },
+        prisma.quizProgress.findFirst({
+            where: { userId, chapterId },
+            select: { isPassed: true },
         }),
     ]);
-    if (!chapter)
+    if (!denom)
         return false;
     const { sectionCount, quizCount } = denom;
     if (sectionCount > 0 && progressCount < sectionCount) {
@@ -189,22 +191,37 @@ async function isChapterComplete(prisma, userId, chapterId) {
     if (quizCount === 0) {
         return sectionCount === 0 || progressCount >= sectionCount;
     }
-    return chapter.QuizProgress[0]?.isPassed === true;
+    return quizProgress?.isPassed === true;
 }
 exports.isChapterComplete = isChapterComplete;
-async function assertChapterAccessible(prisma, config, userId, chapterId, userEmail) {
+async function assertChapterAccessible(prisma, config, userId, chapterId, userEmail, accessCtx) {
     if (isFreeRoamUser(userEmail, config)) {
         return;
     }
-    const courseId = await getCourseIdForChapter(prisma, chapterId);
+    let courseId = accessCtx?.courseId;
+    if (!courseId) {
+        courseId = (await getCourseIdForChapter(prisma, chapterId)) ?? undefined;
+    }
     if (!courseId) {
         throw new common_1.ForbiddenException('Chapter not found');
     }
-    const previousChapterId = await getPreviousChapterId(prisma, courseId, chapterId, userId);
-    if (!previousChapterId) {
+    let enrolledVersionId = accessCtx?.enrolledVersionId;
+    if (enrolledVersionId === undefined) {
+        const uc = await prisma.userCourse.findUnique({
+            where: { userId_courseId: { userId, courseId } },
+            select: { enrolledVersionId: true },
+        });
+        enrolledVersionId = uc?.enrolledVersionId ?? null;
+    }
+    const orderedIds = enrolledVersionId
+        ? await getOrderedChapterIdsForVersion(prisma, enrolledVersionId)
+        : await getOrderedChapterIdsInCourse(prisma, courseId);
+    const idx = orderedIds.indexOf(chapterId);
+    if (idx <= 0) {
         return;
     }
-    const previousComplete = await isChapterComplete(prisma, userId, previousChapterId);
+    const previousChapterId = orderedIds[idx - 1];
+    const previousComplete = await isChapterComplete(prisma, userId, previousChapterId, { courseId, enrolledVersionId });
     if (!previousComplete) {
         throw new common_1.ForbiddenException('Complete the previous chapter (all sections and the chapter quiz) before continuing');
     }

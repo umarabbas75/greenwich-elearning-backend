@@ -33,6 +33,16 @@ export declare class CourseVersionService {
     private readonly logger;
     constructor(prisma: PrismaService);
     resolveCurriculumTree(userId: string, courseId: string): Promise<CurriculumResolveResult>;
+    resolveEnrolledVersionId(userId: string, courseId: string, preloadedUc?: {
+        id: string;
+        enrolledVersionId: string | null;
+    } | null): Promise<string | null>;
+    getVersionQuizzesForChapter(userId: string, courseId: string, sourceChapterId: string, includeAnswers?: boolean, preResolvedVersionId?: string | null): Promise<Array<{
+        id: string;
+        question: string;
+        options: string[];
+        answer?: string;
+    }> | null>;
     resolveCurriculumByEnrollment(enrolledVersionId: string | null | undefined): Promise<CurriculumResolveResult>;
     getLatestPublishedVersion(courseId: string): Promise<{
         id: string;
