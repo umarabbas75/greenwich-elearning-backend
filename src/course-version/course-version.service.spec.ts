@@ -138,6 +138,7 @@ describe('CourseVersionService', () => {
         count: jest.fn().mockResolvedValue(1),
       },
       courseVersionChapter: {
+        findFirst: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn().mockResolvedValue(1),
       },
@@ -145,6 +146,7 @@ describe('CourseVersionService', () => {
         count: jest.fn().mockResolvedValue(1),
       },
       courseVersionQuiz: {
+        findMany: jest.fn(),
         count: jest.fn().mockResolvedValue(0),
       },
       $transaction: jest.fn((cb) => cb(prisma)),
@@ -187,6 +189,7 @@ describe('CourseVersionService', () => {
 
     it('falls back to live when pinned version row is missing', async () => {
       prisma.userCourse.findUnique.mockResolvedValue({
+        id: 'uc-1',
         enrolledVersionId: 'version-1',
       });
       prisma.courseVersion.findUnique.mockResolvedValue(null);
@@ -194,6 +197,62 @@ describe('CourseVersionService', () => {
       await expect(
         service.resolveCurriculumTree('user-1', 'course-1'),
       ).resolves.toEqual({ mode: 'live' });
+    });
+  });
+
+  describe('getVersionQuizzesForChapter', () => {
+    it('returns null when learner is unpinned', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({ enrolledVersionId: null });
+
+      await expect(
+        service.getVersionQuizzesForChapter('user-1', 'course-1', 'ch-1'),
+      ).resolves.toBeNull();
+    });
+
+    it('returns mapped quizzes for pinned chapter only', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({
+        id: 'uc-1',
+        enrolledVersionId: 'version-1',
+      });
+      prisma.courseVersion.findUnique.mockResolvedValue({ id: 'version-1' });
+      prisma.courseVersionChapter.findFirst.mockResolvedValue({ id: 'vc-1' });
+      prisma.courseVersionQuiz.findMany.mockResolvedValue([
+        {
+          id: 'vq-1',
+          sourceQuizId: 'quiz-1',
+          question: 'Q?',
+          answer: 'A',
+          options: ['A', 'B'],
+        },
+      ]);
+
+      const result = await service.getVersionQuizzesForChapter(
+        'user-1',
+        'course-1',
+        'ch-1',
+      );
+
+      expect(result).toEqual([
+        { id: 'quiz-1', question: 'Q?', options: ['A', 'B'] },
+      ]);
+      expect(prisma.courseVersionChapter.findFirst).toHaveBeenCalledWith({
+        where: { versionId: 'version-1', sourceChapterId: 'ch-1' },
+        select: { id: true },
+      });
+      expect(prisma.courseVersionQuiz.findMany).toHaveBeenCalledWith({
+        where: { versionChapterId: 'vc-1' },
+        orderBy: { createdAt: 'asc' },
+      });
+    });
+  });
+
+  describe('resolveEnrolledVersionId', () => {
+    it('returns null when enrollment has no pin', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({ enrolledVersionId: null });
+
+      await expect(
+        service.resolveEnrolledVersionId('user-1', 'course-1'),
+      ).resolves.toBeNull();
     });
   });
 

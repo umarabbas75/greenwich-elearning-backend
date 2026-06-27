@@ -140,21 +140,15 @@ export class QuizService {
       }> = [];
 
       if (courseId && role === 'user') {
-        const curriculum = await this.courseVersionService.resolveCurriculumTree(
-          userId,
-          courseId,
-        );
-        if (curriculum.mode === 'versioned') {
-          const found = this.courseVersionService.findVersionChapterBySourceId(
-            curriculum.version,
+        const versionQuizzes =
+          await this.courseVersionService.getVersionQuizzesForChapter(
+            userId,
+            courseId,
             chapterId,
+            false,
           );
-          if (found) {
-            quizzes = this.courseVersionService.mapVersionQuizzesForLearner(
-              found.chapter.quizzes,
-              false,
-            ) as typeof quizzes;
-          }
+        if (versionQuizzes !== null) {
+          quizzes = versionQuizzes;
         }
       }
 

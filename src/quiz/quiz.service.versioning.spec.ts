@@ -17,32 +17,6 @@ describe('QuizService — course versioning', () => {
   let prisma: Record<string, any>;
   let courseVersionService: Record<string, jest.Mock>;
 
-  const versionTree = {
-    mode: 'versioned' as const,
-    versionId: 'version-1',
-    versionNumber: 1,
-    version: {
-      modules: [
-        {
-          chapters: [
-            {
-              sourceChapterId: 'ch-1',
-              quizzes: [
-                {
-                  id: 'vq-1',
-                  sourceQuizId: 'quiz-1',
-                  question: 'Version Q?',
-                  answer: 'A',
-                  options: ['A', 'B'],
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    },
-  };
-
   beforeEach(async () => {
     prisma = {
       chapter: { findUnique: jest.fn(), update: jest.fn() },
@@ -51,6 +25,7 @@ describe('QuizService — course versioning', () => {
     };
 
     courseVersionService = {
+      getVersionQuizzesForChapter: jest.fn(),
       resolveCurriculumTree: jest.fn(),
       findVersionChapterBySourceId: jest.fn(),
       mapVersionQuizzesForLearner: jest.fn(),
@@ -81,11 +56,7 @@ describe('QuizService — course versioning', () => {
         id: 'ch-1',
         module: { courseId: 'course-1' },
       });
-      courseVersionService.resolveCurriculumTree.mockResolvedValue(versionTree);
-      courseVersionService.findVersionChapterBySourceId.mockReturnValue({
-        chapter: versionTree.version.modules[0].chapters[0],
-      });
-      courseVersionService.mapVersionQuizzesForLearner.mockReturnValue([
+      courseVersionService.getVersionQuizzesForChapter.mockResolvedValue([
         { id: 'quiz-1', question: 'Version Q?', options: ['A', 'B'] },
       ]);
 
@@ -98,10 +69,10 @@ describe('QuizService — course versioning', () => {
       expect(result.statusCode).toBe(200);
       expect(result.data).toHaveLength(1);
       expect(result.data[0].id).toBe('quiz-1');
-      expect(courseVersionService.mapVersionQuizzesForLearner).toHaveBeenCalledWith(
-        versionTree.version.modules[0].chapters[0].quizzes,
-        false,
-      );
+      expect(
+        courseVersionService.getVersionQuizzesForChapter,
+      ).toHaveBeenCalledWith('user-1', 'course-1', 'ch-1', false);
+      expect(courseVersionService.resolveCurriculumTree).not.toHaveBeenCalled();
     });
 
     it('falls back to live quizzes for admin', async () => {

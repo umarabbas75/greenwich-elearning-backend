@@ -56,18 +56,53 @@ export class CourseVersionService {
       'Sync before learner curriculum read',
     );
 
+    const enrolledVersionId = await this.resolveEnrolledVersionId(
+      userId,
+      courseId,
+    );
+    if (!enrolledVersionId) {
+      return { mode: 'live' };
+    }
+
+    const version = await this.prisma.courseVersion.findUnique({
+      where: { id: enrolledVersionId },
+      include: versionInclude,
+    });
+
+    if (!version) {
+      this.logger.warn(
+        `User ${userId} pinned to missing version ${enrolledVersionId}; falling back to live tree`,
+      );
+      return { mode: 'live' };
+    }
+
+    return {
+      mode: 'versioned',
+      versionId: version.id,
+      versionNumber: version.versionNumber,
+      version,
+    };
+  }
+
+  /**
+   * Resolves the learner's pinned version id (with zero-progress bump).
+   * Does not sync drift or load the curriculum tree.
+   */
+  async resolveEnrolledVersionId(
+    userId: string,
+    courseId: string,
+  ): Promise<string | null> {
     const uc = await this.prisma.userCourse.findUnique({
       where: { userId_courseId: { userId, courseId } },
       select: { id: true, enrolledVersionId: true },
     });
 
     if (!uc?.enrolledVersionId) {
-      return { mode: 'live' };
+      return null;
     }
 
     let enrolledVersionId = uc.enrolledVersionId;
 
-    // New assignees with no progress follow the latest published curriculum.
     const progressCount = await this.prisma.userCourseProgress.count({
       where: { userId, courseId },
     });
@@ -85,24 +120,54 @@ export class CourseVersionService {
       }
     }
 
-    const version = await this.prisma.courseVersion.findUnique({
+    const versionExists = await this.prisma.courseVersion.findUnique({
       where: { id: enrolledVersionId },
-      include: versionInclude,
+      select: { id: true },
     });
-
-    if (!version) {
+    if (!versionExists) {
       this.logger.warn(
-        `User ${userId} pinned to missing version ${uc.enrolledVersionId}; falling back to live tree`,
+        `User ${userId} pinned to missing version ${enrolledVersionId}; falling back to live tree`,
       );
-      return { mode: 'live' };
+      return null;
     }
 
-    return {
-      mode: 'versioned',
-      versionId: version.id,
-      versionNumber: version.versionNumber,
-      version,
-    };
+    return enrolledVersionId;
+  }
+
+  /**
+   * Chapter-scoped version quiz fetch for hot read paths (e.g. getAllAssignQuizzes).
+   * Avoids loading the full course version tree.
+   */
+  async getVersionQuizzesForChapter(
+    userId: string,
+    courseId: string,
+    sourceChapterId: string,
+    includeAnswers = false,
+  ): Promise<Array<{
+    id: string;
+    question: string;
+    options: string[];
+    answer?: string;
+  }> | null> {
+    const versionId = await this.resolveEnrolledVersionId(userId, courseId);
+    if (!versionId) {
+      return null;
+    }
+
+    const versionChapter = await this.prisma.courseVersionChapter.findFirst({
+      where: { versionId, sourceChapterId },
+      select: { id: true },
+    });
+    if (!versionChapter) {
+      return [];
+    }
+
+    const quizzes = await this.prisma.courseVersionQuiz.findMany({
+      where: { versionChapterId: versionChapter.id },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return this.mapVersionQuizzesForLearner(quizzes, includeAnswers);
   }
 
   async resolveCurriculumByEnrollment(
