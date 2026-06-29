@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.applyModuleRollup = exports.buildChapterReportRow = exports.buildChapterQuizSummary = exports.buildSectionReportRows = exports.buildChapterActivityMaps = exports.deriveModuleReportStatus = exports.deriveChapterReportStatus = exports.deriveSectionReportStatus = void 0;
 const chapter_progression_1 = require("./chapter-progression");
+const interactive_section_types_1 = require("./interactive-section-types");
 function deriveSectionReportStatus(input) {
     if (input.completedAt)
         return 'completed';
@@ -87,8 +88,10 @@ function buildChapterActivityMaps(input) {
     }
     const quizProgressByChapter = new Map(input.quizProgressRows.map((q) => [q.chapterId, q]));
     const timeSpentSecondsBySection = new Map();
+    const totalAttemptsBySection = new Map();
     for (const row of input.timeSpentRows ?? []) {
         timeSpentSecondsBySection.set(row.sectionId, row.totalSeconds);
+        totalAttemptsBySection.set(row.sectionId, row.totalAttempts);
     }
     return {
         progressSectionIds,
@@ -102,6 +105,7 @@ function buildChapterActivityMaps(input) {
         lastSeenCountByChapter,
         quizProgressByChapter,
         timeSpentSecondsBySection,
+        totalAttemptsBySection,
     };
 }
 exports.buildChapterActivityMaps = buildChapterActivityMaps;
@@ -121,6 +125,9 @@ function buildSectionReportRows(chapterId, sections, activity) {
             lastOpenedAt: isLastSeen ? (lastSeen?.updatedAt ?? null) : null,
             completedAt,
             timeSpentSeconds: activity.timeSpentSecondsBySection.get(section.id) ?? 0,
+            totalAttempts: (0, interactive_section_types_1.isInteractiveSectionType)(section.type)
+                ? (activity.totalAttemptsBySection.get(section.id) ?? 0)
+                : null,
         };
     });
 }
@@ -168,6 +175,7 @@ function buildChapterReportRow(input) {
         ? (0, chapter_progression_1.enrichQuizProgressReport)(quizRow)
         : null;
     const timeSpentSeconds = sections.reduce((sum, section) => sum + section.timeSpentSeconds, 0);
+    const totalAttempts = sections.reduce((sum, section) => sum + (section.totalAttempts ?? 0), 0);
     return {
         id,
         title,
@@ -177,6 +185,7 @@ function buildChapterReportRow(input) {
         startedAt: activity.startedAtByChapter.get(id) ?? null,
         completedAt: chapterCompletedAt,
         timeSpentSeconds,
+        totalAttempts,
         sections,
         sectionsCompleted: sections.filter((s) => s.status === 'completed').length,
         sectionsTotal: sections.length,
@@ -208,12 +217,14 @@ function applyModuleRollup(module, totalSectionsInCourse, isFrozen) {
                 : ((userCourseProgress * 100) / totalSectionsInCourse).toFixed(2);
     });
     const timeSpentSeconds = module.chapters.reduce((sum, chapter) => sum + chapter.timeSpentSeconds, 0);
+    const totalAttempts = module.chapters.reduce((sum, chapter) => sum + chapter.totalAttempts, 0);
     return {
         ...module,
         status: deriveModuleReportStatus(module.chapters, module.completedAt),
         chaptersCompleted,
         chaptersTotal: module.chapters.length,
         timeSpentSeconds,
+        totalAttempts,
     };
 }
 exports.applyModuleRollup = applyModuleRollup;

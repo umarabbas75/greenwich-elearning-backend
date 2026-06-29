@@ -11,7 +11,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { User } from '@prisma/client';
 import { GetUser } from '../decorator';
-import { TrackingHeartbeatDto } from '../dto';
+import { TrackingHeartbeatDto, SectionAttemptDto } from '../dto';
 import { TrackingService } from './tracking.service';
 
 @Controller('tracking')
@@ -32,6 +32,18 @@ export class TrackingController {
       body.sectionId,
       body.activeSeconds,
       body.intervalSeconds,
+    );
+  }
+
+  /** Interactive section verify/check — increments aggregate attempt counter. */
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('section-attempt')
+  @HttpCode(200)
+  sectionAttempt(@Body() body: SectionAttemptDto, @GetUser() user: User) {
+    return this.tracking.recordSectionAttempt(
+      user.id,
+      body.sectionId,
+      body.isCorrect,
     );
   }
 

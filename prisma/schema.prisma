@@ -1248,6 +1248,10 @@ model SectionTimeSpent {
   courseId        String
   /// Sum of capped heartbeat intervals — the student's active seconds here.
   totalSeconds    Int      @default(0)
+  /// Interactive section verify/check tries (MATCH_AND_LEARN, etc.).
+  totalAttempts   Int      @default(0)
+  firstAttemptAt  DateTime?
+  lastAttemptAt   DateTime?
   /// Last ping time; used to compute the next contiguous interval and to cap
   /// gaps (idle/closed tab) so time can't be inflated.
   lastHeartbeatAt DateTime @default(now())

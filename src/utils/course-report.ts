@@ -1,4 +1,5 @@
 import { enrichQuizProgressReport } from './chapter-progression';
+import { isInteractiveSectionType } from './interactive-section-types';
 
 export type ChapterReportStatus =
   | 'not_opened'
@@ -40,6 +41,7 @@ export type ChapterActivityMaps = {
   lastSeenCountByChapter: Map<string, number>;
   quizProgressByChapter: Map<string, QuizProgressRow>;
   timeSpentSecondsBySection: Map<string, number>;
+  totalAttemptsBySection: Map<string, number>;
 };
 
 export function deriveSectionReportStatus(input: {
@@ -115,7 +117,11 @@ export function buildChapterActivityMaps(input: {
   }>;
   quizAnswerRows: Array<{ chapterId: string | null }>;
   quizProgressRows: QuizProgressRow[];
-  timeSpentRows?: Array<{ sectionId: string; totalSeconds: number }>;
+  timeSpentRows?: Array<{
+    sectionId: string;
+    totalSeconds: number;
+    totalAttempts: number;
+  }>;
 }): ChapterActivityMaps {
   const progressSectionIds = new Set(
     input.progressRows.map((p) => p.sectionId),
@@ -178,8 +184,10 @@ export function buildChapterActivityMaps(input: {
   );
 
   const timeSpentSecondsBySection = new Map<string, number>();
+  const totalAttemptsBySection = new Map<string, number>();
   for (const row of input.timeSpentRows ?? []) {
     timeSpentSecondsBySection.set(row.sectionId, row.totalSeconds);
+    totalAttemptsBySection.set(row.sectionId, row.totalAttempts);
   }
 
   return {
@@ -194,6 +202,7 @@ export function buildChapterActivityMaps(input: {
     lastSeenCountByChapter,
     quizProgressByChapter,
     timeSpentSecondsBySection,
+    totalAttemptsBySection,
   };
 }
 
@@ -212,6 +221,7 @@ export function buildSectionReportRows(
   lastOpenedAt: Date | null;
   completedAt: Date | null;
   timeSpentSeconds: number;
+  totalAttempts: number | null;
 }> {
   const lastSeen = activity.lastSeenByChapter.get(chapterId);
 
@@ -232,6 +242,9 @@ export function buildSectionReportRows(
       completedAt,
       timeSpentSeconds:
         activity.timeSpentSecondsBySection.get(section.id) ?? 0,
+      totalAttempts: isInteractiveSectionType(section.type)
+        ? (activity.totalAttemptsBySection.get(section.id) ?? 0)
+        : null,
     };
   });
 }
@@ -317,6 +330,10 @@ export function buildChapterReportRow(input: BuildChapterReportInput) {
     (sum, section) => sum + section.timeSpentSeconds,
     0,
   );
+  const totalAttempts = sections.reduce(
+    (sum, section) => sum + (section.totalAttempts ?? 0),
+    0,
+  );
 
   return {
     id,
@@ -327,6 +344,7 @@ export function buildChapterReportRow(input: BuildChapterReportInput) {
     startedAt: activity.startedAtByChapter.get(id) ?? null,
     completedAt: chapterCompletedAt,
     timeSpentSeconds,
+    totalAttempts,
     sections,
     sectionsCompleted: sections.filter((s) => s.status === 'completed').length,
     sectionsTotal: sections.length,
@@ -374,6 +392,10 @@ export function applyModuleRollup(
     (sum, chapter) => sum + chapter.timeSpentSeconds,
     0,
   );
+  const totalAttempts = module.chapters.reduce(
+    (sum, chapter) => sum + chapter.totalAttempts,
+    0,
+  );
 
   return {
     ...module,
@@ -381,5 +403,6 @@ export function applyModuleRollup(
     chaptersCompleted,
     chaptersTotal: module.chapters.length,
     timeSpentSeconds,
+    totalAttempts,
   };
 }

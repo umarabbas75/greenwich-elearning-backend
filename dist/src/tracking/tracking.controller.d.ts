@@ -1,5 +1,5 @@
 import { User } from '@prisma/client';
-import { TrackingHeartbeatDto } from '../dto';
+import { TrackingHeartbeatDto, SectionAttemptDto } from '../dto';
 import { TrackingService } from './tracking.service';
 export declare class TrackingController {
     private readonly tracking;
@@ -9,6 +9,14 @@ export declare class TrackingController {
         statusCode: number;
         data: {
             totalSeconds: number;
+        };
+    }>;
+    sectionAttempt(body: SectionAttemptDto, user: User): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            totalAttempts: number;
+            lastAttemptAt: Date;
         };
     }>;
     getLoginHistory(userId: string, limit?: string): Promise<{

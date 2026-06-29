@@ -154,6 +154,40 @@ describe('course-report', () => {
       expect(rows[0].completedAt).toEqual(completedAt);
       expect(rows[1].status).toBe('not_opened');
     });
+
+    it('exposes totalAttempts for interactive types only', () => {
+      const activity = buildChapterActivityMaps({
+        progressRows: [],
+        lastSeenRows: [],
+        quizAnswerRows: [],
+        quizProgressRows: [],
+        timeSpentRows: [
+          { sectionId: 'sec-1', totalSeconds: 0, totalAttempts: 4 },
+        ],
+      });
+
+      const rows = buildSectionReportRows(
+        'ch-1',
+        [
+          {
+            id: 'sec-1',
+            title: 'Formative',
+            orderIndex: 1,
+            type: 'MATCH_AND_LEARN',
+          },
+          {
+            id: 'sec-2',
+            title: 'Reading',
+            orderIndex: 2,
+            type: 'DEFAULT',
+          },
+        ],
+        activity,
+      );
+
+      expect(rows[0].totalAttempts).toBe(4);
+      expect(rows[1].totalAttempts).toBeNull();
+    });
   });
 
   describe('buildChapterReportRow', () => {
@@ -211,9 +245,9 @@ describe('course-report', () => {
         quizAnswerRows: [],
         quizProgressRows: [],
         timeSpentRows: [
-          { sectionId: 'sec-1', totalSeconds: 100 },
-          { sectionId: 'sec-2', totalSeconds: 50 },
-          { sectionId: 'sec-3', totalSeconds: 200 },
+          { sectionId: 'sec-1', totalSeconds: 100, totalAttempts: 0 },
+          { sectionId: 'sec-2', totalSeconds: 50, totalAttempts: 0 },
+          { sectionId: 'sec-3', totalSeconds: 200, totalAttempts: 0 },
         ],
       });
 
@@ -234,6 +268,42 @@ describe('course-report', () => {
       expect(chapter.sections[0].timeSpentSeconds).toBe(100);
       expect(chapter.sections[1].timeSpentSeconds).toBe(50);
 
+      const activityWithAttempts = buildChapterActivityMaps({
+        progressRows: [],
+        lastSeenRows: [],
+        quizAnswerRows: [],
+        quizProgressRows: [],
+        timeSpentRows: [
+          { sectionId: 'sec-1', totalSeconds: 100, totalAttempts: 3 },
+          { sectionId: 'sec-2', totalSeconds: 50, totalAttempts: 2 },
+        ],
+      });
+
+      const chapterWithAttempts = buildChapterReportRow({
+        id: 'ch-1',
+        title: 'Element 1',
+        sectionMetas: [
+          {
+            id: 'sec-1',
+            title: 'S1',
+            orderIndex: 1,
+            type: 'ORDERING',
+          },
+          {
+            id: 'sec-2',
+            title: 'S2',
+            orderIndex: 2,
+            type: 'MATCHING',
+          },
+        ],
+        quizzesTotal: 0,
+        activity: activityWithAttempts,
+        chapterCompletedAt: null,
+        isFrozen: false,
+      });
+
+      expect(chapterWithAttempts.totalAttempts).toBe(5);
+
       const otherChapter = buildChapterReportRow({
         id: 'ch-2',
         title: 'Element 2',
@@ -251,7 +321,7 @@ describe('course-report', () => {
           id: 'mod-1',
           title: 'Unit 1',
           completedAt: null,
-          chapters: [chapter, otherChapter],
+          chapters: [chapterWithAttempts, otherChapter],
         },
         3,
         false,
@@ -259,6 +329,7 @@ describe('course-report', () => {
 
       expect(otherChapter.timeSpentSeconds).toBe(200);
       expect(module.timeSpentSeconds).toBe(350);
+      expect(module.totalAttempts).toBe(5);
     });
   });
 });

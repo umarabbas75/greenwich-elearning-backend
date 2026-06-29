@@ -1098,3 +1098,13 @@ export class TrackingHeartbeatDto {
   @Min(0)
   intervalSeconds?: number;
 }
+
+/** Interactive section verify/check — increments aggregate attempt counter. */
+export class SectionAttemptDto {
+  @IsString()
+  @IsNotEmpty()
+  sectionId: string;
+
+  @IsBoolean()
+  isCorrect: boolean;
+}

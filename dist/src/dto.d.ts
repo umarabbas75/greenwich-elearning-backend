@@ -373,3 +373,7 @@ export declare class TrackingHeartbeatDto {
     activeSeconds?: number;
     intervalSeconds?: number;
 }
+export declare class SectionAttemptDto {
+    sectionId: string;
+    isCorrect: boolean;
+}

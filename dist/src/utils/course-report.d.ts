@@ -31,6 +31,7 @@ export type ChapterActivityMaps = {
     lastSeenCountByChapter: Map<string, number>;
     quizProgressByChapter: Map<string, QuizProgressRow>;
     timeSpentSecondsBySection: Map<string, number>;
+    totalAttemptsBySection: Map<string, number>;
 };
 export declare function deriveSectionReportStatus(input: {
     completedAt: Date | null;
@@ -67,6 +68,7 @@ export declare function buildChapterActivityMaps(input: {
     timeSpentRows?: Array<{
         sectionId: string;
         totalSeconds: number;
+        totalAttempts: number;
     }>;
 }): ChapterActivityMaps;
 export declare function buildSectionReportRows(chapterId: string, sections: SectionReportMeta[], activity: ChapterActivityMaps): Array<{
@@ -80,6 +82,7 @@ export declare function buildSectionReportRows(chapterId: string, sections: Sect
     lastOpenedAt: Date | null;
     completedAt: Date | null;
     timeSpentSeconds: number;
+    totalAttempts: number | null;
 }>;
 export declare function buildChapterQuizSummary(quiz: QuizProgressRow | undefined): {
     attempts: number;
@@ -107,6 +110,7 @@ export declare function buildChapterReportRow(input: BuildChapterReportInput): {
     startedAt: Date;
     completedAt: Date;
     timeSpentSeconds: number;
+    totalAttempts: number;
     sections: {
         id: string;
         title: string;
@@ -118,6 +122,7 @@ export declare function buildChapterReportRow(input: BuildChapterReportInput): {
         lastOpenedAt: Date;
         completedAt: Date;
         timeSpentSeconds: number;
+        totalAttempts: number;
     }[];
     sectionsCompleted: number;
     sectionsTotal: number;
@@ -150,6 +155,7 @@ export declare function applyModuleRollup(module: {
     chaptersCompleted: number;
     chaptersTotal: number;
     timeSpentSeconds: number;
+    totalAttempts: number;
     id: string;
     title: string;
     completedAt: Date | null;

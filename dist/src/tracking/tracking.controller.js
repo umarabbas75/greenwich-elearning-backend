@@ -25,6 +25,9 @@ let TrackingController = class TrackingController {
     heartbeat(body, user) {
         return this.tracking.heartbeat(user.id, body.sectionId, body.activeSeconds, body.intervalSeconds);
     }
+    sectionAttempt(body, user) {
+        return this.tracking.recordSectionAttempt(user.id, body.sectionId, body.isCorrect);
+    }
     getLoginHistory(userId, limit) {
         return this.tracking.getLoginHistory(userId, limit ? parseInt(limit, 10) : undefined);
     }
@@ -46,6 +49,16 @@ __decorate([
     __metadata("design:paramtypes", [dto_1.TrackingHeartbeatDto, Object]),
     __metadata("design:returntype", void 0)
 ], TrackingController.prototype, "heartbeat", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Post)('section-attempt'),
+    (0, common_1.HttpCode)(200),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [dto_1.SectionAttemptDto, Object]),
+    __metadata("design:returntype", void 0)
+], TrackingController.prototype, "sectionAttempt", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('login-history/:userId'),

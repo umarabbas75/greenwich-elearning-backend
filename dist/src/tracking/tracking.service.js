@@ -13,6 +13,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.TrackingService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const interactive_section_types_1 = require("../utils/interactive-section-types");
 const user_agent_1 = require("../utils/user-agent");
 function clamp(n, lo, hi) {
     if (!Number.isFinite(n))
@@ -86,6 +87,75 @@ let TrackingService = TrackingService_1 = class TrackingService {
             await this.accrueDailyTime(userId, courseId, now, creditSeconds);
         }
         return this.heartbeatResult(row.totalSeconds);
+    }
+    async recordSectionAttempt(userId, sectionId, _isCorrect) {
+        const section = await this.prisma.section.findUnique({
+            where: { id: sectionId },
+            select: {
+                id: true,
+                type: true,
+                chapterId: true,
+                moduleId: true,
+                chapter: {
+                    select: { moduleId: true, module: { select: { courseId: true } } },
+                },
+            },
+        });
+        if (!section) {
+            throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Section not found' }, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (!(0, interactive_section_types_1.isInteractiveSectionType)(section.type)) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.BAD_REQUEST,
+                error: 'Section attempts are only tracked for interactive section types',
+            }, common_1.HttpStatus.BAD_REQUEST);
+        }
+        const moduleId = section.moduleId ?? section.chapter?.moduleId ?? null;
+        const courseId = section.chapter?.module?.courseId;
+        if (!courseId) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.BAD_REQUEST,
+                error: 'Section is not linked to a course',
+            }, common_1.HttpStatus.BAD_REQUEST);
+        }
+        const enrollment = await this.prisma.userCourse.findFirst({
+            where: { userId, courseId, isActive: true },
+            select: { id: true },
+        });
+        if (!enrollment) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: 'You are not assigned to this course, or the enrolment is inactive',
+            }, common_1.HttpStatus.FORBIDDEN);
+        }
+        const now = new Date();
+        const row = await this.prisma.sectionTimeSpent.upsert({
+            where: { userId_sectionId: { userId, sectionId } },
+            create: {
+                userId,
+                sectionId,
+                chapterId: section.chapterId,
+                moduleId,
+                courseId,
+                totalSeconds: 0,
+                totalAttempts: 1,
+                firstAttemptAt: now,
+                lastAttemptAt: now,
+                lastHeartbeatAt: now,
+            },
+            update: {
+                totalAttempts: { increment: 1 },
+                lastAttemptAt: now,
+            },
+        });
+        return {
+            message: 'Section attempt recorded',
+            statusCode: 200,
+            data: {
+                totalAttempts: row.totalAttempts,
+                lastAttemptAt: row.lastAttemptAt,
+            },
+        };
     }
     utcDay(d) {
         return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));

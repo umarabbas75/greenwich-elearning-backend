@@ -258,7 +258,7 @@ let CourseService = CourseService_1 = class CourseService {
                 }),
             this.prisma.sectionTimeSpent.findMany({
                 where: { userId, courseId },
-                select: { sectionId: true, totalSeconds: true },
+                select: { sectionId: true, totalSeconds: true, totalAttempts: true },
             }),
         ]);
         return (0, course_report_1.buildChapterActivityMaps)({
@@ -3404,6 +3404,14 @@ let CourseService = CourseService_1 = class CourseService {
                 const moduleCompletions = await tx.userModuleCompletion.deleteMany({
                     where: { userId, courseId },
                 });
+                const sectionAttemptsReset = await tx.sectionTimeSpent.updateMany({
+                    where: { userId, courseId },
+                    data: {
+                        totalAttempts: 0,
+                        firstAttemptAt: null,
+                        lastAttemptAt: null,
+                    },
+                });
                 const assessmentAttempts = assessmentIds.length > 0
                     ? await tx.assessmentAttempt.deleteMany({
                         where: { userId, assessmentId: { in: assessmentIds } },
@@ -3421,6 +3429,7 @@ let CourseService = CourseService_1 = class CourseService {
                     courseCompletions: courseCompletions.count,
                     chapterCompletions: chapterCompletions.count,
                     moduleCompletions: moduleCompletions.count,
+                    sectionAttemptsReset: sectionAttemptsReset.count,
                     assessmentAttempts: assessmentAttempts.count,
                 };
             });

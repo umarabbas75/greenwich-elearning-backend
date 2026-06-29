@@ -14,6 +14,14 @@ export declare class TrackingService {
             totalSeconds: number;
         };
     }>;
+    recordSectionAttempt(userId: string, sectionId: string, _isCorrect: boolean): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            totalAttempts: number;
+            lastAttemptAt: Date;
+        };
+    }>;
     private utcDay;
     private accrueDailyTime;
     getLoginHistory(userId: string, limit?: number): Promise<{
