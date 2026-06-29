@@ -17,6 +17,7 @@ const dto_1 = require("../dto");
 const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../prisma/prisma.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
+const course_report_1 = require("../utils/course-report");
 const promote_form_photo_to_user_1 = require("../utils/promote-form-photo-to-user");
 const mail_service_1 = require("../mail/mail.service");
 const feedback_service_1 = require("../feedback/feedback.service");
@@ -223,6 +224,51 @@ let CourseService = CourseService_1 = class CourseService {
             };
         });
     }
+    async fetchReportActivityData(userId, courseId, chapterIds) {
+        const [progressRows, quizAnswerRows, lastSeenRows, quizProgressRows, timeSpentRows] = await Promise.all([
+            this.prisma.userCourseProgress.findMany({
+                where: { userId, courseId },
+                select: { sectionId: true, chapterId: true, createdAt: true },
+            }),
+            chapterIds.length === 0
+                ? Promise.resolve([])
+                : this.prisma.quizAnswer.findMany({
+                    where: {
+                        userId,
+                        isAnswerCorrect: true,
+                        chapterId: { in: chapterIds },
+                    },
+                    select: { chapterId: true },
+                }),
+            chapterIds.length === 0
+                ? Promise.resolve([])
+                : this.prisma.lastSeenSection.findMany({
+                    where: { userId, chapterId: { in: chapterIds } },
+                    select: {
+                        chapterId: true,
+                        sectionId: true,
+                        createdAt: true,
+                        updatedAt: true,
+                    },
+                }),
+            chapterIds.length === 0
+                ? Promise.resolve([])
+                : this.prisma.quizProgress.findMany({
+                    where: { userId, chapterId: { in: chapterIds } },
+                }),
+            this.prisma.sectionTimeSpent.findMany({
+                where: { userId, courseId },
+                select: { sectionId: true, totalSeconds: true },
+            }),
+        ]);
+        return (0, course_report_1.buildChapterActivityMaps)({
+            progressRows,
+            quizAnswerRows,
+            lastSeenRows,
+            quizProgressRows,
+            timeSpentRows,
+        });
+    }
     async markPolicyItemAsComplete({ userId, courseId, policyId, policyItemId, }) {
         try {
             const [itemCompletion, requiredItems, completedItems] = await this.prisma.$transaction([
@@ -384,7 +430,7 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async getCourseReport(courseId, userId) {
         try {
-            const [userDetails, completion, curriculum, courseForms, chapterCompletions, moduleCompletions] = await Promise.all([
+            const [userDetails, completion, curriculum, courseForms, chapterCompletions, moduleCompletions, newSinceCompletion, firstProgress,] = await Promise.all([
                 this.prisma.user.findUnique({ where: { id: userId } }),
                 this.prisma.courseCompletion.findUnique({
                     where: { userId_courseId: { userId, courseId } },
@@ -400,214 +446,148 @@ let CourseService = CourseService_1 = class CourseService {
                     where: { userId, courseId },
                     select: { moduleId: true, completedAt: true },
                 }),
-            ]);
-            const isFrozen = !!completion?.courseCompletedAt;
-            const newSinceCompletion = await this.courseVersionService.summarizeNewSincePinnedVersion(userId, courseId);
-            const chapterCompletedAtById = new Map(chapterCompletions.map((row) => [row.chapterId, row.completedAt]));
-            const moduleCompletedAtById = new Map(moduleCompletions.map((row) => [row.moduleId, row.completedAt]));
-            if (curriculum.mode === 'versioned') {
-                const { version } = curriculum;
-                let totalSectionsInCourse = 0;
-                const liveChapterIds = version.modules.flatMap((m) => m.chapters
-                    .map((c) => c.sourceChapterId)
-                    .filter((id) => Boolean(id)));
-                const [progressRows, quizAnswerRows, lastSeenRows, quizProgressRows] = await Promise.all([
-                    this.prisma.userCourseProgress.findMany({
-                        where: { userId, courseId },
-                        select: { sectionId: true, chapterId: true },
-                    }),
-                    liveChapterIds.length === 0
-                        ? Promise.resolve([])
-                        : this.prisma.quizAnswer.findMany({
-                            where: {
-                                userId,
-                                isAnswerCorrect: true,
-                                chapterId: { in: liveChapterIds },
-                            },
-                            select: { chapterId: true },
-                        }),
-                    liveChapterIds.length === 0
-                        ? Promise.resolve([])
-                        : this.prisma.lastSeenSection.findMany({
-                            where: { userId, chapterId: { in: liveChapterIds } },
-                            select: { chapterId: true },
-                        }),
-                    liveChapterIds.length === 0
-                        ? Promise.resolve([])
-                        : this.prisma.quizProgress.findMany({
-                            where: { userId, chapterId: { in: liveChapterIds } },
-                        }),
-                ]);
-                const progressSectionIds = new Set(progressRows.map((p) => p.sectionId));
-                const quizAnswerCountByChapter = new Map();
-                for (const row of quizAnswerRows) {
-                    if (!row.chapterId)
-                        continue;
-                    quizAnswerCountByChapter.set(row.chapterId, (quizAnswerCountByChapter.get(row.chapterId) ?? 0) + 1);
-                }
-                const lastSeenCountByChapter = new Map();
-                for (const row of lastSeenRows) {
-                    lastSeenCountByChapter.set(row.chapterId, (lastSeenCountByChapter.get(row.chapterId) ?? 0) + 1);
-                }
-                const quizProgressByChapter = new Map(quizProgressRows.map((q) => [q.chapterId, q]));
-                const modules = version.modules.map((mod) => {
-                    const chapters = mod.chapters.map((chapter) => {
-                        const sourceChapterId = chapter.sourceChapterId ?? chapter.id;
-                        const versionSectionIds = chapter.sections
-                            .filter((s) => s.isActive)
-                            .map((s) => s.sourceSectionId)
-                            .filter(Boolean);
-                        const totalSectionsInChapter = versionSectionIds.length;
-                        totalSectionsInCourse += totalSectionsInChapter;
-                        const userCourseProgress = Math.min(versionSectionIds.filter((id) => progressSectionIds.has(id))
-                            .length, totalSectionsInChapter);
-                        const progress = isFrozen
-                            ? 100
-                            : totalSectionsInChapter === 0
-                                ? 0
-                                : (userCourseProgress * 100) / totalSectionsInChapter;
-                        return {
-                            id: sourceChapterId,
-                            title: chapter.title,
-                            completedAt: chapterCompletedAtById.get(sourceChapterId) ?? null,
-                            _count: {
-                                UserCourseProgress: userCourseProgress,
-                                sections: totalSectionsInChapter,
-                                quizzes: chapter.quizzes.length,
-                                QuizAnswer: chapter.sourceChapterId
-                                    ? quizAnswerCountByChapter.get(chapter.sourceChapterId) ?? 0
-                                    : 0,
-                                LastSeenSection: chapter.sourceChapterId
-                                    ? lastSeenCountByChapter.get(chapter.sourceChapterId) ?? 0
-                                    : 0,
-                            },
-                            QuizProgress: chapter.sourceChapterId &&
-                                quizProgressByChapter.has(chapter.sourceChapterId)
-                                ? [
-                                    (0, chapter_progression_1.enrichQuizProgressReport)(quizProgressByChapter.get(chapter.sourceChapterId)),
-                                ]
-                                : [],
-                            progress: progress.toFixed(2),
-                            contribution: '0.00',
-                        };
-                    });
-                    return {
-                        id: mod.sourceModuleId ?? mod.id,
-                        title: mod.title,
-                        completedAt: moduleCompletedAtById.get(mod.sourceModuleId ?? mod.id) ?? null,
-                        chapters,
-                    };
-                });
-                modules.forEach((module) => {
-                    module.chapters.forEach((chapter) => {
-                        const totalSectionsInChapter = chapter._count.sections;
-                        const userCourseProgress = chapter._count.UserCourseProgress;
-                        chapter.contribution = isFrozen
-                            ? totalSectionsInCourse === 0
-                                ? '0.00'
-                                : ((totalSectionsInChapter * 100) / totalSectionsInCourse).toFixed(2)
-                            : totalSectionsInCourse === 0
-                                ? '0.00'
-                                : ((userCourseProgress * 100) / totalSectionsInCourse).toFixed(2);
-                    });
-                });
-                return {
-                    message: 'Successfully retrieved datas',
-                    statusCode: 200,
-                    data: modules,
-                    user: userDetails,
-                    courseForms,
-                    isCompleted: isFrozen,
-                    completedAt: completion?.courseCompletedAt ?? null,
-                    enrolledVersionNumber: version.versionNumber,
-                    ...(newSinceCompletion ? { newSinceCompletion } : {}),
-                };
-            }
-            const [course] = await Promise.all([
-                this.prisma.course.findUnique({
-                    where: { id: courseId },
-                    select: {
-                        id: true,
-                        title: true,
-                        users: {
-                            where: {
-                                id: userId,
-                            },
-                        },
-                        modules: {
-                            select: {
-                                id: true,
-                                title: true,
-                                chapters: {
-                                    select: {
-                                        id: true,
-                                        title: true,
-                                        QuizProgress: {
-                                            where: { userId },
-                                        },
-                                        _count: {
-                                            select: {
-                                                UserCourseProgress: {
-                                                    where: { userId },
-                                                },
-                                                sections: true,
-                                                quizzes: true,
-                                                QuizAnswer: {
-                                                    where: { isAnswerCorrect: true, userId },
-                                                },
-                                                LastSeenSection: {
-                                                    where: { userId },
-                                                },
-                                            },
-                                        },
-                                    },
-                                    orderBy: {
-                                        createdAt: 'asc',
-                                    },
-                                },
-                            },
-                        },
-                    },
+                this.courseVersionService.summarizeNewSincePinnedVersion(userId, courseId),
+                this.prisma.userCourseProgress.findFirst({
+                    where: { userId, courseId },
+                    orderBy: { createdAt: 'asc' },
+                    select: { createdAt: true },
                 }),
             ]);
-            let totalSectionsInCourse = 0;
-            course.modules.forEach((module) => {
-                module.chapters.forEach((chapter) => {
-                    totalSectionsInCourse += chapter._count.sections;
-                });
-            });
-            course.modules.forEach((module) => {
-                module.completedAt = moduleCompletedAtById.get(module.id) ?? null;
-                module.chapters.forEach((chapter) => {
-                    chapter.completedAt = chapterCompletedAtById.get(chapter.id) ?? null;
-                    chapter.QuizProgress = (chapter.QuizProgress ?? []).map((row) => (0, chapter_progression_1.enrichQuizProgressReport)(row));
-                    const totalSectionsInChapter = chapter._count.sections;
-                    const userCourseProgress = Math.min(chapter._count.UserCourseProgress, totalSectionsInChapter);
-                    const progress = isFrozen
-                        ? 100
-                        : totalSectionsInChapter === 0
-                            ? 0
-                            : (userCourseProgress * 100) / totalSectionsInChapter;
-                    const contribution = isFrozen
-                        ? totalSectionsInCourse === 0
-                            ? 0
-                            : (totalSectionsInChapter * 100) / totalSectionsInCourse
-                        : totalSectionsInCourse === 0
-                            ? 0
-                            : (userCourseProgress * 100) / totalSectionsInCourse;
-                    chapter.progress = progress.toFixed(2);
-                    chapter.contribution = contribution.toFixed(2);
-                });
-            });
-            return {
+            const isFrozen = !!completion?.courseCompletedAt;
+            const courseStartDate = firstProgress?.createdAt ?? null;
+            const chapterCompletedAtById = new Map(chapterCompletions.map((row) => [row.chapterId, row.completedAt]));
+            const moduleCompletedAtById = new Map(moduleCompletions.map((row) => [row.moduleId, row.completedAt]));
+            const reportMeta = {
                 message: 'Successfully retrieved datas',
                 statusCode: 200,
-                data: course.modules,
                 user: userDetails,
                 courseForms,
                 isCompleted: isFrozen,
                 completedAt: completion?.courseCompletedAt ?? null,
+                courseStartDate,
                 ...(newSinceCompletion ? { newSinceCompletion } : {}),
+            };
+            if (curriculum.mode === 'versioned') {
+                const { version } = curriculum;
+                const liveChapterIds = version.modules.flatMap((m) => m.chapters
+                    .map((c) => c.sourceChapterId)
+                    .filter((id) => Boolean(id)));
+                const activity = await this.fetchReportActivityData(userId, courseId, liveChapterIds);
+                const totalSectionsInCourse = version.modules.reduce((sum, mod) => {
+                    return (sum +
+                        mod.chapters.reduce((chSum, chapter) => {
+                            return (chSum +
+                                chapter.sections.filter((s) => s.isActive && s.sourceSectionId).length);
+                        }, 0));
+                }, 0);
+                const modules = version.modules.map((mod) => {
+                    const moduleId = mod.sourceModuleId ?? mod.id;
+                    const chapters = mod.chapters.map((chapter) => {
+                        const sourceChapterId = chapter.sourceChapterId ?? chapter.id;
+                        const sectionMetas = chapter.sections
+                            .filter((s) => s.isActive && s.sourceSectionId)
+                            .sort((a, b) => (a.orderIndex ?? Number.MAX_SAFE_INTEGER) -
+                            (b.orderIndex ?? Number.MAX_SAFE_INTEGER))
+                            .map((s) => ({
+                            id: s.sourceSectionId,
+                            title: s.title,
+                            orderIndex: s.orderIndex,
+                            type: s.type,
+                        }));
+                        return (0, course_report_1.buildChapterReportRow)({
+                            id: sourceChapterId,
+                            title: chapter.title,
+                            sectionMetas,
+                            quizzesTotal: chapter.quizzes.length,
+                            activity,
+                            chapterCompletedAt: chapterCompletedAtById.get(sourceChapterId) ?? null,
+                            isFrozen,
+                        });
+                    });
+                    return (0, course_report_1.applyModuleRollup)({
+                        id: moduleId,
+                        title: mod.title,
+                        completedAt: moduleCompletedAtById.get(moduleId) ?? null,
+                        chapters,
+                    }, totalSectionsInCourse, isFrozen);
+                });
+                return {
+                    ...reportMeta,
+                    data: modules,
+                    enrolledVersionNumber: version.versionNumber,
+                };
+            }
+            const course = await this.prisma.course.findUnique({
+                where: { id: courseId },
+                select: {
+                    id: true,
+                    title: true,
+                    users: {
+                        where: { id: userId },
+                    },
+                    modules: {
+                        select: {
+                            id: true,
+                            title: true,
+                            chapters: {
+                                select: {
+                                    id: true,
+                                    title: true,
+                                    sections: {
+                                        where: { isArchived: false, isActive: true },
+                                        select: {
+                                            id: true,
+                                            title: true,
+                                            orderIndex: true,
+                                            type: true,
+                                        },
+                                        orderBy: { orderIndex: 'asc' },
+                                    },
+                                    _count: {
+                                        select: {
+                                            quizzes: true,
+                                        },
+                                    },
+                                },
+                                orderBy: { createdAt: 'asc' },
+                            },
+                        },
+                        orderBy: { createdAt: 'asc' },
+                    },
+                },
+            });
+            const liveChapterIds = course.modules.flatMap((m) => m.chapters.map((c) => c.id));
+            const activity = await this.fetchReportActivityData(userId, courseId, liveChapterIds);
+            const totalSectionsInCourse = course.modules.reduce((sum, mod) => sum +
+                mod.chapters.reduce((chSum, ch) => chSum + ch.sections.length, 0), 0);
+            const modules = course.modules.map((mod) => {
+                const chapters = mod.chapters.map((chapter) => {
+                    const sectionMetas = chapter.sections.map((s) => ({
+                        id: s.id,
+                        title: s.title,
+                        orderIndex: s.orderIndex,
+                        type: s.type,
+                    }));
+                    return (0, course_report_1.buildChapterReportRow)({
+                        id: chapter.id,
+                        title: chapter.title,
+                        sectionMetas,
+                        quizzesTotal: chapter._count.quizzes,
+                        activity,
+                        chapterCompletedAt: chapterCompletedAtById.get(chapter.id) ?? null,
+                        isFrozen,
+                    });
+                });
+                return (0, course_report_1.applyModuleRollup)({
+                    id: mod.id,
+                    title: mod.title,
+                    completedAt: moduleCompletedAtById.get(mod.id) ?? null,
+                    chapters,
+                }, totalSectionsInCourse, isFrozen);
+            });
+            return {
+                ...reportMeta,
+                data: modules,
             };
         }
         catch (error) {
