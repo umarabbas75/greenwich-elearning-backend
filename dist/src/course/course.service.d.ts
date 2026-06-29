@@ -32,6 +32,7 @@ export declare class CourseService {
             completedAt: Date | null;
         }>;
     }>;
+    private getCourseFormsWithMetadataForUser;
     markPolicyItemAsComplete({ userId, courseId, policyId, policyItemId, }: {
         userId: string;
         courseId: string;

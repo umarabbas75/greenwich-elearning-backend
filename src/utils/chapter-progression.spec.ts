@@ -5,6 +5,7 @@ import {
   assertChapterAccessible,
   getOrderedChapterIdsForVersion,
   isChapterComplete,
+  recordChapterAndModuleCompletionIfNeeded,
 } from './chapter-progression';
 
 describe('chapter-progression', () => {
@@ -15,13 +16,19 @@ describe('chapter-progression', () => {
     prisma = {
       chapter: { findUnique: jest.fn() },
       userCourse: { findUnique: jest.fn() },
-      courseVersionModule: { findMany: jest.fn() },
-      module: { findMany: jest.fn() },
+      module: { findUnique: jest.fn(), findMany: jest.fn() },
+      courseVersionModule: { findMany: jest.fn(), findFirst: jest.fn() },
       courseVersionChapter: { findFirst: jest.fn() },
       section: { count: jest.fn() },
       quiz: { count: jest.fn() },
       userCourseProgress: { count: jest.fn() },
       quizProgress: { findFirst: jest.fn() },
+      userChapterCompletion: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+        count: jest.fn(),
+      },
+      userModuleCompletion: { findUnique: jest.fn(), create: jest.fn() },
     };
     config = { get: jest.fn().mockReturnValue('') } as unknown as ConfigService;
   });
@@ -126,6 +133,50 @@ describe('chapter-progression', () => {
           { courseId: 'course-1' },
         ),
       ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
+
+  describe('recordChapterAndModuleCompletionIfNeeded', () => {
+    it('creates chapter completion when chapter is complete and none exists', async () => {
+      prisma.chapter.findUnique.mockResolvedValue({
+        moduleId: 'mod-1',
+        module: { courseId: 'course-1' },
+      });
+      prisma.userCourse.findUnique.mockResolvedValue({
+        enrolledVersionId: 'version-1',
+      });
+      prisma.userChapterCompletion.findUnique.mockResolvedValue(null);
+      prisma.courseVersionChapter.findFirst.mockResolvedValue({
+        _count: { sections: 1, quizzes: 0 },
+      });
+      prisma.userCourseProgress.count.mockResolvedValue(1);
+      prisma.quizProgress.findFirst.mockResolvedValue(null);
+      prisma.userModuleCompletion.findUnique.mockResolvedValue(null);
+      prisma.module.findUnique.mockResolvedValue({ courseId: 'course-1' });
+      prisma.courseVersionModule.findFirst.mockResolvedValue({
+        chapters: [{ sourceChapterId: 'ch-1' }],
+      });
+      prisma.userChapterCompletion.count.mockResolvedValue(1);
+      prisma.userChapterCompletion.create.mockResolvedValue({});
+      prisma.userModuleCompletion.create.mockResolvedValue({});
+
+      await recordChapterAndModuleCompletionIfNeeded(
+        prisma as unknown as PrismaService,
+        'user-1',
+        'ch-1',
+      );
+
+      expect(prisma.userChapterCompletion.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userId: 'user-1',
+            chapterId: 'ch-1',
+            moduleId: 'mod-1',
+            courseId: 'course-1',
+          }),
+        }),
+      );
+      expect(prisma.userModuleCompletion.create).toHaveBeenCalled();
     });
   });
 });

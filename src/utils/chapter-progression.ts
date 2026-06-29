@@ -342,3 +342,139 @@ export function enrichQuizProgressReport<
     passingCriteria: resolvePassingCriteria(report.passingCriteria),
   };
 }
+
+/** Live or version-pinned chapter ids belonging to a module for this learner. */
+export async function getChapterIdsInModuleForUser(
+  prisma: PrismaService,
+  userId: string,
+  moduleId: string,
+): Promise<{ courseId: string; chapterIds: string[] } | null> {
+  const module = await prisma.module.findUnique({
+    where: { id: moduleId },
+    select: { courseId: true },
+  });
+  if (!module) return null;
+
+  const enrollment = await prisma.userCourse.findUnique({
+    where: {
+      userId_courseId: { userId, courseId: module.courseId },
+    },
+    select: { enrolledVersionId: true },
+  });
+
+  if (enrollment?.enrolledVersionId) {
+    const versionModule = await prisma.courseVersionModule.findFirst({
+      where: {
+        versionId: enrollment.enrolledVersionId,
+        sourceModuleId: moduleId,
+      },
+      select: {
+        chapters: {
+          orderBy: { orderIndex: 'asc' },
+          select: { sourceChapterId: true },
+        },
+      },
+    });
+    if (versionModule) {
+      return {
+        courseId: module.courseId,
+        chapterIds: versionModule.chapters
+          .map((c) => c.sourceChapterId)
+          .filter((id): id is string => Boolean(id)),
+      };
+    }
+  }
+
+  const chapters = await prisma.chapter.findMany({
+    where: { moduleId, isArchived: false },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+
+  return {
+    courseId: module.courseId,
+    chapterIds: chapters.map((c) => c.id),
+  };
+}
+
+/**
+ * Stamps chapter/module completion timestamps the first time the learner
+ * satisfies the completion rules. Idempotent — never overwrites existing rows.
+ */
+export async function recordChapterAndModuleCompletionIfNeeded(
+  prisma: PrismaService,
+  userId: string,
+  chapterId: string,
+  ctx?: ChapterProgressContext,
+): Promise<void> {
+  const chapter = await prisma.chapter.findUnique({
+    where: { id: chapterId },
+    select: { moduleId: true, module: { select: { courseId: true } } },
+  });
+  if (!chapter) return;
+
+  const courseId = ctx?.courseId ?? chapter.module.courseId;
+  let enrolledVersionId = ctx?.enrolledVersionId;
+  if (enrolledVersionId === undefined) {
+    const enrollment = await prisma.userCourse.findUnique({
+      where: { userId_courseId: { userId, courseId } },
+      select: { enrolledVersionId: true },
+    });
+    enrolledVersionId = enrollment?.enrolledVersionId ?? null;
+  }
+  const progressCtx: ChapterProgressContext = { courseId, enrolledVersionId };
+
+  const existingChapter = await prisma.userChapterCompletion.findUnique({
+    where: { userId_chapterId: { userId, chapterId } },
+  });
+
+  if (!existingChapter) {
+    const complete = await isChapterComplete(
+      prisma,
+      userId,
+      chapterId,
+      progressCtx,
+    );
+    if (complete) {
+      await prisma.userChapterCompletion.create({
+        data: {
+          userId,
+          courseId,
+          moduleId: chapter.moduleId,
+          chapterId,
+          completedAt: new Date(),
+        },
+      });
+    }
+  }
+
+  const existingModule = await prisma.userModuleCompletion.findUnique({
+    where: { userId_moduleId: { userId, moduleId: chapter.moduleId } },
+  });
+  if (existingModule) return;
+
+  const moduleCtx = await getChapterIdsInModuleForUser(
+    prisma,
+    userId,
+    chapter.moduleId,
+  );
+  if (!moduleCtx || moduleCtx.chapterIds.length === 0) return;
+
+  const completedChapterCount = await prisma.userChapterCompletion.count({
+    where: {
+      userId,
+      moduleId: chapter.moduleId,
+      chapterId: { in: moduleCtx.chapterIds },
+    },
+  });
+  if (completedChapterCount < moduleCtx.chapterIds.length) return;
+
+  await prisma.userModuleCompletion.create({
+    data: {
+      userId,
+      courseId: moduleCtx.courseId,
+      moduleId: chapter.moduleId,
+      completedAt: new Date(),
+    },
+  });
+}

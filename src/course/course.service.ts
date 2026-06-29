@@ -28,7 +28,8 @@ import {
 } from '../dto';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { assertChapterAccessible } from '../utils/chapter-progression';
+import { assertChapterAccessible, enrichQuizProgressReport, recordChapterAndModuleCompletionIfNeeded } from '../utils/chapter-progression';
+import { promoteFormPhotoToUserIfMissing } from '../utils/promote-form-photo-to-user';
 import { MailService } from '../mail/mail.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { CourseVersionService } from '../course-version/course-version.service';
@@ -196,7 +197,7 @@ export class CourseService {
       };
     }
 
-    return this.prisma.userFormCompletion.upsert({
+    const completion = await this.prisma.userFormCompletion.upsert({
       where: {
         userId_courseId_formId: {
           userId,
@@ -220,6 +221,17 @@ export class CourseService {
         courseFormId,
       },
     });
+
+    try {
+      await promoteFormPhotoToUserIfMissing(this.prisma, userId, metadata);
+    } catch (photoErr) {
+      const msg = photoErr instanceof Error ? photoErr.message : String(photoErr);
+      CourseService.completionLogger.warn(
+        `Form photo promotion failed for user ${userId}: ${msg}`,
+      );
+    }
+
+    return completion;
   }
 
   /** Which requirement forms exist for the course and whether the current user completed them. */
@@ -265,6 +277,51 @@ export class CourseService {
         };
       }),
     };
+  }
+
+  /** Course forms for a user, including submitted answers (e.g. registration form metadata). */
+  private async getCourseFormsWithMetadataForUser(
+    userId: string,
+    courseId: string,
+  ): Promise<
+    Array<{
+      courseFormId: string;
+      formId: string;
+      formName: string;
+      isRequired: boolean;
+      isComplete: boolean;
+      completedAt: Date | null;
+      metadata: Prisma.JsonValue | null;
+    }>
+  > {
+    const forms = await this.prisma.courseForm.findMany({
+      where: { courseId },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        userFormCompletions: {
+          where: { userId },
+          take: 1,
+          select: {
+            isComplete: true,
+            completedAt: true,
+            metadata: true,
+          },
+        },
+      },
+    });
+
+    return forms.map((f) => {
+      const c = f.userFormCompletions[0];
+      return {
+        courseFormId: f.id,
+        formId: f.formId,
+        formName: f.formName,
+        isRequired: f.isRequired,
+        isComplete: c?.isComplete ?? false,
+        completedAt: c?.completedAt ?? null,
+        metadata: c?.metadata ?? null,
+      };
+    });
   }
 
   async markPolicyItemAsComplete({
@@ -483,14 +540,24 @@ export class CourseService {
 
   async getCourseReport(courseId: any, userId: any): Promise<any> {
     try {
-      const [userDetails, completion, curriculum] = await Promise.all([
-        this.prisma.user.findUnique({ where: { id: userId } }),
-        this.prisma.courseCompletion.findUnique({
-          where: { userId_courseId: { userId, courseId } },
-          select: { courseCompletedAt: true },
-        }),
-        this.courseVersionService.resolveCurriculumTree(userId, courseId),
-      ]);
+      const [userDetails, completion, curriculum, courseForms, chapterCompletions, moduleCompletions] =
+        await Promise.all([
+          this.prisma.user.findUnique({ where: { id: userId } }),
+          this.prisma.courseCompletion.findUnique({
+            where: { userId_courseId: { userId, courseId } },
+            select: { courseCompletedAt: true },
+          }),
+          this.courseVersionService.resolveCurriculumTree(userId, courseId),
+          this.getCourseFormsWithMetadataForUser(userId, courseId),
+          this.prisma.userChapterCompletion.findMany({
+            where: { userId, courseId },
+            select: { chapterId: true, completedAt: true },
+          }),
+          this.prisma.userModuleCompletion.findMany({
+            where: { userId, courseId },
+            select: { moduleId: true, completedAt: true },
+          }),
+        ]);
 
       const isFrozen = !!completion?.courseCompletedAt;
       const newSinceCompletion =
@@ -498,6 +565,12 @@ export class CourseService {
           userId,
           courseId,
         );
+      const chapterCompletedAtById = new Map(
+        chapterCompletions.map((row) => [row.chapterId, row.completedAt]),
+      );
+      const moduleCompletedAtById = new Map(
+        moduleCompletions.map((row) => [row.moduleId, row.completedAt]),
+      );
 
       if (curriculum.mode === 'versioned') {
         const { version } = curriculum;
@@ -509,7 +582,8 @@ export class CourseService {
             .filter((id): id is string => Boolean(id)),
         );
 
-        const [progressRows, quizAnswerRows, lastSeenRows] = await Promise.all([
+        const [progressRows, quizAnswerRows, lastSeenRows, quizProgressRows] =
+          await Promise.all([
           this.prisma.userCourseProgress.findMany({
             where: { userId, courseId },
             select: { sectionId: true, chapterId: true },
@@ -530,6 +604,19 @@ export class CourseService {
                 where: { userId, chapterId: { in: liveChapterIds } },
                 select: { chapterId: true },
               }),
+          liveChapterIds.length === 0
+            ? Promise.resolve(
+                [] as Array<{
+                  chapterId: string;
+                  totalAttempts: number;
+                  isPassed: boolean;
+                  score: number;
+                  passingCriteria: number;
+                }>,
+              )
+            : this.prisma.quizProgress.findMany({
+                where: { userId, chapterId: { in: liveChapterIds } },
+              }),
         ]);
         const progressSectionIds = new Set(progressRows.map((p) => p.sectionId));
         const quizAnswerCountByChapter = new Map<string, number>();
@@ -547,6 +634,9 @@ export class CourseService {
             (lastSeenCountByChapter.get(row.chapterId) ?? 0) + 1,
           );
         }
+        const quizProgressByChapter = new Map(
+          quizProgressRows.map((q) => [q.chapterId, q]),
+        );
 
         const modules = version.modules.map((mod) => {
           const chapters = mod.chapters.map((chapter) => {
@@ -573,6 +663,7 @@ export class CourseService {
             return {
               id: sourceChapterId,
               title: chapter.title,
+              completedAt: chapterCompletedAtById.get(sourceChapterId) ?? null,
               _count: {
                 UserCourseProgress: userCourseProgress,
                 sections: totalSectionsInChapter,
@@ -584,6 +675,15 @@ export class CourseService {
                   ? lastSeenCountByChapter.get(chapter.sourceChapterId) ?? 0
                   : 0,
               },
+              QuizProgress:
+                chapter.sourceChapterId &&
+                quizProgressByChapter.has(chapter.sourceChapterId)
+                  ? [
+                      enrichQuizProgressReport(
+                        quizProgressByChapter.get(chapter.sourceChapterId)!,
+                      ),
+                    ]
+                  : [],
               progress: progress.toFixed(2),
               contribution: '0.00',
             };
@@ -592,6 +692,8 @@ export class CourseService {
           return {
             id: mod.sourceModuleId ?? mod.id,
             title: mod.title,
+            completedAt:
+              moduleCompletedAtById.get(mod.sourceModuleId ?? mod.id) ?? null,
             chapters,
           };
         });
@@ -617,6 +719,7 @@ export class CourseService {
           statusCode: 200,
           data: modules,
           user: userDetails,
+          courseForms,
           isCompleted: isFrozen,
           completedAt: completion?.courseCompletedAt ?? null,
           enrolledVersionNumber: version.versionNumber,
@@ -643,6 +746,9 @@ export class CourseService {
                   select: {
                     id: true,
                     title: true,
+                    QuizProgress: {
+                      where: { userId },
+                    },
                     _count: {
                       select: {
                         UserCourseProgress: {
@@ -679,7 +785,13 @@ export class CourseService {
 
       // Step 2: Calculate progress and contribution for each chapter
       course.modules.forEach((module) => {
+        module.completedAt = moduleCompletedAtById.get(module.id) ?? null;
         module.chapters.forEach((chapter) => {
+          chapter.completedAt = chapterCompletedAtById.get(chapter.id) ?? null;
+          chapter.QuizProgress = (chapter.QuizProgress ?? []).map(
+            (row: { passingCriteria?: number }) =>
+              enrichQuizProgressReport(row)!,
+          );
           const totalSectionsInChapter = chapter._count.sections;
           // Clamp completed sections to the number of sections that actually
           // exist in this chapter. UserCourseProgress rows can outlive the
@@ -719,6 +831,7 @@ export class CourseService {
         statusCode: 200,
         data: course.modules,
         user: userDetails,
+        courseForms,
         isCompleted: isFrozen,
         completedAt: completion?.courseCompletedAt ?? null,
         ...(newSinceCompletion ? { newSinceCompletion } : {}),
@@ -4013,6 +4126,12 @@ export class CourseService {
         // finished all content for this course (content completion is the
         // course-completion criterion; assessment pass is tracked separately).
         await this._checkContentCompletion(userId, body.courseId);
+        await recordChapterAndModuleCompletionIfNeeded(
+          this.prisma,
+          userId,
+          body.chapterId,
+          { courseId: body.courseId },
+        );
       }
 
       return {
@@ -4564,6 +4683,12 @@ export class CourseService {
         const courseCompletions = await tx.courseCompletion.deleteMany({
           where: { userId, courseId },
         });
+        const chapterCompletions = await tx.userChapterCompletion.deleteMany({
+          where: { userId, courseId },
+        });
+        const moduleCompletions = await tx.userModuleCompletion.deleteMany({
+          where: { userId, courseId },
+        });
         const assessmentAttempts =
           assessmentIds.length > 0
             ? await tx.assessmentAttempt.deleteMany({
@@ -4581,6 +4706,8 @@ export class CourseService {
           policyItemCompletions: policyItemCompletions.count,
           feedbackSubmissions: feedbackSubmissions.count,
           courseCompletions: courseCompletions.count,
+          chapterCompletions: chapterCompletions.count,
+          moduleCompletions: moduleCompletions.count,
           assessmentAttempts: assessmentAttempts.count,
         };
       });

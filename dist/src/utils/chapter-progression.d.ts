@@ -29,3 +29,8 @@ export declare function assertChapterAccessible(prisma: PrismaService, config: C
 export declare function enrichQuizProgressReport<T extends {
     passingCriteria?: number;
 }>(report: T | null): T | null;
+export declare function getChapterIdsInModuleForUser(prisma: PrismaService, userId: string, moduleId: string): Promise<{
+    courseId: string;
+    chapterIds: string[];
+} | null>;
+export declare function recordChapterAndModuleCompletionIfNeeded(prisma: PrismaService, userId: string, chapterId: string, ctx?: ChapterProgressContext): Promise<void>;

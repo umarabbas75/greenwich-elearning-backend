@@ -17,6 +17,7 @@ const dto_1 = require("../dto");
 const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../prisma/prisma.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
+const promote_form_photo_to_user_1 = require("../utils/promote-form-photo-to-user");
 const mail_service_1 = require("../mail/mail.service");
 const feedback_service_1 = require("../feedback/feedback.service");
 const course_version_service_1 = require("../course-version/course-version.service");
@@ -133,7 +134,7 @@ let CourseService = CourseService_1 = class CourseService {
                 metadata: existing.metadata,
             };
         }
-        return this.prisma.userFormCompletion.upsert({
+        const completion = await this.prisma.userFormCompletion.upsert({
             where: {
                 userId_courseId_formId: {
                     userId,
@@ -157,6 +158,14 @@ let CourseService = CourseService_1 = class CourseService {
                 courseFormId,
             },
         });
+        try {
+            await (0, promote_form_photo_to_user_1.promoteFormPhotoToUserIfMissing)(this.prisma, userId, metadata);
+        }
+        catch (photoErr) {
+            const msg = photoErr instanceof Error ? photoErr.message : String(photoErr);
+            CourseService_1.completionLogger.warn(`Form photo promotion failed for user ${userId}: ${msg}`);
+        }
+        return completion;
     }
     async getStudentCourseFormsStatus(userId, userRole, courseId) {
         await this._assertEnrollmentUsable(userId, courseId, userRole);
@@ -184,6 +193,35 @@ let CourseService = CourseService_1 = class CourseService {
                 };
             }),
         };
+    }
+    async getCourseFormsWithMetadataForUser(userId, courseId) {
+        const forms = await this.prisma.courseForm.findMany({
+            where: { courseId },
+            orderBy: { createdAt: 'asc' },
+            include: {
+                userFormCompletions: {
+                    where: { userId },
+                    take: 1,
+                    select: {
+                        isComplete: true,
+                        completedAt: true,
+                        metadata: true,
+                    },
+                },
+            },
+        });
+        return forms.map((f) => {
+            const c = f.userFormCompletions[0];
+            return {
+                courseFormId: f.id,
+                formId: f.formId,
+                formName: f.formName,
+                isRequired: f.isRequired,
+                isComplete: c?.isComplete ?? false,
+                completedAt: c?.completedAt ?? null,
+                metadata: c?.metadata ?? null,
+            };
+        });
     }
     async markPolicyItemAsComplete({ userId, courseId, policyId, policyItemId, }) {
         try {
@@ -346,23 +384,34 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async getCourseReport(courseId, userId) {
         try {
-            const [userDetails, completion, curriculum] = await Promise.all([
+            const [userDetails, completion, curriculum, courseForms, chapterCompletions, moduleCompletions] = await Promise.all([
                 this.prisma.user.findUnique({ where: { id: userId } }),
                 this.prisma.courseCompletion.findUnique({
                     where: { userId_courseId: { userId, courseId } },
                     select: { courseCompletedAt: true },
                 }),
                 this.courseVersionService.resolveCurriculumTree(userId, courseId),
+                this.getCourseFormsWithMetadataForUser(userId, courseId),
+                this.prisma.userChapterCompletion.findMany({
+                    where: { userId, courseId },
+                    select: { chapterId: true, completedAt: true },
+                }),
+                this.prisma.userModuleCompletion.findMany({
+                    where: { userId, courseId },
+                    select: { moduleId: true, completedAt: true },
+                }),
             ]);
             const isFrozen = !!completion?.courseCompletedAt;
             const newSinceCompletion = await this.courseVersionService.summarizeNewSincePinnedVersion(userId, courseId);
+            const chapterCompletedAtById = new Map(chapterCompletions.map((row) => [row.chapterId, row.completedAt]));
+            const moduleCompletedAtById = new Map(moduleCompletions.map((row) => [row.moduleId, row.completedAt]));
             if (curriculum.mode === 'versioned') {
                 const { version } = curriculum;
                 let totalSectionsInCourse = 0;
                 const liveChapterIds = version.modules.flatMap((m) => m.chapters
                     .map((c) => c.sourceChapterId)
                     .filter((id) => Boolean(id)));
-                const [progressRows, quizAnswerRows, lastSeenRows] = await Promise.all([
+                const [progressRows, quizAnswerRows, lastSeenRows, quizProgressRows] = await Promise.all([
                     this.prisma.userCourseProgress.findMany({
                         where: { userId, courseId },
                         select: { sectionId: true, chapterId: true },
@@ -383,6 +432,11 @@ let CourseService = CourseService_1 = class CourseService {
                             where: { userId, chapterId: { in: liveChapterIds } },
                             select: { chapterId: true },
                         }),
+                    liveChapterIds.length === 0
+                        ? Promise.resolve([])
+                        : this.prisma.quizProgress.findMany({
+                            where: { userId, chapterId: { in: liveChapterIds } },
+                        }),
                 ]);
                 const progressSectionIds = new Set(progressRows.map((p) => p.sectionId));
                 const quizAnswerCountByChapter = new Map();
@@ -395,6 +449,7 @@ let CourseService = CourseService_1 = class CourseService {
                 for (const row of lastSeenRows) {
                     lastSeenCountByChapter.set(row.chapterId, (lastSeenCountByChapter.get(row.chapterId) ?? 0) + 1);
                 }
+                const quizProgressByChapter = new Map(quizProgressRows.map((q) => [q.chapterId, q]));
                 const modules = version.modules.map((mod) => {
                     const chapters = mod.chapters.map((chapter) => {
                         const sourceChapterId = chapter.sourceChapterId ?? chapter.id;
@@ -414,6 +469,7 @@ let CourseService = CourseService_1 = class CourseService {
                         return {
                             id: sourceChapterId,
                             title: chapter.title,
+                            completedAt: chapterCompletedAtById.get(sourceChapterId) ?? null,
                             _count: {
                                 UserCourseProgress: userCourseProgress,
                                 sections: totalSectionsInChapter,
@@ -425,6 +481,12 @@ let CourseService = CourseService_1 = class CourseService {
                                     ? lastSeenCountByChapter.get(chapter.sourceChapterId) ?? 0
                                     : 0,
                             },
+                            QuizProgress: chapter.sourceChapterId &&
+                                quizProgressByChapter.has(chapter.sourceChapterId)
+                                ? [
+                                    (0, chapter_progression_1.enrichQuizProgressReport)(quizProgressByChapter.get(chapter.sourceChapterId)),
+                                ]
+                                : [],
                             progress: progress.toFixed(2),
                             contribution: '0.00',
                         };
@@ -432,6 +494,7 @@ let CourseService = CourseService_1 = class CourseService {
                     return {
                         id: mod.sourceModuleId ?? mod.id,
                         title: mod.title,
+                        completedAt: moduleCompletedAtById.get(mod.sourceModuleId ?? mod.id) ?? null,
                         chapters,
                     };
                 });
@@ -453,6 +516,7 @@ let CourseService = CourseService_1 = class CourseService {
                     statusCode: 200,
                     data: modules,
                     user: userDetails,
+                    courseForms,
                     isCompleted: isFrozen,
                     completedAt: completion?.courseCompletedAt ?? null,
                     enrolledVersionNumber: version.versionNumber,
@@ -478,6 +542,9 @@ let CourseService = CourseService_1 = class CourseService {
                                     select: {
                                         id: true,
                                         title: true,
+                                        QuizProgress: {
+                                            where: { userId },
+                                        },
                                         _count: {
                                             select: {
                                                 UserCourseProgress: {
@@ -510,7 +577,10 @@ let CourseService = CourseService_1 = class CourseService {
                 });
             });
             course.modules.forEach((module) => {
+                module.completedAt = moduleCompletedAtById.get(module.id) ?? null;
                 module.chapters.forEach((chapter) => {
+                    chapter.completedAt = chapterCompletedAtById.get(chapter.id) ?? null;
+                    chapter.QuizProgress = (chapter.QuizProgress ?? []).map((row) => (0, chapter_progression_1.enrichQuizProgressReport)(row));
                     const totalSectionsInChapter = chapter._count.sections;
                     const userCourseProgress = Math.min(chapter._count.UserCourseProgress, totalSectionsInChapter);
                     const progress = isFrozen
@@ -534,6 +604,7 @@ let CourseService = CourseService_1 = class CourseService {
                 statusCode: 200,
                 data: course.modules,
                 user: userDetails,
+                courseForms,
                 isCompleted: isFrozen,
                 completedAt: completion?.courseCompletedAt ?? null,
                 ...(newSinceCompletion ? { newSinceCompletion } : {}),
@@ -2976,6 +3047,7 @@ let CourseService = CourseService_1 = class CourseService {
                     },
                 });
                 await this._checkContentCompletion(userId, body.courseId);
+                await (0, chapter_progression_1.recordChapterAndModuleCompletionIfNeeded)(this.prisma, userId, body.chapterId, { courseId: body.courseId });
             }
             return {
                 message: 'User course progress updated successfully',
@@ -3346,6 +3418,12 @@ let CourseService = CourseService_1 = class CourseService {
                 const courseCompletions = await tx.courseCompletion.deleteMany({
                     where: { userId, courseId },
                 });
+                const chapterCompletions = await tx.userChapterCompletion.deleteMany({
+                    where: { userId, courseId },
+                });
+                const moduleCompletions = await tx.userModuleCompletion.deleteMany({
+                    where: { userId, courseId },
+                });
                 const assessmentAttempts = assessmentIds.length > 0
                     ? await tx.assessmentAttempt.deleteMany({
                         where: { userId, assessmentId: { in: assessmentIds } },
@@ -3361,6 +3439,8 @@ let CourseService = CourseService_1 = class CourseService {
                     policyItemCompletions: policyItemCompletions.count,
                     feedbackSubmissions: feedbackSubmissions.count,
                     courseCompletions: courseCompletions.count,
+                    chapterCompletions: chapterCompletions.count,
+                    moduleCompletions: moduleCompletions.count,
                     assessmentAttempts: assessmentAttempts.count,
                 };
             });

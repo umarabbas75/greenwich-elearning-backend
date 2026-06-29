@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.enrichQuizProgressReport = exports.assertChapterAccessible = exports.isChapterComplete = exports.gradeChapterQuizFromStoredAnswers = exports.getPreviousChapterId = exports.getOrderedChapterIdsForUser = exports.getOrderedChapterIdsForVersion = exports.getOrderedChapterIdsInCourse = exports.getCourseIdForChapter = exports.isFreeRoamUser = exports.resolvePassingCriteria = exports.DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = void 0;
+exports.recordChapterAndModuleCompletionIfNeeded = exports.getChapterIdsInModuleForUser = exports.enrichQuizProgressReport = exports.assertChapterAccessible = exports.isChapterComplete = exports.gradeChapterQuizFromStoredAnswers = exports.getPreviousChapterId = exports.getOrderedChapterIdsForUser = exports.getOrderedChapterIdsForVersion = exports.getOrderedChapterIdsInCourse = exports.getCourseIdForChapter = exports.isFreeRoamUser = exports.resolvePassingCriteria = exports.DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = void 0;
 const common_1 = require("@nestjs/common");
 exports.DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = 70;
 function resolvePassingCriteria(stored) {
@@ -236,4 +236,111 @@ function enrichQuizProgressReport(report) {
     };
 }
 exports.enrichQuizProgressReport = enrichQuizProgressReport;
+async function getChapterIdsInModuleForUser(prisma, userId, moduleId) {
+    const module = await prisma.module.findUnique({
+        where: { id: moduleId },
+        select: { courseId: true },
+    });
+    if (!module)
+        return null;
+    const enrollment = await prisma.userCourse.findUnique({
+        where: {
+            userId_courseId: { userId, courseId: module.courseId },
+        },
+        select: { enrolledVersionId: true },
+    });
+    if (enrollment?.enrolledVersionId) {
+        const versionModule = await prisma.courseVersionModule.findFirst({
+            where: {
+                versionId: enrollment.enrolledVersionId,
+                sourceModuleId: moduleId,
+            },
+            select: {
+                chapters: {
+                    orderBy: { orderIndex: 'asc' },
+                    select: { sourceChapterId: true },
+                },
+            },
+        });
+        if (versionModule) {
+            return {
+                courseId: module.courseId,
+                chapterIds: versionModule.chapters
+                    .map((c) => c.sourceChapterId)
+                    .filter((id) => Boolean(id)),
+            };
+        }
+    }
+    const chapters = await prisma.chapter.findMany({
+        where: { moduleId, isArchived: false },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+    });
+    return {
+        courseId: module.courseId,
+        chapterIds: chapters.map((c) => c.id),
+    };
+}
+exports.getChapterIdsInModuleForUser = getChapterIdsInModuleForUser;
+async function recordChapterAndModuleCompletionIfNeeded(prisma, userId, chapterId, ctx) {
+    const chapter = await prisma.chapter.findUnique({
+        where: { id: chapterId },
+        select: { moduleId: true, module: { select: { courseId: true } } },
+    });
+    if (!chapter)
+        return;
+    const courseId = ctx?.courseId ?? chapter.module.courseId;
+    let enrolledVersionId = ctx?.enrolledVersionId;
+    if (enrolledVersionId === undefined) {
+        const enrollment = await prisma.userCourse.findUnique({
+            where: { userId_courseId: { userId, courseId } },
+            select: { enrolledVersionId: true },
+        });
+        enrolledVersionId = enrollment?.enrolledVersionId ?? null;
+    }
+    const progressCtx = { courseId, enrolledVersionId };
+    const existingChapter = await prisma.userChapterCompletion.findUnique({
+        where: { userId_chapterId: { userId, chapterId } },
+    });
+    if (!existingChapter) {
+        const complete = await isChapterComplete(prisma, userId, chapterId, progressCtx);
+        if (complete) {
+            await prisma.userChapterCompletion.create({
+                data: {
+                    userId,
+                    courseId,
+                    moduleId: chapter.moduleId,
+                    chapterId,
+                    completedAt: new Date(),
+                },
+            });
+        }
+    }
+    const existingModule = await prisma.userModuleCompletion.findUnique({
+        where: { userId_moduleId: { userId, moduleId: chapter.moduleId } },
+    });
+    if (existingModule)
+        return;
+    const moduleCtx = await getChapterIdsInModuleForUser(prisma, userId, chapter.moduleId);
+    if (!moduleCtx || moduleCtx.chapterIds.length === 0)
+        return;
+    const completedChapterCount = await prisma.userChapterCompletion.count({
+        where: {
+            userId,
+            moduleId: chapter.moduleId,
+            chapterId: { in: moduleCtx.chapterIds },
+        },
+    });
+    if (completedChapterCount < moduleCtx.chapterIds.length)
+        return;
+    await prisma.userModuleCompletion.create({
+        data: {
+            userId,
+            courseId: moduleCtx.courseId,
+            moduleId: chapter.moduleId,
+            completedAt: new Date(),
+        },
+    });
+}
+exports.recordChapterAndModuleCompletionIfNeeded = recordChapterAndModuleCompletionIfNeeded;
 //# sourceMappingURL=chapter-progression.js.map

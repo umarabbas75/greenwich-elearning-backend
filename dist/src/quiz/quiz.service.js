@@ -275,6 +275,7 @@ let QuizService = class QuizService {
                     },
                 });
             }
+            await (0, chapter_progression_1.recordChapterAndModuleCompletionIfNeeded)(this.prisma, userId, chapterId);
             return {
                 message: 'Chapter quiz report saved',
                 statusCode: 200,

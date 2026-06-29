@@ -481,6 +481,8 @@ let UserService = UserService_1 = class UserService {
                 }),
                 this.prisma.lastSeenSection.deleteMany({ where: { userId: id } }),
                 this.prisma.quizProgress.deleteMany({ where: { userId: id } }),
+                this.prisma.userChapterCompletion.deleteMany({ where: { userId: id } }),
+                this.prisma.userModuleCompletion.deleteMany({ where: { userId: id } }),
                 this.prisma.favoriteForumThread.deleteMany({ where: { userId: id } }),
                 this.prisma.threadSubscription.deleteMany({ where: { userId: id } }),
                 this.prisma.todoItem.deleteMany({ where: { userId: id } }),

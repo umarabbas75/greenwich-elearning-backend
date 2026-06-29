@@ -13,6 +13,7 @@ import {
   assertChapterAccessible,
   enrichQuizProgressReport,
   gradeChapterQuizFromStoredAnswers,
+  recordChapterAndModuleCompletionIfNeeded,
   resolvePassingCriteria,
 } from '../utils/chapter-progression';
 
@@ -371,6 +372,12 @@ export class QuizService {
           },
         });
       }
+
+      await recordChapterAndModuleCompletionIfNeeded(
+        this.prisma,
+        userId,
+        chapterId,
+      );
 
       return {
         message: 'Chapter quiz report saved',
