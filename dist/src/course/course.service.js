@@ -224,6 +224,39 @@ let CourseService = CourseService_1 = class CourseService {
             };
         });
     }
+    async getCourseFeedbackForUserReport(userId, courseId) {
+        const [form, submission] = await Promise.all([
+            this.prisma.courseFeedbackForm.findUnique({
+                where: { courseId },
+                select: { formName: true, isRequired: true, isActive: true },
+            }),
+            this.prisma.courseFeedbackSubmission.findUnique({
+                where: { userId_courseId: { userId, courseId } },
+                select: {
+                    submittedAt: true,
+                    formVersion: true,
+                    meanRating: true,
+                    overallRating: true,
+                    learnerEmail: true,
+                    responses: true,
+                },
+            }),
+        ]);
+        if (!form)
+            return null;
+        return {
+            formName: form.formName,
+            isRequired: form.isRequired,
+            isActive: form.isActive,
+            isSubmitted: !!submission,
+            submittedAt: submission?.submittedAt ?? null,
+            formVersion: submission?.formVersion ?? null,
+            meanRating: submission?.meanRating != null ? Number(submission.meanRating) : null,
+            overallRating: submission?.overallRating ?? null,
+            learnerEmail: submission?.learnerEmail ?? null,
+            responses: submission?.responses ?? null,
+        };
+    }
     async fetchReportActivityData(userId, courseId, chapterIds) {
         const [progressRows, quizAnswerRows, lastSeenRows, quizProgressRows, timeSpentRows] = await Promise.all([
             this.prisma.userCourseProgress.findMany({
@@ -430,7 +463,7 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async getCourseReport(courseId, userId) {
         try {
-            const [userDetails, completion, curriculum, courseForms, chapterCompletions, moduleCompletions, newSinceCompletion, firstProgress,] = await Promise.all([
+            const [userDetails, completion, curriculum, courseForms, courseFeedback, chapterCompletions, moduleCompletions, newSinceCompletion, firstProgress,] = await Promise.all([
                 this.prisma.user.findUnique({ where: { id: userId } }),
                 this.prisma.courseCompletion.findUnique({
                     where: { userId_courseId: { userId, courseId } },
@@ -438,6 +471,7 @@ let CourseService = CourseService_1 = class CourseService {
                 }),
                 this.courseVersionService.resolveCurriculumTree(userId, courseId),
                 this.getCourseFormsWithMetadataForUser(userId, courseId),
+                this.getCourseFeedbackForUserReport(userId, courseId),
                 this.prisma.userChapterCompletion.findMany({
                     where: { userId, courseId },
                     select: { chapterId: true, completedAt: true },
@@ -462,6 +496,7 @@ let CourseService = CourseService_1 = class CourseService {
                 statusCode: 200,
                 user: userDetails,
                 courseForms,
+                courseFeedback,
                 isCompleted: isFrozen,
                 completedAt: completion?.courseCompletedAt ?? null,
                 courseStartDate,

@@ -330,6 +330,57 @@ export class CourseService {
     });
   }
 
+  /** Course completion feedback form + this learner's submission (if any). */
+  private async getCourseFeedbackForUserReport(
+    userId: string,
+    courseId: string,
+  ): Promise<{
+    formName: string;
+    isRequired: boolean;
+    isActive: boolean;
+    isSubmitted: boolean;
+    submittedAt: Date | null;
+    formVersion: string | null;
+    meanRating: number | null;
+    overallRating: string | null;
+    learnerEmail: string | null;
+    responses: Prisma.JsonValue | null;
+  } | null> {
+    const [form, submission] = await Promise.all([
+      this.prisma.courseFeedbackForm.findUnique({
+        where: { courseId },
+        select: { formName: true, isRequired: true, isActive: true },
+      }),
+      this.prisma.courseFeedbackSubmission.findUnique({
+        where: { userId_courseId: { userId, courseId } },
+        select: {
+          submittedAt: true,
+          formVersion: true,
+          meanRating: true,
+          overallRating: true,
+          learnerEmail: true,
+          responses: true,
+        },
+      }),
+    ]);
+
+    if (!form) return null;
+
+    return {
+      formName: form.formName,
+      isRequired: form.isRequired,
+      isActive: form.isActive,
+      isSubmitted: !!submission,
+      submittedAt: submission?.submittedAt ?? null,
+      formVersion: submission?.formVersion ?? null,
+      meanRating:
+        submission?.meanRating != null ? Number(submission.meanRating) : null,
+      overallRating: submission?.overallRating ?? null,
+      learnerEmail: submission?.learnerEmail ?? null,
+      responses: submission?.responses ?? null,
+    };
+  }
+
   private async fetchReportActivityData(
     userId: string,
     courseId: string,
@@ -610,6 +661,7 @@ export class CourseService {
         completion,
         curriculum,
         courseForms,
+        courseFeedback,
         chapterCompletions,
         moduleCompletions,
         newSinceCompletion,
@@ -622,6 +674,7 @@ export class CourseService {
         }),
         this.courseVersionService.resolveCurriculumTree(userId, courseId),
         this.getCourseFormsWithMetadataForUser(userId, courseId),
+        this.getCourseFeedbackForUserReport(userId, courseId),
         this.prisma.userChapterCompletion.findMany({
           where: { userId, courseId },
           select: { chapterId: true, completedAt: true },
@@ -655,6 +708,7 @@ export class CourseService {
         statusCode: 200,
         user: userDetails,
         courseForms,
+        courseFeedback,
         isCompleted: isFrozen,
         completedAt: completion?.courseCompletedAt ?? null,
         courseStartDate,

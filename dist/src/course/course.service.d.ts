@@ -33,6 +33,7 @@ export declare class CourseService {
         }>;
     }>;
     private getCourseFormsWithMetadataForUser;
+    private getCourseFeedbackForUserReport;
     private fetchReportActivityData;
     markPolicyItemAsComplete({ userId, courseId, policyId, policyItemId, }: {
         userId: string;
