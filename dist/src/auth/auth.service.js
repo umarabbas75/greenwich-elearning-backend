@@ -35,6 +35,7 @@ let AuthService = AuthService_1 = class AuthService {
                     lastName: true,
                     email: true,
                     phone: true,
+                    address: true,
                     photo: true,
                     role: true,
                     createdAt: true,

@@ -36,6 +36,7 @@ import {
   SectionReportMeta,
 } from '../utils/course-report';
 import { promoteFormPhotoToUserIfMissing } from '../utils/promote-form-photo-to-user';
+import { promoteFormAddressToUserIfMissing } from '../utils/promote-form-address-to-user';
 import { MailService } from '../mail/mail.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { CourseVersionService } from '../course-version/course-version.service';
@@ -234,6 +235,16 @@ export class CourseService {
       const msg = photoErr instanceof Error ? photoErr.message : String(photoErr);
       CourseService.completionLogger.warn(
         `Form photo promotion failed for user ${userId}: ${msg}`,
+      );
+    }
+
+    try {
+      await promoteFormAddressToUserIfMissing(this.prisma, userId, metadata);
+    } catch (addressErr) {
+      const msg =
+        addressErr instanceof Error ? addressErr.message : String(addressErr);
+      CourseService.completionLogger.warn(
+        `Form address promotion failed for user ${userId}: ${msg}`,
       );
     }
 

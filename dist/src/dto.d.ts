@@ -5,6 +5,7 @@ export declare class BodyDto {
     email: string;
     password: string;
     phone: string;
+    address?: string;
     role: Role;
     photo?: string;
     photoBase64?: string;
@@ -15,6 +16,7 @@ export declare class BodyUpdateDto {
     lastName?: string;
     email?: string;
     phone?: string;
+    address?: string;
     photo?: string;
     status?: string;
 }

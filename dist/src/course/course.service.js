@@ -19,6 +19,7 @@ const prisma_service_1 = require("../prisma/prisma.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
 const course_report_1 = require("../utils/course-report");
 const promote_form_photo_to_user_1 = require("../utils/promote-form-photo-to-user");
+const promote_form_address_to_user_1 = require("../utils/promote-form-address-to-user");
 const mail_service_1 = require("../mail/mail.service");
 const feedback_service_1 = require("../feedback/feedback.service");
 const course_version_service_1 = require("../course-version/course-version.service");
@@ -165,6 +166,13 @@ let CourseService = CourseService_1 = class CourseService {
         catch (photoErr) {
             const msg = photoErr instanceof Error ? photoErr.message : String(photoErr);
             CourseService_1.completionLogger.warn(`Form photo promotion failed for user ${userId}: ${msg}`);
+        }
+        try {
+            await (0, promote_form_address_to_user_1.promoteFormAddressToUserIfMissing)(this.prisma, userId, metadata);
+        }
+        catch (addressErr) {
+            const msg = addressErr instanceof Error ? addressErr.message : String(addressErr);
+            CourseService_1.completionLogger.warn(`Form address promotion failed for user ${userId}: ${msg}`);
         }
         return completion;
     }

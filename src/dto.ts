@@ -49,6 +49,10 @@ export class BodyDto {
   phone: string;
 
   @IsString()
+  @IsOptional()
+  address?: string;
+
+  @IsString()
   @IsNotEmpty()
   role: Role;
 
@@ -82,6 +86,10 @@ export class BodyUpdateDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
 
   @IsOptional()
   @IsString()

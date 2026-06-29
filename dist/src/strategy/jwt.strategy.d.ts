@@ -13,6 +13,7 @@ export declare class JwtAdminStrategy extends JwtAdminStrategy_base {
         lastName: string;
         email: string;
         phone: string;
+        address: string;
         photo: string;
         photoBase64: string;
         timezone: string;
@@ -39,6 +40,7 @@ export declare class JwtUserStrategy extends JwtUserStrategy_base {
         lastName: string;
         email: string;
         phone: string;
+        address: string;
         photo: string;
         photoBase64: string;
         timezone: string;
@@ -66,6 +68,7 @@ export declare class JwtCombineStrategy extends JwtCombineStrategy_base {
         lastName: string;
         email: string;
         phone: string;
+        address: string;
         photo: string;
         photoBase64: string;
         timezone: string;
