@@ -59,6 +59,12 @@ export class CourseVersionController {
   }
 
   @UseGuards(AuthGuard('jwt'))
+  @Post('versions/prune-orphans')
+  pruneOrphanVersions(@Body() body?: { courseId?: string }) {
+    return this.courseVersionService.pruneOrphanVersions(body?.courseId);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
   @Post('enrollments/migrate-version')
   migrateLearner(@GetUser() admin: User, @Body() body: MigrateEnrollmentDto) {
     return this.courseVersionService.migrateLearnerToVersion(

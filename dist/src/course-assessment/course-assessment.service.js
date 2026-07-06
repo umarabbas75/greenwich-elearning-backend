@@ -15,11 +15,13 @@ const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const notification_service_1 = require("../notifications/notification.service");
+const course_version_service_1 = require("../course-version/course-version.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
 let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessmentService {
-    constructor(prisma, notificationService) {
+    constructor(prisma, notificationService, courseVersionService) {
         this.prisma = prisma;
         this.notificationService = notificationService;
+        this.courseVersionService = courseVersionService;
     }
     throwMapped(error, fallback) {
         if (error instanceof common_1.HttpException)
@@ -1131,19 +1133,15 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
         }
     }
     async _isCourseContentCompleted(userId, courseId) {
-        const totalSections = await this.prisma.section.count({
-            where: { chapter: { module: { courseId } } },
-        });
+        const { total: totalSections, liveSectionIds } = await this.courseVersionService.countCompletionDenominator(userId, courseId);
         if (totalSections === 0)
             return true;
-        const liveSectionIds = (await this.prisma.section.findMany({
-            where: { chapter: { module: { courseId } } },
-            select: { id: true },
-        })).map((s) => s.id);
-        const completedSections = await this.prisma.userCourseProgress.count({
+        const completed = await this.prisma.userCourseProgress.findMany({
             where: { userId, courseId, sectionId: { in: liveSectionIds } },
+            select: { sectionId: true },
+            distinct: ['sectionId'],
         });
-        return completedSections >= totalSections;
+        return completed.length >= totalSections;
     }
     async _buildQuestionList(assessment) {
         if (assessment.mode === client_1.AssessmentMode.MANUAL) {
@@ -1349,6 +1347,7 @@ CourseAssessmentService.ASSESSMENT_TIMER_GRACE_SECONDS = 60;
 exports.CourseAssessmentService = CourseAssessmentService = CourseAssessmentService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        notification_service_1.NotificationService])
+        notification_service_1.NotificationService,
+        course_version_service_1.CourseVersionService])
 ], CourseAssessmentService);
 //# sourceMappingURL=course-assessment.service.js.map

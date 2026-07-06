@@ -537,11 +537,11 @@ export declare class CourseAssessmentController {
         statusCode: number;
         data: {
             assessment: {
+                maxAttempts: number;
                 id: string;
                 title: string;
                 description: string;
                 mode: import(".prisma/client").$Enums.AssessmentMode;
-                maxAttempts: number;
                 passingPercentage: number;
                 timeLimitMinutes: number;
             };

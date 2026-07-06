@@ -1,6 +1,11 @@
 import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  CourseVersionManifest,
+  getChapterIdsFromManifest,
+  parseManifest,
+} from '../course-version/course-version.manifest';
 
 /** Matches frontend CHAPTER_QUIZ_PASS_PERCENTAGE until per-chapter config exists. */
 export const DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = 70;
@@ -67,26 +72,27 @@ export type ChapterAccessContext = {
   enrolledVersionId?: string | null;
 };
 
-/** Chapter order from a pinned version snapshot (live chapter ids). */
+/** Chapter order from a pinned version manifest (live chapter ids). */
+async function loadVersionManifest(
+  prisma: PrismaService,
+  versionId: string,
+): Promise<CourseVersionManifest | null> {
+  const version = await prisma.courseVersion.findUnique({
+    where: { id: versionId },
+    select: { manifest: true },
+  });
+  return parseManifest(version?.manifest);
+}
+
 export async function getOrderedChapterIdsForVersion(
   prisma: PrismaService,
   versionId: string,
 ): Promise<string[]> {
-  const versionModules = await prisma.courseVersionModule.findMany({
-    where: { versionId },
-    orderBy: { orderIndex: 'asc' },
-    select: {
-      chapters: {
-        orderBy: { orderIndex: 'asc' },
-        select: { sourceChapterId: true },
-      },
-    },
-  });
-  return versionModules.flatMap((m) =>
-    m.chapters
-      .map((c) => c.sourceChapterId)
-      .filter((id): id is string => Boolean(id)),
-  );
+  const manifest = await loadVersionManifest(prisma, versionId);
+  if (manifest) {
+    return getChapterIdsFromManifest(manifest);
+  }
+  return [];
 }
 
 /**
@@ -219,25 +225,18 @@ async function resolveChapterDenominator(
   }
 
   if (enrolledVersionId) {
-    const versionChapter = await prisma.courseVersionChapter.findFirst({
-      where: {
-        versionId: enrolledVersionId,
-        sourceChapterId: chapterId,
-      },
-      select: {
-        _count: {
-          select: {
-            sections: { where: { isActive: true } },
-            quizzes: true,
-          },
-        },
-      },
-    });
-    if (versionChapter) {
-      return {
-        sectionCount: versionChapter._count.sections,
-        quizCount: versionChapter._count.quizzes,
-      };
+    const manifest = await loadVersionManifest(prisma, enrolledVersionId);
+    if (manifest) {
+      for (const mod of manifest.modules) {
+        for (const ch of mod.chapters) {
+          if (ch.sourceId === chapterId) {
+            return {
+              sectionCount: ch.sectionIds.length,
+              quizCount: ch.quizIds.length,
+            };
+          }
+        }
+      }
     }
   }
 
@@ -363,25 +362,18 @@ export async function getChapterIdsInModuleForUser(
   });
 
   if (enrollment?.enrolledVersionId) {
-    const versionModule = await prisma.courseVersionModule.findFirst({
-      where: {
-        versionId: enrollment.enrolledVersionId,
-        sourceModuleId: moduleId,
-      },
-      select: {
-        chapters: {
-          orderBy: { orderIndex: 'asc' },
-          select: { sourceChapterId: true },
-        },
-      },
-    });
-    if (versionModule) {
-      return {
-        courseId: module.courseId,
-        chapterIds: versionModule.chapters
-          .map((c) => c.sourceChapterId)
-          .filter((id): id is string => Boolean(id)),
-      };
+    const manifest = await loadVersionManifest(
+      prisma,
+      enrollment.enrolledVersionId,
+    );
+    if (manifest) {
+      const mod = manifest.modules.find((m) => m.sourceId === moduleId);
+      if (mod) {
+        return {
+          courseId: module.courseId,
+          chapterIds: mod.chapters.map((ch) => ch.sourceId),
+        };
+      }
     }
   }
 

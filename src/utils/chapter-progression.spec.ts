@@ -8,6 +8,29 @@ import {
   recordChapterAndModuleCompletionIfNeeded,
 } from './chapter-progression';
 
+const versionManifest = {
+  modules: [
+    {
+      sourceId: 'mod-1',
+      order: 0,
+      chapters: [
+        {
+          sourceId: 'ch-1',
+          order: 0,
+          sectionIds: ['sec-1', 'sec-2'],
+          quizIds: ['quiz-1'],
+        },
+        {
+          sourceId: 'ch-2',
+          order: 1,
+          sectionIds: ['sec-3'],
+          quizIds: [],
+        },
+      ],
+    },
+  ],
+};
+
 describe('chapter-progression', () => {
   let prisma: Record<string, any>;
   let config: ConfigService;
@@ -17,8 +40,7 @@ describe('chapter-progression', () => {
       chapter: { findUnique: jest.fn() },
       userCourse: { findUnique: jest.fn() },
       module: { findUnique: jest.fn(), findMany: jest.fn() },
-      courseVersionModule: { findMany: jest.fn(), findFirst: jest.fn() },
-      courseVersionChapter: { findFirst: jest.fn() },
+      courseVersion: { findUnique: jest.fn() },
       section: { count: jest.fn() },
       quiz: { count: jest.fn() },
       userCourseProgress: { count: jest.fn() },
@@ -34,12 +56,10 @@ describe('chapter-progression', () => {
   });
 
   describe('getOrderedChapterIdsForVersion', () => {
-    it('returns source chapter ids in order', async () => {
-      prisma.courseVersionModule.findMany.mockResolvedValue([
-        {
-          chapters: [{ sourceChapterId: 'ch-1' }, { sourceChapterId: 'ch-2' }],
-        },
-      ]);
+    it('returns source chapter ids from manifest', async () => {
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: versionManifest,
+      });
 
       await expect(
         getOrderedChapterIdsForVersion(prisma as unknown as PrismaService, 'v1'),
@@ -48,9 +68,9 @@ describe('chapter-progression', () => {
   });
 
   describe('isChapterComplete', () => {
-    it('uses version denominator when enrollment context is provided', async () => {
-      prisma.courseVersionChapter.findFirst.mockResolvedValue({
-        _count: { sections: 2, quizzes: 1 },
+    it('uses manifest denominator when enrollment context is provided', async () => {
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: versionManifest,
       });
       prisma.userCourseProgress.count.mockResolvedValue(2);
       prisma.quizProgress.findFirst.mockResolvedValue({ isPassed: true });
@@ -67,10 +87,10 @@ describe('chapter-progression', () => {
     });
 
     it('returns false when sections incomplete', async () => {
-      prisma.courseVersionChapter.findFirst.mockResolvedValue({
-        _count: { sections: 3, quizzes: 0 },
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: versionManifest,
       });
-      prisma.userCourseProgress.count.mockResolvedValue(2);
+      prisma.userCourseProgress.count.mockResolvedValue(1);
       prisma.quizProgress.findFirst.mockResolvedValue(null);
 
       await expect(
@@ -87,9 +107,17 @@ describe('chapter-progression', () => {
       prisma.userCourse.findUnique.mockResolvedValue({
         enrolledVersionId: 'version-1',
       });
-      prisma.courseVersionModule.findMany.mockResolvedValue([
-        { chapters: [{ sourceChapterId: 'ch-1' }] },
-      ]);
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: {
+          modules: [
+            {
+              sourceId: 'mod-1',
+              order: 0,
+              chapters: [{ sourceId: 'ch-1', order: 0, sectionIds: [], quizIds: [] }],
+            },
+          ],
+        },
+      });
 
       await expect(
         assertChapterAccessible(
@@ -109,16 +137,8 @@ describe('chapter-progression', () => {
       prisma.userCourse.findUnique.mockResolvedValue({
         enrolledVersionId: 'version-1',
       });
-      prisma.courseVersionModule.findMany.mockResolvedValue([
-        {
-          chapters: [
-            { sourceChapterId: 'ch-1' },
-            { sourceChapterId: 'ch-2' },
-          ],
-        },
-      ]);
-      prisma.courseVersionChapter.findFirst.mockResolvedValue({
-        _count: { sections: 2, quizzes: 1 },
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: versionManifest,
       });
       prisma.userCourseProgress.count.mockResolvedValue(1);
       prisma.quizProgress.findFirst.mockResolvedValue({ isPassed: false });
@@ -146,16 +166,28 @@ describe('chapter-progression', () => {
         enrolledVersionId: 'version-1',
       });
       prisma.userChapterCompletion.findUnique.mockResolvedValue(null);
-      prisma.courseVersionChapter.findFirst.mockResolvedValue({
-        _count: { sections: 1, quizzes: 0 },
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: {
+          modules: [
+            {
+              sourceId: 'mod-1',
+              order: 0,
+              chapters: [
+                {
+                  sourceId: 'ch-1',
+                  order: 0,
+                  sectionIds: ['sec-1'],
+                  quizIds: [],
+                },
+              ],
+            },
+          ],
+        },
       });
       prisma.userCourseProgress.count.mockResolvedValue(1);
       prisma.quizProgress.findFirst.mockResolvedValue(null);
       prisma.userModuleCompletion.findUnique.mockResolvedValue(null);
       prisma.module.findUnique.mockResolvedValue({ courseId: 'course-1' });
-      prisma.courseVersionModule.findFirst.mockResolvedValue({
-        chapters: [{ sourceChapterId: 'ch-1' }],
-      });
       prisma.userChapterCompletion.count.mockResolvedValue(1);
       prisma.userChapterCompletion.create.mockResolvedValue({});
       prisma.userModuleCompletion.create.mockResolvedValue({});

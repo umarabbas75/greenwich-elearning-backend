@@ -12,6 +12,10 @@
  */
 import * as dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import {
+  getSectionIdsFromManifest,
+  parseManifest,
+} from '../src/course-version/course-version.manifest';
 
 dotenv.config();
 
@@ -98,19 +102,15 @@ async function main() {
   console.log('\n── Published versions ──');
   const versionDenoms = new Map<string, number>();
   for (const v of versions) {
-    const [allSections, activeSections] = await Promise.all([
-      prisma.courseVersionSection.count({ where: { versionId: v.id } }),
-      prisma.courseVersionSection.count({
-        where: { versionId: v.id, isActive: true },
-      }),
-    ]);
+    const manifest = parseManifest(v.manifest);
+    const activeSections =
+      v.sectionCount ?? (manifest ? getSectionIdsFromManifest(manifest).length : 0);
     versionDenoms.set(v.id, activeSections);
     console.log({
       versionNumber: v.versionNumber,
       isLatest: v.isLatest,
       status: v.status,
-      allSectionRows: allSections,
-      activeSectionRows: activeSections,
+      sectionCount: activeSections,
       pinnedEnrollments: v._count.enrollments,
       publishedAt: v.publishedAt,
       changeNotes: v.changeNotes,
@@ -180,15 +180,10 @@ async function main() {
 
   // ── Orphan progress check: completed sections missing from pinned version ──
   if (uc?.enrolledVersionId) {
+    const pinnedVersion = versions.find((v) => v.id === uc.enrolledVersionId);
+    const manifest = parseManifest(pinnedVersion?.manifest);
     const pinnedSourceIds = new Set(
-      (
-        await prisma.courseVersionSection.findMany({
-          where: { versionId: uc.enrolledVersionId, isActive: true },
-          select: { sourceSectionId: true },
-        })
-      )
-        .map((r) => r.sourceSectionId)
-        .filter(Boolean) as string[],
+      manifest ? getSectionIdsFromManifest(manifest) : [],
     );
     const orphaned = [...distinctSectionIds].filter(
       (id) => !pinnedSourceIds.has(id),

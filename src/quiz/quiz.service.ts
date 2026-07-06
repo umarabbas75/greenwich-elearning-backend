@@ -631,8 +631,6 @@ export class QuizService {
         data: updateQuiz, // Pass the modified user object
       });
 
-      await this.courseVersionService.syncQuizToLatestVersion(id);
-
       return {
         message: 'Successfully create quiz record',
         statusCode: 200,
@@ -666,7 +664,11 @@ export class QuizService {
       const courseId = quiz.chapter?.module?.courseId ?? null;
 
       const referenced =
-        await this.courseVersionService.isReferencedByAnyVersion('quiz', id);
+        await this.courseVersionService.isReferencedByAnyVersion(
+          'quiz',
+          id,
+          courseId ?? undefined,
+        );
       if (referenced) {
         const archived = await this.prisma.quiz.update({
           where: { id },

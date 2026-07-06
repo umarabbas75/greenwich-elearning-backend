@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const dotenv = require("dotenv");
 const client_1 = require("@prisma/client");
+const course_version_manifest_1 = require("../src/course-version/course-version.manifest");
 dotenv.config();
 const email = process.argv[2] ?? 'khurramabbasfpcl@gmail.com';
 const DEFAULT_COURSE_ID = '2ef7ce1b-7e3c-4168-8ef1-39af383174b1';
@@ -73,19 +74,14 @@ async function main() {
     console.log('\n── Published versions ──');
     const versionDenoms = new Map();
     for (const v of versions) {
-        const [allSections, activeSections] = await Promise.all([
-            prisma.courseVersionSection.count({ where: { versionId: v.id } }),
-            prisma.courseVersionSection.count({
-                where: { versionId: v.id, isActive: true },
-            }),
-        ]);
+        const manifest = (0, course_version_manifest_1.parseManifest)(v.manifest);
+        const activeSections = v.sectionCount ?? (manifest ? (0, course_version_manifest_1.getSectionIdsFromManifest)(manifest).length : 0);
         versionDenoms.set(v.id, activeSections);
         console.log({
             versionNumber: v.versionNumber,
             isLatest: v.isLatest,
             status: v.status,
-            allSectionRows: allSections,
-            activeSectionRows: activeSections,
+            sectionCount: activeSections,
             pinnedEnrollments: v._count.enrollments,
             publishedAt: v.publishedAt,
             changeNotes: v.changeNotes,
@@ -142,12 +138,9 @@ async function main() {
         console.log(`  v${v.versionNumber} (${d}):  ${pct(distinctSectionIds.size, d)}${v.isLatest ? '  [latest]' : ''}${uc?.enrolledVersionId === v.id ? '  <-- PINNED HERE' : ''}`);
     }
     if (uc?.enrolledVersionId) {
-        const pinnedSourceIds = new Set((await prisma.courseVersionSection.findMany({
-            where: { versionId: uc.enrolledVersionId, isActive: true },
-            select: { sourceSectionId: true },
-        }))
-            .map((r) => r.sourceSectionId)
-            .filter(Boolean));
+        const pinnedVersion = versions.find((v) => v.id === uc.enrolledVersionId);
+        const manifest = (0, course_version_manifest_1.parseManifest)(pinnedVersion?.manifest);
+        const pinnedSourceIds = new Set(manifest ? (0, course_version_manifest_1.getSectionIdsFromManifest)(manifest) : []);
         const orphaned = [...distinctSectionIds].filter((id) => !pinnedSourceIds.has(id));
         console.log('\n── Progress vs pinned version ──');
         console.log({

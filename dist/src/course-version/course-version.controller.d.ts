@@ -28,8 +28,27 @@ export declare class CourseVersionController {
             publishedByAdminId: string;
             changeNotes: string;
             isLatest: boolean;
+            manifest: import(".prisma/client").Prisma.JsonValue;
+            sectionCount: number;
             createdAt: Date;
             updatedAt: Date;
+        };
+    } | {
+        message: string;
+        statusCode: number;
+        data: {
+            stats: {
+                modules: number;
+                chapters: number;
+                sections: number;
+                quizzes: number;
+            };
+            skipped: boolean;
+            id: string;
+            manifest: import(".prisma/client").Prisma.JsonValue;
+            sectionCount: number;
+            versionNumber: number;
+            publishedAt: Date;
         };
     }>;
     listVersions(courseId: string): Promise<{
@@ -44,7 +63,6 @@ export declare class CourseVersionController {
             publishedAt: Date;
             changeNotes: string;
             createdAt: Date;
-            moduleCount: number;
             sectionCount: number;
             enrollmentCount: number;
         }[];
@@ -54,6 +72,16 @@ export declare class CourseVersionController {
         statusCode: number;
         data: {
             versionId: string;
+        };
+    }>;
+    pruneOrphanVersions(body?: {
+        courseId?: string;
+    }): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            deleted: number;
+            versionNumbers: number[];
         };
     }>;
     migrateLearner(admin: User, body: MigrateEnrollmentDto): Promise<{

@@ -36,7 +36,6 @@ describe('QuizService — course versioning', () => {
         versionNumber: 2,
         versionId: 'version-2',
       }),
-      syncQuizToLatestVersion: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({

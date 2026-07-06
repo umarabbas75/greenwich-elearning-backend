@@ -14,6 +14,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
+import { CourseVersionService } from '../course-version/course-version.service';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
 import {
   AddAssessmentQuestionDto,
@@ -38,6 +39,7 @@ export class CourseAssessmentService {
   constructor(
     private prisma: PrismaService,
     private notificationService: NotificationService,
+    private courseVersionService: CourseVersionService,
   ) {}
 
   /**
@@ -1460,25 +1462,31 @@ export class CourseAssessmentService {
     userId: string,
     courseId: string,
   ): Promise<boolean> {
-    const totalSections = await this.prisma.section.count({
-      where: { chapter: { module: { courseId } } },
-    });
+    // Version-aware denominator: a learner pinned to a course version is judged
+    // against that version's frozen section set, so adding sections after they
+    // enrolled cannot un-complete them for the assessment gate. Unpinned
+    // learners fall back to the live (active, non-archived) section set. Both
+    // cases are resolved by countCompletionDenominator, which returns the frozen
+    // section total and the exact section ids that count toward it.
+    const { total: totalSections, liveSectionIds } =
+      await this.courseVersionService.countCompletionDenominator(
+        userId,
+        courseId,
+      );
     if (totalSections === 0) return true;
 
-    // Count distinct progressed sections that still exist. Counting raw
-    // progress rows would include stale rows (section deleted/moved after
-    // completion) and could mark content complete when it isn't.
-    const liveSectionIds = (
-      await this.prisma.section.findMany({
-        where: { chapter: { module: { courseId } } },
-        select: { id: true },
-      })
-    ).map((s) => s.id);
-    const completedSections = await this.prisma.userCourseProgress.count({
+    // Count distinct progressed sections that still count toward the
+    // denominator. Restricting to liveSectionIds also drops stale progress rows
+    // (a section deleted/moved after completion) that would otherwise falsely
+    // mark content complete. distinct guards against duplicate rows for a
+    // section that moved chapters (unique key includes chapterId).
+    const completed = await this.prisma.userCourseProgress.findMany({
       where: { userId, courseId, sectionId: { in: liveSectionIds } },
+      select: { sectionId: true },
+      distinct: ['sectionId'],
     });
 
-    return completedSections >= totalSections;
+    return completed.length >= totalSections;
   }
 
   private async _buildQuestionList(assessment: any): Promise<

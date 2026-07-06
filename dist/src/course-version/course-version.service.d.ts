@@ -1,32 +1,13 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-declare const versionInclude: {
-    modules: {
-        orderBy: {
-            orderIndex: "asc";
-        };
-        include: {
-            chapters: {
-                orderBy: {
-                    orderIndex: "asc";
-                };
-                include: {
-                    sections: true;
-                    quizzes: true;
-                };
-            };
-        };
-    };
-};
+import { getChapterIdsFromManifest, getQuizIdsFromManifest, getSectionIdsFromManifest, PinnedCurriculumModule, PinnedCurriculumQuiz, PinnedCurriculumSection, PinnedCurriculumTree } from './course-version.manifest';
 export type CurriculumResolveResult = {
     mode: 'live';
 } | {
     mode: 'versioned';
     versionId: string;
     versionNumber: number;
-    version: Prisma.CourseVersionGetPayload<{
-        include: typeof versionInclude;
-    }>;
+    tree: PinnedCurriculumTree;
 };
 export declare class CourseVersionService {
     private readonly prisma;
@@ -46,29 +27,12 @@ export declare class CourseVersionService {
     resolveCurriculumByEnrollment(enrolledVersionId: string | null | undefined): Promise<CurriculumResolveResult>;
     getLatestPublishedVersion(courseId: string): Promise<{
         id: string;
-        courseId: string;
+        manifest: Prisma.JsonValue;
+        sectionCount: number;
         versionNumber: number;
-        status: import(".prisma/client").$Enums.CourseVersionStatus;
         publishedAt: Date;
-        publishedByAdminId: string;
-        changeNotes: string;
-        isLatest: boolean;
-        createdAt: Date;
-        updatedAt: Date;
     }>;
-    private countLiveTreeStats;
-    private countVersionStats;
-    isLiveTreeDriftedFromLatest(courseId: string): Promise<boolean>;
-    syncPublishedVersionWithLiveTree(courseId: string, adminId?: string | null, changeNotes?: string): Promise<{
-        versionNumber: number;
-        versionId: string;
-    } | null>;
     pinEnrollmentToLatest(userCourseId: string, tx?: Prisma.TransactionClient): Promise<void>;
-    syncSectionToLatestVersion(sectionId: string): Promise<void>;
-    syncChapterSectionOrderToLatestVersion(chapterId: string): Promise<void>;
-    syncModuleToLatestVersion(moduleId: string): Promise<void>;
-    syncQuizToLatestVersion(quizId: string): Promise<void>;
-    syncChapterToLatestVersion(chapterId: string): Promise<void>;
     publishNewVersion(adminId: string | null | undefined, courseId: string, changeNotes?: string): Promise<{
         message: string;
         statusCode: number;
@@ -87,14 +51,33 @@ export declare class CourseVersionService {
             publishedByAdminId: string;
             changeNotes: string;
             isLatest: boolean;
+            manifest: Prisma.JsonValue;
+            sectionCount: number;
             createdAt: Date;
             updatedAt: Date;
+        };
+    } | {
+        message: string;
+        statusCode: number;
+        data: {
+            stats: {
+                modules: number;
+                chapters: number;
+                sections: number;
+                quizzes: number;
+            };
+            skipped: boolean;
+            id: string;
+            manifest: Prisma.JsonValue;
+            sectionCount: number;
+            versionNumber: number;
+            publishedAt: Date;
         };
     }>;
     autoPublishAfterStructuralChange(courseId: string, adminId: string | null | undefined, changeNotes: string): Promise<{
         versionNumber: number;
         versionId: string;
-    }>;
+    } | null>;
     listVersions(courseId: string): Promise<{
         message: string;
         statusCode: number;
@@ -107,7 +90,6 @@ export declare class CourseVersionService {
             publishedAt: Date;
             changeNotes: string;
             createdAt: Date;
-            moduleCount: number;
             sectionCount: number;
             enrollmentCount: number;
         }[];
@@ -133,9 +115,7 @@ export declare class CourseVersionService {
         liveSectionIds: string[];
     }>;
     countVersionSectionsForCourse(versionId: string): Promise<number>;
-    buildUserModulesFromVersion(version: Prisma.CourseVersionGetPayload<{
-        include: typeof versionInclude;
-    }>, userId: string, progressByChapter: Map<string, number>, progressByModule: Map<string, number>): {
+    buildUserModulesFromVersion(tree: PinnedCurriculumTree, progressByChapter: Map<string, number>, progressByModule: Map<string, number>): {
         id: string;
         title: string;
         chapters: {
@@ -153,152 +133,32 @@ export declare class CourseVersionService {
             sections: number;
         };
     }[];
-    findVersionChapterBySourceId(version: Prisma.CourseVersionGetPayload<{
-        include: typeof versionInclude;
-    }>, sourceChapterId: string): {
-        module: {
-            chapters: ({
-                sections: {
-                    id: string;
-                    versionId: string;
-                    versionChapterId: string;
-                    sourceSectionId: string;
-                    title: string;
-                    description: string;
-                    shortDescription: string;
-                    type: import(".prisma/client").$Enums.SectionType;
-                    orderIndex: number;
-                    itemLabel: string;
-                    categoryLabel: string;
-                    categories: string[];
-                    maxPerCategory: number;
-                    isActive: boolean;
-                    questionText: string;
-                    imageUrl: string;
-                    allowMultipleSelection: boolean;
-                    items: Prisma.JsonValue;
-                    options: Prisma.JsonValue;
-                    config: Prisma.JsonValue;
-                    createdAt: Date;
-                    updatedAt: Date;
-                }[];
-                quizzes: {
-                    id: string;
-                    versionId: string;
-                    versionChapterId: string;
-                    sourceQuizId: string;
-                    question: string;
-                    answer: string;
-                    options: string[];
-                    createdAt: Date;
-                    updatedAt: Date;
-                }[];
-            } & {
-                id: string;
-                versionId: string;
-                versionModuleId: string;
-                sourceChapterId: string;
-                title: string;
-                description: string;
-                pdfFile: string;
-                orderIndex: number;
-                hasQuiz: boolean;
-                createdAt: Date;
-                updatedAt: Date;
-            })[];
-        } & {
-            id: string;
-            versionId: string;
-            sourceModuleId: string;
-            title: string;
-            description: string;
-            orderIndex: number;
-            createdAt: Date;
-            updatedAt: Date;
-        };
-        chapter: {
-            sections: {
-                id: string;
-                versionId: string;
-                versionChapterId: string;
-                sourceSectionId: string;
-                title: string;
-                description: string;
-                shortDescription: string;
-                type: import(".prisma/client").$Enums.SectionType;
-                orderIndex: number;
-                itemLabel: string;
-                categoryLabel: string;
-                categories: string[];
-                maxPerCategory: number;
-                isActive: boolean;
-                questionText: string;
-                imageUrl: string;
-                allowMultipleSelection: boolean;
-                items: Prisma.JsonValue;
-                options: Prisma.JsonValue;
-                config: Prisma.JsonValue;
-                createdAt: Date;
-                updatedAt: Date;
-            }[];
-            quizzes: {
-                id: string;
-                versionId: string;
-                versionChapterId: string;
-                sourceQuizId: string;
-                question: string;
-                answer: string;
-                options: string[];
-                createdAt: Date;
-                updatedAt: Date;
-            }[];
-        } & {
-            id: string;
-            versionId: string;
-            versionModuleId: string;
-            sourceChapterId: string;
-            title: string;
-            description: string;
-            pdfFile: string;
-            orderIndex: number;
-            hasQuiz: boolean;
-            createdAt: Date;
-            updatedAt: Date;
-        };
-    };
-    mapVersionSectionsForLearner(sections: Prisma.CourseVersionSectionGetPayload<object>[]): {
-        id: string;
-        title: string;
-        description: string;
-        chapterId: string;
-        moduleId: string;
-        createdAt: Date;
-        updatedAt: Date;
-        shortDescription: string;
-        type: string;
-        orderIndex: number;
-        itemLabel: string;
-        categoryLabel: string;
-        categories: string[];
-        maxPerCategory: number;
-        isActive: boolean;
-        questionText: string;
-        imageUrl: string;
-        allowMultipleSelection: boolean;
-        items: unknown;
-        options: unknown;
-        config: unknown;
-    }[];
-    mapVersionQuizzesForLearner(quizzes: Prisma.CourseVersionQuizGetPayload<object>[], includeAnswers: boolean): {
-        id: string;
-        question: string;
-        options: string[];
-    }[];
+    findVersionChapterBySourceId(tree: PinnedCurriculumTree, sourceChapterId: string): {
+        module: PinnedCurriculumModule;
+        chapter: PinnedCurriculumChapter;
+    } | null;
+    mapVersionSectionsForLearner(sections: PinnedCurriculumSection[]): PinnedCurriculumSection[];
+    mapVersionQuizzesForLearner(quizzes: PinnedCurriculumQuiz[], includeAnswers: boolean): (Omit<PinnedCurriculumQuiz, "answer"> & {
+        answer?: string;
+    })[];
     summarizeNewSincePinnedVersion(userId: string, courseId: string): Promise<{
         newChapters: number;
         newSections: number;
         addedAt: Date | null;
     } | null>;
-    isReferencedByAnyVersion(table: 'section' | 'chapter' | 'module' | 'quiz', sourceId: string): Promise<boolean>;
+    isReferencedByAnyVersion(table: 'section' | 'chapter' | 'module' | 'quiz', sourceId: string, courseId?: string): Promise<boolean>;
+    pruneOrphanVersions(courseId?: string): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            deleted: number;
+            versionNumbers: number[];
+        };
+    }>;
+    getManifestForVersion(versionId: string): Promise<import("./course-version.manifest").CourseVersionManifest>;
+    getChapterIdsFromManifest: typeof getChapterIdsFromManifest;
+    getSectionIdsFromManifest: typeof getSectionIdsFromManifest;
+    getQuizIdsFromManifest: typeof getQuizIdsFromManifest;
 }
+type PinnedCurriculumChapter = PinnedCurriculumModule['chapters'][number];
 export {};

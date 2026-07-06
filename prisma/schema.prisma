@@ -491,115 +491,21 @@ model CourseVersion {
   publishedByAdminId  String?
   changeNotes         String?
   isLatest            Boolean             @default(false)
+  /// Structural manifest: ordered module/chapter/section/quiz source IDs only.
+  /// Content is always read from the live tree.
+  manifest            Json?
+  /// Active section count at publish time (O(1) progress denominator).
+  sectionCount        Int?
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
 
   course      Course                @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  modules     CourseVersionModule[]
-  chapters    CourseVersionChapter[]
-  sections    CourseVersionSection[]
-  quizzes     CourseVersionQuiz[]
   enrollments UserCourse[]
 
   @@unique([courseId, versionNumber])
   @@index([courseId, isLatest])
   @@index([courseId, status])
   @@map("course_versions")
-}
-
-model CourseVersionModule {
-  id             String   @id @default(uuid())
-  versionId      String
-  sourceModuleId String?
-  title          String
-  description    String
-  orderIndex     Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  version  CourseVersion         @relation(fields: [versionId], references: [id], onDelete: Cascade)
-  chapters CourseVersionChapter[]
-
-  @@index([versionId])
-  @@index([sourceModuleId])
-  @@map("course_version_modules")
-}
-
-model CourseVersionChapter {
-  id              String   @id @default(uuid())
-  versionId       String
-  versionModuleId String
-  sourceChapterId String?
-  title           String
-  description     String
-  pdfFile         String
-  orderIndex      Int      @default(0)
-  hasQuiz         Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  version  CourseVersion          @relation(fields: [versionId], references: [id], onDelete: Cascade)
-  module   CourseVersionModule    @relation(fields: [versionModuleId], references: [id], onDelete: Cascade)
-  sections CourseVersionSection[]
-  quizzes  CourseVersionQuiz[]
-
-  @@index([versionId])
-  @@index([versionModuleId])
-  @@index([sourceChapterId])
-  @@map("course_version_chapters")
-}
-
-model CourseVersionSection {
-  id                     String      @id @default(uuid())
-  versionId              String
-  versionChapterId       String
-  sourceSectionId        String?
-  title                  String
-  description            String
-  shortDescription       String?
-  type                   SectionType @default(DEFAULT)
-  orderIndex             Int?
-  itemLabel              String?
-  categoryLabel          String?
-  categories             String[]    @default([])
-  maxPerCategory         Int         @default(1)
-  isActive               Boolean     @default(true)
-  questionText           String?
-  imageUrl               String?
-  allowMultipleSelection Boolean     @default(false)
-  items                  Json?
-  options                Json?
-  config                 Json?
-  createdAt              DateTime    @default(now())
-  updatedAt              DateTime    @updatedAt
-
-  version CourseVersion        @relation(fields: [versionId], references: [id], onDelete: Cascade)
-  chapter CourseVersionChapter @relation(fields: [versionChapterId], references: [id], onDelete: Cascade)
-
-  @@index([versionId])
-  @@index([versionChapterId])
-  @@index([sourceSectionId])
-  @@map("course_version_sections")
-}
-
-model CourseVersionQuiz {
-  id               String   @id @default(uuid())
-  versionId        String
-  versionChapterId String
-  sourceQuizId     String?
-  question         String
-  answer           String
-  options          String[]
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  version CourseVersion        @relation(fields: [versionId], references: [id], onDelete: Cascade)
-  chapter CourseVersionChapter @relation(fields: [versionChapterId], references: [id], onDelete: Cascade)
-
-  @@index([versionId])
-  @@index([versionChapterId])
-  @@index([sourceQuizId])
-  @@map("course_version_quizzes")
 }
 
 model QuizAnswer {

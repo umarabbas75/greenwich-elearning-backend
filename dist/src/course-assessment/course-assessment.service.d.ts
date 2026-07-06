@@ -1,12 +1,14 @@
 import { AssessmentAttemptStatus, Prisma, QuestionDifficulty, QuestionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
+import { CourseVersionService } from '../course-version/course-version.service';
 import { AddAssessmentQuestionDto, CreateAssessmentDto, CreateQuestionCategoryDto, CreateQuestionDto, GradeAttemptDto, ReorderAssessmentQuestionsDto, SetCertificateDto, StartAttemptDto, SubmitAttemptDto, UpdateAssessmentDto, UpdateQuestionCategoryDto, UpdateQuestionDto } from '../dto';
 export declare class CourseAssessmentService {
     private prisma;
     private notificationService;
+    private courseVersionService;
     private static readonly ASSESSMENT_TIMER_GRACE_SECONDS;
-    constructor(prisma: PrismaService, notificationService: NotificationService);
+    constructor(prisma: PrismaService, notificationService: NotificationService, courseVersionService: CourseVersionService);
     private throwMapped;
     private throwQuestionCategoryError;
     createCategory(adminId: string, body: CreateQuestionCategoryDto): Promise<{
@@ -347,11 +349,11 @@ export declare class CourseAssessmentService {
         statusCode: number;
         data: {
             assessment: {
+                maxAttempts: number;
                 id: string;
                 title: string;
                 description: string;
                 mode: import(".prisma/client").$Enums.AssessmentMode;
-                maxAttempts: number;
                 passingPercentage: number;
                 timeLimitMinutes: number;
             };

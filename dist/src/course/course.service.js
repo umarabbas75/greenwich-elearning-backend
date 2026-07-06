@@ -511,28 +511,22 @@ let CourseService = CourseService_1 = class CourseService {
                 ...(newSinceCompletion ? { newSinceCompletion } : {}),
             };
             if (curriculum.mode === 'versioned') {
-                const { version } = curriculum;
-                const liveChapterIds = version.modules.flatMap((m) => m.chapters
-                    .map((c) => c.sourceChapterId)
-                    .filter((id) => Boolean(id)));
+                const { tree } = curriculum;
+                const liveChapterIds = tree.modules.flatMap((m) => m.chapters.map((c) => c.sourceChapterId));
                 const activity = await this.fetchReportActivityData(userId, courseId, liveChapterIds);
-                const totalSectionsInCourse = version.modules.reduce((sum, mod) => {
+                const totalSectionsInCourse = tree.modules.reduce((sum, mod) => {
                     return (sum +
-                        mod.chapters.reduce((chSum, chapter) => {
-                            return (chSum +
-                                chapter.sections.filter((s) => s.isActive && s.sourceSectionId).length);
-                        }, 0));
+                        mod.chapters.reduce((chSum, chapter) => chSum + chapter.sections.length, 0));
                 }, 0);
-                const modules = version.modules.map((mod) => {
-                    const moduleId = mod.sourceModuleId ?? mod.id;
+                const modules = tree.modules.map((mod) => {
+                    const moduleId = mod.sourceModuleId;
                     const chapters = mod.chapters.map((chapter) => {
-                        const sourceChapterId = chapter.sourceChapterId ?? chapter.id;
+                        const sourceChapterId = chapter.sourceChapterId;
                         const sectionMetas = chapter.sections
-                            .filter((s) => s.isActive && s.sourceSectionId)
                             .sort((a, b) => (a.orderIndex ?? Number.MAX_SAFE_INTEGER) -
                             (b.orderIndex ?? Number.MAX_SAFE_INTEGER))
                             .map((s) => ({
-                            id: s.sourceSectionId,
+                            id: s.id,
                             title: s.title,
                             orderIndex: s.orderIndex,
                             type: s.type,
@@ -557,7 +551,7 @@ let CourseService = CourseService_1 = class CourseService {
                 return {
                     ...reportMeta,
                     data: modules,
-                    enrolledVersionNumber: version.versionNumber,
+                    enrolledVersionNumber: curriculum.versionNumber,
                 };
             }
             const course = await this.prisma.course.findUnique({
@@ -1703,21 +1697,19 @@ let CourseService = CourseService_1 = class CourseService {
                 const progressByChapter = new Map();
                 const progressByModule = new Map();
                 const progressSectionIds = new Set(progressRows.map((p) => p.sectionId));
-                for (const mod of curriculum.version.modules) {
-                    const sourceModuleId = mod.sourceModuleId ?? mod.id;
+                for (const mod of curriculum.tree.modules) {
+                    const sourceModuleId = mod.sourceModuleId;
                     let modCount = 0;
                     for (const ch of mod.chapters) {
-                        const sourceChapterId = ch.sourceChapterId ?? ch.id;
-                        const sectionIds = ch.sections
-                            .filter((s) => s.isActive && s.sourceSectionId)
-                            .map((s) => s.sourceSectionId);
+                        const sourceChapterId = ch.sourceChapterId;
+                        const sectionIds = ch.sections.map((s) => s.id);
                         const chCount = sectionIds.filter((sid) => progressSectionIds.has(sid)).length;
                         progressByChapter.set(sourceChapterId, chCount);
                         modCount += chCount;
                     }
                     progressByModule.set(sourceModuleId, modCount);
                 }
-                let modules = this.courseVersionService.buildUserModulesFromVersion(curriculum.version, userId, progressByChapter, progressByModule);
+                let modules = this.courseVersionService.buildUserModulesFromVersion(curriculum.tree, progressByChapter, progressByModule);
                 const quizByChapter = new Map(quizProgressRows.map((q) => [q.chapterId, q]));
                 modules = modules.map((mod) => ({
                     ...mod,
@@ -1862,6 +1854,7 @@ let CourseService = CourseService_1 = class CourseService {
             const sections = await this.prisma.section.findMany({
                 where: {
                     chapterId: id,
+                    isArchived: false,
                 },
                 orderBy: {
                     createdAt: 'asc',
@@ -1910,12 +1903,12 @@ let CourseService = CourseService_1 = class CourseService {
             ]);
             const newSinceCompletion = await this.courseVersionService.summarizeNewSincePinnedVersion(userId, courseId);
             if (curriculum.mode === 'versioned') {
-                const found = this.courseVersionService.findVersionChapterBySourceId(curriculum.version, id);
+                const found = this.courseVersionService.findVersionChapterBySourceId(curriculum.tree, id);
                 if (!found) {
                     throw new Error('Chapter not found in enrolled course version');
                 }
                 const { chapter: versionChapter } = found;
-                const allSections = this.courseVersionService.mapVersionSectionsForLearner(versionChapter.sections.filter((s) => s.isActive));
+                const allSections = this.courseVersionService.mapVersionSectionsForLearner(versionChapter.sections);
                 const completedSections = userCourseProgress ?? [];
                 allSections.forEach((section) => {
                     const isCompleted = completedSections.some((completedSection) => completedSection.sectionId === section.id);
@@ -2130,7 +2123,6 @@ let CourseService = CourseService_1 = class CourseService {
                 where: { id },
                 data: updateModule,
             });
-            await this.courseVersionService.syncModuleToLatestVersion(id);
             return {
                 message: 'Successfully updated module record',
                 statusCode: 200,
@@ -2165,7 +2157,6 @@ let CourseService = CourseService_1 = class CourseService {
                 where: { id },
                 data: updateChapter,
             });
-            await this.courseVersionService.syncChapterToLatestVersion(id);
             return {
                 message: 'Successfully updated chapter record',
                 statusCode: 200,
@@ -2298,7 +2289,6 @@ let CourseService = CourseService_1 = class CourseService {
                 where: { id },
                 data: updateData,
             });
-            await this.courseVersionService.syncSectionToLatestVersion(id);
             return {
                 message: 'Successfully update section record',
                 statusCode: 200,
@@ -2331,7 +2321,6 @@ let CourseService = CourseService_1 = class CourseService {
                 data: { orderIndex: sectionOrder.orderIndex },
             }));
             await this.prisma.$transaction(updatePromises);
-            await this.courseVersionService.syncChapterSectionOrderToLatestVersion(body.chapterId);
             return {
                 message: 'Successfully updated section order',
                 statusCode: 200,
@@ -2390,7 +2379,7 @@ let CourseService = CourseService_1 = class CourseService {
             if (!mod) {
                 throw new Error('Module not found');
             }
-            const referenced = await this.courseVersionService.isReferencedByAnyVersion('module', id);
+            const referenced = await this.courseVersionService.isReferencedByAnyVersion('module', id, mod.courseId);
             if (referenced) {
                 const archived = await this.prisma.module.update({
                     where: { id },
@@ -2444,7 +2433,7 @@ let CourseService = CourseService_1 = class CourseService {
                 throw new Error('Chapter not found');
             }
             const courseId = await this.resolveCourseIdFromModuleId(chapter.moduleId);
-            const referenced = await this.courseVersionService.isReferencedByAnyVersion('chapter', id);
+            const referenced = await this.courseVersionService.isReferencedByAnyVersion('chapter', id, courseId);
             if (referenced) {
                 const archived = await this.prisma.chapter.update({
                     where: { id },
@@ -2498,7 +2487,23 @@ let CourseService = CourseService_1 = class CourseService {
                 throw new Error('Section not found');
             }
             const courseId = await this.resolveCourseIdFromChapterId(section.chapterId);
-            const referenced = await this.courseVersionService.isReferencedByAnyVersion('section', id);
+            if (section.isArchived) {
+                const stillReferenced = await this.courseVersionService.isReferencedByAnyVersion('section', id, courseId);
+                if (stillReferenced) {
+                    return {
+                        message: 'Archived section is still referenced by a published version and cannot be removed',
+                        statusCode: 200,
+                        data: section,
+                    };
+                }
+                await this.prisma.section.delete({ where: { id } });
+                return {
+                    message: 'Archived section permanently removed',
+                    statusCode: 200,
+                    data: section,
+                };
+            }
+            const referenced = await this.courseVersionService.isReferencedByAnyVersion('section', id, courseId);
             if (referenced) {
                 const archived = await this.prisma.section.update({
                     where: { id },
@@ -2720,9 +2725,6 @@ let CourseService = CourseService_1 = class CourseService {
                 throw new Error('User is not assigned to this course');
             }
             const isFirstActivation = isActive && !userCourse.isActive && !userCourse.activatedAt;
-            if (isFirstActivation && !userCourse.enrolledVersionId) {
-                await this.courseVersionService.syncPublishedVersionWithLiveTree(courseId, null, 'Sync before first enrollment activation');
-            }
             await this.prisma.$transaction(async (tx) => {
                 await tx.userCourse.update({
                     where: { id: userCourse.id },
@@ -2882,13 +2884,12 @@ let CourseService = CourseService_1 = class CourseService {
             ];
             const versionSectionCounts = new Map();
             if (versionIds.length > 0) {
-                const counts = await this.prisma.courseVersionSection.groupBy({
-                    by: ['versionId'],
-                    where: { versionId: { in: versionIds }, isActive: true },
-                    _count: { id: true },
+                const versions = await this.prisma.courseVersion.findMany({
+                    where: { id: { in: versionIds } },
+                    select: { id: true, sectionCount: true },
                 });
-                for (const row of counts) {
-                    versionSectionCounts.set(row.versionId, row._count.id);
+                for (const row of versions) {
+                    versionSectionCounts.set(row.id, row.sectionCount ?? 0);
                 }
             }
             const coursesWithDetails = assignedCourses.map((userCourse) => {
@@ -3223,13 +3224,11 @@ let CourseService = CourseService_1 = class CourseService {
             ]);
             const newSinceCompletion = await this.courseVersionService.summarizeNewSincePinnedVersion(userId, courseId);
             if (curriculum.mode === 'versioned') {
-                const found = this.courseVersionService.findVersionChapterBySourceId(curriculum.version, chapterId);
+                const found = this.courseVersionService.findVersionChapterBySourceId(curriculum.tree, chapterId);
                 if (!found) {
                     throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Chapter not found' }, common_1.HttpStatus.NOT_FOUND);
                 }
-                const versionSectionIds = found.chapter.sections
-                    .filter((s) => s.isActive && s.sourceSectionId)
-                    .map((s) => s.sourceSectionId);
+                const versionSectionIds = found.chapter.sections.map((s) => s.id);
                 const totalSections = versionSectionIds.length;
                 const progressSectionIds = new Set(userCourseProgress.map((p) => p.sectionId));
                 const completedSections = Math.min(versionSectionIds.filter((id) => progressSectionIds.has(id)).length, totalSections);

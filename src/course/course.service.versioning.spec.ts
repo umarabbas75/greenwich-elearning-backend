@@ -16,18 +16,18 @@ describe('CourseService — course versioning', () => {
     mode: 'versioned' as const,
     versionId: 'version-1',
     versionNumber: 1,
-    version: {
-      id: 'version-1',
+    tree: {
+      versionId: 'version-1',
       versionNumber: 1,
+      manifest: { modules: [] },
       modules: [
         {
-          id: 'vm-1',
           sourceModuleId: 'mod-1',
           title: 'M',
+          description: '',
           orderIndex: 0,
           chapters: [
             {
-              id: 'vc-1',
               sourceChapterId: 'ch-1',
               title: 'C',
               description: 'D',
@@ -35,50 +35,50 @@ describe('CourseService — course versioning', () => {
               orderIndex: 0,
               sections: [
                 {
-                  id: 'vs-1',
-                  sourceSectionId: 'sec-1',
-                  isActive: true,
-                  orderIndex: 1,
+                  id: 'sec-1',
                   title: 'S1',
                   description: 'D',
-                  shortDescription: null,
+                  chapterId: 'ch-1',
+                  moduleId: 'mod-1',
+                  isActive: true,
+                  orderIndex: 1,
                   type: 'DEFAULT',
-                  itemLabel: null,
-                  categoryLabel: null,
                   categories: [],
                   maxPerCategory: 1,
+                  allowMultipleSelection: false,
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                  shortDescription: null,
+                  itemLabel: null,
+                  categoryLabel: null,
                   questionText: null,
                   imageUrl: null,
-                  allowMultipleSelection: false,
                   items: null,
                   options: null,
                   config: null,
-                  createdAt: new Date(),
-                  updatedAt: new Date(),
-                  versionChapterId: 'vc-1',
                 },
                 {
-                  id: 'vs-2',
-                  sourceSectionId: 'sec-2',
-                  isActive: true,
-                  orderIndex: 2,
+                  id: 'sec-2',
                   title: 'S2',
                   description: 'D',
-                  shortDescription: null,
+                  chapterId: 'ch-1',
+                  moduleId: 'mod-1',
+                  isActive: true,
+                  orderIndex: 2,
                   type: 'DEFAULT',
-                  itemLabel: null,
-                  categoryLabel: null,
                   categories: [],
                   maxPerCategory: 1,
+                  allowMultipleSelection: false,
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                  shortDescription: null,
+                  itemLabel: null,
+                  categoryLabel: null,
                   questionText: null,
                   imageUrl: null,
-                  allowMultipleSelection: false,
                   items: null,
                   options: null,
                   config: null,
-                  createdAt: new Date(),
-                  updatedAt: new Date(),
-                  versionChapterId: 'vc-1',
                 },
               ],
               quizzes: [],
@@ -123,7 +123,6 @@ describe('CourseService — course versioning', () => {
       mapVersionQuizzesForLearner: jest.fn(),
       buildUserModulesFromVersion: jest.fn(),
       countCompletionDenominator: jest.fn(),
-      syncPublishedVersionWithLiveTree: jest.fn(),
       autoPublishAfterStructuralChange: jest.fn().mockResolvedValue({
         versionNumber: 2,
         versionId: 'version-2',
@@ -159,13 +158,6 @@ describe('CourseService — course versioning', () => {
 
       await service.toggleCourseStatus('user-1', 'course-1', true);
 
-      expect(
-        courseVersionService.syncPublishedVersionWithLiveTree,
-      ).toHaveBeenCalledWith(
-        'course-1',
-        null,
-        'Sync before first enrollment activation',
-      );
       expect(courseVersionService.pinEnrollmentToLatest).toHaveBeenCalledWith(
         'uc-1',
         prisma,
@@ -195,6 +187,7 @@ describe('CourseService — course versioning', () => {
         id: 'sec-1',
         title: 'S',
         chapterId: 'ch-1',
+        isArchived: false,
       });
       prisma.chapter.findUnique.mockResolvedValue({
         id: 'ch-1',
@@ -214,10 +207,35 @@ describe('CourseService — course versioning', () => {
       expect(result.message).toContain('archived');
     });
 
+    it('hard-deletes when already archived and not in any manifest', async () => {
+      prisma.section.findUnique.mockResolvedValue({
+        id: 'sec-1',
+        title: 'S',
+        chapterId: 'ch-1',
+        isArchived: true,
+      });
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        moduleId: 'mod-1',
+        module: { courseId: 'course-1' },
+      });
+      courseVersionService.isReferencedByAnyVersion.mockResolvedValue(false);
+      prisma.section.delete.mockResolvedValue({ id: 'sec-1' });
+
+      const result = await service.deleteSection('sec-1');
+
+      expect(prisma.section.delete).toHaveBeenCalledWith({
+        where: { id: 'sec-1' },
+      });
+      expect(prisma.section.update).not.toHaveBeenCalled();
+      expect(result.message).toContain('permanently removed');
+    });
+
     it('hard-deletes when never published', async () => {
       prisma.section.findUnique.mockResolvedValue({
         id: 'sec-1',
         chapterId: 'ch-1',
+        isArchived: false,
       });
       prisma.chapter.findUnique.mockResolvedValue({
         id: 'ch-1',
@@ -277,8 +295,8 @@ describe('CourseService — course versioning', () => {
     it('uses version section count when enrollment is pinned', async () => {
       courseVersionService.resolveCurriculumTree.mockResolvedValue(versionTree);
       courseVersionService.findVersionChapterBySourceId.mockReturnValue({
-        module: versionTree.version.modules[0],
-        chapter: versionTree.version.modules[0].chapters[0],
+        module: versionTree.tree.modules[0],
+        chapter: versionTree.tree.modules[0].chapters[0],
       });
       prisma.userCourseProgress.findMany.mockResolvedValue([
         { sectionId: 'sec-1' },
@@ -300,8 +318,8 @@ describe('CourseService — course versioning', () => {
     it('returns 100% for frozen completers on versioned tree', async () => {
       courseVersionService.resolveCurriculumTree.mockResolvedValue(versionTree);
       courseVersionService.findVersionChapterBySourceId.mockReturnValue({
-        module: versionTree.version.modules[0],
-        chapter: versionTree.version.modules[0].chapters[0],
+        module: versionTree.tree.modules[0],
+        chapter: versionTree.tree.modules[0].chapters[0],
       });
       prisma.userCourseProgress.findMany.mockResolvedValue([
         { sectionId: 'sec-1' },
@@ -351,8 +369,8 @@ describe('CourseService — course versioning', () => {
     it('returns versioned sections for pinned enrollment', async () => {
       courseVersionService.resolveCurriculumTree.mockResolvedValue(versionTree);
       courseVersionService.findVersionChapterBySourceId.mockReturnValue({
-        module: versionTree.version.modules[0],
-        chapter: versionTree.version.modules[0].chapters[0],
+        module: versionTree.tree.modules[0],
+        chapter: versionTree.tree.modules[0].chapters[0],
       });
       courseVersionService.mapVersionSectionsForLearner.mockReturnValue([
         { id: 'sec-1', title: 'S1', isCompleted: false },

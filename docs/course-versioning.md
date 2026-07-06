@@ -1,15 +1,41 @@
-# Course Versioning (Pattern 1)
+# Course Versioning (Structure-Freeze, Content-Live)
 
-Full course versioning protects in-progress learners from progress regression when admins add or change curriculum content. The live `Course / Module / Chapter / Section / Quiz` tree remains the admin editing surface; structural edits **auto-publish** an immutable snapshot that new enrollments pin to.
+Course versioning protects in-progress learners from progress regression when admins **add or remove** curriculum structure. The live `Course / Module / Chapter / Section / Quiz` tree remains the admin editing surface; structural edits **auto-publish** a lightweight manifest that new enrollments pin to.
+
+**Content is never frozen.** Section HTML, quiz text, and other field edits always flow from the live tables to every learner. Only membership (which modules/chapters/sections/quizzes count toward progress) is pinned per enrollment.
 
 ## Concepts
 
 | Term | Meaning |
 |------|---------|
-| **Live tree** | What admins edit today (`modules`, `chapters`, `sections`, `quizzes`) |
-| **CourseVersion** | One published snapshot of the live tree at a point in time |
+| **Live tree** | What admins edit (`modules`, `chapters`, `sections`, `quizzes`) |
+| **CourseVersion** | One published structural manifest at a point in time |
+| **manifest** | JSON on `CourseVersion`: ordered source IDs only (~few KB) |
+| **sectionCount** | Active section count at publish time (O(1) progress denominator) |
 | **enrolledVersionId** | FK on `UserCourse` — pins a learner to a specific version |
-| **source*Id** | On each `CourseVersion*` row, the live row id at publish time |
+
+### Manifest shape
+
+```json
+{
+  "modules": [
+    {
+      "sourceId": "<live-module-id>",
+      "order": 0,
+      "chapters": [
+        {
+          "sourceId": "<live-chapter-id>",
+          "order": 0,
+          "sectionIds": ["<live-section-id>", "..."],
+          "quizIds": ["<live-quiz-id>"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Learner reads batch-fetch live content by ID and assemble the tree in manifest order.
 
 ## Admin workflow
 
@@ -19,7 +45,7 @@ Create/update/reorder modules, chapters, sections in the admin UI as today.
 
 ### 2. Auto-publish on structural changes
 
-**Adding or removing** a module, chapter, or section automatically publishes a new version — no separate publish step, no Postman.
+**Adding or removing** a module, chapter, section, or quiz automatically publishes a new version when the structural fingerprint changes.
 
 Affected admin endpoints:
 
@@ -29,10 +55,13 @@ Affected admin endpoints:
 - `DELETE /api/v1/courses/module/:id`
 - `DELETE /api/v1/courses/chapter/:id`
 - `DELETE /api/v1/courses/section/:id`
+- Quiz assign/unassign/delete paths
 
 Responses include `publishedVersion: { versionNumber, versionId }` when publish succeeds.
 
-Content-only edits (section text, reorder within a chapter) do **not** auto-publish — pinned learners keep their snapshotted copy until the next structural change.
+**No-op guard:** if the sorted set of active module/chapter/section/quiz IDs is unchanged, publish is skipped (prevents duplicate version spam).
+
+Content-only edits and within-chapter reorders update live only — **no new version**.
 
 ### 3. Manual publish (optional)
 
@@ -41,10 +70,8 @@ POST /api/v1/courses/:courseId/versions/publish
 Authorization: Bearer <admin-jwt>
 Content-Type: application/json
 
-{ "changeNotes": "Republish after content-only edits" }
+{ "changeNotes": "Republish after structural reconciliation" }
 ```
-
-Use when you need a new version without changing structure (rare).
 
 ### 4. List versions
 
@@ -52,7 +79,7 @@ Use when you need a new version without changing structure (rare).
 GET /api/v1/courses/:courseId/versions
 ```
 
-Returns version history with enrollment counts per version.
+Returns version history with `sectionCount` and enrollment counts.
 
 ### 5. Archive a version (only when unused)
 
@@ -61,6 +88,20 @@ POST /api/v1/courses/:courseId/versions/:versionId/archive
 ```
 
 Blocked if any enrollment is pinned to that version, or if it is still `isLatest`.
+
+### 6. Prune orphan versions
+
+```http
+POST /api/v1/courses/versions/prune-orphans
+Authorization: Bearer <admin-jwt>
+Content-Type: application/json
+
+{ "courseId": "<optional-course-uuid>" }
+```
+
+Deletes versions with **zero enrollments** that are **not** `isLatest`. Safe to run periodically — manifests are tiny so storage stays flat.
+
+CLI equivalent: `scripts/prune-orphan-course-versions.ts`
 
 ## Enrollment pinning
 
@@ -72,114 +113,38 @@ Blocked if any enrollment is pinned to that version, or if it is still `isLatest
 
 All learner read paths consult `enrolledVersionId` first:
 
-- Pinned → versioned tree (stable denominator)
-- Null → live tree (legacy / not yet activated)
+- **Pinned** → manifest membership + **live content** by source ID (stable denominator, fresh content)
+- **Null** → live tree (legacy / not yet activated)
 
-Progress rows (`UserCourseProgress`) still use live `sectionId`, which matches `CourseVersionSection.sourceSectionId`.
+Progress rows (`UserCourseProgress`) use live `sectionId`, which matches manifest `sectionIds`.
 
 Certified completers are additionally protected by Pattern 2 (freeze at completion).
 
-## Edit safeguards
+## Read path (performance)
 
-Deleting a module/chapter/section/quiz that appears in any published version **archives** it instead of hard-deleting:
+Learner reads **never write**. `resolveCurriculumTree` loads one manifest row and batch-fetches live sections/chapters/quizzes — no sync-on-read, no snapshot duplication.
 
-- Response message explains why
-- Pinned learners keep seeing the snapshotted content
-- New publishes omit archived live rows
+Denominator: `sectionCount` on the pinned version (no tree walk).
 
-## Force-migrate a learner (admin escape hatch)
+## Delete guard
 
-```http
-POST /api/v1/courses/enrollments/migrate-version
-Authorization: Bearer <admin-jwt>
+Because content is read live, rows referenced by **any** version manifest are **archived**, not hard-deleted:
 
-{
-  "userCourseId": "<uuid>",
-  "targetVersionId": "<uuid>"
-}
-```
+- Referenced by manifest → `isArchived = true` (kept as content source for pinned learners)
+- Not referenced → hard delete allowed
 
-Use sparingly — changes the learner's denominator to the target version's section set.
+Already-archived sections can be permanently removed only when no manifest references them.
 
-## Pattern C: new content indicator
+## Migration rollout
 
-When a learner is pinned to an older version and a newer version exists, read endpoints may include:
-
-```json
-"newSinceCompletion": {
-  "newChapters": 1,
-  "newSections": 1,
-  "addedAt": "2026-06-15T…"
-}
-```
-
-Diff = sections in latest version not present in pinned version.
-
-## One-time backfill
-
-Run after deploying schema migration:
-
-```bash
-yarn ts-node -r tsconfig-paths/register scripts/backfill-course-versions.ts
-yarn ts-node -r tsconfig-paths/register scripts/backfill-course-versions.ts --dry-run
-```
-
-For every course: creates v1 from live tree, pins all started enrollments.
-
-**Do not re-run on production** after versioning is live unless you intend to
-snapshot the current live tree as a new v1. Structural changes that happened
-before versioning was deployed may require a targeted remediation script instead
-(see below).
-
-## NEBOSH Case Study remediation (one-time)
-
-The June-2026 backfill for NEBOSH IGC snapshotted v1 **after** Case Study
-sections were added, so in-progress learners saw progress drop (e.g. 7/8 = 88%).
-Auto-publish protects **future** edits; this script repairs the bad historical pin.
-
-```bash
-# Preview affected enrollments
-yarn ts-node -r tsconfig-paths/register scripts/remediate-nebosh-pre-case-study-v1.ts --dry-run
-
-# Apply (in-progress users only; completers stay on v2 / freeze)
-yarn ts-node -r tsconfig-paths/register scripts/remediate-nebosh-pre-case-study-v1.ts
-
-# Also re-pin certified completers to corrected v1 (optional)
-yarn ts-node -r tsconfig-paths/register scripts/remediate-nebosh-pre-case-study-v1.ts --include-completers
-```
-
-Result: corrected **v1** (111 sections, no Case Studies) for affected learners;
-poisoned snapshot promoted to **v2** (115 sections, `isLatest`) for new activations.
-
-## Validation scripts
-
-```bash
-# Certified completers with live % < 100 (expect 0 after Pattern 2)
-yarn ts-node -r tsconfig-paths/register scripts/_audit-completion-mismatch.ts
-
-# Active enrollments missing version pin (expect 0 after backfill)
-yarn ts-node -r tsconfig-paths/register scripts/_audit-version-coverage.ts
-```
-
-## Troubleshooting
-
-| Symptom | Likely cause | Fix |
-|---------|--------------|-----|
-| Learner sees new chapter they shouldn't | `enrolledVersionId` null | Run backfill; confirm activation hook fired |
-| Admin can't delete section | Referenced by published version | Expected — archived automatically; new version published for new learners |
-| No published version on publish | Course never backfilled | Run `backfill-course-versions.ts` or publish manually |
-| Progress stuck below 100% for in-progress user | Denominator from live tree | Confirm enrollment is pinned; check version section count |
+1. Migration `20260706120000_course_version_manifest` — add `manifest`, `sectionCount`
+2. `scripts/backfill-course-version-manifests.ts` — populate manifests from legacy snapshot rows
+3. Deploy application code
+4. `scripts/audit-course-version-manifest-parity.ts` — verify section-set parity
+5. Migration `20260706130000_drop_course_version_snapshot_tables` — drop heavy tables
+6. `VACUUM (FULL, ANALYZE)` in Neon SQL editor to reclaim disk
 
 ## Out of scope
 
-- Assessments (already snapshotted per attempt via `AttemptQuestionSnapshot`)
-- Assignments (course-scoped, no progress denominator impact)
-- Forms, policies, feedback forms
-
-## Files
-
-- [prisma/schema.prisma](../prisma/schema.prisma) — `CourseVersion*` models
-- [src/course-version/](../src/course-version/) — publish, pin, resolve logic
-- [src/course/course.service.ts](../src/course/course.service.ts) — learner read rewrites
-- [scripts/backfill-course-versions.ts](../scripts/backfill-course-versions.ts) — one-time migration
-- [scripts/remediate-nebosh-pre-case-study-v1.ts](../scripts/remediate-nebosh-pre-case-study-v1.ts) — NEBOSH backfill fix
+- Pattern 2 completion-freeze — unaffected, still keys off `courseCompletion`
+- Assessment attempt snapshots — per-attempt, separate mechanism

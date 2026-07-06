@@ -12,47 +12,31 @@ var CourseVersionService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CourseVersionService = void 0;
 const common_1 = require("@nestjs/common");
-const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
-const course_version_snapshot_1 = require("./course-version.snapshot");
-const versionInclude = {
-    modules: {
-        orderBy: { orderIndex: 'asc' },
-        include: {
-            chapters: {
-                orderBy: { orderIndex: 'asc' },
-                include: {
-                    sections: true,
-                    quizzes: true,
-                },
-            },
-        },
-    },
-};
+const course_version_manifest_1 = require("./course-version.manifest");
 let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
     constructor(prisma) {
         this.prisma = prisma;
         this.logger = new common_1.Logger(CourseVersionService_1.name);
+        this.getChapterIdsFromManifest = course_version_manifest_1.getChapterIdsFromManifest;
+        this.getSectionIdsFromManifest = course_version_manifest_1.getSectionIdsFromManifest;
+        this.getQuizIdsFromManifest = course_version_manifest_1.getQuizIdsFromManifest;
     }
     async resolveCurriculumTree(userId, courseId) {
-        await this.syncPublishedVersionWithLiveTree(courseId, null, 'Sync before learner curriculum read');
         const enrolledVersionId = await this.resolveEnrolledVersionId(userId, courseId);
         if (!enrolledVersionId) {
             return { mode: 'live' };
         }
-        const version = await this.prisma.courseVersion.findUnique({
-            where: { id: enrolledVersionId },
-            include: versionInclude,
-        });
-        if (!version) {
-            this.logger.warn(`User ${userId} pinned to missing version ${enrolledVersionId}; falling back to live tree`);
+        const tree = await (0, course_version_manifest_1.loadPinnedCurriculum)(this.prisma, enrolledVersionId);
+        if (!tree) {
+            this.logger.warn(`User ${userId} pinned to missing or invalid version ${enrolledVersionId}; falling back to live tree`);
             return { mode: 'live' };
         }
         return {
             mode: 'versioned',
-            versionId: version.id,
-            versionNumber: version.versionNumber,
-            version,
+            versionId: tree.versionId,
+            versionNumber: tree.versionNumber,
+            tree,
         };
     }
     async resolveEnrolledVersionId(userId, courseId, preloadedUc) {
@@ -98,92 +82,44 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         if (!versionId) {
             return null;
         }
-        const versionChapter = await this.prisma.courseVersionChapter.findFirst({
-            where: { versionId, sourceChapterId },
-            include: {
-                quizzes: { orderBy: { createdAt: 'asc' } },
-            },
-        });
-        if (!versionChapter) {
+        const tree = await (0, course_version_manifest_1.loadPinnedCurriculum)(this.prisma, versionId);
+        if (!tree) {
             return [];
         }
-        return this.mapVersionQuizzesForLearner(versionChapter.quizzes, includeAnswers);
+        for (const mod of tree.modules) {
+            const ch = mod.chapters.find((c) => c.sourceChapterId === sourceChapterId);
+            if (ch) {
+                return (0, course_version_manifest_1.mapPinnedQuizzesForLearner)(ch.quizzes, includeAnswers);
+            }
+        }
+        return [];
     }
     async resolveCurriculumByEnrollment(enrolledVersionId) {
         if (!enrolledVersionId) {
             return { mode: 'live' };
         }
-        const version = await this.prisma.courseVersion.findUnique({
-            where: { id: enrolledVersionId },
-            include: versionInclude,
-        });
-        if (!version) {
+        const tree = await (0, course_version_manifest_1.loadPinnedCurriculum)(this.prisma, enrolledVersionId);
+        if (!tree) {
             return { mode: 'live' };
         }
         return {
             mode: 'versioned',
-            versionId: version.id,
-            versionNumber: version.versionNumber,
-            version,
+            versionId: tree.versionId,
+            versionNumber: tree.versionNumber,
+            tree,
         };
     }
     async getLatestPublishedVersion(courseId) {
         return this.prisma.courseVersion.findFirst({
             where: { courseId, status: 'PUBLISHED', isLatest: true },
+            select: {
+                id: true,
+                versionNumber: true,
+                manifest: true,
+                sectionCount: true,
+                publishedAt: true,
+            },
         });
-    }
-    async countLiveTreeStats(courseId, db = this.prisma) {
-        const [modules, chapters, sections, quizzes] = await Promise.all([
-            db.module.count({ where: { courseId, isArchived: false } }),
-            db.chapter.count({
-                where: {
-                    isArchived: false,
-                    module: { courseId, isArchived: false },
-                },
-            }),
-            db.section.count({
-                where: {
-                    isArchived: false,
-                    chapter: { isArchived: false, module: { courseId, isArchived: false } },
-                },
-            }),
-            db.quiz.count({
-                where: {
-                    isArchived: false,
-                    chapter: { isArchived: false, module: { courseId, isArchived: false } },
-                },
-            }),
-        ]);
-        return { modules, chapters, sections, quizzes };
-    }
-    async countVersionStats(versionId, db = this.prisma) {
-        const [modules, chapters, sections, quizzes] = await Promise.all([
-            db.courseVersionModule.count({ where: { versionId } }),
-            db.courseVersionChapter.count({ where: { versionId } }),
-            db.courseVersionSection.count({ where: { versionId } }),
-            db.courseVersionQuiz.count({ where: { versionId } }),
-        ]);
-        return { modules, chapters, sections, quizzes };
-    }
-    async isLiveTreeDriftedFromLatest(courseId) {
-        const live = await this.countLiveTreeStats(courseId);
-        const latest = await this.getLatestPublishedVersion(courseId);
-        if (!latest) {
-            return live.sections > 0 || live.quizzes > 0;
-        }
-        const published = await this.countVersionStats(latest.id);
-        return (live.modules !== published.modules ||
-            live.chapters !== published.chapters ||
-            live.sections !== published.sections ||
-            live.quizzes !== published.quizzes);
-    }
-    async syncPublishedVersionWithLiveTree(courseId, adminId, changeNotes) {
-        const drifted = await this.isLiveTreeDriftedFromLatest(courseId);
-        if (!drifted) {
-            return null;
-        }
-        this.logger.log(`Live tree drift detected for course ${courseId}; publishing new version`);
-        return this.autoPublishAfterStructuralChange(courseId, adminId, changeNotes ?? 'Auto-publish: live curriculum differs from latest version');
     }
     async pinEnrollmentToLatest(userCourseId, tx) {
         const db = tx ?? this.prisma;
@@ -205,138 +141,6 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             data: { enrolledVersionId: latest.id },
         });
     }
-    async syncSectionToLatestVersion(sectionId) {
-        const section = await this.prisma.section.findUnique({
-            where: { id: sectionId },
-            include: {
-                chapter: { select: { module: { select: { courseId: true } } } },
-            },
-        });
-        if (!section)
-            return;
-        const latest = await this.getLatestPublishedVersion(section.chapter.module.courseId);
-        if (!latest)
-            return;
-        try {
-            await this.prisma.courseVersionSection.updateMany({
-                where: { versionId: latest.id, sourceSectionId: section.id },
-                data: {
-                    title: section.title,
-                    description: section.description,
-                    shortDescription: section.shortDescription,
-                    type: section.type,
-                    orderIndex: section.orderIndex,
-                    itemLabel: section.itemLabel,
-                    categoryLabel: section.categoryLabel,
-                    categories: section.categories,
-                    maxPerCategory: section.maxPerCategory,
-                    isActive: section.isActive,
-                    questionText: section.questionText,
-                    imageUrl: section.imageUrl,
-                    allowMultipleSelection: section.allowMultipleSelection,
-                    items: (section.items ?? client_1.Prisma.JsonNull),
-                    options: (section.options ?? client_1.Prisma.JsonNull),
-                    config: (section.config ?? client_1.Prisma.JsonNull),
-                },
-            });
-        }
-        catch (error) {
-            this.logger.warn(`Failed to sync section ${sectionId} into latest version: ${error?.message ?? error}`);
-        }
-    }
-    async syncChapterSectionOrderToLatestVersion(chapterId) {
-        const chapter = await this.prisma.chapter.findUnique({
-            where: { id: chapterId },
-            include: {
-                sections: { select: { id: true, orderIndex: true } },
-                module: { select: { courseId: true } },
-            },
-        });
-        if (!chapter)
-            return;
-        const latest = await this.getLatestPublishedVersion(chapter.module.courseId);
-        if (!latest)
-            return;
-        try {
-            await this.prisma.$transaction(chapter.sections.map((sec) => this.prisma.courseVersionSection.updateMany({
-                where: { versionId: latest.id, sourceSectionId: sec.id },
-                data: { orderIndex: sec.orderIndex },
-            })));
-        }
-        catch (error) {
-            this.logger.warn(`Failed to sync section order for chapter ${chapterId}: ${error?.message ?? error}`);
-        }
-    }
-    async syncModuleToLatestVersion(moduleId) {
-        const mod = await this.prisma.module.findUnique({
-            where: { id: moduleId },
-            select: { id: true, title: true, description: true, courseId: true },
-        });
-        if (!mod)
-            return;
-        const latest = await this.getLatestPublishedVersion(mod.courseId);
-        if (!latest)
-            return;
-        try {
-            await this.prisma.courseVersionModule.updateMany({
-                where: { versionId: latest.id, sourceModuleId: mod.id },
-                data: { title: mod.title, description: mod.description },
-            });
-        }
-        catch (error) {
-            this.logger.warn(`Failed to sync module ${moduleId}: ${error?.message ?? error}`);
-        }
-    }
-    async syncQuizToLatestVersion(quizId) {
-        const quiz = await this.prisma.quiz.findUnique({
-            where: { id: quizId },
-            include: {
-                chapter: { include: { module: { select: { courseId: true } } } },
-            },
-        });
-        if (!quiz?.chapter?.module?.courseId)
-            return;
-        const latest = await this.getLatestPublishedVersion(quiz.chapter.module.courseId);
-        if (!latest)
-            return;
-        try {
-            await this.prisma.courseVersionQuiz.updateMany({
-                where: { versionId: latest.id, sourceQuizId: quiz.id },
-                data: {
-                    question: quiz.question,
-                    answer: quiz.answer,
-                    options: quiz.options,
-                },
-            });
-        }
-        catch (error) {
-            this.logger.warn(`Failed to sync quiz ${quizId}: ${error?.message ?? error}`);
-        }
-    }
-    async syncChapterToLatestVersion(chapterId) {
-        const chapter = await this.prisma.chapter.findUnique({
-            where: { id: chapterId },
-            include: { module: { select: { courseId: true } } },
-        });
-        if (!chapter)
-            return;
-        const latest = await this.getLatestPublishedVersion(chapter.module.courseId);
-        if (!latest)
-            return;
-        try {
-            await this.prisma.courseVersionChapter.updateMany({
-                where: { versionId: latest.id, sourceChapterId: chapter.id },
-                data: {
-                    title: chapter.title,
-                    description: chapter.description,
-                    pdfFile: chapter.pdfFile,
-                },
-            });
-        }
-        catch (error) {
-            this.logger.warn(`Failed to sync chapter ${chapterId}: ${error?.message ?? error}`);
-        }
-    }
     async publishNewVersion(adminId, courseId, changeNotes) {
         const course = await this.prisma.course.findUnique({
             where: { id: courseId },
@@ -345,19 +149,42 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         if (!course) {
             throw new common_1.NotFoundException('Course not found');
         }
+        const latest = await this.getLatestPublishedVersion(courseId);
+        const built = await (0, course_version_manifest_1.buildManifestFromLiveTree)(this.prisma, courseId);
+        if (latest?.manifest) {
+            const latestManifest = (0, course_version_manifest_1.parseManifest)(latest.manifest);
+            if (latestManifest &&
+                (0, course_version_manifest_1.computeStructuralFingerprint)(latestManifest) ===
+                    (0, course_version_manifest_1.computeStructuralFingerprint)(built.manifest)) {
+                return {
+                    message: `No structural change — still on version ${latest.versionNumber}`,
+                    statusCode: 200,
+                    data: {
+                        ...latest,
+                        stats: {
+                            modules: built.moduleCount,
+                            chapters: built.chapterCount,
+                            sections: built.sectionCount,
+                            quizzes: built.quizCount,
+                        },
+                        skipped: true,
+                    },
+                };
+            }
+        }
         return this.prisma.$transaction(async (tx) => {
-            const latest = await tx.courseVersion.findFirst({
+            const currentLatest = await tx.courseVersion.findFirst({
                 where: { courseId, isLatest: true },
                 orderBy: { versionNumber: 'desc' },
             });
-            const nextNumber = (latest?.versionNumber ?? 0) + 1;
-            if (latest) {
+            const nextNumber = (currentLatest?.versionNumber ?? 0) + 1;
+            if (currentLatest) {
                 await tx.courseVersion.update({
-                    where: { id: latest.id },
+                    where: { id: currentLatest.id },
                     data: { isLatest: false },
                 });
             }
-            const snapshot = await (0, course_version_snapshot_1.snapshotLiveTree)(tx, courseId, {
+            const snapshot = await (0, course_version_manifest_1.publishManifestVersion)(tx, courseId, {
                 versionNumber: nextNumber,
                 status: 'PUBLISHED',
                 isLatest: true,
@@ -381,11 +208,25 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                     },
                 },
             };
-        }, course_version_snapshot_1.SNAPSHOT_TRANSACTION_OPTIONS);
+        });
     }
     async autoPublishAfterStructuralChange(courseId, adminId, changeNotes) {
+        const latest = await this.getLatestPublishedVersion(courseId);
+        const built = await (0, course_version_manifest_1.buildManifestFromLiveTree)(this.prisma, courseId);
+        if (latest?.manifest) {
+            const latestManifest = (0, course_version_manifest_1.parseManifest)(latest.manifest);
+            if (latestManifest &&
+                (0, course_version_manifest_1.computeStructuralFingerprint)(latestManifest) ===
+                    (0, course_version_manifest_1.computeStructuralFingerprint)(built.manifest)) {
+                this.logger.log(`Skipping auto-publish for ${courseId}: no structural change (${changeNotes})`);
+                return null;
+            }
+        }
         this.logger.log(`Auto-publishing ${courseId}: ${changeNotes}`);
         const result = await this.publishNewVersion(adminId, courseId, changeNotes);
+        if (result.data && 'skipped' in result.data && result.data.skipped) {
+            return null;
+        }
         return {
             versionNumber: result.data.versionNumber,
             versionId: result.data.id,
@@ -403,13 +244,7 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             where: { courseId },
             orderBy: { versionNumber: 'desc' },
             include: {
-                _count: {
-                    select: {
-                        modules: true,
-                        sections: true,
-                        enrollments: true,
-                    },
-                },
+                _count: { select: { enrollments: true } },
             },
         });
         return {
@@ -424,8 +259,7 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 publishedAt: v.publishedAt,
                 changeNotes: v.changeNotes,
                 createdAt: v.createdAt,
-                moduleCount: v._count.modules,
-                sectionCount: v._count.sections,
+                sectionCount: v.sectionCount,
                 enrollmentCount: v._count.enrollments,
             })),
         };
@@ -490,8 +324,8 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         };
     }
     async countCompletionDenominator(userId, courseId) {
-        const resolved = await this.resolveCurriculumTree(userId, courseId);
-        if (resolved.mode === 'live') {
+        const enrolledVersionId = await this.resolveEnrolledVersionId(userId, courseId);
+        if (!enrolledVersionId) {
             const liveSectionIds = (await this.prisma.section.findMany({
                 where: {
                     isActive: true,
@@ -502,19 +336,42 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             })).map((s) => s.id);
             return { total: liveSectionIds.length, liveSectionIds };
         }
-        const ids = await (0, course_version_snapshot_1.getVersionActiveSectionSourceIds)(this.prisma, resolved.versionId);
+        const version = await this.prisma.courseVersion.findUnique({
+            where: { id: enrolledVersionId },
+            select: { sectionCount: true, manifest: true },
+        });
+        if (version?.sectionCount != null) {
+            const manifest = (0, course_version_manifest_1.parseManifest)(version.manifest);
+            if (manifest) {
+                const ids = (0, course_version_manifest_1.getSectionIdsFromManifest)(manifest);
+                return { total: version.sectionCount, liveSectionIds: ids };
+            }
+        }
+        const tree = await (0, course_version_manifest_1.loadPinnedCurriculum)(this.prisma, enrolledVersionId);
+        if (!tree) {
+            return { total: 0, liveSectionIds: [] };
+        }
+        const ids = (0, course_version_manifest_1.getSectionIdsFromManifest)(tree.manifest);
         return { total: ids.length, liveSectionIds: ids };
     }
     async countVersionSectionsForCourse(versionId) {
-        return (0, course_version_snapshot_1.countVersionActiveSections)(this.prisma, versionId);
+        const version = await this.prisma.courseVersion.findUnique({
+            where: { id: versionId },
+            select: { sectionCount: true, manifest: true },
+        });
+        if (version?.sectionCount != null) {
+            return version.sectionCount;
+        }
+        const manifest = (0, course_version_manifest_1.parseManifest)(version?.manifest);
+        return manifest ? (0, course_version_manifest_1.countSectionsInManifest)(manifest) : 0;
     }
-    buildUserModulesFromVersion(version, userId, progressByChapter, progressByModule) {
-        return version.modules.map((mod) => {
+    buildUserModulesFromVersion(tree, progressByChapter, progressByModule) {
+        return tree.modules.map((mod) => {
             let moduleSectionTotal = 0;
             let moduleProgressTotal = 0;
             const chapters = mod.chapters.map((ch) => {
-                const sourceChapterId = ch.sourceChapterId ?? ch.id;
-                const sectionTotal = ch.sections.filter((s) => s.isActive).length;
+                const sourceChapterId = ch.sourceChapterId;
+                const sectionTotal = ch.sections.length;
                 const progressCount = progressByChapter.get(sourceChapterId) ?? 0;
                 moduleSectionTotal += sectionTotal;
                 moduleProgressTotal += Math.min(progressCount, sectionTotal);
@@ -530,36 +387,30 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 };
             });
             return {
-                id: mod.sourceModuleId ?? mod.id,
+                id: mod.sourceModuleId,
                 title: mod.title,
                 chapters,
                 _count: {
-                    UserCourseProgress: Math.min(progressByModule.get(mod.sourceModuleId ?? mod.id) ?? moduleProgressTotal, moduleSectionTotal),
+                    UserCourseProgress: Math.min(progressByModule.get(mod.sourceModuleId) ?? moduleProgressTotal, moduleSectionTotal),
                     sections: moduleSectionTotal,
                 },
             };
         });
     }
-    findVersionChapterBySourceId(version, sourceChapterId) {
-        for (const mod of version.modules) {
+    findVersionChapterBySourceId(tree, sourceChapterId) {
+        for (const mod of tree.modules) {
             const ch = mod.chapters.find((c) => c.sourceChapterId === sourceChapterId);
-            if (ch)
+            if (ch) {
                 return { module: mod, chapter: ch };
+            }
         }
         return null;
     }
     mapVersionSectionsForLearner(sections) {
-        return (0, course_version_snapshot_1.sortVersionSections)(sections).map(course_version_snapshot_1.mapVersionSectionToLiveShape);
+        return (0, course_version_manifest_1.mapPinnedSectionsForLearner)(sections);
     }
     mapVersionQuizzesForLearner(quizzes, includeAnswers) {
-        return quizzes.map((q) => {
-            const mapped = (0, course_version_snapshot_1.mapVersionQuizToLiveShape)(q);
-            if (!includeAnswers) {
-                const { answer: _a, ...rest } = mapped;
-                return rest;
-            }
-            return mapped;
-        });
+        return (0, course_version_manifest_1.mapPinnedQuizzesForLearner)(quizzes, includeAnswers);
     }
     async summarizeNewSincePinnedVersion(userId, courseId) {
         const uc = await this.prisma.userCourse.findUnique({
@@ -568,72 +419,66 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         });
         if (!uc?.enrolledVersionId)
             return null;
-        const latest = await this.getLatestPublishedVersion(courseId);
+        const [pinnedVersion, latest] = await Promise.all([
+            this.prisma.courseVersion.findUnique({
+                where: { id: uc.enrolledVersionId },
+                select: { manifest: true, publishedAt: true },
+            }),
+            this.getLatestPublishedVersion(courseId),
+        ]);
         if (!latest || latest.id === uc.enrolledVersionId)
             return null;
-        const [pinnedSectionIds, pinnedChapterIds, latestSections, latestChapters] = await Promise.all([
-            this.prisma.courseVersionSection
-                .findMany({
-                where: { versionId: uc.enrolledVersionId, isActive: true },
-                select: { sourceSectionId: true },
-            })
-                .then((rows) => new Set(rows.map((s) => s.sourceSectionId).filter(Boolean))),
-            this.prisma.courseVersionChapter
-                .findMany({
-                where: { versionId: uc.enrolledVersionId },
-                select: { sourceChapterId: true },
-            })
-                .then((rows) => new Set(rows.map((c) => c.sourceChapterId).filter(Boolean))),
-            this.prisma.courseVersionSection.findMany({
-                where: { versionId: latest.id, isActive: true },
-                select: { sourceSectionId: true, versionChapterId: true, createdAt: true },
-            }),
-            this.prisma.courseVersionChapter.findMany({
-                where: { versionId: latest.id },
-                select: { id: true, sourceChapterId: true },
-            }),
-        ]);
-        const latestChapterByVersionId = new Map(latestChapters.map((c) => [c.id, c.sourceChapterId]));
-        const newSections = latestSections.filter((s) => s.sourceSectionId && !pinnedSectionIds.has(s.sourceSectionId));
-        if (newSections.length === 0)
+        const pinnedManifest = (0, course_version_manifest_1.parseManifest)(pinnedVersion?.manifest);
+        const latestManifest = (0, course_version_manifest_1.parseManifest)(latest.manifest);
+        if (!pinnedManifest || !latestManifest)
             return null;
-        const newChapterSourceIds = new Set();
-        for (const s of newSections) {
-            const sourceChapterId = latestChapterByVersionId.get(s.versionChapterId);
-            if (sourceChapterId && !pinnedChapterIds.has(sourceChapterId)) {
-                newChapterSourceIds.add(sourceChapterId);
-            }
-        }
-        const addedAt = newSections.reduce((max, s) => {
-            if (!max || s.createdAt > max)
-                return s.createdAt;
-            return max;
-        }, null);
+        const diff = (0, course_version_manifest_1.diffManifests)(pinnedManifest, latestManifest);
+        if (diff.newSections === 0)
+            return null;
         return {
-            newChapters: newChapterSourceIds.size,
-            newSections: newSections.length,
-            addedAt,
+            newChapters: diff.newChapters,
+            newSections: diff.newSections,
+            addedAt: latest.publishedAt ?? null,
         };
     }
-    async isReferencedByAnyVersion(table, sourceId) {
-        switch (table) {
-            case 'section':
-                return ((await this.prisma.courseVersionSection.count({
-                    where: { sourceSectionId: sourceId },
-                })) > 0);
-            case 'chapter':
-                return ((await this.prisma.courseVersionChapter.count({
-                    where: { sourceChapterId: sourceId },
-                })) > 0);
-            case 'module':
-                return ((await this.prisma.courseVersionModule.count({
-                    where: { sourceModuleId: sourceId },
-                })) > 0);
-            case 'quiz':
-                return ((await this.prisma.courseVersionQuiz.count({
-                    where: { sourceQuizId: sourceId },
-                })) > 0);
+    async isReferencedByAnyVersion(table, sourceId, courseId) {
+        const versions = await this.prisma.courseVersion.findMany({
+            where: courseId ? { courseId } : undefined,
+            select: { manifest: true },
+        });
+        for (const v of versions) {
+            const manifest = (0, course_version_manifest_1.parseManifest)(v.manifest);
+            if (manifest && (0, course_version_manifest_1.isIdReferencedInManifest)(manifest, table, sourceId)) {
+                return true;
+            }
         }
+        return false;
+    }
+    async pruneOrphanVersions(courseId) {
+        const versions = await this.prisma.courseVersion.findMany({
+            where: courseId ? { courseId } : undefined,
+            orderBy: { versionNumber: 'asc' },
+            include: { _count: { select: { enrollments: true } } },
+        });
+        const toDelete = versions.filter((v) => v._count.enrollments === 0 && !v.isLatest);
+        for (const v of toDelete) {
+            await this.prisma.courseVersion.delete({ where: { id: v.id } });
+        }
+        return {
+            message: `Pruned ${toDelete.length} orphan version(s)`,
+            statusCode: 200,
+            data: {
+                deleted: toDelete.length,
+                versionNumbers: toDelete.map((v) => v.versionNumber),
+            },
+        };
+    }
+    async getManifestForVersion(versionId) {
+        const version = await this.prisma.courseVersion.findUnique({
+            where: { id: versionId },
+            select: { manifest: true, sectionCount: true },
+        });
+        return version ? (0, course_version_manifest_1.parseManifest)(version.manifest) : null;
     }
 };
 exports.CourseVersionService = CourseVersionService;

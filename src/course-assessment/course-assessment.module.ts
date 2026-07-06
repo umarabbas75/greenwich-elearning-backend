@@ -7,11 +7,17 @@ import {
 } from '../strategy';
 import { PrismaModule } from '../prisma/prisma.module';
 import { NotificationModule } from '../notifications/notification.module';
+import { CourseVersionModule } from '../course-version/course-version.module';
 import { CourseAssessmentController } from './course-assessment.controller';
 import { CourseAssessmentService } from './course-assessment.service';
 
 @Module({
-  imports: [JwtModule.register({}), PrismaModule, NotificationModule],
+  imports: [
+    JwtModule.register({}),
+    PrismaModule,
+    NotificationModule,
+    CourseVersionModule,
+  ],
   providers: [
     CourseAssessmentService,
     JwtUserStrategy,

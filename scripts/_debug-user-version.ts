@@ -49,7 +49,7 @@ async function main() {
   const versions = await prisma.courseVersion.findMany({
     where: { courseId: course.id },
     orderBy: { versionNumber: 'asc' },
-    include: { _count: { select: { sections: true, enrollments: true } } },
+    include: { _count: { select: { enrollments: true } } },
   });
 
   const liveSections = await prisma.section.count({
@@ -83,7 +83,7 @@ async function main() {
       versionNumber: v.versionNumber,
       isLatest: v.isLatest,
       status: v.status,
-      snapshottedSections: v._count.sections,
+      sectionCount: v.sectionCount,
       pinnedEnrollments: v._count.enrollments,
       publishedAt: v.publishedAt,
     });

@@ -11,6 +11,8 @@ export declare class ForumCommentService {
         data: ({
             user: {
                 id: string;
+                createdAt: Date;
+                updatedAt: Date;
                 firstName: string;
                 lastName: string;
                 email: string;
@@ -18,8 +20,6 @@ export declare class ForumCommentService {
                 photo: string;
                 timezone: string;
                 role: import(".prisma/client").$Enums.Role;
-                createdAt: Date;
-                updatedAt: Date;
             };
         } & {
             id: string;
