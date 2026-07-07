@@ -28,7 +28,10 @@ import {
 } from '../dto';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { assertChapterAccessible, recordChapterAndModuleCompletionIfNeeded } from '../utils/chapter-progression';
+import {
+  assertChapterAccessible,
+  recordChapterAndModuleCompletionIfNeeded,
+} from '../utils/chapter-progression';
 import {
   applyModuleRollup,
   buildChapterActivityMaps,
@@ -50,7 +53,7 @@ export class CourseService {
     private mail: MailService,
     private feedbackService: FeedbackService,
     private courseVersionService: CourseVersionService,
-  ) {}
+  ) { }
 
   /** True iff the learner has been certified-complete on this course. */
   private async isCourseFrozen(
@@ -92,15 +95,14 @@ export class CourseService {
       return published;
     } catch (error) {
       CourseService.completionLogger.error(
-        `Auto-publish failed for course ${courseId}: ${error?.message ?? error}`,
+        `Auto-publish failed for course ${courseId}: ${error?.message ?? error
+        }`,
       );
       return null;
     }
   }
 
-  private async resolveCourseIdFromModuleId(
-    moduleId: string,
-  ): Promise<string> {
+  private async resolveCourseIdFromModuleId(moduleId: string): Promise<string> {
     const mod = await this.prisma.module.findUnique({
       where: { id: moduleId },
       select: { courseId: true },
@@ -232,7 +234,8 @@ export class CourseService {
     try {
       await promoteFormPhotoToUserIfMissing(this.prisma, userId, metadata);
     } catch (photoErr) {
-      const msg = photoErr instanceof Error ? photoErr.message : String(photoErr);
+      const msg =
+        photoErr instanceof Error ? photoErr.message : String(photoErr);
       CourseService.completionLogger.warn(
         `Form photo promotion failed for user ${userId}: ${msg}`,
       );
@@ -397,50 +400,55 @@ export class CourseService {
     courseId: string,
     chapterIds: string[],
   ) {
-    const [progressRows, quizAnswerRows, lastSeenRows, quizProgressRows, timeSpentRows] =
-      await Promise.all([
-        this.prisma.userCourseProgress.findMany({
-          where: { userId, courseId },
-          select: { sectionId: true, chapterId: true, createdAt: true },
+    const [
+      progressRows,
+      quizAnswerRows,
+      lastSeenRows,
+      quizProgressRows,
+      timeSpentRows,
+    ] = await Promise.all([
+      this.prisma.userCourseProgress.findMany({
+        where: { userId, courseId },
+        select: { sectionId: true, chapterId: true, createdAt: true },
+      }),
+      chapterIds.length === 0
+        ? Promise.resolve([] as { chapterId: string | null }[])
+        : this.prisma.quizAnswer.findMany({
+          where: {
+            userId,
+            isAnswerCorrect: true,
+            chapterId: { in: chapterIds },
+          },
+          select: { chapterId: true },
         }),
-        chapterIds.length === 0
-          ? Promise.resolve([] as { chapterId: string | null }[])
-          : this.prisma.quizAnswer.findMany({
-              where: {
-                userId,
-                isAnswerCorrect: true,
-                chapterId: { in: chapterIds },
-              },
-              select: { chapterId: true },
-            }),
-        chapterIds.length === 0
-          ? Promise.resolve(
-              [] as Array<{
-                chapterId: string;
-                sectionId: string;
-                createdAt: Date;
-                updatedAt: Date;
-              }>,
-            )
-          : this.prisma.lastSeenSection.findMany({
-              where: { userId, chapterId: { in: chapterIds } },
-              select: {
-                chapterId: true,
-                sectionId: true,
-                createdAt: true,
-                updatedAt: true,
-              },
-            }),
-        chapterIds.length === 0
-          ? Promise.resolve([])
-          : this.prisma.quizProgress.findMany({
-              where: { userId, chapterId: { in: chapterIds } },
-            }),
-        this.prisma.sectionTimeSpent.findMany({
-          where: { userId, courseId },
-          select: { sectionId: true, totalSeconds: true, totalAttempts: true },
+      chapterIds.length === 0
+        ? Promise.resolve(
+          [] as Array<{
+            chapterId: string;
+            sectionId: string;
+            createdAt: Date;
+            updatedAt: Date;
+          }>,
+        )
+        : this.prisma.lastSeenSection.findMany({
+          where: { userId, chapterId: { in: chapterIds } },
+          select: {
+            chapterId: true,
+            sectionId: true,
+            createdAt: true,
+            updatedAt: true,
+          },
         }),
-      ]);
+      chapterIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.quizProgress.findMany({
+          where: { userId, chapterId: { in: chapterIds } },
+        }),
+      this.prisma.sectionTimeSpent.findMany({
+        where: { userId, courseId },
+        select: { sectionId: true, totalSeconds: true, totalAttempts: true },
+      }),
+    ]);
 
     return buildChapterActivityMaps({
       progressRows,
@@ -520,25 +528,25 @@ export class CourseService {
       // 4. If all required items completed, mark policy as complete
       const policyCompletion = allRequiredItemsCompleted
         ? await this.prisma.userPolicyCompletion.upsert({
-            where: {
-              userId_courseId_policyId: {
-                userId,
-                courseId,
-                policyId,
-              },
-            },
-            update: {
-              isComplete: true,
-              completedAt: new Date(),
-            },
-            create: {
+          where: {
+            userId_courseId_policyId: {
               userId,
               courseId,
               policyId,
-              isComplete: true,
-              completedAt: new Date(),
             },
-          })
+          },
+          update: {
+            isComplete: true,
+            completedAt: new Date(),
+          },
+          create: {
+            userId,
+            courseId,
+            policyId,
+            isComplete: true,
+            completedAt: new Date(),
+          },
+        })
         : null;
 
       return {
@@ -742,8 +750,7 @@ export class CourseService {
           return (
             sum +
             mod.chapters.reduce(
-              (chSum, chapter) =>
-                chSum + chapter.sections.length,
+              (chSum, chapter) => chSum + chapter.sections.length,
               0,
             )
           );
@@ -870,8 +877,7 @@ export class CourseService {
             sectionMetas,
             quizzesTotal: chapter._count.quizzes,
             activity,
-            chapterCompletedAt:
-              chapterCompletedAtById.get(chapter.id) ?? null,
+            chapterCompletedAt: chapterCompletedAtById.get(chapter.id) ?? null,
             isFrozen,
           });
         });
@@ -1391,7 +1397,7 @@ export class CourseService {
       if (isCourseExist) {
         throw new Error('Course already exist with specified title');
       }
-
+      console.log('test');
       // Create transaction for atomic operations
       const result = await this.prisma.$transaction(async (prisma) => {
         // 1. Create the course
@@ -1463,10 +1469,7 @@ export class CourseService {
       );
     }
   }
-  async createModule(
-    body: ModuleDto,
-    adminId?: string,
-  ): Promise<ResponseDto> {
+  async createModule(body: ModuleDto, adminId?: string): Promise<ResponseDto> {
     try {
       const module: Module = await this.prisma.module.create({
         data: {
@@ -1502,10 +1505,7 @@ export class CourseService {
       );
     }
   }
-  async createChapter(
-    body: ModuleDto,
-    adminId?: string,
-  ): Promise<ResponseDto> {
+  async createChapter(body: ModuleDto, adminId?: string): Promise<ResponseDto> {
     try {
       const courseId = await this.resolveCourseIdFromModuleId(body.id);
       const chapter: Chapter = await this.prisma.chapter.create({
@@ -1696,12 +1696,12 @@ export class CourseService {
           // Include feedback form information
           feedbackForm: course.feedbackForm
             ? {
-                id: course.feedbackForm.id,
-                formName: course.feedbackForm.formName,
-                formStructure: course.feedbackForm.formStructure,
-                isRequired: course.feedbackForm.isRequired,
-                isActive: course.feedbackForm.isActive,
-              }
+              id: course.feedbackForm.id,
+              formName: course.feedbackForm.formName,
+              formStructure: course.feedbackForm.formStructure,
+              isRequired: course.feedbackForm.isRequired,
+              isActive: course.feedbackForm.isActive,
+            }
             : null,
         },
       };
@@ -1760,9 +1760,8 @@ export class CourseService {
         expiresAt.setDate(expiresAt.getDate() + (course.validityDays ?? 365));
         if (new Date() > expiresAt) {
           return {
-            message: `Your access to this course expired on ${
-              expiresAt.toISOString().split('T')[0]
-            }. Please contact your administrator to renew access.`,
+            message: `Your access to this course expired on ${expiresAt.toISOString().split('T')[0]
+              }. Please contact your administrator to renew access.`,
             statusCode: 403,
             data: { canAccessContent: false, expired: true, expiresAt },
           };
@@ -2229,7 +2228,9 @@ export class CourseService {
         });
         const progressByChapter = new Map<string, number>();
         const progressByModule = new Map<string, number>();
-        const progressSectionIds = new Set(progressRows.map((p) => p.sectionId));
+        const progressSectionIds = new Set(
+          progressRows.map((p) => p.sectionId),
+        );
 
         for (const mod of curriculum.tree.modules) {
           const sourceModuleId = mod.sourceModuleId;
@@ -2491,9 +2492,10 @@ export class CourseService {
         }
 
         const { chapter: versionChapter } = found;
-        const allSections = this.courseVersionService.mapVersionSectionsForLearner(
-          versionChapter.sections,
-        );
+        const allSections =
+          this.courseVersionService.mapVersionSectionsForLearner(
+            versionChapter.sections,
+          );
         const completedSections = userCourseProgress ?? [];
 
         allSections.forEach((section: any) => {
@@ -3308,7 +3310,9 @@ export class CourseService {
         throw new Error('Section not found');
       }
 
-      const courseId = await this.resolveCourseIdFromChapterId(section.chapterId);
+      const courseId = await this.resolveCourseIdFromChapterId(
+        section.chapterId,
+      );
 
       // Already archived: hard-delete only when no version manifest still references it.
       if (section.isArchived) {
@@ -3727,9 +3731,8 @@ export class CourseService {
       });
 
       return {
-        message: `Successfully ${
-          isActive ? 'activated' : 'deactivated'
-        } course status for user`,
+        message: `Successfully ${isActive ? 'activated' : 'deactivated'
+          } course status for user`,
         statusCode: 200,
         data: {
           userId,
@@ -3787,9 +3790,8 @@ export class CourseService {
       });
 
       return {
-        message: `Successfully ${
-          isPaid ? 'activated' : 'deactivated'
-        } course payment status for user`,
+        message: `Successfully ${isPaid ? 'activated' : 'deactivated'
+          } course payment status for user`,
         statusCode: 200,
         data: {
           userId,
@@ -3803,8 +3805,7 @@ export class CourseService {
           status: HttpStatus.FORBIDDEN,
           error:
             error?.message ||
-            `Failed to ${
-              isPaid ? 'activate' : 'deactivate'
+            `Failed to ${isPaid ? 'activate' : 'deactivate'
             } course payment status`,
         },
         HttpStatus.FORBIDDEN,
@@ -3989,8 +3990,8 @@ export class CourseService {
         const sectionsCount = enrolledVersionId
           ? versionSectionCounts.get(enrolledVersionId) ?? 0
           : course.modules
-              ?.flatMap((module) => module.chapters)
-              ?.reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
+            ?.flatMap((module) => module.chapters)
+            ?.reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
 
         const userCourseProgressCount = course._count?.UserCourseProgress || 0;
 
@@ -4030,9 +4031,9 @@ export class CourseService {
           completedAt: completedAt ?? null,
           feedbackForm: course.feedbackForm
             ? {
-                isRequired: course.feedbackForm.isRequired,
-                isCompleted: feedbackSubmittedIds.has(course.id),
-              }
+              isRequired: course.feedbackForm.isRequired,
+              isCompleted: feedbackSubmittedIds.has(course.id),
+            }
             : null,
           percentage: isFrozen
             ? 100
@@ -4057,15 +4058,15 @@ export class CourseService {
           canAccessContent,
           latestLastSeenSection: latestLastSeenSection
             ? {
-                id: latestLastSeenSection.id,
-                userId: latestLastSeenSection.userId,
-                chapterId: latestLastSeenSection.chapterId,
-                moduleId: latestLastSeenSection.moduleId,
-                sectionId: latestLastSeenSection.sectionId,
-                createdAt: latestLastSeenSection.createdAt,
-                updatedAt: latestLastSeenSection.updatedAt,
-                title: latestLastSeenSection.section.title,
-              }
+              id: latestLastSeenSection.id,
+              userId: latestLastSeenSection.userId,
+              chapterId: latestLastSeenSection.chapterId,
+              moduleId: latestLastSeenSection.moduleId,
+              sectionId: latestLastSeenSection.sectionId,
+              createdAt: latestLastSeenSection.createdAt,
+              updatedAt: latestLastSeenSection.updatedAt,
+              title: latestLastSeenSection.section.title,
+            }
             : null,
         };
       });
@@ -4278,9 +4279,8 @@ export class CourseService {
         expiresAt.setDate(expiresAt.getDate() + validityDays);
         if (new Date() > expiresAt) {
           throw new ForbiddenException({
-            detail: `Your access to this course expired on ${
-              expiresAt.toISOString().split('T')[0]
-            }. Please contact your administrator to renew access.`,
+            detail: `Your access to this course expired on ${expiresAt.toISOString().split('T')[0]
+              }. Please contact your administrator to renew access.`,
           });
         }
       }
@@ -4641,11 +4641,7 @@ export class CourseService {
     courseId: string,
     body: { formVersion?: string; formData: unknown },
   ): Promise<ResponseDto> {
-    return this.feedbackService.submitCourseFeedback(
-      studentId,
-      courseId,
-      body,
-    );
+    return this.feedbackService.submitCourseFeedback(studentId, courseId, body);
   }
 
   async getCourseFeedbackStatus(
@@ -4659,10 +4655,7 @@ export class CourseService {
     courseId: string,
     adminId: string,
   ): Promise<ResponseDto> {
-    return this.feedbackService.getCourseFeedbackSubmissions(
-      courseId,
-      adminId,
-    );
+    return this.feedbackService.getCourseFeedbackSubmissions(courseId, adminId);
   }
 
   /**
@@ -4723,14 +4716,14 @@ export class CourseService {
         const quizProgress =
           chapterIds.length > 0
             ? await tx.quizProgress.deleteMany({
-                where: { userId, chapterId: { in: chapterIds } },
-              })
+              where: { userId, chapterId: { in: chapterIds } },
+            })
             : { count: 0 };
         const quizAnswers =
           chapterIds.length > 0
             ? await tx.quizAnswer.deleteMany({
-                where: { userId, chapterId: { in: chapterIds } },
-              })
+              where: { userId, chapterId: { in: chapterIds } },
+            })
             : { count: 0 };
         const formCompletions = await tx.userFormCompletion.deleteMany({
           where: { userId, courseId },
@@ -4769,8 +4762,8 @@ export class CourseService {
         const assessmentAttempts =
           assessmentIds.length > 0
             ? await tx.assessmentAttempt.deleteMany({
-                where: { userId, assessmentId: { in: assessmentIds } },
-              })
+              where: { userId, assessmentId: { in: assessmentIds } },
+            })
             : { count: 0 };
 
         return {
