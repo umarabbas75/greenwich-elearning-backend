@@ -207,7 +207,6 @@ export class UserService {
           address: body.address ?? null,
           role: body.role,
           photo: body?.photo ?? null,
-          photoBase64: body?.photoBase64 ?? null,
           // Admin-created accounts get a temporary password the admin chose, so
           // the user must set their own on first login. Self-registered users
           // chose their own password, so no forced change.

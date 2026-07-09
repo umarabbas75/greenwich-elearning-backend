@@ -16,7 +16,6 @@ model User {
   phone                    String?
   address                  String?
   photo                    String?
-  photoBase64              String?
   timezone                 String?
   password                 String
   // Set true for admin-created accounts (the admin sets a temporary password).
