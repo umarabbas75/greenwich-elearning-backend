@@ -775,8 +775,10 @@ enum SectionType {
   DEFAULT
   MATCH_AND_LEARN
   VISUAL_ACTIVITY
+  AUTO_GRADED_QUESTION
   ORDERING
   MATCHING
+  EMBED
   @@map("section_type")
 }
 
