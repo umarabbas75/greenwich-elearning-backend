@@ -183,7 +183,6 @@ let UserService = UserService_1 = class UserService {
                     address: body.address ?? null,
                     role: body.role,
                     photo: body?.photo ?? null,
-                    photoBase64: body?.photoBase64 ?? null,
                     mustChangePassword: !selfRegistered,
                 },
             });

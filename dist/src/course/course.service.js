@@ -266,7 +266,7 @@ let CourseService = CourseService_1 = class CourseService {
         };
     }
     async fetchReportActivityData(userId, courseId, chapterIds) {
-        const [progressRows, quizAnswerRows, lastSeenRows, quizProgressRows, timeSpentRows] = await Promise.all([
+        const [progressRows, quizAnswerRows, lastSeenRows, quizProgressRows, timeSpentRows,] = await Promise.all([
             this.prisma.userCourseProgress.findMany({
                 where: { userId, courseId },
                 select: { sectionId: true, chapterId: true, createdAt: true },
@@ -1024,6 +1024,7 @@ let CourseService = CourseService_1 = class CourseService {
             if (isCourseExist) {
                 throw new Error('Course already exist with specified title');
             }
+            console.log('test');
             const result = await this.prisma.$transaction(async (prisma) => {
                 const course = await prisma.course.create({
                     data: {

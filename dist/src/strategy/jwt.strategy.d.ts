@@ -15,7 +15,6 @@ export declare class JwtAdminStrategy extends JwtAdminStrategy_base {
         phone: string;
         address: string;
         photo: string;
-        photoBase64: string;
         timezone: string;
         password: string;
         mustChangePassword: boolean;
@@ -42,7 +41,6 @@ export declare class JwtUserStrategy extends JwtUserStrategy_base {
         phone: string;
         address: string;
         photo: string;
-        photoBase64: string;
         timezone: string;
         password: string;
         mustChangePassword: boolean;
@@ -70,7 +68,6 @@ export declare class JwtCombineStrategy extends JwtCombineStrategy_base {
         phone: string;
         address: string;
         photo: string;
-        photoBase64: string;
         timezone: string;
         password: string;
         mustChangePassword: boolean;

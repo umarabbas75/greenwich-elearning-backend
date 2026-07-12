@@ -60,11 +60,6 @@ __decorate([
     __metadata("design:type", String)
 ], BodyDto.prototype, "photo", void 0);
 __decorate([
-    (0, class_validator_1.IsString)(),
-    (0, class_validator_1.IsOptional)(),
-    __metadata("design:type", String)
-], BodyDto.prototype, "photoBase64", void 0);
-__decorate([
     (0, class_validator_1.IsBoolean)(),
     (0, class_validator_1.IsOptional)(),
     __metadata("design:type", Boolean)
