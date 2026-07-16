@@ -263,16 +263,36 @@ export class UserService {
       if (Object.entries(body).length === 0) {
         throw new Error('wrong keys');
       }
-      const updateUser = {};
+
+      // Only forward columns that still exist on User. Clients may still send
+      // legacy fields like `photoBase64` (dropped — avatars live in `photo`).
+      const allowedFields = new Set([
+        'firstName',
+        'lastName',
+        'email',
+        'phone',
+        'address',
+        'photo',
+        'timezone',
+        'role',
+        'status',
+      ]);
+      const updateUser: Record<string, unknown> = {};
 
       for (const [key, value] of Object.entries(body)) {
-        updateUser[key] = value;
+        if (allowedFields.has(key) && value !== undefined) {
+          updateUser[key] = value;
+        }
+      }
+
+      if (Object.keys(updateUser).length === 0) {
+        throw new Error('wrong keys');
       }
 
       // Save the updated user
       const updatedUser = await this.prisma.user.update({
-        where: { id: userId }, // Specify the unique identifier for the user you want to update
-        data: updateUser, // Pass the modified user object
+        where: { id: userId },
+        data: updateUser,
       });
 
       return {

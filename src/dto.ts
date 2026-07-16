@@ -93,6 +93,14 @@ export class BodyUpdateDto {
 
   @IsOptional()
   @IsString()
+  timezone?: string;
+
+  @IsOptional()
+  @IsString()
+  role?: string;
+
+  @IsOptional()
+  @IsString()
   status?: string;
 }
 export class ChangePasswordDto {
