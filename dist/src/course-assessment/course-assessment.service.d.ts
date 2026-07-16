@@ -374,10 +374,10 @@ export declare class CourseAssessmentService {
                 status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
                 isPassed: boolean;
                 submittedAt: Date;
-                percentage: number;
                 snapshotTimeLimitMin: number;
                 totalMarks: number;
                 marksObtained: number;
+                percentage: number;
                 startedAt: Date;
                 finalizedAt: Date;
             }[];

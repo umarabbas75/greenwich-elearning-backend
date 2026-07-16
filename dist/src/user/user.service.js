@@ -226,9 +226,25 @@ let UserService = UserService_1 = class UserService {
             if (Object.entries(body).length === 0) {
                 throw new Error('wrong keys');
             }
+            const allowedFields = new Set([
+                'firstName',
+                'lastName',
+                'email',
+                'phone',
+                'address',
+                'photo',
+                'timezone',
+                'role',
+                'status',
+            ]);
             const updateUser = {};
             for (const [key, value] of Object.entries(body)) {
-                updateUser[key] = value;
+                if (allowedFields.has(key) && value !== undefined) {
+                    updateUser[key] = value;
+                }
+            }
+            if (Object.keys(updateUser).length === 0) {
+                throw new Error('wrong keys');
             }
             const updatedUser = await this.prisma.user.update({
                 where: { id: userId },
