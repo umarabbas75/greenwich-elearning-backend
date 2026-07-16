@@ -39,6 +39,23 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             tree,
         };
     }
+    async resolveCurriculumTreeForReport(userId, courseId, preloadedUc) {
+        const enrolledVersionId = await this.resolveEnrolledVersionId(userId, courseId, preloadedUc);
+        if (!enrolledVersionId) {
+            return { mode: 'live' };
+        }
+        const tree = await (0, course_version_manifest_1.loadPinnedCurriculumForReport)(this.prisma, enrolledVersionId);
+        if (!tree) {
+            this.logger.warn(`User ${userId} pinned to missing or invalid version ${enrolledVersionId}; falling back to live tree for report`);
+            return { mode: 'live' };
+        }
+        return {
+            mode: 'versioned',
+            versionId: tree.versionId,
+            versionNumber: tree.versionNumber,
+            tree,
+        };
+    }
     async resolveEnrolledVersionId(userId, courseId, preloadedUc) {
         const uc = preloadedUc ??
             (await this.prisma.userCourse.findUnique({
@@ -412,21 +429,25 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
     mapVersionQuizzesForLearner(quizzes, includeAnswers) {
         return (0, course_version_manifest_1.mapPinnedQuizzesForLearner)(quizzes, includeAnswers);
     }
-    async summarizeNewSincePinnedVersion(userId, courseId) {
-        const uc = await this.prisma.userCourse.findUnique({
-            where: { userId_courseId: { userId, courseId } },
-            select: { enrolledVersionId: true },
-        });
-        if (!uc?.enrolledVersionId)
+    async summarizeNewSincePinnedVersion(userId, courseId, enrolledVersionId) {
+        let pinnedVersionId = enrolledVersionId;
+        if (pinnedVersionId === undefined) {
+            const uc = await this.prisma.userCourse.findUnique({
+                where: { userId_courseId: { userId, courseId } },
+                select: { enrolledVersionId: true },
+            });
+            pinnedVersionId = uc?.enrolledVersionId ?? null;
+        }
+        if (!pinnedVersionId)
             return null;
         const [pinnedVersion, latest] = await Promise.all([
             this.prisma.courseVersion.findUnique({
-                where: { id: uc.enrolledVersionId },
+                where: { id: pinnedVersionId },
                 select: { manifest: true, publishedAt: true },
             }),
             this.getLatestPublishedVersion(courseId),
         ]);
-        if (!latest || latest.id === uc.enrolledVersionId)
+        if (!latest || latest.id === pinnedVersionId)
             return null;
         const pinnedManifest = (0, course_version_manifest_1.parseManifest)(pinnedVersion?.manifest);
         const latestManifest = (0, course_version_manifest_1.parseManifest)(latest.manifest);

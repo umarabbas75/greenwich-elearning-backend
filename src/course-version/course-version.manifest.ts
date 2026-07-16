@@ -89,6 +89,35 @@ export type PinnedCurriculumTree = {
   modules: PinnedCurriculumModule[];
 };
 
+/** Lean tree for admin/learner reports — titles + structure only, no section bodies. */
+export type ReportCurriculumSection = {
+  id: string;
+  title: string;
+  orderIndex: number | null;
+  type: SectionType;
+};
+
+export type ReportCurriculumChapter = {
+  sourceChapterId: string;
+  title: string;
+  orderIndex: number;
+  sections: ReportCurriculumSection[];
+  quizzesTotal: number;
+};
+
+export type ReportCurriculumModule = {
+  sourceModuleId: string;
+  title: string;
+  orderIndex: number;
+  chapters: ReportCurriculumChapter[];
+};
+
+export type ReportCurriculumTree = {
+  versionId: string;
+  versionNumber: number;
+  modules: ReportCurriculumModule[];
+};
+
 export function parseManifest(raw: unknown): CourseVersionManifest | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return null;
@@ -581,6 +610,123 @@ export async function loadPinnedCurriculum(
     versionId: version.id,
     versionNumber: version.versionNumber,
     manifest,
+    modules,
+  };
+}
+
+/**
+ * Report-only hydrate: section titles/types + quiz counts.
+ * Avoids pulling full section HTML/config payloads (~10x less DB transfer).
+ */
+export async function loadPinnedCurriculumForReport(
+  prisma: Db,
+  versionId: string,
+): Promise<ReportCurriculumTree | null> {
+  const version = await prisma.courseVersion.findUnique({
+    where: { id: versionId },
+    select: {
+      id: true,
+      versionNumber: true,
+      manifest: true,
+    },
+  });
+  if (!version) {
+    return null;
+  }
+
+  let manifest = parseManifest(version.manifest);
+  if (!manifest) {
+    try {
+      manifest =
+        (await buildManifestFromLegacySnapshot(prisma, versionId))?.manifest ??
+        null;
+    } catch {
+      manifest = null;
+    }
+  }
+  if (!manifest) {
+    return null;
+  }
+
+  const allSectionIds = getSectionIdsFromManifest(manifest);
+  const allQuizIds = getQuizIdsFromManifest(manifest);
+  const allModuleIds = manifest.modules.map((m) => m.sourceId);
+  const allChapterIds = getChapterIdsFromManifest(manifest);
+
+  const [liveSections, liveQuizzes, liveModules, liveChapters] =
+    await Promise.all([
+      allSectionIds.length > 0
+        ? prisma.section.findMany({
+            where: { id: { in: allSectionIds } },
+            select: {
+              id: true,
+              title: true,
+              orderIndex: true,
+              type: true,
+            },
+          })
+        : Promise.resolve([]),
+      allQuizIds.length > 0
+        ? prisma.quiz.findMany({
+            where: { id: { in: allQuizIds } },
+            select: { id: true },
+          })
+        : Promise.resolve([]),
+      allModuleIds.length > 0
+        ? prisma.module.findMany({
+            where: { id: { in: allModuleIds } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+      allChapterIds.length > 0
+        ? prisma.chapter.findMany({
+            where: { id: { in: allChapterIds } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+  const sectionById = new Map(liveSections.map((s) => [s.id, s]));
+  const quizIdSet = new Set(liveQuizzes.map((q) => q.id));
+  const moduleById = new Map(liveModules.map((m) => [m.id, m]));
+  const chapterById = new Map(liveChapters.map((c) => [c.id, c]));
+
+  const modules: ReportCurriculumModule[] = manifest.modules.map((mod) => {
+    const liveMod = moduleById.get(mod.sourceId);
+    const chapters: ReportCurriculumChapter[] = mod.chapters.map((ch) => {
+      const liveCh = chapterById.get(ch.sourceId);
+      const sections: ReportCurriculumSection[] = sortSectionsByOrderIndex(
+        ch.sectionIds
+          .map((sid) => sectionById.get(sid))
+          .filter((s): s is NonNullable<typeof s> => Boolean(s))
+          .map((s) => ({
+            id: s.id,
+            title: s.title,
+            orderIndex: s.orderIndex,
+            type: s.type,
+          })),
+      );
+
+      return {
+        sourceChapterId: ch.sourceId,
+        title: liveCh?.title ?? '',
+        orderIndex: ch.order,
+        sections,
+        quizzesTotal: ch.quizIds.filter((qid) => quizIdSet.has(qid)).length,
+      };
+    });
+
+    return {
+      sourceModuleId: mod.sourceId,
+      title: liveMod?.title ?? '',
+      orderIndex: mod.order,
+      chapters,
+    };
+  });
+
+  return {
+    versionId: version.id,
+    versionNumber: version.versionNumber,
     modules,
   };
 }

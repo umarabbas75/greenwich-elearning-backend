@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { getChapterIdsFromManifest, getQuizIdsFromManifest, getSectionIdsFromManifest, PinnedCurriculumModule, PinnedCurriculumQuiz, PinnedCurriculumSection, PinnedCurriculumTree } from './course-version.manifest';
+import { getChapterIdsFromManifest, getQuizIdsFromManifest, getSectionIdsFromManifest, PinnedCurriculumModule, PinnedCurriculumQuiz, PinnedCurriculumSection, PinnedCurriculumTree, ReportCurriculumTree } from './course-version.manifest';
 export type CurriculumResolveResult = {
     mode: 'live';
 } | {
@@ -9,11 +9,23 @@ export type CurriculumResolveResult = {
     versionNumber: number;
     tree: PinnedCurriculumTree;
 };
+export type ReportCurriculumResolveResult = {
+    mode: 'live';
+} | {
+    mode: 'versioned';
+    versionId: string;
+    versionNumber: number;
+    tree: ReportCurriculumTree;
+};
 export declare class CourseVersionService {
     private readonly prisma;
     private readonly logger;
     constructor(prisma: PrismaService);
     resolveCurriculumTree(userId: string, courseId: string): Promise<CurriculumResolveResult>;
+    resolveCurriculumTreeForReport(userId: string, courseId: string, preloadedUc?: {
+        id: string;
+        enrolledVersionId: string | null;
+    } | null): Promise<ReportCurriculumResolveResult>;
     resolveEnrolledVersionId(userId: string, courseId: string, preloadedUc?: {
         id: string;
         enrolledVersionId: string | null;
@@ -141,7 +153,7 @@ export declare class CourseVersionService {
     mapVersionQuizzesForLearner(quizzes: PinnedCurriculumQuiz[], includeAnswers: boolean): (Omit<PinnedCurriculumQuiz, "answer"> & {
         answer?: string;
     })[];
-    summarizeNewSincePinnedVersion(userId: string, courseId: string): Promise<{
+    summarizeNewSincePinnedVersion(userId: string, courseId: string, enrolledVersionId?: string | null): Promise<{
         newChapters: number;
         newSections: number;
         addedAt: Date | null;

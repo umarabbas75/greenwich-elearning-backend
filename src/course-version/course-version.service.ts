@@ -24,6 +24,8 @@ import {
   PinnedCurriculumSection,
   PinnedCurriculumTree,
   publishManifestVersion,
+  loadPinnedCurriculumForReport,
+  ReportCurriculumTree,
 } from './course-version.manifest';
 
 export type CurriculumResolveResult =
@@ -33,6 +35,15 @@ export type CurriculumResolveResult =
       versionId: string;
       versionNumber: number;
       tree: PinnedCurriculumTree;
+    };
+
+export type ReportCurriculumResolveResult =
+  | { mode: 'live' }
+  | {
+      mode: 'versioned';
+      versionId: string;
+      versionNumber: number;
+      tree: ReportCurriculumTree;
     };
 
 @Injectable()
@@ -57,6 +68,40 @@ export class CourseVersionService {
     if (!tree) {
       this.logger.warn(
         `User ${userId} pinned to missing or invalid version ${enrolledVersionId}; falling back to live tree`,
+      );
+      return { mode: 'live' };
+    }
+
+    return {
+      mode: 'versioned',
+      versionId: tree.versionId,
+      versionNumber: tree.versionNumber,
+      tree,
+    };
+  }
+
+  /** Report path: lean section metadata only (no HTML/config payloads). */
+  async resolveCurriculumTreeForReport(
+    userId: string,
+    courseId: string,
+    preloadedUc?: { id: string; enrolledVersionId: string | null } | null,
+  ): Promise<ReportCurriculumResolveResult> {
+    const enrolledVersionId = await this.resolveEnrolledVersionId(
+      userId,
+      courseId,
+      preloadedUc,
+    );
+    if (!enrolledVersionId) {
+      return { mode: 'live' };
+    }
+
+    const tree = await loadPinnedCurriculumForReport(
+      this.prisma,
+      enrolledVersionId,
+    );
+    if (!tree) {
+      this.logger.warn(
+        `User ${userId} pinned to missing or invalid version ${enrolledVersionId}; falling back to live tree for report`,
       );
       return { mode: 'live' };
     }
@@ -574,26 +619,31 @@ export class CourseVersionService {
   async summarizeNewSincePinnedVersion(
     userId: string,
     courseId: string,
+    enrolledVersionId?: string | null,
   ): Promise<{
     newChapters: number;
     newSections: number;
     addedAt: Date | null;
   } | null> {
-    const uc = await this.prisma.userCourse.findUnique({
-      where: { userId_courseId: { userId, courseId } },
-      select: { enrolledVersionId: true },
-    });
-    if (!uc?.enrolledVersionId) return null;
+    let pinnedVersionId = enrolledVersionId;
+    if (pinnedVersionId === undefined) {
+      const uc = await this.prisma.userCourse.findUnique({
+        where: { userId_courseId: { userId, courseId } },
+        select: { enrolledVersionId: true },
+      });
+      pinnedVersionId = uc?.enrolledVersionId ?? null;
+    }
+    if (!pinnedVersionId) return null;
 
     const [pinnedVersion, latest] = await Promise.all([
       this.prisma.courseVersion.findUnique({
-        where: { id: uc.enrolledVersionId },
+        where: { id: pinnedVersionId },
         select: { manifest: true, publishedAt: true },
       }),
       this.getLatestPublishedVersion(courseId),
     ]);
 
-    if (!latest || latest.id === uc.enrolledVersionId) return null;
+    if (!latest || latest.id === pinnedVersionId) return null;
 
     const pinnedManifest = parseManifest(pinnedVersion?.manifest);
     const latestManifest = parseManifest(latest.manifest);

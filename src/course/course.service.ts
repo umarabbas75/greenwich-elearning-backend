@@ -686,12 +686,30 @@ export class CourseService {
         newSinceCompletion,
         firstProgress,
       ] = await Promise.all([
-        this.prisma.user.findUnique({ where: { id: userId } }),
+        this.prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            address: true,
+            photo: true,
+            role: true,
+            status: true,
+            timezone: true,
+            createdAt: true,
+          },
+        }),
         this.prisma.courseCompletion.findUnique({
           where: { userId_courseId: { userId, courseId } },
           select: { courseCompletedAt: true },
         }),
-        this.courseVersionService.resolveCurriculumTree(userId, courseId),
+        this.courseVersionService.resolveCurriculumTreeForReport(
+          userId,
+          courseId,
+        ),
         this.getCourseFormsWithMetadataForUser(userId, courseId),
         this.getCourseFeedbackForUserReport(userId, courseId),
         this.prisma.userChapterCompletion.findMany({
@@ -777,7 +795,7 @@ export class CourseService {
               id: sourceChapterId,
               title: chapter.title,
               sectionMetas,
-              quizzesTotal: chapter.quizzes.length,
+              quizzesTotal: chapter.quizzesTotal,
               activity,
               chapterCompletedAt:
                 chapterCompletedAtById.get(sourceChapterId) ?? null,
@@ -809,9 +827,6 @@ export class CourseService {
         select: {
           id: true,
           title: true,
-          users: {
-            where: { id: userId },
-          },
           modules: {
             select: {
               id: true,

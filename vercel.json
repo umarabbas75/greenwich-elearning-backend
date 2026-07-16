@@ -5,7 +5,8 @@
       "src": "dist/src/main.js",
       "use": "@vercel/node",
       "config": {
-        "cache": false
+        "cache": false,
+        "maxDuration": 60
       }
     }
   ],

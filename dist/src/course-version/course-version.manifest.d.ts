@@ -76,6 +76,30 @@ export type PinnedCurriculumTree = {
     manifest: CourseVersionManifest;
     modules: PinnedCurriculumModule[];
 };
+export type ReportCurriculumSection = {
+    id: string;
+    title: string;
+    orderIndex: number | null;
+    type: SectionType;
+};
+export type ReportCurriculumChapter = {
+    sourceChapterId: string;
+    title: string;
+    orderIndex: number;
+    sections: ReportCurriculumSection[];
+    quizzesTotal: number;
+};
+export type ReportCurriculumModule = {
+    sourceModuleId: string;
+    title: string;
+    orderIndex: number;
+    chapters: ReportCurriculumChapter[];
+};
+export type ReportCurriculumTree = {
+    versionId: string;
+    versionNumber: number;
+    modules: ReportCurriculumModule[];
+};
 export declare function parseManifest(raw: unknown): CourseVersionManifest | null;
 export declare function countSectionsInManifest(manifest: CourseVersionManifest): number;
 export declare function getSectionIdsFromManifest(manifest: CourseVersionManifest): string[];
@@ -108,6 +132,7 @@ export type PublishManifestVersionResult = {
 };
 export declare function publishManifestVersion(prisma: Db, courseId: string, options: PublishManifestVersionOptions): Promise<PublishManifestVersionResult>;
 export declare function loadPinnedCurriculum(prisma: Db, versionId: string): Promise<PinnedCurriculumTree | null>;
+export declare function loadPinnedCurriculumForReport(prisma: Db, versionId: string): Promise<ReportCurriculumTree | null>;
 export declare function mapPinnedSectionsForLearner(sections: PinnedCurriculumSection[]): PinnedCurriculumSection[];
 export declare function mapPinnedQuizzesForLearner(quizzes: PinnedCurriculumQuiz[], includeAnswers: boolean): Array<Omit<PinnedCurriculumQuiz, 'answer'> & {
     answer?: string;
