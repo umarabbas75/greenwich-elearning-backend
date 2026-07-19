@@ -450,6 +450,13 @@ If those routes don't match what the FE actually exposes, either:
   full array on every save; legacy fields are no longer needed.
 - [ ] **Student submit**: multi-file uploader (1–5, pdf/docx). Send
   `submissionAttachments`. Show backend error message on validation failure.
+- [ ] **Cloudinary unique public ids (critical)**: assignment uploads must not
+  use a fixed `public_id` from the original filename alone. Prefer
+  `unique_filename: true` and/or
+  `public_id: \`assignments/${userId}_${Date.now()}_${safeName}\``.
+  Otherwise students who keep the default answer-sheet PDF name all receive
+  the same existing Cloudinary URL (wrong person's paper). Backend now rejects
+  submit when `fileUrl` is already used by another student.
 - [ ] **Available list**: read `submissionStatus` / `lastSubmissionDate` /
   `attemptsUsed` / `bestScore` directly from the row. Remove the per-row
   status fetch hook.

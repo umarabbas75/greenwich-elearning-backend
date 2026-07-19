@@ -184,6 +184,32 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
             AssignmentService_1.logger.warn(`Assignment notification "${label}" failed (best-effort): ${message}`);
         }
     }
+    async assertSubmissionFileUrlsAreUnique(files, studentId) {
+        const urls = [
+            ...new Set(files.map((f) => f.fileUrl?.trim()).filter(Boolean)),
+        ];
+        if (urls.length === 0)
+            return;
+        const conflict = await this.prisma.assignmentSubmission.findFirst({
+            where: {
+                studentId: { not: studentId },
+                OR: [
+                    { fileUrl: { in: urls } },
+                    { attachments: { some: { fileUrl: { in: urls } } } },
+                ],
+            },
+            select: {
+                id: true,
+                student: { select: { firstName: true, lastName: true, email: true } },
+            },
+        });
+        if (conflict) {
+            throw new Error('This file URL is already linked to another student submission. ' +
+                'Your upload likely reused an existing Cloudinary file (common when ' +
+                'keeping the default answer-sheet filename). Rename the PDF to ' +
+                'something unique (e.g. YourName-assignment.pdf), upload again, and resubmit.');
+        }
+    }
     async createSubmission(studentId, input) {
         try {
             const assignment = await this.prisma.assignment.findUnique({
@@ -220,6 +246,7 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
                 throw new Error('At least one submission file is required');
             }
             validateFiles(files, { min: 1, label: 'submission file' });
+            await this.assertSubmissionFileUrlsAreUnique(files, studentId);
             const created = await this.prisma.assignmentSubmission.create({
                 data: {
                     assignmentId: input.assignmentId,

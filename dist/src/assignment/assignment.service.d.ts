@@ -27,6 +27,7 @@ export declare class AssignmentService {
     private static readonly logger;
     constructor(prisma: PrismaService, notificationService: NotificationService);
     private safeNotify;
+    private assertSubmissionFileUrlsAreUnique;
     createSubmission(studentId: string, input: CreateSubmissionInput): Promise<ResponseDto>;
     getMySubmissions(studentId: string): Promise<ResponseDto>;
     listAssignedToAdmin(adminId: string, status?: AssignmentSubmissionStatus): Promise<ResponseDto>;

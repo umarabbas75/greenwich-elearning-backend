@@ -357,6 +357,44 @@ export class AssignmentService {
     }
   }
 
+  /**
+   * Cloudinary uploads that reuse a fixed public_id (e.g. the default answer-
+   * sheet filename) can return another student's existing asset URL. Reject
+   * that here so we never attach the same file bytes to two learners.
+   */
+  private async assertSubmissionFileUrlsAreUnique(
+    files: FileInput[],
+    studentId: string,
+  ): Promise<void> {
+    const urls = [
+      ...new Set(files.map((f) => f.fileUrl?.trim()).filter(Boolean)),
+    ] as string[];
+    if (urls.length === 0) return;
+
+    const conflict = await this.prisma.assignmentSubmission.findFirst({
+      where: {
+        studentId: { not: studentId },
+        OR: [
+          { fileUrl: { in: urls } },
+          { attachments: { some: { fileUrl: { in: urls } } } },
+        ],
+      },
+      select: {
+        id: true,
+        student: { select: { firstName: true, lastName: true, email: true } },
+      },
+    });
+
+    if (conflict) {
+      throw new Error(
+        'This file URL is already linked to another student submission. ' +
+          'Your upload likely reused an existing Cloudinary file (common when ' +
+          'keeping the default answer-sheet filename). Rename the PDF to ' +
+          'something unique (e.g. YourName-assignment.pdf), upload again, and resubmit.',
+      );
+    }
+  }
+
   async createSubmission(
     studentId: string,
     input: CreateSubmissionInput,
@@ -409,6 +447,7 @@ export class AssignmentService {
       }
 
       validateFiles(files, { min: 1, label: 'submission file' });
+      await this.assertSubmissionFileUrlsAreUnique(files, studentId);
 
       const created = await this.prisma.assignmentSubmission.create({
         data: {
