@@ -520,9 +520,10 @@ export class AssignmentService {
     status?: AssignmentSubmissionStatus,
   ): Promise<ResponseDto> {
     try {
-      const where: Prisma.AssignmentSubmissionWhereInput = {
-        assignedToAdminId: adminId,
-      };
+      // Shared visibility: every admin sees all submissions regardless of which
+      // admin they were assigned to. adminId is kept for API compatibility.
+      void adminId;
+      const where: Prisma.AssignmentSubmissionWhereInput = {};
       if (status) where.status = status;
       const submissions = await this.prisma.assignmentSubmission.findMany({
         where,
@@ -700,8 +701,11 @@ export class AssignmentService {
   // Admin: get assignments they created
   async getAdminCreatedAssignments(adminId: string): Promise<ResponseDto> {
     try {
+      // Shared visibility: every admin sees all admins' assignments, not just
+      // their own. adminId is kept in the signature for API compatibility but is
+      // intentionally not used to scope the query.
+      void adminId;
       const assignments = await this.prisma.assignment.findMany({
-        where: { createdByAdminId: adminId },
         orderBy: { createdAt: 'desc' },
         include: {
           course: { select: { title: true } },
@@ -800,15 +804,14 @@ export class AssignmentService {
     },
   ): Promise<ResponseDto> {
     try {
-      // Verify admin owns the assignment
+      // Shared access: any admin may update any admin's assignment. We only
+      // verify the assignment exists (no creator-ownership check).
+      void adminId;
       const assignment = await this.prisma.assignment.findUnique({
         where: { id: body.assignmentId },
       });
       if (!assignment) {
         throw new Error('Assignment not found');
-      }
-      if (assignment.createdByAdminId !== adminId) {
-        throw new Error('You can only update your own assignments');
       }
 
       const fileUpdate = resolveAssignmentFilesForUpdate(body);
@@ -888,15 +891,15 @@ export class AssignmentService {
         throw new Error('assignmentId is required');
       }
 
+      // Shared access: any admin may delete any admin's assignment. We only
+      // verify the assignment exists (no creator-ownership check).
+      void adminId;
       const assignment = await this.prisma.assignment.findUnique({
         where: { id: assignmentId },
         select: { id: true, createdByAdminId: true },
       });
       if (!assignment) {
         throw new Error('Assignment not found');
-      }
-      if (assignment.createdByAdminId !== adminId) {
-        throw new Error('You can only delete your own assignments');
       }
 
       // Resolve submission ids up-front: needed both to delete the submission
@@ -1125,7 +1128,10 @@ export class AssignmentService {
     status?: AssignmentSubmissionStatus,
   ): Promise<ResponseDto> {
     try {
-      // Verify admin has access to this assignment
+      // Shared access: any admin may view submissions for any assignment,
+      // regardless of creator/assigned reviewer. adminId is kept for API
+      // compatibility. We only verify the assignment exists.
+      void adminId;
       const assignment = await this.prisma.assignment.findUnique({
         where: { id: assignmentId },
         include: {
@@ -1136,16 +1142,6 @@ export class AssignmentService {
 
       if (!assignment) {
         throw new Error('Assignment not found');
-      }
-
-      // Check if admin is the creator or assigned reviewer
-      if (
-        assignment.createdByAdminId !== adminId &&
-        assignment.assignedToAdminId !== adminId
-      ) {
-        throw new Error(
-          'You do not have access to view submissions for this assignment',
-        );
       }
 
       // Build where clause for submissions

@@ -307,9 +307,8 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
     }
     async listAssignedToAdmin(adminId, status) {
         try {
-            const where = {
-                assignedToAdminId: adminId,
-            };
+            void adminId;
+            const where = {};
             if (status)
                 where.status = status;
             const submissions = await this.prisma.assignmentSubmission.findMany({
@@ -444,8 +443,8 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
     }
     async getAdminCreatedAssignments(adminId) {
         try {
+            void adminId;
             const assignments = await this.prisma.assignment.findMany({
-                where: { createdByAdminId: adminId },
                 orderBy: { createdAt: 'desc' },
                 include: {
                     course: { select: { title: true } },
@@ -511,14 +510,12 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
     }
     async updateAssignment(adminId, body) {
         try {
+            void adminId;
             const assignment = await this.prisma.assignment.findUnique({
                 where: { id: body.assignmentId },
             });
             if (!assignment) {
                 throw new Error('Assignment not found');
-            }
-            if (assignment.createdByAdminId !== adminId) {
-                throw new Error('You can only update your own assignments');
             }
             const fileUpdate = resolveAssignmentFilesForUpdate(body);
             if (fileUpdate.shouldUpdate) {
@@ -579,15 +576,13 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
             if (!assignmentId) {
                 throw new Error('assignmentId is required');
             }
+            void adminId;
             const assignment = await this.prisma.assignment.findUnique({
                 where: { id: assignmentId },
                 select: { id: true, createdByAdminId: true },
             });
             if (!assignment) {
                 throw new Error('Assignment not found');
-            }
-            if (assignment.createdByAdminId !== adminId) {
-                throw new Error('You can only delete your own assignments');
             }
             const submissions = await this.prisma.assignmentSubmission.findMany({
                 where: { assignmentId },
@@ -756,6 +751,7 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
     }
     async getAssignmentSubmissions(assignmentId, adminId, status) {
         try {
+            void adminId;
             const assignment = await this.prisma.assignment.findUnique({
                 where: { id: assignmentId },
                 include: {
@@ -765,10 +761,6 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
             });
             if (!assignment) {
                 throw new Error('Assignment not found');
-            }
-            if (assignment.createdByAdminId !== adminId &&
-                assignment.assignedToAdminId !== adminId) {
-                throw new Error('You do not have access to view submissions for this assignment');
             }
             const where = {
                 assignmentId: assignmentId,
