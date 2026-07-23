@@ -28,6 +28,24 @@ export class UserController {
   getAllUser(): Promise<ResponseDto> {
     return this.appService.getAllUsers();
   }
+
+  // Soft-deleted users (hidden from the main list) so admins can reach them to
+  // restore or purge. Admin-only. Declared before '/:id' so it isn't matched
+  // as an id.
+  @UseGuards(AuthGuard('jwt'))
+  @Get('/deleted')
+  getDeletedUsers(): Promise<ResponseDto> {
+    return this.appService.getDeletedUsers();
+  }
+
+  // Detail for a single soft-deleted user (getUser excludes them). Admin-only.
+  // Declared before '/:id' so it isn't matched as an id.
+  @UseGuards(AuthGuard('jwt'))
+  @Get('/deleted/:id')
+  getDeletedUser(@Param() params: ParamsDto): Promise<ResponseDto> {
+    return this.appService.getDeletedUser(params.id);
+  }
+
   // @UseGuards(AuthGuard('cJwt'))
   @Get('/:id')
   getUser(@Param() params: ParamsDto): Promise<ResponseDto> {
@@ -67,21 +85,33 @@ export class UserController {
     return this.appService.updatePassword(params.userId, body);
   }
 
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin-only: soft delete a user.
+  @UseGuards(AuthGuard('jwt'))
   @Delete('/:id')
   deleteUser(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.deleteUser(params.id);
   }
 
+  // Reverse a soft delete: clears deletedAt and reactivates the account. Frees
+  // the email so it can be used again, restoring all history under the same id.
+  // Admin-only.
+  @UseGuards(AuthGuard('jwt'))
+  @Put('/:id/restore')
+  restoreUser(@Param() params: ParamsDto): Promise<ResponseDto> {
+    return this.appService.restoreUser(params.id);
+  }
+
   // Preview the blast radius of a permanent delete (no deletion happens).
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin-only.
+  @UseGuards(AuthGuard('jwt'))
   @Get('/:id/deletion-preview')
   getDeletionPreview(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getDeletionPreview(params.id);
   }
 
   // Admin / GDPR force-purge: permanently removes the user + self-owned records.
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin-only.
+  @UseGuards(AuthGuard('jwt'))
   @Delete('/:id/purge')
   purgeUser(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.purgeUser(params.id);

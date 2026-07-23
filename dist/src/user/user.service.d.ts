@@ -9,12 +9,15 @@ export declare class UserService {
     constructor(prisma: PrismaService, mail: MailService);
     private recordPasswordChange;
     getUser(id: string): Promise<ResponseDto>;
+    getDeletedUser(id: string): Promise<ResponseDto>;
     getAllUsers(): Promise<ResponseDto>;
+    getDeletedUsers(): Promise<ResponseDto>;
     createUser(body: BodyDto): Promise<ResponseDto>;
     updateUser(userId: string, body: BodyUpdateDto): Promise<ResponseDto>;
     changePassword(userId: string, body: ChangePasswordDto): Promise<ResponseDto>;
     updatePassword(userId: string, body: any): Promise<ResponseDto>;
     deleteUser(id: string): Promise<ResponseDto>;
+    restoreUser(id: string): Promise<ResponseDto>;
     private gatherDeletionImpact;
     getDeletionPreview(id: string): Promise<ResponseDto>;
     purgeUser(id: string): Promise<ResponseDto>;

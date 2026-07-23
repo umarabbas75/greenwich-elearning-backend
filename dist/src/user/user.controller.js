@@ -28,6 +28,12 @@ let UserController = class UserController {
     getAllUser() {
         return this.appService.getAllUsers();
     }
+    getDeletedUsers() {
+        return this.appService.getDeletedUsers();
+    }
+    getDeletedUser(params) {
+        return this.appService.getDeletedUser(params.id);
+    }
     getUser(params) {
         return this.appService.getUser(params.id);
     }
@@ -45,6 +51,9 @@ let UserController = class UserController {
     }
     deleteUser(params) {
         return this.appService.deleteUser(params.id);
+    }
+    restoreUser(params) {
+        return this.appService.restoreUser(params.id);
     }
     getDeletionPreview(params) {
         return this.appService.getDeletionPreview(params.id);
@@ -72,6 +81,21 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)
 ], UserController.prototype, "getAllUser", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Get)('/deleted'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], UserController.prototype, "getDeletedUsers", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Get)('/deleted/:id'),
+    __param(0, (0, common_1.Param)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [dto_1.ParamsDto]),
+    __metadata("design:returntype", Promise)
+], UserController.prototype, "getDeletedUser", null);
 __decorate([
     (0, common_1.Get)('/:id'),
     __param(0, (0, common_1.Param)()),
@@ -115,7 +139,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], UserController.prototype, "updatePassword", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Delete)('/:id'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -123,7 +147,15 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], UserController.prototype, "deleteUser", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Put)('/:id/restore'),
+    __param(0, (0, common_1.Param)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [dto_1.ParamsDto]),
+    __metadata("design:returntype", Promise)
+], UserController.prototype, "restoreUser", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Get)('/:id/deletion-preview'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
@@ -131,7 +163,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], UserController.prototype, "getDeletionPreview", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Delete)('/:id/purge'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),

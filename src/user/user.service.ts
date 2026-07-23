@@ -65,7 +65,12 @@ export class UserService {
       });
 
       if (!user) {
-        throw new Error('User not found');
+        // 404, not 500: the id simply doesn't match a live user (it may be a
+        // soft-deleted account — use GET /users/deleted/:id to reach those).
+        throw new HttpException(
+          { status: HttpStatus.NOT_FOUND, error: 'User not found' },
+          HttpStatus.NOT_FOUND,
+        );
       }
 
       // Transform data to group by courses
@@ -115,6 +120,11 @@ export class UserService {
         data: response,
       };
     } catch (error) {
+      // Preserve intentional statuses (e.g. the 404 above); only genuine
+      // failures fall through to 500.
+      if (error instanceof HttpException) {
+        throw error;
+      }
       throw new HttpException(
         {
           status: HttpStatus.INTERNAL_SERVER_ERROR,
@@ -127,6 +137,62 @@ export class UserService {
       );
     }
   }
+
+  /**
+   * Fetch a single soft-deleted user by id, so the admin "Deleted users" view
+   * can load detail before choosing Restore or Purge. Only returns users with
+   * deletedAt set; a live user's id here is treated as not found (use getUser).
+   */
+  async getDeletedUser(id: string): Promise<ResponseDto> {
+    try {
+      const user = await this.prisma.user.findFirst({
+        where: { id, deletedAt: { not: null } },
+        include: {
+          UserCourse: {
+            include: {
+              course: {
+                select: {
+                  id: true,
+                  title: true,
+                  description: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!user) {
+        throw new HttpException(
+          { status: HttpStatus.NOT_FOUND, error: 'Deleted user not found' },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      delete user.password;
+
+      return {
+        message: 'Successfully fetched deleted user',
+        statusCode: 200,
+        data: {
+          ...user,
+          courses: user.UserCourse.map((userCourse) => userCourse.course),
+        },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          status: HttpStatus.INTERNAL_SERVER_ERROR,
+          error: error?.message || 'Failed to fetch deleted user',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        { cause: error },
+      );
+    }
+  }
+
   async getAllUsers(): Promise<ResponseDto> {
     try {
       const users = await this.prisma.user.findMany({
@@ -161,6 +227,56 @@ export class UserService {
 
       return {
         message: 'Successfully fetched all users info',
+        statusCode: 200,
+        data: transformedUsers,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  /**
+   * Lists soft-deleted users (the ones hidden from getAllUsers). This backs the
+   * admin "Deleted users" view so a soft-deleted account can be reached and then
+   * restored or purged — otherwise its email stays reserved with no way out.
+   * Returns an empty array (not an error) when nothing has been deleted.
+   */
+  async getDeletedUsers(): Promise<ResponseDto> {
+    try {
+      const users = await this.prisma.user.findMany({
+        where: { deletedAt: { not: null } },
+        orderBy: { deletedAt: 'desc' },
+        include: {
+          UserCourse: {
+            include: {
+              course: {
+                select: {
+                  id: true,
+                  title: true,
+                  description: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const transformedUsers = users.map((user) => ({
+        ...user,
+        courses: user.UserCourse.map((userCourse) => userCourse.course),
+      }));
+
+      return {
+        message: 'Successfully fetched deleted users',
         statusCode: 200,
         data: transformedUsers,
       };
@@ -428,6 +544,53 @@ export class UserService {
         message: 'Successfully deleted user record',
         statusCode: 200,
         data: deletedUser,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  /**
+   * Restore: reverses a soft delete by clearing `deletedAt` and reactivating the
+   * account. Because a soft delete never removes the row, all history (courses,
+   * progress, submissions, forum content, etc.) comes back intact under the same
+   * user id. After this the email is no longer reserved and the user can log in
+   * again. This is the recovery path for accounts deleted by mistake.
+   */
+  async restoreUser(id: string): Promise<ResponseDto> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id },
+      });
+      if (!user?.id) {
+        throw new Error('User not found');
+      }
+      if (!user.deletedAt) {
+        throw new Error('User is not deleted; nothing to restore');
+      }
+
+      const restoredUser = await this.prisma.user.update({
+        where: { id },
+        data: {
+          deletedAt: null,
+          status: 'active',
+        },
+      });
+      delete restoredUser.password;
+
+      return {
+        message: 'Successfully restored user record',
+        statusCode: 200,
+        data: restoredUser,
       };
     } catch (error) {
       throw new HttpException(

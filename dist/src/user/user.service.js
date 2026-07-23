@@ -65,7 +65,7 @@ let UserService = UserService_1 = class UserService {
                 },
             });
             if (!user) {
-                throw new Error('User not found');
+                throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'User not found' }, common_1.HttpStatus.NOT_FOUND);
             }
             const coursesWithForms = user.UserCourse.map((userCourse) => {
                 const course = userCourse.course;
@@ -108,12 +108,56 @@ let UserService = UserService_1 = class UserService {
             };
         }
         catch (error) {
+            if (error instanceof common_1.HttpException) {
+                throw error;
+            }
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.INTERNAL_SERVER_ERROR,
                 error: error?.message || 'Failed to fetch user information',
             }, common_1.HttpStatus.INTERNAL_SERVER_ERROR, {
                 cause: error,
             });
+        }
+    }
+    async getDeletedUser(id) {
+        try {
+            const user = await this.prisma.user.findFirst({
+                where: { id, deletedAt: { not: null } },
+                include: {
+                    UserCourse: {
+                        include: {
+                            course: {
+                                select: {
+                                    id: true,
+                                    title: true,
+                                    description: true,
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+            if (!user) {
+                throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Deleted user not found' }, common_1.HttpStatus.NOT_FOUND);
+            }
+            delete user.password;
+            return {
+                message: 'Successfully fetched deleted user',
+                statusCode: 200,
+                data: {
+                    ...user,
+                    courses: user.UserCourse.map((userCourse) => userCourse.course),
+                },
+            };
+        }
+        catch (error) {
+            if (error instanceof common_1.HttpException) {
+                throw error;
+            }
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.INTERNAL_SERVER_ERROR,
+                error: error?.message || 'Failed to fetch deleted user',
+            }, common_1.HttpStatus.INTERNAL_SERVER_ERROR, { cause: error });
         }
     }
     async getAllUsers() {
@@ -146,6 +190,44 @@ let UserService = UserService_1 = class UserService {
             }));
             return {
                 message: 'Successfully fetched all users info',
+                statusCode: 200,
+                data: transformedUsers,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async getDeletedUsers() {
+        try {
+            const users = await this.prisma.user.findMany({
+                where: { deletedAt: { not: null } },
+                orderBy: { deletedAt: 'desc' },
+                include: {
+                    UserCourse: {
+                        include: {
+                            course: {
+                                select: {
+                                    id: true,
+                                    title: true,
+                                    description: true,
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+            const transformedUsers = users.map((user) => ({
+                ...user,
+                courses: user.UserCourse.map((userCourse) => userCourse.course),
+            }));
+            return {
+                message: 'Successfully fetched deleted users',
                 statusCode: 200,
                 data: transformedUsers,
             };
@@ -350,6 +432,40 @@ let UserService = UserService_1 = class UserService {
                 message: 'Successfully deleted user record',
                 statusCode: 200,
                 data: deletedUser,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async restoreUser(id) {
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: { id },
+            });
+            if (!user?.id) {
+                throw new Error('User not found');
+            }
+            if (!user.deletedAt) {
+                throw new Error('User is not deleted; nothing to restore');
+            }
+            const restoredUser = await this.prisma.user.update({
+                where: { id },
+                data: {
+                    deletedAt: null,
+                    status: 'active',
+                },
+            });
+            delete restoredUser.password;
+            return {
+                message: 'Successfully restored user record',
+                statusCode: 200,
+                data: restoredUser,
             };
         }
         catch (error) {
