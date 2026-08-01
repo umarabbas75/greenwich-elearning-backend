@@ -134,6 +134,10 @@ export class QuizService {
         answer: string;
         isAnswerCorrect: boolean;
       }> = [];
+      // True once we have an authoritative set from the user's pinned version.
+      // A pinned learner's empty set is a real "no quizzes in your version" —
+      // it must NOT fall through to the live quizzes below (cross-version leak).
+      let resolvedFromVersion = false;
 
       if (role === 'user') {
         const uc = courseId
@@ -182,8 +186,11 @@ export class QuizService {
           }),
         ]);
         userAnswers = answers;
+        // null = unpinned (fall back to live). A non-null array (even empty) is
+        // the authoritative pinned set.
         if (versionQuizzes !== null) {
           quizzes = versionQuizzes;
+          resolvedFromVersion = true;
         }
       } else {
         userAnswers = await this.prisma.quizAnswer.findMany({
@@ -191,7 +198,8 @@ export class QuizService {
         });
       }
 
-      if (quizzes.length === 0) {
+      // Live fallback only for unpinned learners and non-user (admin) callers.
+      if (!resolvedFromVersion && quizzes.length === 0) {
         const chapter = await this.prisma.chapter.findUnique({
           where: { id: chapterId },
           include: {

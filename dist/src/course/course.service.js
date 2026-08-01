@@ -1838,8 +1838,8 @@ let CourseService = CourseService_1 = class CourseService {
                 include: {
                     _count: {
                         select: {
-                            sections: true,
-                            quizzes: true,
+                            sections: { where: { isArchived: false } },
+                            quizzes: { where: { isArchived: false } },
                         },
                     },
                 },

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   assertChapterAccessible,
+  gradeChapterQuizFromStoredAnswers,
   getOrderedChapterIdsForVersion,
   isChapterComplete,
   recordChapterAndModuleCompletionIfNeeded,
@@ -42,9 +43,10 @@ describe('chapter-progression', () => {
       module: { findUnique: jest.fn(), findMany: jest.fn() },
       courseVersion: { findUnique: jest.fn() },
       section: { count: jest.fn() },
-      quiz: { count: jest.fn() },
+      quiz: { count: jest.fn(), findMany: jest.fn() },
+      quizAnswer: { findMany: jest.fn() },
       userCourseProgress: { count: jest.fn() },
-      quizProgress: { findFirst: jest.fn() },
+      quizProgress: { findFirst: jest.fn(), findUnique: jest.fn() },
       userChapterCompletion: {
         findUnique: jest.fn(),
         create: jest.fn(),
@@ -64,6 +66,65 @@ describe('chapter-progression', () => {
       await expect(
         getOrderedChapterIdsForVersion(prisma as unknown as PrismaService, 'v1'),
       ).resolves.toEqual(['ch-1', 'ch-2']);
+    });
+  });
+
+  describe('gradeChapterQuizFromStoredAnswers', () => {
+    // Regression: an archived quiz still carries chapterId, so the old grader
+    // (raw chapter.quizzes) counted it in totalQuestions while the learner is
+    // only served the non-archived ones — making answeredQuestions < total
+    // forever and permanently blocking chapter submission. The grader must use
+    // the same non-archived set the learner is served.
+    it('unpinned: denominator is the live non-archived quiz set (excludes archived)', async () => {
+      // Live query returns only non-archived quizzes (the archived one is gone).
+      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-1' }, { id: 'quiz-2' }]);
+      prisma.quizAnswer.findMany.mockResolvedValue([
+        { quizId: 'quiz-1', isAnswerCorrect: true },
+        { quizId: 'quiz-2', isAnswerCorrect: true },
+      ]);
+
+      const grade = await gradeChapterQuizFromStoredAnswers(
+        prisma as unknown as PrismaService,
+        'user-1',
+        'ch-1',
+        70,
+        { courseId: 'course-1', enrolledVersionId: null },
+      );
+
+      expect(grade.totalQuestions).toBe(2);
+      expect(grade.answeredQuestions).toBe(2);
+      expect(grade.score).toBe(100);
+      expect(grade.isPassed).toBe(true);
+      expect(prisma.quiz.findMany).toHaveBeenCalledWith({
+        where: { chapterId: 'ch-1', isArchived: false },
+        select: { id: true },
+      });
+    });
+
+    // Regression: a quiz added after the learner's pin must NOT inflate the
+    // denominator. A pinned learner is graded against their version's manifest
+    // quiz set (ch-1 → ['quiz-1']), not the live tree.
+    it('pinned: denominator comes from the version manifest, not the live tree', async () => {
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: versionManifest,
+      });
+      prisma.quizAnswer.findMany.mockResolvedValue([
+        { quizId: 'quiz-1', isAnswerCorrect: true },
+      ]);
+
+      const grade = await gradeChapterQuizFromStoredAnswers(
+        prisma as unknown as PrismaService,
+        'user-1',
+        'ch-1',
+        70,
+        { courseId: 'course-1', enrolledVersionId: 'version-1' },
+      );
+
+      expect(grade.totalQuestions).toBe(1);
+      expect(grade.answeredQuestions).toBe(1);
+      expect(grade.score).toBe(100);
+      // Manifest branch used — never touches the live quiz relation.
+      expect(prisma.quiz.findMany).not.toHaveBeenCalled();
     });
   });
 

@@ -83,35 +83,64 @@ async function getPreviousChapterId(prisma, courseId, chapterId, userId) {
     return ids[idx - 1];
 }
 exports.getPreviousChapterId = getPreviousChapterId;
-async function gradeChapterQuizFromStoredAnswers(prisma, userId, chapterId, storedPassingCriteria) {
-    const chapter = await prisma.chapter.findUnique({
-        where: { id: chapterId },
-        select: {
-            quizzes: { select: { id: true } },
-            QuizProgress: {
-                where: { userId },
-                select: { passingCriteria: true },
-                take: 1,
-            },
-        },
-    });
-    if (!chapter) {
-        throw new Error('Chapter not found');
+async function resolveChapterQuizIds(prisma, userId, chapterId, ctx) {
+    let courseId = ctx?.courseId;
+    let enrolledVersionId = ctx?.enrolledVersionId;
+    if (courseId === undefined) {
+        const chapter = await prisma.chapter.findUnique({
+            where: { id: chapterId },
+            select: { module: { select: { courseId: true } } },
+        });
+        if (!chapter)
+            return [];
+        courseId = chapter.module.courseId;
     }
-    const quizIds = chapter.quizzes.map((q) => q.id);
+    if (enrolledVersionId === undefined) {
+        const uc = await prisma.userCourse.findUnique({
+            where: { userId_courseId: { userId, courseId } },
+            select: { enrolledVersionId: true },
+        });
+        enrolledVersionId = uc?.enrolledVersionId ?? null;
+    }
+    if (enrolledVersionId) {
+        const manifest = await loadVersionManifest(prisma, enrolledVersionId);
+        if (manifest) {
+            for (const mod of manifest.modules) {
+                for (const ch of mod.chapters) {
+                    if (ch.sourceId === chapterId) {
+                        return [...ch.quizIds];
+                    }
+                }
+            }
+        }
+    }
+    const quizzes = await prisma.quiz.findMany({
+        where: { chapterId, isArchived: false },
+        select: { id: true },
+    });
+    return quizzes.map((q) => q.id);
+}
+async function gradeChapterQuizFromStoredAnswers(prisma, userId, chapterId, storedPassingCriteria, ctx) {
+    const quizIds = await resolveChapterQuizIds(prisma, userId, chapterId, ctx);
     if (quizIds.length === 0) {
         throw new Error('This chapter has no quiz questions');
     }
-    const answers = await prisma.quizAnswer.findMany({
-        where: { userId, chapterId, quizId: { in: quizIds } },
-        select: { quizId: true, isAnswerCorrect: true },
-    });
-    const passingCriteria = resolvePassingCriteria(storedPassingCriteria ?? chapter.QuizProgress[0]?.passingCriteria ?? null);
+    const [answers, progress] = await Promise.all([
+        prisma.quizAnswer.findMany({
+            where: { userId, chapterId, quizId: { in: quizIds } },
+            select: { quizId: true, isAnswerCorrect: true },
+        }),
+        storedPassingCriteria == null
+            ? prisma.quizProgress.findUnique({
+                where: { userId_chapterId: { userId, chapterId } },
+                select: { passingCriteria: true },
+            })
+            : Promise.resolve(null),
+    ]);
+    const passingCriteria = resolvePassingCriteria(storedPassingCriteria ?? progress?.passingCriteria ?? null);
     const answeredQuestions = answers.length;
     const correctCount = answers.filter((a) => a.isAnswerCorrect).length;
-    const score = quizIds.length > 0
-        ? Math.round((correctCount / quizIds.length) * 1000) / 10
-        : 0;
+    const score = Math.round((correctCount / quizIds.length) * 1000) / 10;
     const isPassed = score >= passingCriteria;
     return {
         score,

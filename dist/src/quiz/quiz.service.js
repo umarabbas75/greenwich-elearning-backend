@@ -105,6 +105,7 @@ let QuizService = class QuizService {
             const courseId = chapterMeta.module?.courseId;
             let quizzes = [];
             let userAnswers = [];
+            let resolvedFromVersion = false;
             if (role === 'user') {
                 const uc = courseId
                     ? await this.prisma.userCourse.findUnique({
@@ -133,6 +134,7 @@ let QuizService = class QuizService {
                 userAnswers = answers;
                 if (versionQuizzes !== null) {
                     quizzes = versionQuizzes;
+                    resolvedFromVersion = true;
                 }
             }
             else {
@@ -140,7 +142,7 @@ let QuizService = class QuizService {
                     where: { userId, chapterId },
                 });
             }
-            if (quizzes.length === 0) {
+            if (!resolvedFromVersion && quizzes.length === 0) {
                 const chapter = await this.prisma.chapter.findUnique({
                     where: { id: chapterId },
                     include: {

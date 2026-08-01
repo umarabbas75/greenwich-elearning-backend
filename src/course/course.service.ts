@@ -2397,8 +2397,12 @@ export class CourseService {
         include: {
           _count: {
             select: {
-              sections: true,
-              quizzes: true,
+              // Count only non-archived rows so these badges match the lists
+              // returned by getAllSections / getAllAssignQuizzes, which both
+              // filter isArchived: false. An unfiltered count over-reports by
+              // the number of archived sections/quizzes.
+              sections: { where: { isArchived: false } },
+              quizzes: { where: { isArchived: false } },
             },
           },
         },
