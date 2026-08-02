@@ -1,5 +1,5 @@
 import { Prisma, PrismaClient, SectionType } from '@prisma/client';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
 type Db = PrismaService | Prisma.TransactionClient | PrismaClient;
@@ -165,11 +165,27 @@ export function getQuizIdsFromManifest(
 export function computeStructuralFingerprint(
   manifest: CourseVersionManifest,
 ): string {
-  const moduleIds = manifest.modules.map((m) => m.sourceId).sort();
-  const chapterIds = getChapterIdsFromManifest(manifest).sort();
-  const sectionIds = getSectionIdsFromManifest(manifest).sort();
-  const quizIds = getQuizIdsFromManifest(manifest).sort();
-  return JSON.stringify({ moduleIds, chapterIds, sectionIds, quizIds });
+  // Nested + order-preserving. The previous implementation hashed four FLAT
+  // sorted id sets, which was blind to RELOCATION: moving a quiz (or section)
+  // from one chapter to another leaves every flat set unchanged, so the dedup
+  // skipped the publish and `latest` never reflected the move (e.g. assignQuiz's
+  // `connect` reassigns a quiz's chapterId). Encoding the tree — which chapter
+  // owns which sections/quizzes, in order — makes a relocation change the shape.
+  // This requires a TOTALLY deterministic order from buildManifestFromLiveTree:
+  // modules/chapters by (createdAt, id), sections by (orderIndex, createdAt, id),
+  // quizzes by (createdAt, id). The `id` tiebreaker is load-bearing —
+  // createdAt/orderIndex are not unique (bulk import, seed), so without it ties
+  // would order unpredictably and this hash would false-positive. Do NOT remove
+  // those tiebreakers.
+  const shape = manifest.modules.map((mod) => ({
+    m: mod.sourceId,
+    c: mod.chapters.map((ch) => ({
+      c: ch.sourceId,
+      s: ch.sectionIds,
+      q: ch.quizIds,
+    })),
+  }));
+  return createHash('sha256').update(JSON.stringify(shape)).digest('hex');
 }
 
 export function isIdReferencedInManifest(
@@ -240,22 +256,30 @@ export async function buildManifestFromLiveTree(
   options: BuildManifestOptions = {},
 ): Promise<BuildManifestResult> {
   const excluded = new Set(options.excludeSourceSectionIds ?? []);
+  // `id: 'asc'` is a REQUIRED final tiebreaker on every level: the structural
+  // fingerprint (computeStructuralFingerprint) now hashes this array order, and
+  // the pinned manifest's chapter/section order is consumed by
+  // getOrderedChapterIdsForVersion + the progression gate. createdAt/orderIndex
+  // alone are not unique (bulk import, seed, same-request creates all tie), and
+  // Postgres does not guarantee a stable order for ties — without the id
+  // tiebreaker the fingerprint would false-negative (spurious versions) and the
+  // pinned order could shift between publishes.
   const modules = await prisma.module.findMany({
     where: { courseId, isArchived: false },
-    orderBy: { createdAt: 'asc' },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     include: {
       chapters: {
         where: { isArchived: false },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         include: {
           sections: {
             where: { isArchived: false, isActive: true },
-            orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+            orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
             select: { id: true },
           },
           quizzes: {
             where: { isArchived: false },
-            orderBy: { createdAt: 'asc' },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
             select: { id: true },
           },
         },
@@ -422,6 +446,10 @@ export type PublishManifestVersionOptions = {
   publishedByAdminId?: string | null;
   changeNotes?: string | null;
   excludeSourceSectionIds?: string[];
+  // Reuse an already-built manifest instead of rebuilding the live tree. The
+  // caller must have built it from the SAME live state being published (e.g.
+  // inside the same transaction), so the fingerprint and the stored row match.
+  prebuiltManifest?: BuildManifestResult;
 };
 
 export type PublishManifestVersionResult = {
@@ -439,9 +467,11 @@ export async function publishManifestVersion(
   courseId: string,
   options: PublishManifestVersionOptions,
 ): Promise<PublishManifestVersionResult> {
-  const built = await buildManifestFromLiveTree(prisma, courseId, {
-    excludeSourceSectionIds: options.excludeSourceSectionIds,
-  });
+  const built =
+    options.prebuiltManifest ??
+    (await buildManifestFromLiveTree(prisma, courseId, {
+      excludeSourceSectionIds: options.excludeSourceSectionIds,
+    }));
 
   const versionId = randomUUID();
   const now = new Date();
@@ -479,32 +509,17 @@ export async function loadPinnedCurriculum(
   prisma: Db,
   versionId: string,
 ): Promise<PinnedCurriculumTree | null> {
-  const version = await prisma.courseVersion.findUnique({
-    where: { id: versionId },
-    select: {
-      id: true,
-      versionNumber: true,
-      manifest: true,
-    },
-  });
-  if (!version) {
-    return null;
-  }
-
-  let manifest = parseManifest(version.manifest);
-  if (!manifest) {
-    // Backfill window only: a pre-migration version whose manifest hasn't been
-    // populated yet. After migration 2 drops the legacy tables this throws, so
-    // swallow it and fall through to a null tree (caller degrades to live).
-    try {
-      manifest =
-        (await buildManifestFromLegacySnapshot(prisma, versionId))?.manifest ??
-        null;
-    } catch {
-      manifest = null;
-    }
-  }
-  if (!manifest) {
+  // Fetch only the lightweight meta here; get the (large) manifest from the
+  // shared cache so this path reuses the read resolveEnrolledVersionId already
+  // warmed instead of pulling the manifest column a second time.
+  const [version, manifest] = await Promise.all([
+    prisma.courseVersion.findUnique({
+      where: { id: versionId },
+      select: { id: true, versionNumber: true },
+    }),
+    loadManifestForVersion(prisma, versionId),
+  ]);
+  if (!version || !manifest) {
     return null;
   }
 
@@ -615,25 +630,70 @@ export async function loadPinnedCurriculum(
 }
 
 /**
- * Report-only hydrate: section titles/types + quiz counts.
- * Avoids pulling full section HTML/config payloads (~10x less DB transfer).
+ * Bounded in-process LRU of parsed, PUBLISHED manifests keyed by versionId.
+ *
+ * Safe with zero invalidation: a published version's manifest is immutable —
+ * publishing always creates a brand-new versionId (see publishManifestVersion),
+ * and existing rows only ever flip `isLatest`/`status`, never `manifest`. So a
+ * versionId → manifest mapping can never go stale.
+ *
+ * On serverless (Vercel) this only helps within a warm instance, but manifest
+ * JSON can be large (every section/quiz id in the course) and a learner paging
+ * through a course re-reads the same versionId repeatedly, so skipping the fetch
+ * + parse is a cheap, correct win. Bounded to cap memory; simple LRU eviction.
  */
-export async function loadPinnedCurriculumForReport(
+// Bounded by entry count. Each entry holds every section/quiz id in a course, so
+// keep the cap modest to bound memory (a handful of large courses, not 512).
+const MANIFEST_CACHE_MAX = 64;
+const manifestCache = new Map<string, CourseVersionManifest>();
+
+function getCachedManifest(versionId: string): CourseVersionManifest | undefined {
+  const cached = manifestCache.get(versionId);
+  if (cached) {
+    // Refresh recency: move to newest position.
+    manifestCache.delete(versionId);
+    manifestCache.set(versionId, cached);
+  }
+  return cached;
+}
+
+function setCachedManifest(
+  versionId: string,
+  manifest: CourseVersionManifest,
+): void {
+  manifestCache.delete(versionId);
+  manifestCache.set(versionId, manifest);
+  if (manifestCache.size > MANIFEST_CACHE_MAX) {
+    const oldest = manifestCache.keys().next().value;
+    if (oldest !== undefined) manifestCache.delete(oldest);
+  }
+}
+
+/** Test hook: clears the module-level manifest cache to avoid cross-test bleed. */
+export function resetManifestCache(): void {
+  manifestCache.clear();
+}
+
+/**
+ * Load and parse a version's (immutable) manifest, with the same legacy-snapshot
+ * fallback loadPinnedCurriculum uses. Returns null when the version row or its
+ * manifest can't be resolved. Parsed results are cached (see manifestCache).
+ */
+export async function loadManifestForVersion(
   prisma: Db,
   versionId: string,
-): Promise<ReportCurriculumTree | null> {
+): Promise<CourseVersionManifest | null> {
+  const cached = getCachedManifest(versionId);
+  if (cached) {
+    return cached;
+  }
   const version = await prisma.courseVersion.findUnique({
     where: { id: versionId },
-    select: {
-      id: true,
-      versionNumber: true,
-      manifest: true,
-    },
+    select: { manifest: true },
   });
   if (!version) {
     return null;
   }
-
   let manifest = parseManifest(version.manifest);
   if (!manifest) {
     try {
@@ -644,7 +704,83 @@ export async function loadPinnedCurriculumForReport(
       manifest = null;
     }
   }
-  if (!manifest) {
+  if (manifest) {
+    setCachedManifest(versionId, manifest);
+  }
+  return manifest;
+}
+
+function findManifestChapter(
+  manifest: CourseVersionManifest,
+  sourceChapterId: string,
+): CourseVersionManifestChapter | null {
+  for (const mod of manifest.modules) {
+    const ch = mod.chapters.find((c) => c.sourceId === sourceChapterId);
+    if (ch) return ch;
+  }
+  return null;
+}
+
+/**
+ * Chapter-scoped quiz loader — the learner quiz-fetch hot path. Instead of
+ * hydrating the WHOLE course tree (every section body + all quizzes) the way
+ * loadPinnedCurriculum does, it reads the manifest, locates the one target
+ * chapter, and loads ONLY that chapter's quizzes, in manifest order. Returns []
+ * (never null) when the version/manifest is unresolved or the chapter isn't part
+ * of this version — the caller already maps "no version" to a null/live result
+ * before calling this.
+ */
+export async function loadPinnedChapterQuizzes(
+  prisma: Db,
+  versionId: string,
+  sourceChapterId: string,
+  includeAnswers: boolean,
+): Promise<Array<Omit<PinnedCurriculumQuiz, 'answer'> & { answer?: string }>> {
+  const manifest = await loadManifestForVersion(prisma, versionId);
+  if (!manifest) return [];
+
+  const chapter = findManifestChapter(manifest, sourceChapterId);
+  if (!chapter || chapter.quizIds.length === 0) return [];
+
+  const rows = await prisma.quiz.findMany({
+    where: { id: { in: chapter.quizIds } },
+    select: { id: true, question: true, options: true, answer: true },
+  });
+  const byId = new Map(rows.map((q) => [q.id, q]));
+
+  // Reorder to the manifest's quizId order and drop any rows that no longer
+  // exist — identical to how loadPinnedCurriculum builds a chapter's quizzes.
+  const ordered: PinnedCurriculumQuiz[] = chapter.quizIds
+    .map((qid) => byId.get(qid))
+    .filter((q): q is NonNullable<typeof q> => Boolean(q))
+    .map((q) => ({
+      id: q.id,
+      question: q.question,
+      options: q.options,
+      answer: q.answer,
+    }));
+
+  return mapPinnedQuizzesForLearner(ordered, includeAnswers);
+}
+
+/**
+ * Report-only hydrate: section titles/types + quiz counts.
+ * Avoids pulling full section HTML/config payloads (~10x less DB transfer).
+ */
+export async function loadPinnedCurriculumForReport(
+  prisma: Db,
+  versionId: string,
+): Promise<ReportCurriculumTree | null> {
+  // Lightweight meta here; large manifest from the shared cache (see
+  // loadPinnedCurriculum for the rationale).
+  const [version, manifest] = await Promise.all([
+    prisma.courseVersion.findUnique({
+      where: { id: versionId },
+      select: { id: true, versionNumber: true },
+    }),
+    loadManifestForVersion(prisma, versionId),
+  ]);
+  if (!version || !manifest) {
     return null;
   }
 

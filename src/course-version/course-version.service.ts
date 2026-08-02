@@ -15,7 +15,9 @@ import {
   getQuizIdsFromManifest,
   getSectionIdsFromManifest,
   isIdReferencedInManifest,
+  loadManifestForVersion,
   loadPinnedCurriculum,
+  loadPinnedChapterQuizzes,
   mapPinnedQuizzesForLearner,
   mapPinnedSectionsForLearner,
   parseManifest,
@@ -130,37 +132,30 @@ export class CourseVersionService {
       return null;
     }
 
-    let enrolledVersionId = uc.enrolledVersionId;
+    const enrolledVersionId = uc.enrolledVersionId;
 
-    const [progressCount, versionExists] = await Promise.all([
-      this.prisma.userCourseProgress.count({
-        where: { userId, courseId },
-      }),
-      this.prisma.courseVersion.findUnique({
-        where: { id: enrolledVersionId },
-        select: { id: true },
-      }),
-    ]);
-
-    if (!versionExists) {
+    // Pure read: a learner's pin is immutable once set (pinned at activation).
+    // We deliberately do NOT re-pin here — resolving a version must never mutate
+    // the enrollment (it previously "bumped zero-progress" learners to latest on
+    // read, which shifted the curriculum under learners who had answered quizzes
+    // but recorded no section progress, and put a write on every GET).
+    // Resolve the manifest (cached) and warm the shared cache for the gate and
+    // quiz loader downstream. Returning null when it can't be resolved is the
+    // degrade-to-live signal the quiz/gate paths depend on (getVersionQuizzes →
+    // live fallback; the progression gate → live ordering). NOTE: this is NOT a
+    // liveness probe — after the first hit the answer comes from the in-process
+    // cache, so it does not re-check the row each call. That's fine because a
+    // pinned version can't be deleted (UserCourse.enrolledVersion is onDelete:
+    // Restrict); the null return only guards the manifest-unparseable/absent case.
+    const manifest = await loadManifestForVersion(
+      this.prisma,
+      enrolledVersionId,
+    );
+    if (!manifest) {
       this.logger.warn(
-        `User ${userId} pinned to missing version ${enrolledVersionId}; falling back to live tree`,
+        `User ${userId} pinned to missing/invalid version ${enrolledVersionId}; falling back to live tree`,
       );
       return null;
-    }
-
-    if (progressCount === 0) {
-      const latest = await this.getLatestPublishedVersion(courseId);
-      if (latest && latest.id !== enrolledVersionId) {
-        await this.prisma.userCourse.update({
-          where: { id: uc.id },
-          data: { enrolledVersionId: latest.id },
-        });
-        enrolledVersionId = latest.id;
-        this.logger.log(
-          `Bumped zero-progress enrollment ${uc.id} to version ${latest.versionNumber}`,
-        );
-      }
     }
 
     return enrolledVersionId;
@@ -186,18 +181,16 @@ export class CourseVersionService {
       return null;
     }
 
-    const tree = await loadPinnedCurriculum(this.prisma, versionId);
-    if (!tree) {
-      return [];
-    }
-
-    for (const mod of tree.modules) {
-      const ch = mod.chapters.find((c) => c.sourceChapterId === sourceChapterId);
-      if (ch) {
-        return mapPinnedQuizzesForLearner(ch.quizzes, includeAnswers);
-      }
-    }
-    return [];
+    // Chapter-scoped: load only THIS chapter's quizzes from the manifest instead
+    // of hydrating the entire course tree (all section bodies) just to read one
+    // chapter's quiz list. Returns [] for a pinned learner whose chapter has no
+    // quizzes / isn't in the version — matching the previous whole-tree result.
+    return loadPinnedChapterQuizzes(
+      this.prisma,
+      versionId,
+      sourceChapterId,
+      includeAnswers,
+    );
   }
 
   async resolveCurriculumByEnrollment(
@@ -233,6 +226,13 @@ export class CourseVersionService {
     });
   }
 
+  /**
+   * Pin an enrollment to the course's current latest published version, once.
+   * Called at first activation. Idempotent and race-safe: the write is a
+   * conditional updateMany guarded by `enrolledVersionId: null`, so if the
+   * enrollment is already pinned (or a concurrent activation pinned it first)
+   * this is a no-op — a pin is never overwritten once set.
+   */
   async pinEnrollmentToLatest(
     userCourseId: string,
     tx?: Prisma.TransactionClient,
@@ -247,6 +247,7 @@ export class CourseVersionService {
 
     const latest = await db.courseVersion.findFirst({
       where: { courseId: uc.courseId, status: 'PUBLISHED', isLatest: true },
+      select: { id: true },
     });
 
     if (!latest) {
@@ -256,8 +257,9 @@ export class CourseVersionService {
       return;
     }
 
-    await db.userCourse.update({
-      where: { id: userCourseId },
+    // Conditional write: only pins while still unpinned (atomic no-op otherwise).
+    await db.userCourse.updateMany({
+      where: { id: userCourseId, enrolledVersionId: null },
       data: { enrolledVersionId: latest.id },
     });
   }
@@ -275,75 +277,148 @@ export class CourseVersionService {
       throw new NotFoundException('Course not found');
     }
 
-    const latest = await this.getLatestPublishedVersion(courseId);
-    const built = await buildManifestFromLiveTree(this.prisma, courseId);
+    // Everything that decides the next version — building the live manifest,
+    // the structural-fingerprint dedup, the versionNumber, demoting the old
+    // latest, and inserting the new row — runs inside ONE transaction guarded by
+    // a per-course advisory lock. Consequences:
+    //  • Concurrent publishes for the same course are serialized, so they can't
+    //    collide on versionNumber (@@unique[courseId, versionNumber]) or leave
+    //    two isLatest rows (the partial unique index also backstops this).
+    //  • The "no structural change" dedup is authoritative: a racing publish
+    //    can't slip a version in between the check and the insert.
+    //  • The manifest is built ONCE and reused for the fingerprint and the
+    //    stored row (it was previously built up to 3x across this path).
+    // The lock is xact-scoped (pg_try_advisory_xact_lock) → safe under PgBouncer
+    // transaction pooling. We use the NON-blocking try-variant: a second
+    // concurrent publish for the same course fails fast with a ConflictException
+    // instead of blocking on the lock and burning the interactive-tx timeout
+    // (which would surface as "Transaction already closed"), and instead of
+    // holding this instance's single pooled connection (connection_limit=1) idle
+    // for up to 15s. Auto-publish is best-effort (the caller swallows + logs, and
+    // the drift reconcile heals), so a dropped concurrent publish is safe; a
+    // manual publish surfaces a clean 409. publishNewVersion already ran in an
+    // interactive tx; this only adds the lock + a single manifest findMany.
+    return this.prisma.$transaction(
+      async (tx) => {
+        const [{ locked }] = await tx.$queryRaw<Array<{ locked: boolean }>>(
+          Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtextextended(${courseId}, 0)) AS locked`,
+        );
+        if (!locked) {
+          throw new ConflictException(
+            `Another publish is already in progress for course ${courseId}; retry`,
+          );
+        }
 
-    if (latest?.manifest) {
-      const latestManifest = parseManifest(latest.manifest);
-      if (
-        latestManifest &&
-        computeStructuralFingerprint(latestManifest) ===
-          computeStructuralFingerprint(built.manifest)
-      ) {
+        const built = await buildManifestFromLiveTree(tx, courseId);
+
+        // Matched by isLatest ALONE (no status filter) on purpose: this row is
+        // the one we must demote, and the partial unique index guarantees there's
+        // at most one isLatest per course. Adding status: 'PUBLISHED' here could
+        // skip an isLatest row of another status and leave two latest rows. Reads
+        // that want the *published* latest use getLatestPublishedVersion instead.
+        const currentLatest = await tx.courseVersion.findFirst({
+          where: { courseId, isLatest: true },
+          orderBy: { versionNumber: 'desc' },
+        });
+
+        if (currentLatest?.manifest) {
+          const latestManifest = parseManifest(currentLatest.manifest);
+          if (
+            latestManifest &&
+            computeStructuralFingerprint(latestManifest) ===
+              computeStructuralFingerprint(built.manifest)
+          ) {
+            return {
+              message: `No structural change — still on version ${currentLatest.versionNumber}`,
+              statusCode: 200,
+              data: {
+                ...currentLatest,
+                stats: {
+                  modules: built.moduleCount,
+                  chapters: built.chapterCount,
+                  sections: built.sectionCount,
+                  quizzes: built.quizCount,
+                },
+                skipped: true,
+              },
+            };
+          }
+        }
+
+        // Derive the next number from MAX(versionNumber), NOT currentLatest — a
+        // non-latest row can carry a higher number (e.g. prune-orphan promotes an
+        // older version back to isLatest), and currentLatest+1 would then collide
+        // on @@unique([courseId, versionNumber]).
+        const maxAgg = await tx.courseVersion.aggregate({
+          where: { courseId },
+          _max: { versionNumber: true },
+        });
+        const nextNumber = (maxAgg._max.versionNumber ?? 0) + 1;
+
+        if (currentLatest) {
+          await tx.courseVersion.update({
+            where: { id: currentLatest.id },
+            data: { isLatest: false },
+          });
+        }
+
+        const snapshot = await publishManifestVersion(tx, courseId, {
+          versionNumber: nextNumber,
+          status: 'PUBLISHED',
+          isLatest: true,
+          publishedAt: new Date(),
+          publishedByAdminId: adminId ?? null,
+          changeNotes: changeNotes ?? null,
+          prebuiltManifest: built,
+        });
+
+        // Close the pinning hole: pin any ACTIVE, still-unpinned enrollment on
+        // this course to the new version. Under "freeze at activation", an active
+        // enrollment should always be pinned; a NULL one is the anomaly from
+        // activation happening before any version existed (activatedAt was
+        // stamped, so it would otherwise never pin). Conditional on
+        // enrolledVersionId: null → never overwrites an existing pin. This is
+        // visually a no-op for the learner: the version we just published IS the
+        // live tree at this instant, and an unpinned learner was already being
+        // served that live tree. Self-limiting — matches nothing after the first
+        // publish. Logged so a surprising mass-pin is visible, not silent.
+        const pinned = await tx.userCourse.updateMany({
+          where: { courseId, isActive: true, enrolledVersionId: null },
+          data: { enrolledVersionId: snapshot.versionId },
+        });
+        if (pinned.count > 0) {
+          this.logger.log(
+            `Pinned ${pinned.count} active unpinned enrollment(s) on course ${courseId} to v${nextNumber}`,
+          );
+        }
+
+        const version = await tx.courseVersion.findUnique({
+          where: { id: snapshot.versionId },
+        });
+        if (!version) {
+          // Invariant: we just created this row in this transaction. Fail loudly
+          // (rolls back) instead of returning `versionNumber: undefined`.
+          throw new Error(
+            `Published version ${snapshot.versionId} not found after create`,
+          );
+        }
+
         return {
-          message: `No structural change — still on version ${latest.versionNumber}`,
+          message: `Published version ${nextNumber} for "${course.title}"`,
           statusCode: 200,
           data: {
-            ...latest,
+            ...version,
             stats: {
-              modules: built.moduleCount,
-              chapters: built.chapterCount,
-              sections: built.sectionCount,
-              quizzes: built.quizCount,
+              modules: snapshot.moduleCount,
+              chapters: snapshot.chapterCount,
+              sections: snapshot.sectionCount,
+              quizzes: snapshot.quizCount,
             },
-            skipped: true,
           },
         };
-      }
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const currentLatest = await tx.courseVersion.findFirst({
-        where: { courseId, isLatest: true },
-        orderBy: { versionNumber: 'desc' },
-      });
-
-      const nextNumber = (currentLatest?.versionNumber ?? 0) + 1;
-
-      if (currentLatest) {
-        await tx.courseVersion.update({
-          where: { id: currentLatest.id },
-          data: { isLatest: false },
-        });
-      }
-
-      const snapshot = await publishManifestVersion(tx, courseId, {
-        versionNumber: nextNumber,
-        status: 'PUBLISHED',
-        isLatest: true,
-        publishedAt: new Date(),
-        publishedByAdminId: adminId ?? null,
-        changeNotes: changeNotes ?? null,
-      });
-
-      const version = await tx.courseVersion.findUnique({
-        where: { id: snapshot.versionId },
-      });
-
-      return {
-        message: `Published version ${nextNumber} for "${course.title}"`,
-        statusCode: 200,
-        data: {
-          ...version,
-          stats: {
-            modules: snapshot.moduleCount,
-            chapters: snapshot.chapterCount,
-            sections: snapshot.sectionCount,
-            quizzes: snapshot.quizCount,
-          },
-        },
-      };
-    });
+      },
+      { timeout: 15000, maxWait: 5000 },
+    );
   }
 
   async autoPublishAfterStructuralChange(
@@ -351,26 +426,17 @@ export class CourseVersionService {
     adminId: string | null | undefined,
     changeNotes: string,
   ): Promise<{ versionNumber: number; versionId: string } | null> {
-    const latest = await this.getLatestPublishedVersion(courseId);
-    const built = await buildManifestFromLiveTree(this.prisma, courseId);
-
-    if (latest?.manifest) {
-      const latestManifest = parseManifest(latest.manifest);
-      if (
-        latestManifest &&
-        computeStructuralFingerprint(latestManifest) ===
-          computeStructuralFingerprint(built.manifest)
-      ) {
-        this.logger.log(
-          `Skipping auto-publish for ${courseId}: no structural change (${changeNotes})`,
-        );
-        return null;
-      }
-    }
-
+    // The structural-fingerprint dedup and the versioning now happen
+    // authoritatively inside publishNewVersion's advisory-locked transaction, so
+    // we no longer pre-build the manifest / pre-check here (that was a redundant
+    // build and a check outside any lock that two concurrent publishers could
+    // both pass). publishNewVersion returns `skipped` when nothing changed.
     this.logger.log(`Auto-publishing ${courseId}: ${changeNotes}`);
     const result = await this.publishNewVersion(adminId, courseId, changeNotes);
     if (result.data && 'skipped' in result.data && result.data.skipped) {
+      this.logger.log(
+        `Skipped auto-publish for ${courseId}: no structural change (${changeNotes})`,
+      );
       return null;
     }
     return {
@@ -497,43 +563,51 @@ export class CourseVersionService {
     userId: string,
     courseId: string,
   ): Promise<{ total: number; liveSectionIds: string[] }> {
-    const enrolledVersionId = await this.resolveEnrolledVersionId(
-      userId,
-      courseId,
-    );
-
-    if (!enrolledVersionId) {
+    const liveDenominator = async () => {
       const liveSectionIds = (
         await this.prisma.section.findMany({
           where: {
             isActive: true,
             isArchived: false,
-            chapter: { isArchived: false, module: { courseId, isArchived: false } },
+            chapter: {
+              isArchived: false,
+              module: { courseId, isArchived: false },
+            },
           },
           select: { id: true },
         })
       ).map((s) => s.id);
       return { total: liveSectionIds.length, liveSectionIds };
-    }
+    };
 
-    const version = await this.prisma.courseVersion.findUnique({
-      where: { id: enrolledVersionId },
-      select: { sectionCount: true, manifest: true },
+    // Read the pin directly (one userCourse read) instead of via
+    // resolveEnrolledVersionId — the version fetch below IS the existence check,
+    // so we don't also need that method's separate existence probe.
+    const uc = await this.prisma.userCourse.findUnique({
+      where: { userId_courseId: { userId, courseId } },
+      select: { enrolledVersionId: true },
     });
-
-    if (version?.sectionCount != null) {
-      const manifest = parseManifest(version.manifest);
-      if (manifest) {
-        const ids = getSectionIdsFromManifest(manifest);
-        return { total: version.sectionCount, liveSectionIds: ids };
-      }
+    const enrolledVersionId = uc?.enrolledVersionId ?? null;
+    if (!enrolledVersionId) {
+      return liveDenominator();
     }
 
-    const tree = await loadPinnedCurriculum(this.prisma, enrolledVersionId);
-    if (!tree) {
-      return { total: 0, liveSectionIds: [] };
+    // Pinned version gone, or its manifest unparseable → degrade to the LIVE
+    // count. Previously this returned { total: 0 }, which corrupted the
+    // completion denominator and is what forced the "load-bearing" existence
+    // probe upstream. With this fallback that coupling is gone. Read the manifest
+    // via the shared cache (this was the last path reading the manifest column
+    // directly).
+    const manifest = await loadManifestForVersion(
+      this.prisma,
+      enrolledVersionId,
+    );
+    if (!manifest) {
+      return liveDenominator();
     }
-    const ids = getSectionIdsFromManifest(tree.manifest);
+    // Use ids.length (not the stored sectionCount) so total and liveSectionIds
+    // are self-consistent by construction — they can't disagree.
+    const ids = getSectionIdsFromManifest(manifest);
     return { total: ids.length, liveSectionIds: ids };
   }
 

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.mapPinnedQuizzesForLearner = exports.mapPinnedSectionsForLearner = exports.loadPinnedCurriculumForReport = exports.loadPinnedCurriculum = exports.publishManifestVersion = exports.buildManifestFromLegacySnapshot = exports.buildManifestFromLiveTree = exports.diffManifests = exports.isIdReferencedInManifest = exports.computeStructuralFingerprint = exports.getQuizIdsFromManifest = exports.getChapterIdsFromManifest = exports.getSectionIdsFromManifest = exports.countSectionsInManifest = exports.parseManifest = void 0;
+exports.mapPinnedQuizzesForLearner = exports.mapPinnedSectionsForLearner = exports.loadPinnedCurriculumForReport = exports.loadPinnedChapterQuizzes = exports.loadManifestForVersion = exports.resetManifestCache = exports.loadPinnedCurriculum = exports.publishManifestVersion = exports.buildManifestFromLegacySnapshot = exports.buildManifestFromLiveTree = exports.diffManifests = exports.isIdReferencedInManifest = exports.computeStructuralFingerprint = exports.getQuizIdsFromManifest = exports.getChapterIdsFromManifest = exports.getSectionIdsFromManifest = exports.countSectionsInManifest = exports.parseManifest = void 0;
 const client_1 = require("@prisma/client");
 const crypto_1 = require("crypto");
 function parseManifest(raw) {
@@ -32,11 +32,15 @@ function getQuizIdsFromManifest(manifest) {
 }
 exports.getQuizIdsFromManifest = getQuizIdsFromManifest;
 function computeStructuralFingerprint(manifest) {
-    const moduleIds = manifest.modules.map((m) => m.sourceId).sort();
-    const chapterIds = getChapterIdsFromManifest(manifest).sort();
-    const sectionIds = getSectionIdsFromManifest(manifest).sort();
-    const quizIds = getQuizIdsFromManifest(manifest).sort();
-    return JSON.stringify({ moduleIds, chapterIds, sectionIds, quizIds });
+    const shape = manifest.modules.map((mod) => ({
+        m: mod.sourceId,
+        c: mod.chapters.map((ch) => ({
+            c: ch.sourceId,
+            s: ch.sectionIds,
+            q: ch.quizIds,
+        })),
+    }));
+    return (0, crypto_1.createHash)('sha256').update(JSON.stringify(shape)).digest('hex');
 }
 exports.computeStructuralFingerprint = computeStructuralFingerprint;
 function isIdReferencedInManifest(manifest, table, sourceId) {
@@ -87,20 +91,20 @@ async function buildManifestFromLiveTree(prisma, courseId, options = {}) {
     const excluded = new Set(options.excludeSourceSectionIds ?? []);
     const modules = await prisma.module.findMany({
         where: { courseId, isArchived: false },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         include: {
             chapters: {
                 where: { isArchived: false },
-                orderBy: { createdAt: 'asc' },
+                orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
                 include: {
                     sections: {
                         where: { isArchived: false, isActive: true },
-                        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+                        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
                         select: { id: true },
                     },
                     quizzes: {
                         where: { isArchived: false },
-                        orderBy: { createdAt: 'asc' },
+                        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
                         select: { id: true },
                     },
                 },
@@ -221,9 +225,10 @@ async function buildManifestFromLegacySnapshot(prisma, versionId) {
 }
 exports.buildManifestFromLegacySnapshot = buildManifestFromLegacySnapshot;
 async function publishManifestVersion(prisma, courseId, options) {
-    const built = await buildManifestFromLiveTree(prisma, courseId, {
-        excludeSourceSectionIds: options.excludeSourceSectionIds,
-    });
+    const built = options.prebuiltManifest ??
+        (await buildManifestFromLiveTree(prisma, courseId, {
+            excludeSourceSectionIds: options.excludeSourceSectionIds,
+        }));
     const versionId = (0, crypto_1.randomUUID)();
     const now = new Date();
     await prisma.courseVersion.create({
@@ -253,29 +258,14 @@ async function publishManifestVersion(prisma, courseId, options) {
 }
 exports.publishManifestVersion = publishManifestVersion;
 async function loadPinnedCurriculum(prisma, versionId) {
-    const version = await prisma.courseVersion.findUnique({
-        where: { id: versionId },
-        select: {
-            id: true,
-            versionNumber: true,
-            manifest: true,
-        },
-    });
-    if (!version) {
-        return null;
-    }
-    let manifest = parseManifest(version.manifest);
-    if (!manifest) {
-        try {
-            manifest =
-                (await buildManifestFromLegacySnapshot(prisma, versionId))?.manifest ??
-                    null;
-        }
-        catch {
-            manifest = null;
-        }
-    }
-    if (!manifest) {
+    const [version, manifest] = await Promise.all([
+        prisma.courseVersion.findUnique({
+            where: { id: versionId },
+            select: { id: true, versionNumber: true },
+        }),
+        loadManifestForVersion(prisma, versionId),
+    ]);
+    if (!version || !manifest) {
         return null;
     }
     const allSectionIds = getSectionIdsFromManifest(manifest);
@@ -376,14 +366,37 @@ async function loadPinnedCurriculum(prisma, versionId) {
     };
 }
 exports.loadPinnedCurriculum = loadPinnedCurriculum;
-async function loadPinnedCurriculumForReport(prisma, versionId) {
+const MANIFEST_CACHE_MAX = 64;
+const manifestCache = new Map();
+function getCachedManifest(versionId) {
+    const cached = manifestCache.get(versionId);
+    if (cached) {
+        manifestCache.delete(versionId);
+        manifestCache.set(versionId, cached);
+    }
+    return cached;
+}
+function setCachedManifest(versionId, manifest) {
+    manifestCache.delete(versionId);
+    manifestCache.set(versionId, manifest);
+    if (manifestCache.size > MANIFEST_CACHE_MAX) {
+        const oldest = manifestCache.keys().next().value;
+        if (oldest !== undefined)
+            manifestCache.delete(oldest);
+    }
+}
+function resetManifestCache() {
+    manifestCache.clear();
+}
+exports.resetManifestCache = resetManifestCache;
+async function loadManifestForVersion(prisma, versionId) {
+    const cached = getCachedManifest(versionId);
+    if (cached) {
+        return cached;
+    }
     const version = await prisma.courseVersion.findUnique({
         where: { id: versionId },
-        select: {
-            id: true,
-            versionNumber: true,
-            manifest: true,
-        },
+        select: { manifest: true },
     });
     if (!version) {
         return null;
@@ -399,7 +412,53 @@ async function loadPinnedCurriculumForReport(prisma, versionId) {
             manifest = null;
         }
     }
-    if (!manifest) {
+    if (manifest) {
+        setCachedManifest(versionId, manifest);
+    }
+    return manifest;
+}
+exports.loadManifestForVersion = loadManifestForVersion;
+function findManifestChapter(manifest, sourceChapterId) {
+    for (const mod of manifest.modules) {
+        const ch = mod.chapters.find((c) => c.sourceId === sourceChapterId);
+        if (ch)
+            return ch;
+    }
+    return null;
+}
+async function loadPinnedChapterQuizzes(prisma, versionId, sourceChapterId, includeAnswers) {
+    const manifest = await loadManifestForVersion(prisma, versionId);
+    if (!manifest)
+        return [];
+    const chapter = findManifestChapter(manifest, sourceChapterId);
+    if (!chapter || chapter.quizIds.length === 0)
+        return [];
+    const rows = await prisma.quiz.findMany({
+        where: { id: { in: chapter.quizIds } },
+        select: { id: true, question: true, options: true, answer: true },
+    });
+    const byId = new Map(rows.map((q) => [q.id, q]));
+    const ordered = chapter.quizIds
+        .map((qid) => byId.get(qid))
+        .filter((q) => Boolean(q))
+        .map((q) => ({
+        id: q.id,
+        question: q.question,
+        options: q.options,
+        answer: q.answer,
+    }));
+    return mapPinnedQuizzesForLearner(ordered, includeAnswers);
+}
+exports.loadPinnedChapterQuizzes = loadPinnedChapterQuizzes;
+async function loadPinnedCurriculumForReport(prisma, versionId) {
+    const [version, manifest] = await Promise.all([
+        prisma.courseVersion.findUnique({
+            where: { id: versionId },
+            select: { id: true, versionNumber: true },
+        }),
+        loadManifestForVersion(prisma, versionId),
+    ]);
+    if (!version || !manifest) {
         return null;
     }
     const allSectionIds = getSectionIdsFromManifest(manifest);

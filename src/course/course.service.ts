@@ -89,9 +89,14 @@ export class CourseService {
           adminId,
           changeNotes,
         );
-      CourseService.completionLogger.log(
-        `Auto-published v${published.versionNumber} for course ${courseId}`,
-      );
+      // `published` is null when nothing structural changed (dedup skip) — guard
+      // the deref so a skipped publish doesn't throw here and get logged as a
+      // spurious "Auto-publish failed".
+      if (published) {
+        CourseService.completionLogger.log(
+          `Auto-published v${published.versionNumber} for course ${courseId}`,
+        );
+      }
       return published;
     } catch (error) {
       CourseService.completionLogger.error(

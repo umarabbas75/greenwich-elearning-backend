@@ -20,6 +20,7 @@ export declare class CourseVersionController {
                 sections: number;
                 quizzes: number;
             };
+            skipped: boolean;
             id: string;
             courseId: string;
             versionNumber: number;
@@ -43,12 +44,18 @@ export declare class CourseVersionController {
                 sections: number;
                 quizzes: number;
             };
-            skipped: boolean;
             id: string;
+            courseId: string;
+            versionNumber: number;
+            status: import(".prisma/client").$Enums.CourseVersionStatus;
+            publishedAt: Date;
+            publishedByAdminId: string;
+            changeNotes: string;
+            isLatest: boolean;
             manifest: import(".prisma/client").Prisma.JsonValue;
             sectionCount: number;
-            versionNumber: number;
-            publishedAt: Date;
+            createdAt: Date;
+            updatedAt: Date;
         };
     }>;
     listVersions(courseId: string): Promise<{

@@ -1,4 +1,3 @@
-import { HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CourseVersionService } from '../course-version/course-version.service';
@@ -158,6 +157,28 @@ describe('QuizService — course versioning', () => {
       expect(prisma.quiz.delete).toHaveBeenCalledWith({
         where: { id: 'quiz-1' },
       });
+    });
+
+    // Regression: the auto-publish is best-effort. The quiz mutation has already
+    // committed by the time it runs, so a publish failure must NOT propagate and
+    // 403 the admin — it's logged and the version self-heals via reconcile.
+    it('still succeeds when auto-publish throws (best-effort)', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({
+        id: 'quiz-1',
+        chapter: { module: { courseId: 'course-1' } },
+      });
+      courseVersionService.isReferencedByAnyVersion.mockResolvedValue(false);
+      prisma.quiz.delete.mockResolvedValue({});
+      courseVersionService.autoPublishAfterStructuralChange.mockRejectedValue(
+        new Error('publish boom'),
+      );
+
+      const result = await service.deleteQuiz('quiz-1');
+
+      // Mutation happened, no throw, no publishedVersion.
+      expect(prisma.quiz.delete).toHaveBeenCalled();
+      expect(result.statusCode).toBe(200);
+      expect(result.publishedVersion).toBeUndefined();
     });
   });
 

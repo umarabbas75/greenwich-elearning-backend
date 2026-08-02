@@ -159,6 +159,10 @@ async function applyPlan(plans) {
         }
         console.log(`\nApplying: ${plan.courseTitle}`);
         await prisma.$transaction(async (tx) => {
+            const [{ locked }] = await tx.$queryRaw(client_1.Prisma.sql `SELECT pg_try_advisory_xact_lock(hashtextextended(${plan.courseId}, 0)) AS locked`);
+            if (!locked) {
+                throw new Error(`Course ${plan.courseId} is locked by a concurrent publish/prune; re-run.`);
+            }
             if (plan.promoteLatestTo) {
                 await tx.courseVersion.updateMany({
                     where: { courseId: plan.courseId, isLatest: true },

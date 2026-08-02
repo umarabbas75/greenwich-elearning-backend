@@ -28,7 +28,7 @@
  */
 
 import * as dotenv from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 
 dotenv.config();
 
@@ -245,6 +245,19 @@ async function applyPlan(plans: CoursePlan[]) {
 
     await prisma.$transaction(
       async (tx) => {
+        // Take the SAME per-course advisory lock publishNewVersion uses. prune is
+        // the other writer of the isLatest invariant; without this a concurrent
+        // publish + promote can race (the partial unique index errors one out —
+        // safe but ugly). xact-scoped → released on commit/rollback.
+        const [{ locked }] = await tx.$queryRaw<Array<{ locked: boolean }>>(
+          Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtextextended(${plan.courseId}, 0)) AS locked`,
+        );
+        if (!locked) {
+          throw new Error(
+            `Course ${plan.courseId} is locked by a concurrent publish/prune; re-run.`,
+          );
+        }
+
         if (plan.promoteLatestTo) {
           await tx.courseVersion.updateMany({
             where: { courseId: plan.courseId, isLatest: true },

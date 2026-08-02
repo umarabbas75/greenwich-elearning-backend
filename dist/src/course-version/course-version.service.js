@@ -12,6 +12,7 @@ var CourseVersionService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CourseVersionService = void 0;
 const common_1 = require("@nestjs/common");
+const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const course_version_manifest_1 = require("./course-version.manifest");
 let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
@@ -65,30 +66,11 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         if (!uc?.enrolledVersionId) {
             return null;
         }
-        let enrolledVersionId = uc.enrolledVersionId;
-        const [progressCount, versionExists] = await Promise.all([
-            this.prisma.userCourseProgress.count({
-                where: { userId, courseId },
-            }),
-            this.prisma.courseVersion.findUnique({
-                where: { id: enrolledVersionId },
-                select: { id: true },
-            }),
-        ]);
-        if (!versionExists) {
-            this.logger.warn(`User ${userId} pinned to missing version ${enrolledVersionId}; falling back to live tree`);
+        const enrolledVersionId = uc.enrolledVersionId;
+        const manifest = await (0, course_version_manifest_1.loadManifestForVersion)(this.prisma, enrolledVersionId);
+        if (!manifest) {
+            this.logger.warn(`User ${userId} pinned to missing/invalid version ${enrolledVersionId}; falling back to live tree`);
             return null;
-        }
-        if (progressCount === 0) {
-            const latest = await this.getLatestPublishedVersion(courseId);
-            if (latest && latest.id !== enrolledVersionId) {
-                await this.prisma.userCourse.update({
-                    where: { id: uc.id },
-                    data: { enrolledVersionId: latest.id },
-                });
-                enrolledVersionId = latest.id;
-                this.logger.log(`Bumped zero-progress enrollment ${uc.id} to version ${latest.versionNumber}`);
-            }
         }
         return enrolledVersionId;
     }
@@ -99,17 +81,7 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         if (!versionId) {
             return null;
         }
-        const tree = await (0, course_version_manifest_1.loadPinnedCurriculum)(this.prisma, versionId);
-        if (!tree) {
-            return [];
-        }
-        for (const mod of tree.modules) {
-            const ch = mod.chapters.find((c) => c.sourceChapterId === sourceChapterId);
-            if (ch) {
-                return (0, course_version_manifest_1.mapPinnedQuizzesForLearner)(ch.quizzes, includeAnswers);
-            }
-        }
-        return [];
+        return (0, course_version_manifest_1.loadPinnedChapterQuizzes)(this.prisma, versionId, sourceChapterId, includeAnswers);
     }
     async resolveCurriculumByEnrollment(enrolledVersionId) {
         if (!enrolledVersionId) {
@@ -148,13 +120,14 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             return;
         const latest = await db.courseVersion.findFirst({
             where: { courseId: uc.courseId, status: 'PUBLISHED', isLatest: true },
+            select: { id: true },
         });
         if (!latest) {
             this.logger.warn(`No published version for course ${uc.courseId}; enrollment ${userCourseId} stays unpinned`);
             return;
         }
-        await db.userCourse.update({
-            where: { id: userCourseId },
+        await db.userCourse.updateMany({
+            where: { id: userCourseId, enrolledVersionId: null },
             data: { enrolledVersionId: latest.id },
         });
     }
@@ -166,35 +139,42 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         if (!course) {
             throw new common_1.NotFoundException('Course not found');
         }
-        const latest = await this.getLatestPublishedVersion(courseId);
-        const built = await (0, course_version_manifest_1.buildManifestFromLiveTree)(this.prisma, courseId);
-        if (latest?.manifest) {
-            const latestManifest = (0, course_version_manifest_1.parseManifest)(latest.manifest);
-            if (latestManifest &&
-                (0, course_version_manifest_1.computeStructuralFingerprint)(latestManifest) ===
-                    (0, course_version_manifest_1.computeStructuralFingerprint)(built.manifest)) {
-                return {
-                    message: `No structural change — still on version ${latest.versionNumber}`,
-                    statusCode: 200,
-                    data: {
-                        ...latest,
-                        stats: {
-                            modules: built.moduleCount,
-                            chapters: built.chapterCount,
-                            sections: built.sectionCount,
-                            quizzes: built.quizCount,
-                        },
-                        skipped: true,
-                    },
-                };
-            }
-        }
         return this.prisma.$transaction(async (tx) => {
+            const [{ locked }] = await tx.$queryRaw(client_1.Prisma.sql `SELECT pg_try_advisory_xact_lock(hashtextextended(${courseId}, 0)) AS locked`);
+            if (!locked) {
+                throw new common_1.ConflictException(`Another publish is already in progress for course ${courseId}; retry`);
+            }
+            const built = await (0, course_version_manifest_1.buildManifestFromLiveTree)(tx, courseId);
             const currentLatest = await tx.courseVersion.findFirst({
                 where: { courseId, isLatest: true },
                 orderBy: { versionNumber: 'desc' },
             });
-            const nextNumber = (currentLatest?.versionNumber ?? 0) + 1;
+            if (currentLatest?.manifest) {
+                const latestManifest = (0, course_version_manifest_1.parseManifest)(currentLatest.manifest);
+                if (latestManifest &&
+                    (0, course_version_manifest_1.computeStructuralFingerprint)(latestManifest) ===
+                        (0, course_version_manifest_1.computeStructuralFingerprint)(built.manifest)) {
+                    return {
+                        message: `No structural change — still on version ${currentLatest.versionNumber}`,
+                        statusCode: 200,
+                        data: {
+                            ...currentLatest,
+                            stats: {
+                                modules: built.moduleCount,
+                                chapters: built.chapterCount,
+                                sections: built.sectionCount,
+                                quizzes: built.quizCount,
+                            },
+                            skipped: true,
+                        },
+                    };
+                }
+            }
+            const maxAgg = await tx.courseVersion.aggregate({
+                where: { courseId },
+                _max: { versionNumber: true },
+            });
+            const nextNumber = (maxAgg._max.versionNumber ?? 0) + 1;
             if (currentLatest) {
                 await tx.courseVersion.update({
                     where: { id: currentLatest.id },
@@ -208,10 +188,21 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 publishedAt: new Date(),
                 publishedByAdminId: adminId ?? null,
                 changeNotes: changeNotes ?? null,
+                prebuiltManifest: built,
             });
+            const pinned = await tx.userCourse.updateMany({
+                where: { courseId, isActive: true, enrolledVersionId: null },
+                data: { enrolledVersionId: snapshot.versionId },
+            });
+            if (pinned.count > 0) {
+                this.logger.log(`Pinned ${pinned.count} active unpinned enrollment(s) on course ${courseId} to v${nextNumber}`);
+            }
             const version = await tx.courseVersion.findUnique({
                 where: { id: snapshot.versionId },
             });
+            if (!version) {
+                throw new Error(`Published version ${snapshot.versionId} not found after create`);
+            }
             return {
                 message: `Published version ${nextNumber} for "${course.title}"`,
                 statusCode: 200,
@@ -225,23 +216,13 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                     },
                 },
             };
-        });
+        }, { timeout: 15000, maxWait: 5000 });
     }
     async autoPublishAfterStructuralChange(courseId, adminId, changeNotes) {
-        const latest = await this.getLatestPublishedVersion(courseId);
-        const built = await (0, course_version_manifest_1.buildManifestFromLiveTree)(this.prisma, courseId);
-        if (latest?.manifest) {
-            const latestManifest = (0, course_version_manifest_1.parseManifest)(latest.manifest);
-            if (latestManifest &&
-                (0, course_version_manifest_1.computeStructuralFingerprint)(latestManifest) ===
-                    (0, course_version_manifest_1.computeStructuralFingerprint)(built.manifest)) {
-                this.logger.log(`Skipping auto-publish for ${courseId}: no structural change (${changeNotes})`);
-                return null;
-            }
-        }
         this.logger.log(`Auto-publishing ${courseId}: ${changeNotes}`);
         const result = await this.publishNewVersion(adminId, courseId, changeNotes);
         if (result.data && 'skipped' in result.data && result.data.skipped) {
+            this.logger.log(`Skipped auto-publish for ${courseId}: no structural change (${changeNotes})`);
             return null;
         }
         return {
@@ -341,34 +322,33 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         };
     }
     async countCompletionDenominator(userId, courseId) {
-        const enrolledVersionId = await this.resolveEnrolledVersionId(userId, courseId);
-        if (!enrolledVersionId) {
+        const liveDenominator = async () => {
             const liveSectionIds = (await this.prisma.section.findMany({
                 where: {
                     isActive: true,
                     isArchived: false,
-                    chapter: { isArchived: false, module: { courseId, isArchived: false } },
+                    chapter: {
+                        isArchived: false,
+                        module: { courseId, isArchived: false },
+                    },
                 },
                 select: { id: true },
             })).map((s) => s.id);
             return { total: liveSectionIds.length, liveSectionIds };
-        }
-        const version = await this.prisma.courseVersion.findUnique({
-            where: { id: enrolledVersionId },
-            select: { sectionCount: true, manifest: true },
+        };
+        const uc = await this.prisma.userCourse.findUnique({
+            where: { userId_courseId: { userId, courseId } },
+            select: { enrolledVersionId: true },
         });
-        if (version?.sectionCount != null) {
-            const manifest = (0, course_version_manifest_1.parseManifest)(version.manifest);
-            if (manifest) {
-                const ids = (0, course_version_manifest_1.getSectionIdsFromManifest)(manifest);
-                return { total: version.sectionCount, liveSectionIds: ids };
-            }
+        const enrolledVersionId = uc?.enrolledVersionId ?? null;
+        if (!enrolledVersionId) {
+            return liveDenominator();
         }
-        const tree = await (0, course_version_manifest_1.loadPinnedCurriculum)(this.prisma, enrolledVersionId);
-        if (!tree) {
-            return { total: 0, liveSectionIds: [] };
+        const manifest = await (0, course_version_manifest_1.loadManifestForVersion)(this.prisma, enrolledVersionId);
+        if (!manifest) {
+            return liveDenominator();
         }
-        const ids = (0, course_version_manifest_1.getSectionIdsFromManifest)(tree.manifest);
+        const ids = (0, course_version_manifest_1.getSectionIdsFromManifest)(manifest);
         return { total: ids.length, liveSectionIds: ids };
     }
     async countVersionSectionsForCourse(versionId) {

@@ -8,6 +8,7 @@ import {
   isChapterComplete,
   recordChapterAndModuleCompletionIfNeeded,
 } from './chapter-progression';
+import { resetManifestCache } from '../course-version/course-version.manifest';
 
 const versionManifest = {
   modules: [
@@ -37,6 +38,9 @@ describe('chapter-progression', () => {
   let config: ConfigService;
 
   beforeEach(() => {
+    // loadVersionManifest now shares the module-level manifest cache; clear it so
+    // one test's cached manifest can't bleed into the next.
+    resetManifestCache();
     prisma = {
       chapter: { findUnique: jest.fn() },
       userCourse: { findUnique: jest.fn() },

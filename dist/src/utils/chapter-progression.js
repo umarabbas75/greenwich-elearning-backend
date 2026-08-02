@@ -46,11 +46,7 @@ async function getOrderedChapterIdsInCourse(prisma, courseId) {
 }
 exports.getOrderedChapterIdsInCourse = getOrderedChapterIdsInCourse;
 async function loadVersionManifest(prisma, versionId) {
-    const version = await prisma.courseVersion.findUnique({
-        where: { id: versionId },
-        select: { manifest: true },
-    });
-    return (0, course_version_manifest_1.parseManifest)(version?.manifest);
+    return (0, course_version_manifest_1.loadManifestForVersion)(prisma, versionId);
 }
 async function getOrderedChapterIdsForVersion(prisma, versionId) {
     const manifest = await loadVersionManifest(prisma, versionId);

@@ -6,7 +6,9 @@ export declare class QuizService {
     private prisma;
     private config;
     private courseVersionService;
+    private static readonly logger;
     constructor(prisma: PrismaService, config: ConfigService, courseVersionService: CourseVersionService);
+    private autoPublishAfterQuizChange;
     getQuiz(id: string, role: string): Promise<ResponseDto>;
     getAllQuizzes(role: string): Promise<ResponseDto>;
     getAllAssignQuizzes(chapterId: string, role: string, userId: string, userEmail?: string | null): Promise<ResponseDto>;

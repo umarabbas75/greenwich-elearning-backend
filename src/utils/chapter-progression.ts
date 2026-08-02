@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   CourseVersionManifest,
   getChapterIdsFromManifest,
-  parseManifest,
+  loadManifestForVersion,
 } from '../course-version/course-version.manifest';
 
 /** Matches frontend CHAPTER_QUIZ_PASS_PERCENTAGE until per-chapter config exists. */
@@ -72,16 +72,17 @@ export type ChapterAccessContext = {
   enrolledVersionId?: string | null;
 };
 
-/** Chapter order from a pinned version manifest (live chapter ids). */
+/**
+ * Chapter order from a pinned version manifest (live chapter ids). Routes through
+ * the shared cached loader so the progression gate reuses the same manifest read
+ * as resolveEnrolledVersionId and the quiz loader (one courseVersion read per
+ * warm instance instead of three per learner GET).
+ */
 async function loadVersionManifest(
   prisma: PrismaService,
   versionId: string,
 ): Promise<CourseVersionManifest | null> {
-  const version = await prisma.courseVersion.findUnique({
-    where: { id: versionId },
-    select: { manifest: true },
-  });
-  return parseManifest(version?.manifest);
+  return loadManifestForVersion(prisma, versionId);
 }
 
 export async function getOrderedChapterIdsForVersion(

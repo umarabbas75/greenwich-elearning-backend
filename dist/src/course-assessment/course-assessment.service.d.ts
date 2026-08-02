@@ -242,8 +242,8 @@ export declare class CourseAssessmentService {
         statusCode: number;
         data: ({
             _count: {
-                attempts: number;
                 assessmentQuestions: number;
+                attempts: number;
             };
         } & {
             id: string;
@@ -349,13 +349,13 @@ export declare class CourseAssessmentService {
         statusCode: number;
         data: {
             assessment: {
-                maxAttempts: number;
+                mode: import(".prisma/client").$Enums.AssessmentMode;
                 id: string;
                 title: string;
                 description: string;
-                mode: import(".prisma/client").$Enums.AssessmentMode;
                 passingPercentage: number;
                 timeLimitMinutes: number;
+                maxAttempts: number;
             };
             isEligible: boolean;
             remainingAttempts: number;
@@ -372,13 +372,13 @@ export declare class CourseAssessmentService {
                 };
                 id: string;
                 status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
-                isPassed: boolean;
-                submittedAt: Date;
                 snapshotTimeLimitMin: number;
                 totalMarks: number;
                 marksObtained: number;
                 percentage: number;
+                isPassed: boolean;
                 startedAt: Date;
+                submittedAt: Date;
                 finalizedAt: Date;
             }[];
         }[];
@@ -426,14 +426,14 @@ export declare class CourseAssessmentService {
                 orderIndex: number;
                 questionText: string;
                 maxMarks: number;
-                studentAnswer: Prisma.JsonValue;
-                adminFeedback: string;
                 questionType: import(".prisma/client").$Enums.QuestionType;
                 questionImageUrl: string;
+                studentAnswer: Prisma.JsonValue;
                 isAnswered: boolean;
                 isLocked: boolean;
                 systemScore: number;
                 finalScore: number;
+                adminFeedback: string;
             }[];
         } & {
             id: string;
@@ -462,9 +462,9 @@ export declare class CourseAssessmentService {
         data: {
             bestAttempt: {
                 id: string;
+                percentage: number;
                 isPassed: boolean;
                 submittedAt: Date;
-                percentage: number;
                 finalizedAt: Date;
             };
         } & {

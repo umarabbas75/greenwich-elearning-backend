@@ -49,7 +49,9 @@ let CourseService = CourseService_1 = class CourseService {
     async autoPublishAfterStructureChange(courseId, adminId, changeNotes) {
         try {
             const published = await this.courseVersionService.autoPublishAfterStructuralChange(courseId, adminId, changeNotes);
-            CourseService_1.completionLogger.log(`Auto-published v${published.versionNumber} for course ${courseId}`);
+            if (published) {
+                CourseService_1.completionLogger.log(`Auto-published v${published.versionNumber} for course ${courseId}`);
+            }
             return published;
         }
         catch (error) {

@@ -38,11 +38,11 @@ export declare class CourseVersionService {
     }> | null>;
     resolveCurriculumByEnrollment(enrolledVersionId: string | null | undefined): Promise<CurriculumResolveResult>;
     getLatestPublishedVersion(courseId: string): Promise<{
+        versionNumber: number;
         id: string;
+        publishedAt: Date;
         manifest: Prisma.JsonValue;
         sectionCount: number;
-        versionNumber: number;
-        publishedAt: Date;
     }>;
     pinEnrollmentToLatest(userCourseId: string, tx?: Prisma.TransactionClient): Promise<void>;
     publishNewVersion(adminId: string | null | undefined, courseId: string, changeNotes?: string): Promise<{
@@ -55,6 +55,7 @@ export declare class CourseVersionService {
                 sections: number;
                 quizzes: number;
             };
+            skipped: boolean;
             id: string;
             courseId: string;
             versionNumber: number;
@@ -78,12 +79,18 @@ export declare class CourseVersionService {
                 sections: number;
                 quizzes: number;
             };
-            skipped: boolean;
             id: string;
+            courseId: string;
+            versionNumber: number;
+            status: import(".prisma/client").$Enums.CourseVersionStatus;
+            publishedAt: Date;
+            publishedByAdminId: string;
+            changeNotes: string;
+            isLatest: boolean;
             manifest: Prisma.JsonValue;
             sectionCount: number;
-            versionNumber: number;
-            publishedAt: Date;
+            createdAt: Date;
+            updatedAt: Date;
         };
     }>;
     autoPublishAfterStructuralChange(courseId: string, adminId: string | null | undefined, changeNotes: string): Promise<{

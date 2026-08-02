@@ -431,6 +431,9 @@ model Section {
   chapter            Chapter           @relation(fields: [chapterId], references: [id])
   module             Module?           @relation(fields: [moduleId], references: [id]) // Added this line
 
+  // Speeds the live/unpinned section fetch (where: { chapterId, isArchived }).
+  // Postgres does not auto-index FK columns.
+  @@index([chapterId])
   @@map("sections")
 }
 
@@ -467,6 +470,9 @@ model Quiz {
   updatedAt  DateTime @updatedAt
   chapter    Chapter? @relation(fields: [chapterId], references: [id])
 
+  // Speeds the live/unpinned quiz fetch (where: { chapterId, isArchived }).
+  // Postgres does not auto-index FK columns.
+  @@index([chapterId])
   @@map("quizzes")
 }
 
@@ -504,6 +510,14 @@ model CourseVersion {
   @@unique([courseId, versionNumber])
   @@index([courseId, isLatest])
   @@index([courseId, status])
+  // A partial UNIQUE index enforces "at most one isLatest=true row per course":
+  //   CREATE UNIQUE INDEX "course_versions_one_latest_per_course"
+  //     ON "course_versions"("courseId") WHERE "isLatest" = true;
+  // It lives in migration 20260623120000_course_versioning_v1 and is NOT
+  // expressible in Prisma (no partial-unique syntax), so it's invisible here.
+  // Do NOT assume `prisma db push` parity — it could silently drop it. It is the
+  // backstop that makes a double-latest race impossible; a drift-guard test
+  // (course-version.one-latest-index.spec.ts) asserts it stays in the migrations.
   @@map("course_versions")
 }
 

@@ -121,6 +121,7 @@ export type PublishManifestVersionOptions = {
     publishedByAdminId?: string | null;
     changeNotes?: string | null;
     excludeSourceSectionIds?: string[];
+    prebuiltManifest?: BuildManifestResult;
 };
 export type PublishManifestVersionResult = {
     versionId: string;
@@ -132,6 +133,11 @@ export type PublishManifestVersionResult = {
 };
 export declare function publishManifestVersion(prisma: Db, courseId: string, options: PublishManifestVersionOptions): Promise<PublishManifestVersionResult>;
 export declare function loadPinnedCurriculum(prisma: Db, versionId: string): Promise<PinnedCurriculumTree | null>;
+export declare function resetManifestCache(): void;
+export declare function loadManifestForVersion(prisma: Db, versionId: string): Promise<CourseVersionManifest | null>;
+export declare function loadPinnedChapterQuizzes(prisma: Db, versionId: string, sourceChapterId: string, includeAnswers: boolean): Promise<Array<Omit<PinnedCurriculumQuiz, 'answer'> & {
+    answer?: string;
+}>>;
 export declare function loadPinnedCurriculumForReport(prisma: Db, versionId: string): Promise<ReportCurriculumTree | null>;
 export declare function mapPinnedSectionsForLearner(sections: PinnedCurriculumSection[]): PinnedCurriculumSection[];
 export declare function mapPinnedQuizzesForLearner(quizzes: PinnedCurriculumQuiz[], includeAnswers: boolean): Array<Omit<PinnedCurriculumQuiz, 'answer'> & {

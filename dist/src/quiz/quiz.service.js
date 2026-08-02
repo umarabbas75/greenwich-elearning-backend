@@ -8,6 +8,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var QuizService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.QuizService = void 0;
 const common_1 = require("@nestjs/common");
@@ -16,11 +17,24 @@ const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const course_version_service_1 = require("../course-version/course-version.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
-let QuizService = class QuizService {
+let QuizService = QuizService_1 = class QuizService {
     constructor(prisma, config, courseVersionService) {
         this.prisma = prisma;
         this.config = config;
         this.courseVersionService = courseVersionService;
+    }
+    async autoPublishAfterQuizChange(courseId, adminId, changeNotes) {
+        try {
+            const published = await this.courseVersionService.autoPublishAfterStructuralChange(courseId, adminId, changeNotes);
+            if (published) {
+                QuizService_1.logger.log(`Auto-published v${published.versionNumber} for course ${courseId}`);
+            }
+            return published;
+        }
+        catch (error) {
+            QuizService_1.logger.error(`Auto-publish failed for course ${courseId} after "${changeNotes}": ${error?.message ?? error}`);
+            return null;
+        }
     }
     async getQuiz(id, role) {
         try {
@@ -119,13 +133,13 @@ let QuizService = class QuizService {
                 const gateCtx = courseId
                     ? {
                         courseId,
-                        enrolledVersionId: versionId ?? uc?.enrolledVersionId ?? null,
+                        enrolledVersionId: versionId,
                     }
                     : undefined;
                 const [, versionQuizzes, answers] = await Promise.all([
                     (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, chapterId, userEmail, gateCtx),
                     courseId
-                        ? this.courseVersionService.getVersionQuizzesForChapter(userId, courseId, chapterId, false, versionId ?? uc?.enrolledVersionId ?? null)
+                        ? this.courseVersionService.getVersionQuizzesForChapter(userId, courseId, chapterId, false, versionId)
                         : Promise.resolve(null),
                     this.prisma.quizAnswer.findMany({
                         where: { userId, chapterId },
@@ -370,7 +384,7 @@ let QuizService = class QuizService {
                     },
                 },
             });
-            const publishedVersion = await this.courseVersionService.autoPublishAfterStructuralChange(chapter.module.courseId, adminId, `Assigned quiz to chapter "${chapter.title}"`);
+            const publishedVersion = await this.autoPublishAfterQuizChange(chapter.module.courseId, adminId, `Assigned quiz to chapter "${chapter.title}"`);
             return {
                 message: publishedVersion
                     ? `Successfully assigned quiz to chapter (published v${publishedVersion.versionNumber})`
@@ -410,7 +424,7 @@ let QuizService = class QuizService {
                     where: { id: quizId },
                     data: { isArchived: true, chapterId: null },
                 });
-                const publishedVersion = await this.courseVersionService.autoPublishAfterStructuralChange(chapter.module.courseId, adminId, `Archived quiz from chapter "${chapter.title}"`);
+                const publishedVersion = await this.autoPublishAfterQuizChange(chapter.module.courseId, adminId, `Archived quiz from chapter "${chapter.title}"`);
                 return {
                     message: 'Quiz is part of a published course version and was archived instead of unassigned',
                     statusCode: 200,
@@ -426,7 +440,7 @@ let QuizService = class QuizService {
                     },
                 },
             });
-            const publishedVersion = await this.courseVersionService.autoPublishAfterStructuralChange(chapter.module.courseId, adminId, `Unassigned quiz from chapter "${chapter.title}"`);
+            const publishedVersion = await this.autoPublishAfterQuizChange(chapter.module.courseId, adminId, `Unassigned quiz from chapter "${chapter.title}"`);
             return {
                 message: publishedVersion
                     ? `Successfully unassigned quiz (published v${publishedVersion.versionNumber})`
@@ -496,7 +510,7 @@ let QuizService = class QuizService {
                     data: { isArchived: true },
                 });
                 const publishedVersion = courseId
-                    ? await this.courseVersionService.autoPublishAfterStructuralChange(courseId, adminId, 'Archived quiz')
+                    ? await this.autoPublishAfterQuizChange(courseId, adminId, 'Archived quiz')
                     : null;
                 return {
                     message: 'Quiz is part of a published course version and was archived instead of deleted',
@@ -509,7 +523,7 @@ let QuizService = class QuizService {
                 where: { id },
             });
             const publishedVersion = courseId
-                ? await this.courseVersionService.autoPublishAfterStructuralChange(courseId, adminId, 'Removed quiz')
+                ? await this.autoPublishAfterQuizChange(courseId, adminId, 'Removed quiz')
                 : null;
             return {
                 message: publishedVersion
@@ -620,7 +634,8 @@ let QuizService = class QuizService {
     }
 };
 exports.QuizService = QuizService;
-exports.QuizService = QuizService = __decorate([
+QuizService.logger = new common_1.Logger(QuizService_1.name);
+exports.QuizService = QuizService = QuizService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         config_1.ConfigService,

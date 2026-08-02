@@ -30,7 +30,12 @@
     "script:delete-all-assignments:dry": "ts-node -r tsconfig-paths/register scripts/delete-all-assignments.ts",
     "script:delete-all-assignments": "ts-node -r tsconfig-paths/register scripts/delete-all-assignments.ts --delete",
     "script:dedupe-assignments:dry": "ts-node -r tsconfig-paths/register scripts/dedupe-assignments.ts",
-    "script:dedupe-assignments": "ts-node -r tsconfig-paths/register scripts/dedupe-assignments.ts --delete"
+    "script:dedupe-assignments": "ts-node -r tsconfig-paths/register scripts/dedupe-assignments.ts --delete",
+    "script:audit-phase4": "ts-node -r tsconfig-paths/register scripts/audit-phase4-impact.ts",
+    "script:reconcile-drift:dry": "ts-node -r tsconfig-paths/register scripts/reconcile-course-version-drift.ts",
+    "script:reconcile-drift": "ts-node -r tsconfig-paths/register scripts/reconcile-course-version-drift.ts --apply",
+    "script:backfill-enrollment-pins:dry": "ts-node -r tsconfig-paths/register scripts/backfill-null-enrollment-pins.ts",
+    "script:backfill-enrollment-pins": "ts-node -r tsconfig-paths/register scripts/backfill-null-enrollment-pins.ts --apply"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

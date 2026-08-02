@@ -3,9 +3,10 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Chapter, Prisma, Quiz } from '@prisma/client';
+import { Prisma, Quiz } from '@prisma/client';
 import { CheckQuiz, QuizDto, ResponseDto, UpdateQuizDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseVersionService } from '../course-version/course-version.service';
@@ -19,11 +20,50 @@ import {
 
 @Injectable()
 export class QuizService {
+  private static readonly logger = new Logger(QuizService.name);
+
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
     private courseVersionService: CourseVersionService,
   ) {}
+
+  /**
+   * Best-effort auto-publish after a structural quiz change. The structural
+   * mutation has ALREADY committed by the time this runs, so a publish failure
+   * must NOT fail the request (previously it propagated and returned a 403 to
+   * the admin even though the quiz change had persisted). We log it instead; the
+   * version self-heals on the next structural edit (the fingerprint dedup
+   * captures the current live state) or via the reconcile job. Mirrors
+   * CourseService.autoPublishAfterStructureChange.
+   */
+  private async autoPublishAfterQuizChange(
+    courseId: string,
+    adminId: string | null | undefined,
+    changeNotes: string,
+  ): Promise<{ versionNumber: number; versionId: string } | null> {
+    try {
+      const published =
+        await this.courseVersionService.autoPublishAfterStructuralChange(
+          courseId,
+          adminId,
+          changeNotes,
+        );
+      if (published) {
+        QuizService.logger.log(
+          `Auto-published v${published.versionNumber} for course ${courseId}`,
+        );
+      }
+      return published;
+    } catch (error) {
+      QuizService.logger.error(
+        `Auto-publish failed for course ${courseId} after "${changeNotes}": ${
+          error?.message ?? error
+        }`,
+      );
+      return null;
+    }
+  }
   async getQuiz(id: string, role: string): Promise<ResponseDto> {
     try {
       let quiz = {};
@@ -156,10 +196,15 @@ export class QuizService {
               )
             : null;
 
+        // Use `versionId` directly — it is resolveEnrolledVersionId's result,
+        // which is already null for BOTH unpinned learners and a dangling pin
+        // (version row gone). Falling back to `uc.enrolledVersionId` here would
+        // re-inject the dangling id and defeat the degrade-to-live, serving zero
+        // quizzes / silently opening the progression gate.
         const gateCtx = courseId
           ? {
               courseId,
-              enrolledVersionId: versionId ?? uc?.enrolledVersionId ?? null,
+              enrolledVersionId: versionId,
             }
           : undefined;
 
@@ -178,7 +223,7 @@ export class QuizService {
                 courseId,
                 chapterId,
                 false,
-                versionId ?? uc?.enrolledVersionId ?? null,
+                versionId,
               )
             : Promise.resolve(null),
           this.prisma.quizAnswer.findMany({
@@ -510,7 +555,7 @@ export class QuizService {
       });
 
       const publishedVersion =
-        await this.courseVersionService.autoPublishAfterStructuralChange(
+        await this.autoPublishAfterQuizChange(
           chapter.module.courseId,
           adminId,
           `Assigned quiz to chapter "${chapter.title}"`,
@@ -566,7 +611,7 @@ export class QuizService {
           data: { isArchived: true, chapterId: null },
         });
         const publishedVersion =
-          await this.courseVersionService.autoPublishAfterStructuralChange(
+          await this.autoPublishAfterQuizChange(
             chapter.module.courseId,
             adminId,
             `Archived quiz from chapter "${chapter.title}"`,
@@ -591,7 +636,7 @@ export class QuizService {
       });
 
       const publishedVersion =
-        await this.courseVersionService.autoPublishAfterStructuralChange(
+        await this.autoPublishAfterQuizChange(
           chapter.module.courseId,
           adminId,
           `Unassigned quiz from chapter "${chapter.title}"`,
@@ -683,7 +728,7 @@ export class QuizService {
           data: { isArchived: true },
         });
         const publishedVersion = courseId
-          ? await this.courseVersionService.autoPublishAfterStructuralChange(
+          ? await this.autoPublishAfterQuizChange(
               courseId,
               adminId,
               'Archived quiz',
@@ -703,7 +748,7 @@ export class QuizService {
       });
 
       const publishedVersion = courseId
-        ? await this.courseVersionService.autoPublishAfterStructuralChange(
+        ? await this.autoPublishAfterQuizChange(
             courseId,
             adminId,
             'Removed quiz',
