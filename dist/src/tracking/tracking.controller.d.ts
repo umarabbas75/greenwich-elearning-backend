@@ -70,8 +70,8 @@ export declare class TrackingController {
             }[];
             perSection: {
                 title: string;
-                moduleId: string;
                 chapterId: string;
+                moduleId: string;
                 sectionId: string;
                 totalSeconds: number;
             }[];

@@ -537,13 +537,13 @@ export declare class CourseAssessmentController {
         statusCode: number;
         data: {
             assessment: {
-                mode: import(".prisma/client").$Enums.AssessmentMode;
+                maxAttempts: number;
                 id: string;
                 title: string;
                 description: string;
+                mode: import(".prisma/client").$Enums.AssessmentMode;
                 passingPercentage: number;
                 timeLimitMinutes: number;
-                maxAttempts: number;
             };
             isEligible: boolean;
             remainingAttempts: number;
@@ -560,13 +560,13 @@ export declare class CourseAssessmentController {
                 };
                 id: string;
                 status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
+                isPassed: boolean;
+                submittedAt: Date;
                 snapshotTimeLimitMin: number;
                 totalMarks: number;
                 marksObtained: number;
                 percentage: number;
-                isPassed: boolean;
                 startedAt: Date;
-                submittedAt: Date;
                 finalizedAt: Date;
             }[];
         }[];
@@ -614,14 +614,14 @@ export declare class CourseAssessmentController {
                 orderIndex: number;
                 questionText: string;
                 maxMarks: number;
+                studentAnswer: import(".prisma/client").Prisma.JsonValue;
+                adminFeedback: string;
                 questionType: import(".prisma/client").$Enums.QuestionType;
                 questionImageUrl: string;
-                studentAnswer: import(".prisma/client").Prisma.JsonValue;
                 isAnswered: boolean;
                 isLocked: boolean;
                 systemScore: number;
                 finalScore: number;
-                adminFeedback: string;
             }[];
         } & {
             id: string;
@@ -650,9 +650,9 @@ export declare class CourseAssessmentController {
         data: {
             bestAttempt: {
                 id: string;
-                percentage: number;
                 isPassed: boolean;
                 submittedAt: Date;
+                percentage: number;
                 finalizedAt: Date;
             };
         } & {
