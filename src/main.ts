@@ -1,43 +1,15 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
-import * as bodyParser from 'body-parser';
+import { configureApp } from './app.setup';
+
+/**
+ * Local / long-running server entry point. Vercel does not use this file —
+ * see serverless.ts for the cached serverless handler. Shared configuration
+ * lives in app.setup.ts so the two entry points stay in sync.
+ */
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.enableCors({
-    origin: [
-      'https://greenwich-elearning.vercel.app',
-      'https://greenwich-elearning.vercel.app/user',
-      'https://www.greenwichtc-elearning.com',
-      'https://greenwichtc-elearning.com',
-      'https://www.greenwichtc-elearning.com/',
-      'http://localhost:3001',
-      'http://localhost:3000',
-    ], // Specify the origin of your frontend
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true, // Allow credentials (cookies, headers)
-  });
-  // app.enableCors({
-  //   origin: [
-  //     'https://greenwich-elearning.vercel.app',
-  //     'https://greenwich-elearning.vercel.app/user',
-  //     'http://localhost:3001'
-  //   ], // Specify the origin of your frontend
-  //   methods: 'GET, HEAD, PUT, POST, DELETE, OPTIONS, PATCH',
-  //   credentials: true,
-  //   allowedHeaders:
-  //     'Origin, X-Requested-With, Content-Type, Accept, Authentication, Access-control-allow-credentials, Access-control-allow-headers, Access-control-allow-methods, Access-control-allow-origin, User-Agent, Referer, Accept-Encoding, Accept-Language, Access-Control-Request-Headers, Cache-Control, Pragma',
-  // });
-  // global prefix
-  app.setGlobalPrefix('api/v1');
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-    }),
-  );
-  // Increase the payload size limit
-  app.use(bodyParser.json({ limit: '50mb' }));
-  app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
-  await app.listen(3333);
+  configureApp(app);
+  await app.listen(process.env.PORT ?? 3333);
 }
 bootstrap();
