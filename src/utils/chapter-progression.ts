@@ -184,7 +184,7 @@ export async function resolveChapterQuizIds(
       for (const mod of manifest.modules) {
         for (const ch of mod.chapters) {
           if (ch.sourceId === chapterId) {
-            return [...ch.quizIds];
+            return filterQuizIdsToExistingRows(prisma, ch.quizIds);
           }
         }
       }
@@ -196,6 +196,20 @@ export async function resolveChapterQuizIds(
     select: { id: true },
   });
   return quizzes.map((q) => q.id);
+}
+
+/** Manifest quiz ids that still exist in DB, in manifest order (matches loadPinnedChapterQuizzes). */
+async function filterQuizIdsToExistingRows(
+  prisma: PrismaService,
+  quizIds: string[],
+): Promise<string[]> {
+  if (quizIds.length === 0) return [];
+  const rows = await prisma.quiz.findMany({
+    where: { id: { in: quizIds } },
+    select: { id: true },
+  });
+  const found = new Set(rows.map((r) => r.id));
+  return quizIds.filter((id) => found.has(id));
 }
 
 export async function gradeChapterQuizFromStoredAnswers(
@@ -281,9 +295,13 @@ async function resolveChapterDenominator(
       for (const mod of manifest.modules) {
         for (const ch of mod.chapters) {
           if (ch.sourceId === chapterId) {
+            const quizIds = await filterQuizIdsToExistingRows(
+              prisma,
+              ch.quizIds,
+            );
             return {
               sectionCount: ch.sectionIds.length,
-              quizCount: ch.quizIds.length,
+              quizCount: quizIds.length,
             };
           }
         }

@@ -59,6 +59,15 @@ describe('chapter-progression', () => {
       userModuleCompletion: { findUnique: jest.fn(), create: jest.fn() },
     };
     config = { get: jest.fn().mockReturnValue('') } as unknown as ConfigService;
+    // Manifest quiz hydration: treat every manifest id as an existing row unless
+    // a test overrides this mock.
+    prisma.quiz.findMany.mockImplementation((args: { where?: { id?: { in?: string[] } } }) => {
+      const ids = args?.where?.id?.in;
+      if (ids?.length) {
+        return Promise.resolve(ids.map((id) => ({ id })));
+      }
+      return Promise.resolve([]);
+    });
   });
 
   describe('getOrderedChapterIdsForVersion', () => {
@@ -127,8 +136,11 @@ describe('chapter-progression', () => {
       expect(grade.totalQuestions).toBe(1);
       expect(grade.answeredQuestions).toBe(1);
       expect(grade.score).toBe(100);
-      // Manifest branch used — never touches the live quiz relation.
-      expect(prisma.quiz.findMany).not.toHaveBeenCalled();
+      // Hydrates manifest ids against DB (same as loadPinnedChapterQuizzes).
+      expect(prisma.quiz.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['quiz-1'] } },
+        select: { id: true },
+      });
     });
   });
 
