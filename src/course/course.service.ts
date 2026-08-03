@@ -38,6 +38,7 @@ import {
   buildChapterReportRow,
   SectionReportMeta,
 } from '../utils/course-report';
+import { assertNoInlineBase64 } from '../utils/reject-inline-base64';
 import { promoteFormPhotoToUserIfMissing } from '../utils/promote-form-photo-to-user';
 import { promoteFormAddressToUserIfMissing } from '../utils/promote-form-address-to-user';
 import { MailService } from '../mail/mail.service';
@@ -1572,6 +1573,8 @@ export class CourseService {
     adminId?: string,
   ): Promise<ResponseDto> {
     try {
+      assertNoInlineBase64(body.description);
+      assertNoInlineBase64(body.shortDescription, 'shortDescription');
       const data: any = {
         title: body.title,
         description: body.description,
@@ -2880,10 +2883,14 @@ export class CourseService {
 
       // Handle common section fields
       if (body.title !== undefined) updateData.title = body.title;
-      if (body.description !== undefined)
+      if (body.description !== undefined) {
+        assertNoInlineBase64(body.description);
         updateData.description = body.description;
-      if (body.shortDescription !== undefined)
+      }
+      if (body.shortDescription !== undefined) {
+        assertNoInlineBase64(body.shortDescription, 'shortDescription');
         updateData.shortDescription = body.shortDescription;
+      }
       if (body.chapterId !== undefined) updateData.chapterId = body.chapterId;
       if (body.moduleId !== undefined) updateData.moduleId = body.moduleId;
       if ((body as any).orderIndex !== undefined)

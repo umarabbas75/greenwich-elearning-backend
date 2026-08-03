@@ -5,11 +5,17 @@ const client_1 = require("@prisma/client");
 const course_version_manifest_1 = require("../src/course-version/course-version.manifest");
 const started_set_1 = require("./lib/started-set");
 dotenv.config();
-const datasourceUrl = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL ?? '';
-if (!datasourceUrl) {
+const rawDatasourceUrl = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL ?? '';
+if (!rawDatasourceUrl) {
     console.error('DIRECT_DATABASE_URL (or DATABASE_URL) is required');
     process.exit(1);
 }
+function withConnectTimeout(url, seconds = 30) {
+    if (/[?&]connect_timeout=/.test(url))
+        return url;
+    return `${url}${url.includes('?') ? '&' : '?'}connect_timeout=${seconds}`;
+}
+const datasourceUrl = withConnectTimeout(rawDatasourceUrl);
 const prisma = new client_1.PrismaClient({
     datasources: { db: { url: datasourceUrl } },
 });

@@ -376,13 +376,9 @@ let QuizService = QuizService_1 = class QuizService {
             if (!chapter) {
                 throw new Error('chapter not exist');
             }
-            await this.prisma.chapter.update({
-                where: { id: chapterId },
-                data: {
-                    quizzes: {
-                        connect: { id: quizId },
-                    },
-                },
+            await this.prisma.quiz.update({
+                where: { id: quizId },
+                data: { chapterId, isArchived: false },
             });
             const publishedVersion = await this.autoPublishAfterQuizChange(chapter.module.courseId, adminId, `Assigned quiz to chapter "${chapter.title}"`);
             return {

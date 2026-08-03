@@ -18,6 +18,7 @@ const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../prisma/prisma.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
 const course_report_1 = require("../utils/course-report");
+const reject_inline_base64_1 = require("../utils/reject-inline-base64");
 const promote_form_photo_to_user_1 = require("../utils/promote-form-photo-to-user");
 const promote_form_address_to_user_1 = require("../utils/promote-form-address-to-user");
 const mail_service_1 = require("../mail/mail.service");
@@ -1157,6 +1158,8 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async createSection(body, adminId) {
         try {
+            (0, reject_inline_base64_1.assertNoInlineBase64)(body.description);
+            (0, reject_inline_base64_1.assertNoInlineBase64)(body.shortDescription, 'shortDescription');
             const data = {
                 title: body.title,
                 description: body.description,
@@ -2201,10 +2204,14 @@ let CourseService = CourseService_1 = class CourseService {
             const updateData = {};
             if (body.title !== undefined)
                 updateData.title = body.title;
-            if (body.description !== undefined)
+            if (body.description !== undefined) {
+                (0, reject_inline_base64_1.assertNoInlineBase64)(body.description);
                 updateData.description = body.description;
-            if (body.shortDescription !== undefined)
+            }
+            if (body.shortDescription !== undefined) {
+                (0, reject_inline_base64_1.assertNoInlineBase64)(body.shortDescription, 'shortDescription');
                 updateData.shortDescription = body.shortDescription;
+            }
             if (body.chapterId !== undefined)
                 updateData.chapterId = body.chapterId;
             if (body.moduleId !== undefined)

@@ -35,7 +35,11 @@
     "script:reconcile-drift:dry": "ts-node -r tsconfig-paths/register scripts/reconcile-course-version-drift.ts",
     "script:reconcile-drift": "ts-node -r tsconfig-paths/register scripts/reconcile-course-version-drift.ts --apply",
     "script:backfill-enrollment-pins:dry": "ts-node -r tsconfig-paths/register scripts/backfill-null-enrollment-pins.ts",
-    "script:backfill-enrollment-pins": "ts-node -r tsconfig-paths/register scripts/backfill-null-enrollment-pins.ts --apply"
+    "script:backfill-enrollment-pins": "ts-node -r tsconfig-paths/register scripts/backfill-null-enrollment-pins.ts --apply",
+    "script:audit-archived-quizzes": "ts-node -r tsconfig-paths/register scripts/audit-archived-attached-quizzes.ts",
+    "script:extract-images:dry": "ts-node -r tsconfig-paths/register scripts/extract-base64-images.ts",
+    "script:extract-images": "ts-node -r tsconfig-paths/register scripts/extract-base64-images.ts --apply",
+    "script:extract-images:rollback": "ts-node -r tsconfig-paths/register scripts/extract-base64-images.ts --rollback"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

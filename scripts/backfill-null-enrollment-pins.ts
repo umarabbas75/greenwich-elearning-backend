@@ -42,12 +42,26 @@ dotenv.config();
 
 const apply = process.argv.includes('--apply');
 
-const datasourceUrl =
+const rawDatasourceUrl =
   process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL ?? '';
-if (!datasourceUrl) {
+if (!rawDatasourceUrl) {
   console.error('DIRECT_DATABASE_URL (or DATABASE_URL) is required');
   process.exit(1);
 }
+
+
+/**
+ * Neon cold-start regularly exceeds libpq's 5s default and DIRECT_DATABASE_URL
+ * usually carries no query string (it exists for `prisma migrate`), so a
+ * long-running script can P1001 partway through. Force a generous
+ * connect_timeout unless the URL already sets one.
+ */
+function withConnectTimeout(url: string, seconds = 30): string {
+  if (/[?&]connect_timeout=/.test(url)) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}connect_timeout=${seconds}`;
+}
+
+const datasourceUrl = withConnectTimeout(rawDatasourceUrl);
 
 const prisma = new PrismaClient({ datasources: { db: { url: datasourceUrl } } });
 

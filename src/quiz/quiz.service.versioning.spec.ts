@@ -182,6 +182,65 @@ describe('QuizService — course versioning', () => {
     });
   });
 
+  describe('assignQuiz', () => {
+    // Regression: unAssignQuiz archives a version-referenced quiz
+    // ({ isArchived: true, chapterId: null }) to keep it for version history.
+    // Re-assigning used to `connect` only, which set chapterId but left
+    // isArchived true — so the quiz was attached yet invisible to every read
+    // (getAllChapters._count.quizzes, getAllAssignQuizzes and
+    // buildManifestFromLiveTree all filter isArchived: false), and the
+    // auto-publish then baked a quiz-less chapter into the new version.
+    it('clears isArchived when re-assigning a previously archived quiz', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({
+        id: 'quiz-1',
+        isArchived: true,
+        chapterId: null,
+      });
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        title: 'Element 2',
+        module: { courseId: 'course-1' },
+      });
+      prisma.quiz.update.mockResolvedValue({});
+
+      await service.assignQuiz('quiz-1', 'ch-1', 'admin-1');
+
+      // Un-archive and re-attach in the SAME write — a bare relation `connect`
+      // would leave isArchived: true.
+      expect(prisma.quiz.update).toHaveBeenCalledWith({
+        where: { id: 'quiz-1' },
+        data: { chapterId: 'ch-1', isArchived: false },
+      });
+      // The chapter-side relation write is what left the row archived.
+      expect(prisma.chapter.update).not.toHaveBeenCalled();
+    });
+
+    it('publishes a new version after assigning', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        title: 'Element 2',
+        module: { courseId: 'course-1' },
+      });
+      prisma.quiz.update.mockResolvedValue({});
+
+      const result = await service.assignQuiz('quiz-1', 'ch-1', 'admin-1');
+
+      expect(
+        courseVersionService.autoPublishAfterStructuralChange,
+      ).toHaveBeenCalledWith(
+        'course-1',
+        'admin-1',
+        'Assigned quiz to chapter "Element 2"',
+      );
+      expect(result.statusCode).toBe(200);
+      expect(result.publishedVersion).toEqual({
+        versionNumber: 2,
+        versionId: 'version-2',
+      });
+    });
+  });
+
   describe('unAssignQuiz', () => {
     it('archives instead of disconnecting when referenced', async () => {
       prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });

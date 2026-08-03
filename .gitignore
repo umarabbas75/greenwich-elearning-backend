@@ -3,3 +3,11 @@ node_modules
 # dist
 .DS_Store
 .vscode
+
+# Database dumps contain production data — never commit them.
+backups/
+*.dump
+*.sql
+# ...but Prisma migrations ARE source and must always be committed. Without this
+# negation a brand-new migration.sql is silently ignored and lost.
+!prisma/migrations/**/*.sql

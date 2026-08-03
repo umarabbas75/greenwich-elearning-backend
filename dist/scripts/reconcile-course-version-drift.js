@@ -6,11 +6,17 @@ const course_version_service_1 = require("../src/course-version/course-version.s
 const course_version_manifest_1 = require("../src/course-version/course-version.manifest");
 dotenv.config();
 const apply = process.argv.includes('--apply');
-const datasourceUrl = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL ?? '';
-if (!datasourceUrl) {
+const rawDatasourceUrl = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL ?? '';
+if (!rawDatasourceUrl) {
     console.error('DIRECT_DATABASE_URL (or DATABASE_URL) is required');
     process.exit(1);
 }
+function withConnectTimeout(url, seconds = 30) {
+    if (/[?&]connect_timeout=/.test(url))
+        return url;
+    return `${url}${url.includes('?') ? '&' : '?'}connect_timeout=${seconds}`;
+}
+const datasourceUrl = withConnectTimeout(rawDatasourceUrl);
 const prisma = new client_1.PrismaClient({ datasources: { db: { url: datasourceUrl } } });
 const service = new course_version_service_1.CourseVersionService(prisma);
 async function main() {

@@ -545,13 +545,13 @@ export class QuizService {
         throw new Error('chapter not exist');
       }
 
-      await this.prisma.chapter.update({
-        where: { id: chapterId },
-        data: {
-          quizzes: {
-            connect: { id: quizId },
-          },
-        },
+      // Re-assign must clear isArchived — unAssignQuiz archives referenced quizzes
+      // (chapterId cleared) while keeping the row for version history. connect alone
+      // leaves isArchived true, so getAllChapters/_count and getAllAssignQuizzes
+      // (both filter isArchived: false) report 0 despite a 200 from this endpoint.
+      await this.prisma.quiz.update({
+        where: { id: quizId },
+        data: { chapterId, isArchived: false },
       });
 
       const publishedVersion =
