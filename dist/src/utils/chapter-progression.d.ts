@@ -23,6 +23,7 @@ export type ChapterQuizGrade = {
     totalQuestions: number;
     answeredQuestions: number;
 };
+export declare function resolveChapterQuizIds(prisma: PrismaService, userId: string, chapterId: string, ctx?: ChapterProgressContext): Promise<string[]>;
 export declare function gradeChapterQuizFromStoredAnswers(prisma: PrismaService, userId: string, chapterId: string, storedPassingCriteria?: number | null, ctx?: ChapterProgressContext): Promise<ChapterQuizGrade>;
 export declare function isChapterComplete(prisma: PrismaService, userId: string, chapterId: string, ctx?: ChapterProgressContext): Promise<boolean>;
 export declare function assertChapterAccessible(prisma: PrismaService, config: ConfigService, userId: string, chapterId: string, userEmail?: string | null, accessCtx?: ChapterAccessContext): Promise<void>;

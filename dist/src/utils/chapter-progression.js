@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.recordChapterAndModuleCompletionIfNeeded = exports.getChapterIdsInModuleForUser = exports.enrichQuizProgressReport = exports.assertChapterAccessible = exports.isChapterComplete = exports.gradeChapterQuizFromStoredAnswers = exports.getPreviousChapterId = exports.getOrderedChapterIdsForUser = exports.getOrderedChapterIdsForVersion = exports.getOrderedChapterIdsInCourse = exports.getCourseIdForChapter = exports.isFreeRoamUser = exports.resolvePassingCriteria = exports.DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = void 0;
+exports.recordChapterAndModuleCompletionIfNeeded = exports.getChapterIdsInModuleForUser = exports.enrichQuizProgressReport = exports.assertChapterAccessible = exports.isChapterComplete = exports.gradeChapterQuizFromStoredAnswers = exports.resolveChapterQuizIds = exports.getPreviousChapterId = exports.getOrderedChapterIdsForUser = exports.getOrderedChapterIdsForVersion = exports.getOrderedChapterIdsInCourse = exports.getCourseIdForChapter = exports.isFreeRoamUser = exports.resolvePassingCriteria = exports.DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = void 0;
 const common_1 = require("@nestjs/common");
 const course_version_manifest_1 = require("../course-version/course-version.manifest");
 exports.DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = 70;
@@ -116,6 +116,7 @@ async function resolveChapterQuizIds(prisma, userId, chapterId, ctx) {
     });
     return quizzes.map((q) => q.id);
 }
+exports.resolveChapterQuizIds = resolveChapterQuizIds;
 async function gradeChapterQuizFromStoredAnswers(prisma, userId, chapterId, storedPassingCriteria, ctx) {
     const quizIds = await resolveChapterQuizIds(prisma, userId, chapterId, ctx);
     if (quizIds.length === 0) {

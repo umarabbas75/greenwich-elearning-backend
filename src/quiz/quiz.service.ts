@@ -15,6 +15,7 @@ import {
   enrichQuizProgressReport,
   gradeChapterQuizFromStoredAnswers,
   recordChapterAndModuleCompletionIfNeeded,
+  resolveChapterQuizIds,
   resolvePassingCriteria,
 } from '../utils/chapter-progression';
 
@@ -823,6 +824,31 @@ export class QuizService {
         throw new Error('Quiz or user not found');
       }
 
+      // Validate against the quiz set this learner was actually SERVED — never
+      // against the live quiz.chapterId. A pinned learner reads from their
+      // version manifest, so once an admin moves or unassigns a quiz, live and
+      // manifest legitimately diverge: the manifest still lists it under the
+      // pinned chapter and getAllAssignQuizzes still returns it. Comparing to
+      // quiz.chapterId would reject an answer for a quiz we had just handed
+      // them — measured against production as 21 pinned (learner,quiz) pairs
+      // across 7 chapter-cases on 4 live accounts, worst case 7 of 12 quizzes
+      // in a chapter, making that chapter unpassable.
+      //
+      // resolveChapterQuizIds is the SAME version-aware resolver grading uses
+      // (gradeChapterQuizFromStoredAnswers), so what we accept here and what we
+      // grade later agree by construction; it falls back to the live
+      // non-archived set for unpinned learners.
+      const servedQuizIds = await resolveChapterQuizIds(
+        this.prisma,
+        userId,
+        body.chapterId,
+      );
+      if (!servedQuizIds.includes(body.quizId)) {
+        throw new BadRequestException(
+          'This quiz does not belong to the chapter you are viewing.',
+        );
+      }
+
       // Determine the promise for creating or updating the quizAnswer
       const quizAnswerPromise = existingQuizAnswer
         ? this.prisma.quizAnswer.update({
@@ -833,6 +859,7 @@ export class QuizService {
               },
             },
             data: {
+              chapterId: body.chapterId,
               answer: body.answer,
               isAnswerCorrect: body.answer == quiz.answer,
             },

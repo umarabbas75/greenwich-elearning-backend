@@ -152,7 +152,7 @@ export type ChapterQuizGrade = {
  * which permanently blocks submission. Mirrors resolveChapterDenominator's
  * branching so grade.totalQuestions equals the completion denominator.
  */
-async function resolveChapterQuizIds(
+export async function resolveChapterQuizIds(
   prisma: PrismaService,
   userId: string,
   chapterId: string,

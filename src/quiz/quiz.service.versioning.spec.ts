@@ -8,8 +8,13 @@ jest.mock('../utils/chapter-progression', () => ({
   assertChapterAccessible: jest.fn().mockResolvedValue(undefined),
   enrichQuizProgressReport: jest.fn((x) => x),
   gradeChapterQuizFromStoredAnswers: jest.fn(),
+  recordChapterAndModuleCompletionIfNeeded: jest.fn().mockResolvedValue(undefined),
+  resolveChapterQuizIds: jest.fn(),
   resolvePassingCriteria: jest.fn(),
 }));
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const progression = require('../utils/chapter-progression');
 
 describe('QuizService — course versioning', () => {
   let service: QuizService;
@@ -20,8 +25,14 @@ describe('QuizService — course versioning', () => {
     prisma = {
       chapter: { findUnique: jest.fn(), update: jest.fn() },
       userCourse: { findUnique: jest.fn() },
+      user: { findUnique: jest.fn() },
       quiz: { findUnique: jest.fn(), update: jest.fn(), delete: jest.fn() },
-      quizAnswer: { findMany: jest.fn().mockResolvedValue([]) },
+      quizAnswer: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+      },
     };
 
     courseVersionService = {
@@ -179,6 +190,99 @@ describe('QuizService — course versioning', () => {
       expect(prisma.quiz.delete).toHaveBeenCalled();
       expect(result.statusCode).toBe(200);
       expect(result.publishedVersion).toBeUndefined();
+    });
+  });
+
+  describe('checkQuiz', () => {
+    const body = {
+      quizId: 'quiz-1',
+      chapterId: 'ch-1',
+      answer: 'c',
+      isAnswered: true,
+    } as any;
+
+    beforeEach(() => {
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1', answer: 'c' });
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-1' });
+    });
+
+    // THE regression that matters. A pinned learner is served their version
+    // manifest, so after an admin moves/unassigns a quiz the live
+    // quiz.chapterId no longer matches the chapter the learner is viewing —
+    // yet getAllAssignQuizzes still serves that quiz. Validating against the
+    // LIVE chapterId 400s an answer for a quiz we just handed them; measured
+    // against production that was 21 pinned pairs / 7 chapter-cases on 4 real
+    // accounts, worst case 7-of-12 quizzes (an unpassable chapter).
+    it('accepts an answer when the pinned manifest still serves the quiz, even though live quiz.chapterId has moved away', async () => {
+      // Live: the quiz has been reassigned to a DIFFERENT chapter.
+      prisma.quiz.findUnique.mockResolvedValue({
+        id: 'quiz-1',
+        answer: 'c',
+        chapterId: 'ch-SOMEWHERE-ELSE',
+      });
+      // Pinned manifest: still lists it under ch-1, which is what was served.
+      progression.resolveChapterQuizIds.mockResolvedValue(['quiz-1', 'quiz-2']);
+      prisma.quizAnswer.findFirst.mockResolvedValue(null);
+      prisma.quizAnswer.create.mockResolvedValue({ id: 'a-1' });
+
+      const result = await service.checkQuiz('user-1', body);
+
+      expect(result.statusCode).toBe(200);
+      expect(prisma.quizAnswer.create).toHaveBeenCalledWith({
+        data: {
+          quizId: 'quiz-1',
+          chapterId: 'ch-1',
+          userId: 'user-1',
+          answer: 'c',
+          isAnswerCorrect: true,
+        },
+      });
+    });
+
+    // Regression: the unique key is (userId, quizId) with no chapter component,
+    // so an existing row keeps whatever chapterId it was first created with.
+    // Reads filter on { userId, chapterId }, so a stale row is invisible to the
+    // chapter it belongs to — the quiz renders as unanswered forever.
+    it('re-homes chapterId when updating an answer created under a different chapter', async () => {
+      progression.resolveChapterQuizIds.mockResolvedValue(['quiz-1']);
+      prisma.quizAnswer.findFirst.mockResolvedValue({
+        id: 'a-1',
+        chapterId: 'ch-OLD',
+      });
+      prisma.quizAnswer.update.mockResolvedValue({ id: 'a-1' });
+
+      await service.checkQuiz('user-1', body);
+
+      expect(prisma.quizAnswer.update).toHaveBeenCalledWith({
+        where: { userId_quizId: { userId: 'user-1', quizId: 'quiz-1' } },
+        data: { chapterId: 'ch-1', answer: 'c', isAnswerCorrect: true },
+      });
+    });
+
+    it('rejects a quiz that is not in the served set for this chapter', async () => {
+      progression.resolveChapterQuizIds.mockResolvedValue(['quiz-OTHER']);
+      prisma.quizAnswer.findFirst.mockResolvedValue(null);
+
+      await expect(service.checkQuiz('user-1', body)).rejects.toMatchObject({
+        status: 400,
+      });
+      expect(prisma.quizAnswer.create).not.toHaveBeenCalled();
+      expect(prisma.quizAnswer.update).not.toHaveBeenCalled();
+    });
+
+    it('grades against the stored quiz answer, not the submitted one', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1', answer: 'a' });
+      progression.resolveChapterQuizIds.mockResolvedValue(['quiz-1']);
+      prisma.quizAnswer.findFirst.mockResolvedValue(null);
+      prisma.quizAnswer.create.mockResolvedValue({ id: 'a-1' });
+
+      await service.checkQuiz('user-1', body); // submits 'c', correct is 'a'
+
+      expect(prisma.quizAnswer.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ isAnswerCorrect: false }),
+        }),
+      );
     });
   });
 

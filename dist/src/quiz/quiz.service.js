@@ -564,6 +564,10 @@ let QuizService = QuizService_1 = class QuizService {
             if (!quiz || !user) {
                 throw new Error('Quiz or user not found');
             }
+            const servedQuizIds = await (0, chapter_progression_1.resolveChapterQuizIds)(this.prisma, userId, body.chapterId);
+            if (!servedQuizIds.includes(body.quizId)) {
+                throw new common_1.BadRequestException('This quiz does not belong to the chapter you are viewing.');
+            }
             const quizAnswerPromise = existingQuizAnswer
                 ? this.prisma.quizAnswer.update({
                     where: {
@@ -573,6 +577,7 @@ let QuizService = QuizService_1 = class QuizService {
                         },
                     },
                     data: {
+                        chapterId: body.chapterId,
                         answer: body.answer,
                         isAnswerCorrect: body.answer == quiz.answer,
                     },
