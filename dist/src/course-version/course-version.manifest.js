@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.mapPinnedQuizzesForLearner = exports.mapPinnedSectionsForLearner = exports.loadPinnedCurriculumForReport = exports.loadPinnedChapterQuizzes = exports.loadManifestForVersion = exports.resetManifestCache = exports.loadPinnedCurriculum = exports.publishManifestVersion = exports.buildManifestFromLegacySnapshot = exports.buildManifestFromLiveTree = exports.diffManifests = exports.isIdReferencedInManifest = exports.computeStructuralFingerprint = exports.getQuizIdsFromManifest = exports.getChapterIdsFromManifest = exports.getSectionIdsFromManifest = exports.countSectionsInManifest = exports.parseManifest = void 0;
+exports.mapPinnedQuizzesForLearner = exports.mapPinnedSectionsForLearner = exports.loadPinnedCurriculumForReport = exports.loadPinnedChapterQuizzes = exports.sortQuizIdsByLiveOrder = exports.compareQuizDisplayOrder = exports.loadManifestForVersion = exports.resetManifestCache = exports.loadPinnedCurriculum = exports.publishManifestVersion = exports.buildManifestFromLegacySnapshot = exports.buildManifestFromLiveTree = exports.diffManifests = exports.isIdReferencedInManifest = exports.computeStructuralFingerprint = exports.getQuizIdsFromManifest = exports.getChapterIdsFromManifest = exports.getSectionIdsFromManifest = exports.countSectionsInManifest = exports.parseManifest = void 0;
 const client_1 = require("@prisma/client");
 const crypto_1 = require("crypto");
 function parseManifest(raw) {
@@ -37,7 +37,7 @@ function computeStructuralFingerprint(manifest) {
         c: mod.chapters.map((ch) => ({
             c: ch.sourceId,
             s: ch.sectionIds,
-            q: ch.quizIds,
+            q: [...ch.quizIds].sort(),
         })),
     }));
     return (0, crypto_1.createHash)('sha256').update(JSON.stringify(shape)).digest('hex');
@@ -104,7 +104,7 @@ async function buildManifestFromLiveTree(prisma, courseId, options = {}) {
                     },
                     quizzes: {
                         where: { isArchived: false },
-                        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
                         select: { id: true },
                     },
                 },
@@ -334,6 +334,15 @@ async function loadPinnedCurriculum(prisma, versionId) {
             const quizzes = ch.quizIds
                 .map((qid) => quizById.get(qid))
                 .filter((q) => Boolean(q))
+                .sort((a, b) => compareQuizDisplayOrder({
+                orderIndex: a.orderIndex,
+                createdAt: a.createdAt,
+                id: a.id,
+            }, {
+                orderIndex: b.orderIndex,
+                createdAt: b.createdAt,
+                id: b.id,
+            }))
                 .map((q) => ({
                 id: q.id,
                 question: q.question,
@@ -426,6 +435,34 @@ function findManifestChapter(manifest, sourceChapterId) {
     }
     return null;
 }
+function compareQuizDisplayOrder(a, b) {
+    if (a.orderIndex === null && b.orderIndex === null) {
+        return a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
+    }
+    if (a.orderIndex === null)
+        return 1;
+    if (b.orderIndex === null)
+        return -1;
+    if (a.orderIndex !== b.orderIndex)
+        return a.orderIndex - b.orderIndex;
+    return a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
+}
+exports.compareQuizDisplayOrder = compareQuizDisplayOrder;
+async function sortQuizIdsByLiveOrder(prisma, quizIds) {
+    if (quizIds.length === 0)
+        return [];
+    const rows = await prisma.quiz.findMany({
+        where: { id: { in: quizIds } },
+        select: { id: true, orderIndex: true, createdAt: true },
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const ordered = quizIds
+        .map((id) => byId.get(id))
+        .filter((r) => Boolean(r));
+    ordered.sort(compareQuizDisplayOrder);
+    return ordered.map((r) => r.id);
+}
+exports.sortQuizIdsByLiveOrder = sortQuizIdsByLiveOrder;
 async function loadPinnedChapterQuizzes(prisma, versionId, sourceChapterId, includeAnswers) {
     const manifest = await loadManifestForVersion(prisma, versionId);
     if (!manifest)
@@ -433,12 +470,15 @@ async function loadPinnedChapterQuizzes(prisma, versionId, sourceChapterId, incl
     const chapter = findManifestChapter(manifest, sourceChapterId);
     if (!chapter || chapter.quizIds.length === 0)
         return [];
+    const orderedIds = await sortQuizIdsByLiveOrder(prisma, chapter.quizIds);
+    if (orderedIds.length === 0)
+        return [];
     const rows = await prisma.quiz.findMany({
-        where: { id: { in: chapter.quizIds } },
+        where: { id: { in: orderedIds } },
         select: { id: true, question: true, options: true, answer: true },
     });
     const byId = new Map(rows.map((q) => [q.id, q]));
-    const ordered = chapter.quizIds
+    const ordered = orderedIds
         .map((qid) => byId.get(qid))
         .filter((q) => Boolean(q))
         .map((q) => ({

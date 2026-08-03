@@ -106,6 +106,44 @@ describe('course-version.manifest', () => {
     );
   });
 
+  it('fingerprint ignores quiz reorder within a chapter (order not structural)', () => {
+    const reorderedQuizzes = {
+      modules: [
+        {
+          sourceId: 'mod-1',
+          order: 0,
+          chapters: [
+            {
+              sourceId: 'ch-1',
+              order: 0,
+              sectionIds: ['sec-1', 'sec-2'],
+              quizIds: ['quiz-2', 'quiz-1'],
+            },
+          ],
+        },
+      ],
+    };
+    const baseline = {
+      modules: [
+        {
+          sourceId: 'mod-1',
+          order: 0,
+          chapters: [
+            {
+              sourceId: 'ch-1',
+              order: 0,
+              sectionIds: ['sec-1', 'sec-2'],
+              quizIds: ['quiz-1', 'quiz-2'],
+            },
+          ],
+        },
+      ],
+    };
+    expect(computeStructuralFingerprint(baseline)).toBe(
+      computeStructuralFingerprint(reorderedQuizzes),
+    );
+  });
+
   it('fingerprint detects relocation across chapters (flat id sets unchanged)', () => {
     // quiz-1 moves from ch-1 to ch-2. The flat {moduleIds,chapterIds,sectionIds,
     // quizIds} sets are byte-identical, so the OLD flat fingerprint missed this;

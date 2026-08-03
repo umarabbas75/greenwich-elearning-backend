@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, Quiz } from '@prisma/client';
-import { CheckQuiz, QuizDto, ResponseDto, UpdateQuizDto } from '../dto';
+import { CheckQuiz, QuizDto, ResponseDto, UpdateChapterQuizOrderDto, UpdateQuizDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseVersionService } from '../course-version/course-version.service';
 import {
@@ -251,7 +251,7 @@ export class QuizService {
           include: {
             quizzes: {
               where: { isArchived: false },
-              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
               select: {
                 id: true,
                 question: true,
@@ -526,6 +526,68 @@ export class QuizService {
     }
   }
 
+  /**
+   * Reorder active quizzes within a chapter. Does not publish a course version
+   * (quiz order is not structural). Pinned learners see new order via live orderIndex.
+   */
+  async reorderChapterQuizzes(
+    body: UpdateChapterQuizOrderDto,
+  ): Promise<ResponseDto> {
+    try {
+      const { chapterId, quizzes: items } = body;
+      const quizIds = items.map((q) => q.id);
+
+      const active = await this.prisma.quiz.findMany({
+        where: { chapterId, isArchived: false },
+        select: { id: true },
+      });
+      const activeIds = new Set(active.map((q) => q.id));
+
+      if (active.length !== quizIds.length) {
+        throw new BadRequestException(
+          'Quiz list must include every active quiz in the chapter exactly once',
+        );
+      }
+      for (const id of quizIds) {
+        if (!activeIds.has(id)) {
+          throw new BadRequestException(
+            `Quiz ${id} is not an active quiz in this chapter`,
+          );
+        }
+      }
+      if (new Set(quizIds).size !== quizIds.length) {
+        throw new BadRequestException('Duplicate quiz ids in reorder payload');
+      }
+
+      await this.prisma.$transaction(
+        items.map((item) =>
+          this.prisma.quiz.update({
+            where: { id: item.id },
+            data: { orderIndex: item.orderIndex },
+          }),
+        ),
+      );
+
+      return {
+        message: 'Successfully updated chapter quiz order',
+        statusCode: 200,
+        data: { chapterId, updatedCount: items.length },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        { cause: error },
+      );
+    }
+  }
+
   async assignQuiz(
     quizId: string,
     chapterId: string,
@@ -547,13 +609,23 @@ export class QuizService {
         throw new Error('chapter not exist');
       }
 
+      const maxOrder = await this.prisma.quiz.aggregate({
+        where: {
+          chapterId,
+          isArchived: false,
+          id: { not: quizId },
+        },
+        _max: { orderIndex: true },
+      });
+      const orderIndex = (maxOrder._max.orderIndex ?? -1) + 1;
+
       // Re-assign must clear isArchived — unAssignQuiz archives referenced quizzes
       // (chapterId cleared) while keeping the row for version history. connect alone
       // leaves isArchived true, so getAllChapters/_count and getAllAssignQuizzes
       // (both filter isArchived: false) report 0 despite a 200 from this endpoint.
       await this.prisma.quiz.update({
         where: { id: quizId },
-        data: { chapterId, isArchived: false },
+        data: { chapterId, isArchived: false, orderIndex },
       });
 
       const publishedVersion =

@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { CheckQuiz, QuizDto, ResponseDto, UpdateQuizDto } from '../dto';
+import { CheckQuiz, QuizDto, ResponseDto, UpdateChapterQuizOrderDto, UpdateQuizDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseVersionService } from '../course-version/course-version.service';
 export declare class QuizService {
@@ -17,6 +17,7 @@ export declare class QuizService {
     createChapterQuizzesReport(userId: string, chapterId: string, userEmail?: string | null): Promise<ResponseDto>;
     retakeChapterQuiz(userId: string, chapterId: string, userEmail?: string | null): Promise<ResponseDto>;
     createQuiz(body: QuizDto): Promise<ResponseDto>;
+    reorderChapterQuizzes(body: UpdateChapterQuizOrderDto): Promise<ResponseDto>;
     assignQuiz(quizId: string, chapterId: string, adminId?: string): Promise<ResponseDto>;
     unAssignQuiz(quizId: string, chapterId: string, adminId?: string): Promise<ResponseDto>;
     updateQuiz(id: string, body: UpdateQuizDto): Promise<ResponseDto>;

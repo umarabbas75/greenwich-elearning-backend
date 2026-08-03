@@ -173,16 +173,15 @@ export function computeStructuralFingerprint(
   // owns which sections/quizzes, in order — makes a relocation change the shape.
   // This requires a TOTALLY deterministic order from buildManifestFromLiveTree:
   // modules/chapters by (createdAt, id), sections by (orderIndex, createdAt, id),
-  // quizzes by (createdAt, id). The `id` tiebreaker is load-bearing —
-  // createdAt/orderIndex are not unique (bulk import, seed), so without it ties
-  // would order unpredictably and this hash would false-positive. Do NOT remove
-  // those tiebreakers.
+  // quizzes by (orderIndex, createdAt, id) in the live tree. Section order IS
+  // structural; quiz order within a chapter is NOT — reorder-only must not bump
+  // the version, so quiz ids are sorted for fingerprint comparison only.
   const shape = manifest.modules.map((mod) => ({
     m: mod.sourceId,
     c: mod.chapters.map((ch) => ({
       c: ch.sourceId,
       s: ch.sectionIds,
-      q: ch.quizIds,
+      q: [...ch.quizIds].sort(),
     })),
   }));
   return createHash('sha256').update(JSON.stringify(shape)).digest('hex');
@@ -279,7 +278,7 @@ export async function buildManifestFromLiveTree(
           },
           quizzes: {
             where: { isArchived: false },
-            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
             select: { id: true },
           },
         },
@@ -594,6 +593,20 @@ export async function loadPinnedCurriculum(
       const quizzes: PinnedCurriculumQuiz[] = ch.quizIds
         .map((qid) => quizById.get(qid))
         .filter((q): q is NonNullable<typeof q> => Boolean(q))
+        .sort((a, b) =>
+          compareQuizDisplayOrder(
+            {
+              orderIndex: a.orderIndex,
+              createdAt: a.createdAt,
+              id: a.id,
+            },
+            {
+              orderIndex: b.orderIndex,
+              createdAt: b.createdAt,
+              id: b.id,
+            },
+          ),
+        )
         .map((q) => ({
           id: q.id,
           question: q.question,
@@ -721,6 +734,41 @@ function findManifestChapter(
   return null;
 }
 
+/** Compare quizzes within a chapter by live orderIndex (nulls last). */
+export function compareQuizDisplayOrder(
+  a: { orderIndex: number | null; createdAt: Date; id: string },
+  b: { orderIndex: number | null; createdAt: Date; id: string },
+): number {
+  if (a.orderIndex === null && b.orderIndex === null) {
+    return a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
+  }
+  if (a.orderIndex === null) return 1;
+  if (b.orderIndex === null) return -1;
+  if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
+  return a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
+}
+
+/**
+ * Order manifest (or any) quiz ids by live DB orderIndex. Drops ids with no row.
+ * Pinned learners: membership from manifest, sequence from live order (no version bump on reorder).
+ */
+export async function sortQuizIdsByLiveOrder(
+  prisma: Db,
+  quizIds: string[],
+): Promise<string[]> {
+  if (quizIds.length === 0) return [];
+  const rows = await prisma.quiz.findMany({
+    where: { id: { in: quizIds } },
+    select: { id: true, orderIndex: true, createdAt: true },
+  });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const ordered = quizIds
+    .map((id) => byId.get(id))
+    .filter((r): r is NonNullable<typeof r> => Boolean(r));
+  ordered.sort(compareQuizDisplayOrder);
+  return ordered.map((r) => r.id);
+}
+
 /**
  * Chapter-scoped quiz loader — the learner quiz-fetch hot path. Instead of
  * hydrating the WHOLE course tree (every section body + all quizzes) the way
@@ -742,15 +790,16 @@ export async function loadPinnedChapterQuizzes(
   const chapter = findManifestChapter(manifest, sourceChapterId);
   if (!chapter || chapter.quizIds.length === 0) return [];
 
+  const orderedIds = await sortQuizIdsByLiveOrder(prisma, chapter.quizIds);
+  if (orderedIds.length === 0) return [];
+
   const rows = await prisma.quiz.findMany({
-    where: { id: { in: chapter.quizIds } },
+    where: { id: { in: orderedIds } },
     select: { id: true, question: true, options: true, answer: true },
   });
   const byId = new Map(rows.map((q) => [q.id, q]));
 
-  // Reorder to the manifest's quizId order and drop any rows that no longer
-  // exist — identical to how loadPinnedCurriculum builds a chapter's quizzes.
-  const ordered: PinnedCurriculumQuiz[] = chapter.quizIds
+  const ordered: PinnedCurriculumQuiz[] = orderedIds
     .map((qid) => byId.get(qid))
     .filter((q): q is NonNullable<typeof q> => Boolean(q))
     .map((q) => ({

@@ -31,6 +31,9 @@ let QuizController = class QuizController {
     getAllAssignQuizzes(params, user) {
         return this.appService.getAllAssignQuizzes(params.id, user.role, user.id, user.email);
     }
+    reorderChapterQuizzes(body) {
+        return this.appService.reorderChapterQuizzes(body);
+    }
     getChapterQuizzesReport(params, user) {
         return this.appService.getChapterQuizzesReport(params.chapterId, user.id);
     }
@@ -92,6 +95,14 @@ __decorate([
     __metadata("design:paramtypes", [dto_1.ParamsDto, Object]),
     __metadata("design:returntype", Promise)
 ], QuizController.prototype, "getAllAssignQuizzes", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Patch)('/chapter/reorder'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [dto_1.UpdateChapterQuizOrderDto]),
+    __metadata("design:returntype", Promise)
+], QuizController.prototype, "reorderChapterQuizzes", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/getChapterQuizzesReport/:chapterId'),

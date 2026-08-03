@@ -26,13 +26,22 @@ describe('QuizService — course versioning', () => {
       chapter: { findUnique: jest.fn(), update: jest.fn() },
       userCourse: { findUnique: jest.fn() },
       user: { findUnique: jest.fn() },
-      quiz: { findUnique: jest.fn(), update: jest.fn(), delete: jest.fn() },
+      quiz: {
+        findUnique: jest.fn(),
+        findMany: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+        aggregate: jest.fn(),
+      },
       quizAnswer: {
         findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
       },
+      $transaction: jest.fn((arg) =>
+        Array.isArray(arg) ? Promise.all(arg) : arg({}),
+      ),
     };
 
     courseVersionService = {
@@ -305,6 +314,7 @@ describe('QuizService — course versioning', () => {
         title: 'Element 2',
         module: { courseId: 'course-1' },
       });
+      prisma.quiz.aggregate.mockResolvedValue({ _max: { orderIndex: 2 } });
       prisma.quiz.update.mockResolvedValue({});
 
       await service.assignQuiz('quiz-1', 'ch-1', 'admin-1');
@@ -313,7 +323,7 @@ describe('QuizService — course versioning', () => {
       // would leave isArchived: true.
       expect(prisma.quiz.update).toHaveBeenCalledWith({
         where: { id: 'quiz-1' },
-        data: { chapterId: 'ch-1', isArchived: false },
+        data: { chapterId: 'ch-1', isArchived: false, orderIndex: 3 },
       });
       // The chapter-side relation write is what left the row archived.
       expect(prisma.chapter.update).not.toHaveBeenCalled();
@@ -326,6 +336,7 @@ describe('QuizService — course versioning', () => {
         title: 'Element 2',
         module: { courseId: 'course-1' },
       });
+      prisma.quiz.aggregate.mockResolvedValue({ _max: { orderIndex: null } });
       prisma.quiz.update.mockResolvedValue({});
 
       const result = await service.assignQuiz('quiz-1', 'ch-1', 'admin-1');
@@ -342,6 +353,42 @@ describe('QuizService — course versioning', () => {
         versionNumber: 2,
         versionId: 'version-2',
       });
+    });
+  });
+
+  describe('reorderChapterQuizzes', () => {
+    it('updates orderIndex in a transaction without publishing', async () => {
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-a' },
+        { id: 'quiz-b' },
+      ]);
+      prisma.quiz.update.mockResolvedValue({});
+      prisma.$transaction = jest.fn((ops) => Promise.all(ops));
+
+      const result = await service.reorderChapterQuizzes({
+        chapterId: 'ch-1',
+        quizzes: [
+          { id: 'quiz-b', orderIndex: 0 },
+          { id: 'quiz-a', orderIndex: 1 },
+        ],
+      });
+
+      expect(result.statusCode).toBe(200);
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(
+        courseVersionService.autoPublishAfterStructuralChange,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('rejects when payload omits an active chapter quiz', async () => {
+      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-a' }, { id: 'quiz-b' }]);
+
+      await expect(
+        service.reorderChapterQuizzes({
+          chapterId: 'ch-1',
+          quizzes: [{ id: 'quiz-a', orderIndex: 0 }],
+        }),
+      ).rejects.toMatchObject({ status: 400 });
     });
   });
 

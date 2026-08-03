@@ -110,6 +110,7 @@ describe('chapter-progression', () => {
       expect(grade.isPassed).toBe(true);
       expect(prisma.quiz.findMany).toHaveBeenCalledWith({
         where: { chapterId: 'ch-1', isArchived: false },
+        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
         select: { id: true },
       });
     });
@@ -139,7 +140,7 @@ describe('chapter-progression', () => {
       // Hydrates manifest ids against DB (same as loadPinnedChapterQuizzes).
       expect(prisma.quiz.findMany).toHaveBeenCalledWith({
         where: { id: { in: ['quiz-1'] } },
-        select: { id: true },
+        select: { id: true, orderIndex: true, createdAt: true },
       });
     });
   });

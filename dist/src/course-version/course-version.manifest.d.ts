@@ -135,6 +135,16 @@ export declare function publishManifestVersion(prisma: Db, courseId: string, opt
 export declare function loadPinnedCurriculum(prisma: Db, versionId: string): Promise<PinnedCurriculumTree | null>;
 export declare function resetManifestCache(): void;
 export declare function loadManifestForVersion(prisma: Db, versionId: string): Promise<CourseVersionManifest | null>;
+export declare function compareQuizDisplayOrder(a: {
+    orderIndex: number | null;
+    createdAt: Date;
+    id: string;
+}, b: {
+    orderIndex: number | null;
+    createdAt: Date;
+    id: string;
+}): number;
+export declare function sortQuizIdsByLiveOrder(prisma: Db, quizIds: string[]): Promise<string[]>;
 export declare function loadPinnedChapterQuizzes(prisma: Db, versionId: string, sourceChapterId: string, includeAnswers: boolean): Promise<Array<Omit<PinnedCurriculumQuiz, 'answer'> & {
     answer?: string;
 }>>;

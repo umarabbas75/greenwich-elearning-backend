@@ -261,6 +261,14 @@ export declare class UpdateSectionOrderDto {
     chapterId: string;
     sections: SectionOrderItemDto[];
 }
+export declare class QuizOrderItemDto {
+    id: string;
+    orderIndex: number;
+}
+export declare class UpdateChapterQuizOrderDto {
+    chapterId: string;
+    quizzes: QuizOrderItemDto[];
+}
 export declare class CreateQuestionCategoryDto {
     courseId: string;
     name: string;

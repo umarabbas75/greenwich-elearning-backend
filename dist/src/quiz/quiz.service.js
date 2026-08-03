@@ -162,7 +162,7 @@ let QuizService = QuizService_1 = class QuizService {
                     include: {
                         quizzes: {
                             where: { isArchived: false },
-                            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                            orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
                             select: {
                                 id: true,
                                 question: true,
@@ -362,6 +362,46 @@ let QuizService = QuizService_1 = class QuizService {
             });
         }
     }
+    async reorderChapterQuizzes(body) {
+        try {
+            const { chapterId, quizzes: items } = body;
+            const quizIds = items.map((q) => q.id);
+            const active = await this.prisma.quiz.findMany({
+                where: { chapterId, isArchived: false },
+                select: { id: true },
+            });
+            const activeIds = new Set(active.map((q) => q.id));
+            if (active.length !== quizIds.length) {
+                throw new common_1.BadRequestException('Quiz list must include every active quiz in the chapter exactly once');
+            }
+            for (const id of quizIds) {
+                if (!activeIds.has(id)) {
+                    throw new common_1.BadRequestException(`Quiz ${id} is not an active quiz in this chapter`);
+                }
+            }
+            if (new Set(quizIds).size !== quizIds.length) {
+                throw new common_1.BadRequestException('Duplicate quiz ids in reorder payload');
+            }
+            await this.prisma.$transaction(items.map((item) => this.prisma.quiz.update({
+                where: { id: item.id },
+                data: { orderIndex: item.orderIndex },
+            })));
+            return {
+                message: 'Successfully updated chapter quiz order',
+                statusCode: 200,
+                data: { chapterId, updatedCount: items.length },
+            };
+        }
+        catch (error) {
+            if (error instanceof common_1.HttpException) {
+                throw error;
+            }
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+        }
+    }
     async assignQuiz(quizId, chapterId, adminId) {
         try {
             const isQuizExist = await this.prisma.quiz.findUnique({
@@ -377,9 +417,18 @@ let QuizService = QuizService_1 = class QuizService {
             if (!chapter) {
                 throw new Error('chapter not exist');
             }
+            const maxOrder = await this.prisma.quiz.aggregate({
+                where: {
+                    chapterId,
+                    isArchived: false,
+                    id: { not: quizId },
+                },
+                _max: { orderIndex: true },
+            });
+            const orderIndex = (maxOrder._max.orderIndex ?? -1) + 1;
             await this.prisma.quiz.update({
                 where: { id: quizId },
-                data: { chapterId, isArchived: false },
+                data: { chapterId, isArchived: false, orderIndex },
             });
             const publishedVersion = await this.autoPublishAfterQuizChange(chapter.module.courseId, adminId, `Assigned quiz to chapter "${chapter.title}"`);
             return {

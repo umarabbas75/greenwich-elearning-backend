@@ -6,6 +6,7 @@ import {
   Param,
   UseGuards,
   Put,
+  Patch,
   Delete,
 } from '@nestjs/common';
 import { QuizService } from './quiz.service';
@@ -15,6 +16,7 @@ import {
   ParamsDto,
   QuizDto,
   ResponseDto,
+  UpdateChapterQuizOrderDto,
   UpdateQuizDto,
 } from '../dto';
 import { AuthGuard } from '@nestjs/passport';
@@ -50,6 +52,14 @@ export class QuizController {
       user.id,
       user.email,
     );
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Patch('/chapter/reorder')
+  reorderChapterQuizzes(
+    @Body() body: UpdateChapterQuizOrderDto,
+  ): Promise<ResponseDto> {
+    return this.appService.reorderChapterQuizzes(body);
   }
 
   @UseGuards(AuthGuard('cJwt'))

@@ -465,6 +465,9 @@ model Quiz {
   options    String[]
   answer     String
   chapterId  String?
+  /// Display order within the chapter (lower first; nulls last). Reorder-only
+  /// updates do not publish a new course version — see quiz reorder API.
+  orderIndex Int?
   isArchived Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -473,6 +476,7 @@ model Quiz {
   // Speeds the live/unpinned quiz fetch (where: { chapterId, isArchived }).
   // Postgres does not auto-index FK columns.
   @@index([chapterId])
+  @@index([chapterId, orderIndex])
   @@map("quizzes")
 }
 

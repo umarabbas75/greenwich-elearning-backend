@@ -736,6 +736,28 @@ export class UpdateSectionOrderDto {
   sections: SectionOrderItemDto[];
 }
 
+export class QuizOrderItemDto {
+  @IsString()
+  @IsNotEmpty()
+  id: string;
+
+  @IsNumber()
+  @IsNotEmpty()
+  orderIndex: number;
+}
+
+export class UpdateChapterQuizOrderDto {
+  @IsString()
+  @IsNotEmpty()
+  chapterId: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => QuizOrderItemDto)
+  @ArrayMinSize(1)
+  quizzes: QuizOrderItemDto[];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ASSESSMENT FEATURE DTOs
 // ─────────────────────────────────────────────────────────────────────────────
