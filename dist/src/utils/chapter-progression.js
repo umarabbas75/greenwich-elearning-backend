@@ -104,7 +104,7 @@ async function resolveChapterQuizIds(prisma, userId, chapterId, ctx) {
             for (const mod of manifest.modules) {
                 for (const ch of mod.chapters) {
                     if (ch.sourceId === chapterId) {
-                        return [...ch.quizIds];
+                        return filterQuizIdsToExistingRows(prisma, ch.quizIds);
                     }
                 }
             }
@@ -117,6 +117,16 @@ async function resolveChapterQuizIds(prisma, userId, chapterId, ctx) {
     return quizzes.map((q) => q.id);
 }
 exports.resolveChapterQuizIds = resolveChapterQuizIds;
+async function filterQuizIdsToExistingRows(prisma, quizIds) {
+    if (quizIds.length === 0)
+        return [];
+    const rows = await prisma.quiz.findMany({
+        where: { id: { in: quizIds } },
+        select: { id: true },
+    });
+    const found = new Set(rows.map((r) => r.id));
+    return quizIds.filter((id) => found.has(id));
+}
 async function gradeChapterQuizFromStoredAnswers(prisma, userId, chapterId, storedPassingCriteria, ctx) {
     const quizIds = await resolveChapterQuizIds(prisma, userId, chapterId, ctx);
     if (quizIds.length === 0) {
@@ -173,9 +183,10 @@ async function resolveChapterDenominator(prisma, userId, chapterId, ctx) {
             for (const mod of manifest.modules) {
                 for (const ch of mod.chapters) {
                     if (ch.sourceId === chapterId) {
+                        const quizIds = await filterQuizIdsToExistingRows(prisma, ch.quizIds);
                         return {
                             sectionCount: ch.sectionIds.length,
-                            quizCount: ch.quizIds.length,
+                            quizCount: quizIds.length,
                         };
                     }
                 }

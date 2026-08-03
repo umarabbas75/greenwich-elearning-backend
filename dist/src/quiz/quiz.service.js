@@ -162,6 +162,7 @@ let QuizService = QuizService_1 = class QuizService {
                     include: {
                         quizzes: {
                             where: { isArchived: false },
+                            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
                             select: {
                                 id: true,
                                 question: true,

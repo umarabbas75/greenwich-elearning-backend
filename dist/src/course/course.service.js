@@ -2911,7 +2911,9 @@ let CourseService = CourseService_1 = class CourseService {
                     select: { id: true, sectionCount: true },
                 });
                 for (const row of versions) {
-                    versionSectionCounts.set(row.id, row.sectionCount ?? 0);
+                    if (row.sectionCount != null) {
+                        versionSectionCounts.set(row.id, row.sectionCount);
+                    }
                 }
             }
             const coursesWithDetails = assignedCourses.map((userCourse) => {
@@ -2949,11 +2951,13 @@ let CourseService = CourseService_1 = class CourseService {
                         })) || [],
                     })) || [],
                 };
-                const sectionsCount = enrolledVersionId
-                    ? versionSectionCounts.get(enrolledVersionId) ?? 0
+                const sectionsCount = enrolledVersionId &&
+                    versionSectionCounts.has(enrolledVersionId)
+                    ? versionSectionCounts.get(enrolledVersionId)
                     : course.modules
                         ?.flatMap((module) => module.chapters)
-                        ?.reduce((acc, chapter) => acc + chapter._count.sections, 0) || 0;
+                        ?.reduce((acc, chapter) => acc + chapter._count.sections, 0) ||
+                        0;
                 const userCourseProgressCount = course._count?.UserCourseProgress || 0;
                 const latestLastSeenSection = course.LastSeenSection?.[0];
                 const formsCompleted = formStatus.totalForms === formStatus.completedForms;
