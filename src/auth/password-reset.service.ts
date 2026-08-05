@@ -160,13 +160,20 @@ export class PasswordResetService {
     }
 
     // Apply the new password and consume the reset row atomically-ish (pool=1,
-    // so sequential updates; consuming the row prevents token reuse).
+    // so sequential updates; consuming the row prevents token reuse). Also
+    // clears mustChangePassword: a completed OTP reset means the user now owns
+    // a password they picked themselves, so the "temp-password force-change"
+    // gate is meaningless. Leaving the flag true would push them into
+    // force-change on their next login where they can't prove the old
+    // (temporary) password anymore — the same stranding that trapped
+    // inamkhan112005 after an admin reset.
     const now = new Date();
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
         password: await argon2.hash(body.newPassword),
         passwordChangedAt: now,
+        mustChangePassword: false,
       },
     });
     await this.prisma.passwordReset.update({

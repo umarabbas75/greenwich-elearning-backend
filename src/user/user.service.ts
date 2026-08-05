@@ -450,13 +450,19 @@ export class UserService {
         throw new Error('Old password is incorrect');
       }
 
-      // Save the updated user
+      // Save the updated user. Setting a real password here also clears the
+      // "temporary admin-set password" flag — once the user has proved they
+      // know the old password and picked a new one, the force-change gate is
+      // meaningless. Leaving it true stranded users whose password was reset
+      // before they completed the first-login change (see auth.service
+      // forceChangePassword: it is the only OTHER path that clears the flag).
       await this.prisma.user.update({
-        where: { id: userId }, // Specify the unique identifier for the user you want to update
+        where: { id: userId },
         data: {
           password: await argon2.hash(body.password),
           passwordChangedAt: new Date(),
-        }, // Pass the modified user object
+          mustChangePassword: false,
+        },
       });
       await this.recordPasswordChange(userId);
 
@@ -488,12 +494,17 @@ export class UserService {
         throw new Error('User not found');
       }
 
-      // Save the updated user with new password
+      // Admin-side password reset. Also clears the force-change flag: the
+      // user's temporary admin-set password is no longer the current one, so
+      // holding them at the force-change screen would strand them (their
+      // "current password" doesn't match this new hash unless the admin also
+      // told them the new value — see inamkhan112005 incident).
       await this.prisma.user.update({
         where: { id: userId },
         data: {
           password: await argon2.hash(body.password),
           passwordChangedAt: new Date(),
+          mustChangePassword: false,
         },
       });
       await this.recordPasswordChange(userId);
