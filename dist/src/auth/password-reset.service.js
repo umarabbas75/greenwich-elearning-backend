@@ -104,6 +104,7 @@ let PasswordResetService = PasswordResetService_1 = class PasswordResetService {
             data: {
                 password: await argon2.hash(body.newPassword),
                 passwordChangedAt: now,
+                mustChangePassword: false,
             },
         });
         await this.prisma.passwordReset.update({

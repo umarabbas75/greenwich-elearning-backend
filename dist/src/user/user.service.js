@@ -364,6 +364,7 @@ let UserService = UserService_1 = class UserService {
                 data: {
                     password: await argon2.hash(body.password),
                     passwordChangedAt: new Date(),
+                    mustChangePassword: false,
                 },
             });
             await this.recordPasswordChange(userId);
@@ -395,6 +396,7 @@ let UserService = UserService_1 = class UserService {
                 data: {
                     password: await argon2.hash(body.password),
                     passwordChangedAt: new Date(),
+                    mustChangePassword: false,
                 },
             });
             await this.recordPasswordChange(userId);
