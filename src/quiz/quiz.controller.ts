@@ -131,19 +131,12 @@ export class QuizController {
     @GetUser() user: User,
     @Param() params: AssignQuizDto,
   ): Promise<ResponseDto> {
-    return this.appService.assignQuiz(
-      params.quizId,
-      params.chapterId,
-      user.id,
-    );
+    return this.appService.assignQuiz(params.quizId, params.chapterId, user.id);
   }
 
   @UseGuards(AuthGuard('jwt'))
   @Put('/user/unAssignQuiz')
-  unAssignQuiz(
-    @GetUser() user: User,
-    @Body() body: any,
-  ): Promise<ResponseDto> {
+  unAssignQuiz(@GetUser() user: User, @Body() body: any): Promise<ResponseDto> {
     return this.appService.unAssignQuiz(body.quizId, body.chapterId, user.id);
   }
 

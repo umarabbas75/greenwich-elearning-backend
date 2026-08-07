@@ -135,7 +135,9 @@ export function renderNotificationEmail(
       const url = studentAssignmentDetail(mail.assignmentId);
       const dueLabel = formatDueAt(mail.dueAt);
       const dueLine = dueLabel
-        ? `<p style="margin-top:8px;color:${BRAND.muted};font-size:13px;">Due: <strong>${escapeHtml(dueLabel)}</strong></p>`
+        ? `<p style="margin-top:8px;color:${
+            BRAND.muted
+          };font-size:13px;">Due: <strong>${escapeHtml(dueLabel)}</strong></p>`
         : '';
       const body = `<p>Dear ${name},</p>
         <p style="margin-top:12px;">A new assignment, <strong>${title}</strong>, has been added to your course <strong>${courseTitle}</strong>.</p>${dueLine}`;
@@ -149,11 +151,11 @@ export function renderNotificationEmail(
         }),
         text: `Dear ${
           mail.recipientFirstName || 'there'
-        },\n\nA new assignment, "${mail.assignmentTitle}", has been added to your course "${
-          mail.courseTitle
-        }".${dueLabel ? `\nDue: ${dueLabel}` : ''}\n\nView it: ${url}\n\nKind regards,\nThe ${
-          BRAND.name
-        } Team`,
+        },\n\nA new assignment, "${
+          mail.assignmentTitle
+        }", has been added to your course "${mail.courseTitle}".${
+          dueLabel ? `\nDue: ${dueLabel}` : ''
+        }\n\nView it: ${url}\n\nKind regards,\nThe ${BRAND.name} Team`,
       };
     }
 
@@ -190,9 +192,7 @@ export function renderNotificationEmail(
       const scoreLine =
         typeof mail.score === 'number'
           ? `<p style="margin-top:8px;">Score: <strong>${mail.score}${
-              typeof mail.maxPoints === 'number'
-                ? ` / ${mail.maxPoints}`
-                : ''
+              typeof mail.maxPoints === 'number' ? ` / ${mail.maxPoints}` : ''
             }</strong></p>`
           : '';
       const feedbackLine = mail.feedback
@@ -218,9 +218,9 @@ export function renderNotificationEmail(
                 typeof mail.maxPoints === 'number' ? ` / ${mail.maxPoints}` : ''
               }`
             : ''
-        }${mail.feedback ? `\nFeedback: ${mail.feedback}` : ''}\n\nView it: ${url}\n\nKind regards,\nThe ${
-          BRAND.name
-        } Team`,
+        }${
+          mail.feedback ? `\nFeedback: ${mail.feedback}` : ''
+        }\n\nView it: ${url}\n\nKind regards,\nThe ${BRAND.name} Team`,
       };
     }
 

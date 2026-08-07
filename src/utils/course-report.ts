@@ -108,7 +108,11 @@ export function deriveModuleReportStatus(
 }
 
 export function buildChapterActivityMaps(input: {
-  progressRows: Array<{ sectionId: string; chapterId: string; createdAt: Date }>;
+  progressRows: Array<{
+    sectionId: string;
+    chapterId: string;
+    createdAt: Date;
+  }>;
   lastSeenRows: Array<{
     chapterId: string;
     sectionId: string;
@@ -226,8 +230,7 @@ export function buildSectionReportRows(
   const lastSeen = activity.lastSeenByChapter.get(chapterId);
 
   return sections.map((section) => {
-    const completedAt =
-      activity.sectionCompletedAtById.get(section.id) ?? null;
+    const completedAt = activity.sectionCompletedAtById.get(section.id) ?? null;
     const isLastSeen = lastSeen?.sectionId === section.id;
 
     return {
@@ -237,21 +240,18 @@ export function buildSectionReportRows(
       type: section.type,
       status: deriveSectionReportStatus({ completedAt, isLastSeen }),
       isLastSeen,
-      openedAt: isLastSeen ? (lastSeen?.createdAt ?? null) : null,
-      lastOpenedAt: isLastSeen ? (lastSeen?.updatedAt ?? null) : null,
+      openedAt: isLastSeen ? lastSeen?.createdAt ?? null : null,
+      lastOpenedAt: isLastSeen ? lastSeen?.updatedAt ?? null : null,
       completedAt,
-      timeSpentSeconds:
-        activity.timeSpentSecondsBySection.get(section.id) ?? 0,
+      timeSpentSeconds: activity.timeSpentSecondsBySection.get(section.id) ?? 0,
       totalAttempts: isInteractiveSectionType(section.type)
-        ? (activity.totalAttemptsBySection.get(section.id) ?? 0)
+        ? activity.totalAttemptsBySection.get(section.id) ?? 0
         : null,
     };
   });
 }
 
-export function buildChapterQuizSummary(
-  quiz: QuizProgressRow | undefined,
-): {
+export function buildChapterQuizSummary(quiz: QuizProgressRow | undefined): {
   attempts: number;
   isPassed: boolean;
   score: number;
@@ -322,9 +322,7 @@ export function buildChapterReportRow(input: BuildChapterReportInput) {
     completedAt: chapterCompletedAt,
   });
 
-  const enrichedQuiz = quizRow
-    ? enrichQuizProgressReport(quizRow)!
-    : null;
+  const enrichedQuiz = quizRow ? enrichQuizProgressReport(quizRow)! : null;
 
   const timeSpentSeconds = sections.reduce(
     (sum, section) => sum + section.timeSpentSeconds,

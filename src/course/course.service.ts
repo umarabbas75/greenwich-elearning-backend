@@ -54,7 +54,7 @@ export class CourseService {
     private mail: MailService,
     private feedbackService: FeedbackService,
     private courseVersionService: CourseVersionService,
-  ) { }
+  ) {}
 
   /** True iff the learner has been certified-complete on this course. */
   private async isCourseFrozen(
@@ -101,7 +101,8 @@ export class CourseService {
       return published;
     } catch (error) {
       CourseService.completionLogger.error(
-        `Auto-publish failed for course ${courseId}: ${error?.message ?? error
+        `Auto-publish failed for course ${courseId}: ${
+          error?.message ?? error
         }`,
       );
       return null;
@@ -130,6 +131,357 @@ export class CourseService {
       throw new Error('Chapter not found');
     }
     return chapter.module.courseId;
+  }
+
+  /**
+   * Enumerates every learner-state table keyed by (userId, courseId, …) that
+   * needs to be cleaned up when an enrollment is destroyed. This is the shared
+   * source of truth for both:
+   *
+   *   - unAssignCourse's "hasResidualState" refusal (the 409 guard)
+   *   - resetUserCourseProgress's transaction body (via wipeUserCourseState)
+   *
+   * Keeping both paths driven by this single enumeration prevents the failure
+   * mode Claude's review caught: unassign shipped with 6 tables checked while
+   * reset already deleted 13, so a learner with quiz answers and an assessment
+   * attempt but no section progress passed as "clean" and the loophole was
+   * only narrowed, not closed.
+   *
+   * Returns per-table row counts (so the 409 body can tell the admin exactly
+   * what would be wiped) plus a rolled-up `hasAny` boolean.
+   */
+  private async probeUserCourseResidualState(
+    userId: string,
+    courseId: string,
+  ): Promise<{
+    hasAny: boolean;
+    counts: {
+      progressRows: number;
+      chapterCompletions: number;
+      moduleCompletions: number;
+      courseCompleted: boolean;
+      certified: boolean;
+      timeSpentRows: number;
+      lastSeenRows: number;
+      quizProgressRows: number;
+      quizAnswerRows: number;
+      formCompletionRows: number;
+      policyCompletionRows: number;
+      policyItemCompletionRows: number;
+      feedbackSubmissionRows: number;
+      assessmentAttemptRows: number;
+    };
+    // Returned so the caller can forward them to wipeUserCourseState and avoid
+    // the same two findMany round-trips being made twice per force-unassign.
+    chapterIds: string[];
+    assessmentIds: string[];
+  }> {
+    // QuizProgress / QuizAnswer / AssessmentAttempt aren't keyed by courseId;
+    // they scope by chapterId / assessmentId. Resolve those ID sets first so
+    // the counts are course-bounded and match what wipeUserCourseState will
+    // actually delete.
+    const [chapters, assessments] = await Promise.all([
+      this.prisma.chapter.findMany({
+        where: { module: { courseId } },
+        select: { id: true },
+      }),
+      this.prisma.assessment.findMany({
+        where: { courseId },
+        select: { id: true },
+      }),
+    ]);
+    const chapterIds = chapters.map((c) => c.id);
+    const assessmentIds = assessments.map((a) => a.id);
+
+    const [
+      progressRows,
+      chapterCompletions,
+      moduleCompletions,
+      courseCompletion,
+      timeSpentRows,
+      lastSeenRows,
+      quizProgressRows,
+      quizAnswerRows,
+      formCompletionRows,
+      policyCompletionRows,
+      policyItemCompletionRows,
+      feedbackSubmissionRows,
+      assessmentAttemptRows,
+    ] = await Promise.all([
+      this.prisma.userCourseProgress.count({ where: { userId, courseId } }),
+      this.prisma.userChapterCompletion.count({ where: { userId, courseId } }),
+      this.prisma.userModuleCompletion.count({ where: { userId, courseId } }),
+      this.prisma.courseCompletion.findUnique({
+        where: { userId_courseId: { userId, courseId } },
+        select: { id: true, isPassed: true, courseCompletedAt: true },
+      }),
+      this.prisma.sectionTimeSpent.count({ where: { userId, courseId } }),
+      this.prisma.lastSeenSection.count({ where: { userId, courseId } }),
+      chapterIds.length > 0
+        ? this.prisma.quizProgress.count({
+            where: { userId, chapterId: { in: chapterIds } },
+          })
+        : Promise.resolve(0),
+      chapterIds.length > 0
+        ? this.prisma.quizAnswer.count({
+            where: { userId, chapterId: { in: chapterIds } },
+          })
+        : Promise.resolve(0),
+      this.prisma.userFormCompletion.count({ where: { userId, courseId } }),
+      this.prisma.userPolicyCompletion.count({ where: { userId, courseId } }),
+      this.prisma.userPolicyItemCompletion.count({
+        where: { userId, item: { policy: { courseId } } },
+      }),
+      this.prisma.courseFeedbackSubmission.count({
+        where: { userId, courseId },
+      }),
+      assessmentIds.length > 0
+        ? this.prisma.assessmentAttempt.count({
+            where: { userId, assessmentId: { in: assessmentIds } },
+          })
+        : Promise.resolve(0),
+    ]);
+
+    const counts = {
+      progressRows,
+      chapterCompletions,
+      moduleCompletions,
+      courseCompleted: !!courseCompletion?.courseCompletedAt,
+      certified: !!courseCompletion?.isPassed,
+      timeSpentRows,
+      lastSeenRows,
+      quizProgressRows,
+      quizAnswerRows,
+      formCompletionRows,
+      policyCompletionRows,
+      policyItemCompletionRows,
+      feedbackSubmissionRows,
+      assessmentAttemptRows,
+    };
+
+    const hasAny =
+      progressRows > 0 ||
+      chapterCompletions > 0 ||
+      moduleCompletions > 0 ||
+      !!courseCompletion ||
+      timeSpentRows > 0 ||
+      lastSeenRows > 0 ||
+      quizProgressRows > 0 ||
+      quizAnswerRows > 0 ||
+      formCompletionRows > 0 ||
+      policyCompletionRows > 0 ||
+      policyItemCompletionRows > 0 ||
+      feedbackSubmissionRows > 0 ||
+      assessmentAttemptRows > 0;
+
+    return { hasAny, counts, chapterIds, assessmentIds };
+  }
+
+  /**
+   * Deletes every learner-state row scoped to (userId, courseId) inside the
+   * supplied transaction. Shared between unAssignCourse (force path) and
+   * resetUserCourseProgress so the two enumerations cannot drift.
+   *
+   * `options.deleteSectionTimeSpent`:
+   *   - true → hard-delete SectionTimeSpent rows (unassign: enrollment gone).
+   *   - false → only reset attempt counters, preserving totalSeconds
+   *     (resetUserCourseProgress: the enrollment survives).
+   */
+  private async wipeUserCourseState(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    courseId: string,
+    options: {
+      deleteSectionTimeSpent: boolean;
+      // Pre-resolved by probeUserCourseResidualState in the force-unassign
+      // path so the same findMany pair isn't run again inside the interactive
+      // transaction. Callers that don't have them (resetUserCourseProgress)
+      // can omit and we'll resolve here.
+      chapterIds?: string[];
+      assessmentIds?: string[];
+    },
+  ): Promise<{
+    sectionProgress: number;
+    lastSeen: number;
+    quizProgress: number;
+    quizAnswers: number;
+    formCompletions: number;
+    policyCompletions: number;
+    policyItemCompletions: number;
+    feedbackSubmissions: number;
+    courseCompletions: number;
+    chapterCompletions: number;
+    moduleCompletions: number;
+    sectionTimeSpent: number;
+    assessmentAttempts: number;
+  }> {
+    let chapterIds = options.chapterIds;
+    let assessmentIds = options.assessmentIds;
+    if (!chapterIds || !assessmentIds) {
+      const [chapters, assessments] = await Promise.all([
+        tx.chapter.findMany({
+          where: { module: { courseId } },
+          select: { id: true },
+        }),
+        tx.assessment.findMany({
+          where: { courseId },
+          select: { id: true },
+        }),
+      ]);
+      chapterIds = chapters.map((c) => c.id);
+      assessmentIds = assessments.map((a) => a.id);
+    }
+
+    const sectionProgress = await tx.userCourseProgress.deleteMany({
+      where: { userId, courseId },
+    });
+    const lastSeen = await tx.lastSeenSection.deleteMany({
+      where: { userId, courseId },
+    });
+    const quizProgress =
+      chapterIds.length > 0
+        ? await tx.quizProgress.deleteMany({
+            where: { userId, chapterId: { in: chapterIds } },
+          })
+        : { count: 0 };
+    const quizAnswers =
+      chapterIds.length > 0
+        ? await tx.quizAnswer.deleteMany({
+            where: { userId, chapterId: { in: chapterIds } },
+          })
+        : { count: 0 };
+    const formCompletions = await tx.userFormCompletion.deleteMany({
+      where: { userId, courseId },
+    });
+    const policyCompletions = await tx.userPolicyCompletion.deleteMany({
+      where: { userId, courseId },
+    });
+    const policyItemCompletions = await tx.userPolicyItemCompletion.deleteMany({
+      where: { userId, item: { policy: { courseId } } },
+    });
+    const feedbackSubmissions = await tx.courseFeedbackSubmission.deleteMany({
+      where: { userId, courseId },
+    });
+    const courseCompletions = await tx.courseCompletion.deleteMany({
+      where: { userId, courseId },
+    });
+    const chapterCompletions = await tx.userChapterCompletion.deleteMany({
+      where: { userId, courseId },
+    });
+    const moduleCompletions = await tx.userModuleCompletion.deleteMany({
+      where: { userId, courseId },
+    });
+    let sectionTimeSpentCount = 0;
+    if (options.deleteSectionTimeSpent) {
+      const res = await tx.sectionTimeSpent.deleteMany({
+        where: { userId, courseId },
+      });
+      sectionTimeSpentCount = res.count;
+    } else {
+      // resetUserCourseProgress semantics: keep the row (preserve totalSeconds
+      // as an engagement metric) but reset the attempt counters.
+      const res = await tx.sectionTimeSpent.updateMany({
+        where: { userId, courseId },
+        data: {
+          totalAttempts: 0,
+          firstAttemptAt: null,
+          lastAttemptAt: null,
+        },
+      });
+      sectionTimeSpentCount = res.count;
+    }
+    const assessmentAttempts =
+      assessmentIds.length > 0
+        ? await tx.assessmentAttempt.deleteMany({
+            where: { userId, assessmentId: { in: assessmentIds } },
+          })
+        : { count: 0 };
+
+    return {
+      sectionProgress: sectionProgress.count,
+      lastSeen: lastSeen.count,
+      quizProgress: quizProgress.count,
+      quizAnswers: quizAnswers.count,
+      formCompletions: formCompletions.count,
+      policyCompletions: policyCompletions.count,
+      policyItemCompletions: policyItemCompletions.count,
+      feedbackSubmissions: feedbackSubmissions.count,
+      courseCompletions: courseCompletions.count,
+      chapterCompletions: chapterCompletions.count,
+      moduleCompletions: moduleCompletions.count,
+      sectionTimeSpent: sectionTimeSpentCount,
+      assessmentAttempts: assessmentAttempts.count,
+    };
+  }
+
+  /**
+   * Builds the delete-response `message` string when a live row was archived
+   * instead of hard-deleted (because it is referenced by a published version).
+   * The response now carries `outcome`, `stillServedTo`, and
+   * `versionsReferencing` in structured form for the FE; this string is the
+   * human-friendly summary the admin sees in a toast.
+   *
+   * Example:
+   *   "Archived — hidden from new users, but still shown to 12 active users
+   *    on Version 3, 2."
+   */
+  private buildArchiveMessage(
+    entity: 'Module' | 'Chapter' | 'Section' | 'Quiz',
+    stillServedTo: number,
+    versions: Array<{ versionNumber: number }>,
+  ): string {
+    // Delegates to CourseVersionService.buildArchiveMessage so QuizService and
+    // CourseService produce identical wording.
+    return this.courseVersionService.buildArchiveMessage(
+      entity,
+      stillServedTo,
+      versions,
+    );
+  }
+
+  /**
+   * Archiving a module/chapter/section/quiz is the highest-consequence
+   * structural action an admin takes — a section referenced by v3 is still
+   * shown to every learner pinned to v3 even though it "disappeared" from
+   * the admin list. Prior to this audit write, that action left no trace at
+   * all; only the follow-up auto-publish (which the admin doesn't attribute
+   * to their own click) hit the log.
+   *
+   * Best-effort — never throws — delegates to CourseVersionService.writeAudit
+   * so all admin audit rows go through the same denormalisation and
+   * failure-swallow path.
+   */
+  private async writeArchiveAudit(params: {
+    adminId?: string;
+    entity: 'Module' | 'Chapter' | 'Section' | 'Quiz';
+    targetId: string;
+    courseId: string;
+    title?: string | null;
+    stillServedTo: number;
+    versions: Array<{
+      versionId: string;
+      versionNumber: number;
+      status: string;
+      enrollmentCount: number;
+    }>;
+  }): Promise<void> {
+    if (!params.adminId) return;
+    await this.courseVersionService.writeAudit({
+      adminId: params.adminId,
+      action: `ARCHIVE_${params.entity.toUpperCase()}`,
+      targetType: params.entity,
+      targetId: params.targetId,
+      courseId: params.courseId,
+      metadata: {
+        title: params.title ?? null,
+        stillServedTo: params.stillServedTo,
+        versions: params.versions.map((v) => ({
+          versionNumber: v.versionNumber,
+          status: v.status,
+          enrollmentCount: v.enrollmentCount,
+        })),
+      },
+    });
   }
 
   private assertValidOrderingItems(
@@ -420,36 +772,36 @@ export class CourseService {
       chapterIds.length === 0
         ? Promise.resolve([] as { chapterId: string | null }[])
         : this.prisma.quizAnswer.findMany({
-          where: {
-            userId,
-            isAnswerCorrect: true,
-            chapterId: { in: chapterIds },
-          },
-          select: { chapterId: true },
-        }),
+            where: {
+              userId,
+              isAnswerCorrect: true,
+              chapterId: { in: chapterIds },
+            },
+            select: { chapterId: true },
+          }),
       chapterIds.length === 0
         ? Promise.resolve(
-          [] as Array<{
-            chapterId: string;
-            sectionId: string;
-            createdAt: Date;
-            updatedAt: Date;
-          }>,
-        )
+            [] as Array<{
+              chapterId: string;
+              sectionId: string;
+              createdAt: Date;
+              updatedAt: Date;
+            }>,
+          )
         : this.prisma.lastSeenSection.findMany({
-          where: { userId, chapterId: { in: chapterIds } },
-          select: {
-            chapterId: true,
-            sectionId: true,
-            createdAt: true,
-            updatedAt: true,
-          },
-        }),
+            where: { userId, chapterId: { in: chapterIds } },
+            select: {
+              chapterId: true,
+              sectionId: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          }),
       chapterIds.length === 0
         ? Promise.resolve([])
         : this.prisma.quizProgress.findMany({
-          where: { userId, chapterId: { in: chapterIds } },
-        }),
+            where: { userId, chapterId: { in: chapterIds } },
+          }),
       this.prisma.sectionTimeSpent.findMany({
         where: { userId, courseId },
         select: { sectionId: true, totalSeconds: true, totalAttempts: true },
@@ -534,25 +886,25 @@ export class CourseService {
       // 4. If all required items completed, mark policy as complete
       const policyCompletion = allRequiredItemsCompleted
         ? await this.prisma.userPolicyCompletion.upsert({
-          where: {
-            userId_courseId_policyId: {
+            where: {
+              userId_courseId_policyId: {
+                userId,
+                courseId,
+                policyId,
+              },
+            },
+            update: {
+              isComplete: true,
+              completedAt: new Date(),
+            },
+            create: {
               userId,
               courseId,
               policyId,
+              isComplete: true,
+              completedAt: new Date(),
             },
-          },
-          update: {
-            isComplete: true,
-            completedAt: new Date(),
-          },
-          create: {
-            userId,
-            courseId,
-            policyId,
-            isComplete: true,
-            completedAt: new Date(),
-          },
-        })
+          })
         : null;
 
       return {
@@ -833,11 +1185,18 @@ export class CourseService {
         select: {
           id: true,
           title: true,
+          // Live fallback (unpinned learner). Sections already filtered
+          // isArchived:false / isActive:true, but modules and chapters were
+          // not — so archived modules and chapters used to render as empty
+          // shells with a "0/0" activity block. Filter them out here so the
+          // live report tree matches the versioned tree above.
           modules: {
+            where: { isArchived: false },
             select: {
               id: true,
               title: true,
               chapters: {
+                where: { isArchived: false },
                 select: {
                   id: true,
                   title: true,
@@ -853,7 +1212,7 @@ export class CourseService {
                   },
                   _count: {
                     select: {
-                      quizzes: true,
+                      quizzes: { where: { isArchived: false } },
                     },
                   },
                 },
@@ -1719,12 +2078,12 @@ export class CourseService {
           // Include feedback form information
           feedbackForm: course.feedbackForm
             ? {
-              id: course.feedbackForm.id,
-              formName: course.feedbackForm.formName,
-              formStructure: course.feedbackForm.formStructure,
-              isRequired: course.feedbackForm.isRequired,
-              isActive: course.feedbackForm.isActive,
-            }
+                id: course.feedbackForm.id,
+                formName: course.feedbackForm.formName,
+                formStructure: course.feedbackForm.formStructure,
+                isRequired: course.feedbackForm.isRequired,
+                isActive: course.feedbackForm.isActive,
+              }
             : null,
         },
       };
@@ -1783,8 +2142,9 @@ export class CourseService {
         expiresAt.setDate(expiresAt.getDate() + (course.validityDays ?? 365));
         if (new Date() > expiresAt) {
           return {
-            message: `Your access to this course expired on ${expiresAt.toISOString().split('T')[0]
-              }. Please contact your administrator to renew access.`,
+            message: `Your access to this course expired on ${
+              expiresAt.toISOString().split('T')[0]
+            }. Please contact your administrator to renew access.`,
             statusCode: 403,
             data: { canAccessContent: false, expired: true, expiresAt },
           };
@@ -1951,16 +2311,31 @@ export class CourseService {
           description: true,
           image: true,
           price: true,
+          // Public marketing page must show the CURRENT (non-archived)
+          // curriculum. Prior to these filters an archived module would
+          // vanish from the admin list (we filter isArchived:false there
+          // now) but still render on the public course page — the new
+          // divergence the admin-facing archive changes introduced. Also
+          // hides archived chapters and inactive/archived sections; matches
+          // getAllChapters / getAllSections behaviour so admin and public
+          // views agree on what "exists".
           modules: {
+            where: { isArchived: false },
             select: {
               id: true,
               title: true,
               chapters: {
+                where: { isArchived: false },
                 orderBy: {
                   createdAt: 'asc',
                 },
               },
-              _count: true,
+              _count: {
+                select: {
+                  chapters: { where: { isArchived: false } },
+                  sections: { where: { isArchived: false, isActive: true } },
+                },
+              },
             },
             orderBy: {
               createdAt: 'asc',
@@ -2070,7 +2445,12 @@ export class CourseService {
         include: {
           _count: {
             select: {
-              modules: true,
+              // Match getAllModules — archived modules are hidden from the
+              // admin list, so the count on the card must not include them.
+              // Otherwise the card says "5 Modules" but clicking in shows 4,
+              // which is exactly the "did my delete work?" confusion the
+              // rest of this batch was meant to end.
+              modules: { where: { isArchived: false } },
             },
           },
         },
@@ -2113,7 +2493,10 @@ export class CourseService {
         include: {
           _count: {
             select: {
-              modules: true,
+              // Public listing must agree with the public detail page — the
+              // detail page filters archived modules, so the list card's
+              // count must too.
+              modules: { where: { isArchived: false } },
             },
           },
         },
@@ -2188,16 +2571,24 @@ export class CourseService {
       const modules = await this.prisma.module.findMany({
         where: {
           courseId: id,
+          // Hide archived modules from the admin list — consistent with
+          // getAllSections / getAllAssignQuizzes. When admin "deletes" a
+          // module that is referenced by a published version, we archive
+          // instead of hard-delete; the delete response now carries
+          // outcome/stillServedTo so the FE can explain what happened.
+          // The archived row remains discoverable via the dedicated
+          // /courses/:courseId/archived endpoint (to be built) and remains
+          // the content source for pinned learners.
+          isArchived: false,
         },
         include: {
           _count: {
             select: {
-              chapters: true,
+              // Also only count non-archived chapters so badges match the
+              // getAllChapters list, which filters isArchived: false too.
+              chapters: { where: { isArchived: false } },
             },
           },
-          // chapters: {
-
-          // },
         },
         orderBy: {
           createdAt: 'asc',
@@ -2205,9 +2596,11 @@ export class CourseService {
         // limit: 10,
         // offset: 10,
       });
-      if (!(modules.length > 0)) {
-        throw new Error('No Modules found');
-      }
+      // Empty is a legitimate outcome, not a 403 condition — a course may
+      // have no modules yet, or every module may have been archived (which is
+      // now newly reachable since the isArchived filter above hides archived
+      // rows). Matches getAllChapters / getAllSections, which both return an
+      // empty array. Preserves the prior contract shape.
       return {
         message: 'Successfully fetch all Modules info against course',
         statusCode: 200,
@@ -2313,6 +2706,14 @@ export class CourseService {
         };
       }
 
+      // Live (unpinned) branch. Filters below must mirror
+      // countCompletionDenominator's live path (isArchived:false everywhere,
+      // isActive:true on sections) so the module/chapter ratios shown here
+      // agree with the completion gate. Prior to these filters, archived
+      // sections/chapters/modules — which now routinely exist because
+      // "delete" archives when referenced by a version — inflated the
+      // denominators and produced <100% here while the gate considered the
+      // learner done.
       const [courses]: any = await Promise.all([
         this.prisma.course.findFirst({
           where: { id },
@@ -2320,20 +2721,40 @@ export class CourseService {
             id: true,
             title: true,
             modules: {
+              where: { isArchived: false },
               select: {
                 id: true,
                 title: true,
                 chapters: {
+                  where: { isArchived: false },
                   select: {
                     id: true,
                     title: true,
+                    // Numerator (UserCourseProgress) is scoped by Section
+                    // so it matches the denominator's isArchived:false /
+                    // isActive:true filter. The FE's calculateProgress does
+                    // (completed * 100) / total with no clamp
+                    // (docs/frontend-progress-display-guide.md §4.3 line
+                    // 106), so a numerator counting progress on
+                    // now-archived sections could produce >100% chapter
+                    // rings. UserCourseProgress rows survive a section
+                    // archive (only cascade on hard delete), which is why
+                    // this filter is required.
                     _count: {
                       select: {
                         UserCourseProgress: {
-                          where: { userId },
+                          where: {
+                            userId,
+                            Section: {
+                              isArchived: false,
+                              isActive: true,
+                            },
+                          },
                         },
-                        sections: true,
-                        quizzes: true,
+                        sections: {
+                          where: { isArchived: false, isActive: true },
+                        },
+                        quizzes: { where: { isArchived: false } },
                       },
                     },
                     QuizProgress: {
@@ -2344,12 +2765,24 @@ export class CourseService {
                     createdAt: 'asc',
                   },
                 },
+                // Same numerator/denominator alignment at module level: the
+                // module ring in CourseContent.tsx uses the same
+                // calculateProgress(_count.UserCourseProgress,
+                // _count.sections) helper.
                 _count: {
                   select: {
                     UserCourseProgress: {
-                      where: { userId },
+                      where: {
+                        userId,
+                        Section: {
+                          isArchived: false,
+                          isActive: true,
+                        },
+                      },
                     },
-                    sections: true,
+                    sections: {
+                      where: { isArchived: false, isActive: true },
+                    },
                   },
                 },
               },
@@ -2401,6 +2834,14 @@ export class CourseService {
       const chapters = await this.prisma.chapter.findMany({
         where: {
           moduleId: id,
+          // Hide archived chapters from the admin list — consistent with
+          // getAllSections / getAllAssignQuizzes / getAllModules. Prior to
+          // this filter, archiving a chapter left it in the list with no
+          // visible flag; the admin thought their delete had silently
+          // failed. Archived chapters remain the content source for pinned
+          // learners and will be surfaced via the /archived inventory
+          // endpoint.
+          isArchived: false,
         },
         include: {
           _count: {
@@ -3145,12 +3586,13 @@ export class CourseService {
         throw new Error('Module not found');
       }
 
-      const referenced =
-        await this.courseVersionService.isReferencedByAnyVersion(
+      const references =
+        await this.courseVersionService.getReferencingVersionsWithEnrollments(
           'module',
           id,
           mod.courseId,
         );
+      const referenced = references.versions.length > 0;
       if (referenced) {
         const archived = await this.prisma.module.update({
           where: { id },
@@ -3161,11 +3603,26 @@ export class CourseService {
           adminId,
           `Archived module "${mod.title}"`,
         );
+        await this.writeArchiveAudit({
+          adminId,
+          entity: 'Module',
+          targetId: id,
+          courseId: mod.courseId,
+          title: mod.title,
+          stillServedTo: references.stillServedTo,
+          versions: references.versions,
+        });
         return {
-          message:
-            'Module is part of a published course version and was archived instead of deleted',
+          message: this.buildArchiveMessage(
+            'Module',
+            references.stillServedTo,
+            references.versions,
+          ),
           statusCode: 200,
           data: archived,
+          outcome: 'archived',
+          stillServedTo: references.stillServedTo,
+          versionsReferencing: references.versions,
           publishedVersion: publishedVersion ?? undefined,
         };
       }
@@ -3186,6 +3643,8 @@ export class CourseService {
           : 'Successfully deleted module record',
         statusCode: 200,
         data: mod,
+        outcome: 'deleted',
+        stillServedTo: 0,
         publishedVersion: publishedVersion ?? undefined,
       };
     } catch (error) {
@@ -3229,12 +3688,13 @@ export class CourseService {
 
       const courseId = await this.resolveCourseIdFromModuleId(chapter.moduleId);
 
-      const referenced =
-        await this.courseVersionService.isReferencedByAnyVersion(
+      const references =
+        await this.courseVersionService.getReferencingVersionsWithEnrollments(
           'chapter',
           id,
           courseId,
         );
+      const referenced = references.versions.length > 0;
       if (referenced) {
         const archived = await this.prisma.chapter.update({
           where: { id },
@@ -3245,11 +3705,26 @@ export class CourseService {
           adminId,
           `Archived chapter "${chapter.title}"`,
         );
+        await this.writeArchiveAudit({
+          adminId,
+          entity: 'Chapter',
+          targetId: id,
+          courseId,
+          title: chapter.title,
+          stillServedTo: references.stillServedTo,
+          versions: references.versions,
+        });
         return {
-          message:
-            'Chapter is part of a published course version and was archived instead of deleted',
+          message: this.buildArchiveMessage(
+            'Chapter',
+            references.stillServedTo,
+            references.versions,
+          ),
           statusCode: 200,
           data: archived,
+          outcome: 'archived',
+          stillServedTo: references.stillServedTo,
+          versionsReferencing: references.versions,
           publishedVersion: publishedVersion ?? undefined,
         };
       }
@@ -3270,6 +3745,8 @@ export class CourseService {
           : 'Successfully deleted chapter record',
         statusCode: 200,
         data: chapter,
+        outcome: 'deleted',
+        stillServedTo: 0,
         publishedVersion: publishedVersion ?? undefined,
       };
     } catch (error) {
@@ -3369,12 +3846,13 @@ export class CourseService {
         };
       }
 
-      const referenced =
-        await this.courseVersionService.isReferencedByAnyVersion(
+      const references =
+        await this.courseVersionService.getReferencingVersionsWithEnrollments(
           'section',
           id,
           courseId,
         );
+      const referenced = references.versions.length > 0;
       if (referenced) {
         const archived = await this.prisma.section.update({
           where: { id },
@@ -3385,11 +3863,26 @@ export class CourseService {
           adminId,
           `Archived section "${section.title}"`,
         );
+        await this.writeArchiveAudit({
+          adminId,
+          entity: 'Section',
+          targetId: id,
+          courseId,
+          title: section.title,
+          stillServedTo: references.stillServedTo,
+          versions: references.versions,
+        });
         return {
-          message:
-            'Section is part of a published course version and was archived instead of deleted',
+          message: this.buildArchiveMessage(
+            'Section',
+            references.stillServedTo,
+            references.versions,
+          ),
           statusCode: 200,
           data: archived,
+          outcome: 'archived',
+          stillServedTo: references.stillServedTo,
+          versionsReferencing: references.versions,
           publishedVersion: publishedVersion ?? undefined,
         };
       }
@@ -3410,6 +3903,8 @@ export class CourseService {
           : 'Successfully deleted section record',
         statusCode: 200,
         data: section,
+        outcome: 'deleted',
+        stillServedTo: 0,
         publishedVersion: publishedVersion ?? undefined,
       };
     } catch (error) {
@@ -3657,7 +4152,11 @@ export class CourseService {
       );
     }
   }
-  async unAssignCourse(userId: string, courseId: string): Promise<ResponseDto> {
+  async unAssignCourse(
+    userId: string,
+    courseId: string,
+    options?: { force?: boolean; adminId?: string },
+  ): Promise<ResponseDto> {
     try {
       // Check if the user exists
       const user = await this.prisma.user.findUnique({
@@ -3683,19 +4182,104 @@ export class CourseService {
         throw new Error('User is not assigned to this course');
       }
 
-      // Remove the relation from the UserCourse table
-      await this.prisma.userCourse.delete({
-        where: {
-          id: userCourse.id,
+      // ── Unassign/Reassign loophole guard ──────────────────────────────────
+      // Multiple learner-state tables are keyed by (userId, courseId, …) or
+      // (userId, chapterId, …) or (userId, assessmentId, …) with NO FK to
+      // UserCourse. Prior to this guard, deleting the UserCourse row left all
+      // that state orphaned; a follow-up assignCourse then created a fresh
+      // UserCourse (null pin) and, on activation, pinned the learner to the
+      // current LATEST version — silently re-attaching the old progress,
+      // completion, quiz-answer, and assessment-attempt rows to a potentially
+      // larger denominator. The learner's % could drop (100% → 92%) and a
+      // certified completer could quietly move off their frozen pin.
+      //
+      // The detection MUST enumerate the same 13 tables that
+      // resetUserCourseProgress deletes — otherwise a learner who did chapter
+      // quizzes / signed a policy / sat the assessment but has zero section
+      // progress passes as "clean" and the loophole survives narrower.
+      const residual = await this.probeUserCourseResidualState(
+        userId,
+        courseId,
+      );
+
+      if (residual.hasAny && !options?.force) {
+        throw new HttpException(
+          {
+            status: HttpStatus.CONFLICT,
+            error:
+              'Refusing to unassign: learner has progress or completion data. ' +
+              'Deleting the enrollment now would leave orphaned state that ' +
+              'silently re-attaches on re-assignment (progress % may drop, ' +
+              'completion may be re-pinned to a newer version). ' +
+              'Re-send with { force: true } to wipe all learner state for ' +
+              'this course, or use POST /courses/enrollments/migrate-version ' +
+              'to move the learner between versions without touching progress.',
+            details: residual.counts,
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      // Force path (or clean unassign): delete UserCourse and ALL residual
+      // learner state atomically so the next assignCourse cannot resurrect it.
+      // Uses the same enumeration as resetUserCourseProgress via the shared
+      // wipeUserCourseState helper so the two paths can't drift.
+      //
+      // Timeout matters here: the wipe does ~13 sequential deleteMany calls
+      // plus the UserCourse delete. Prisma's default interactive-transaction
+      // budget is 5s; on Neon with cold starts and connection_limit=1 that
+      // is tight and would surface as "Transaction already closed" rolling
+      // the whole wipe back — the same failure mode publishNewVersion
+      // already documents.
+      const wiped = await this.prisma.$transaction(
+        async (tx) => {
+          const counts = await this.wipeUserCourseState(tx, userId, courseId, {
+            // Unassign removes the enrollment entirely, so time-spent should
+            // go too — resetUserCourseProgress preserves totalSeconds
+            // intentionally (it's a "reset progress" not "erase enrollment").
+            deleteSectionTimeSpent: true,
+            // Forward the ids we already resolved in the probe so we don't
+            // re-run the same two findMany inside the interactive tx.
+            chapterIds: residual.chapterIds,
+            assessmentIds: residual.assessmentIds,
+          });
+          await tx.userCourse.delete({ where: { id: userCourse.id } });
+          return counts;
         },
-      });
+        { timeout: 15000, maxWait: 5000 },
+      );
+
+      // Audit trail — write for every force-wipe (not just "hadResidualState")
+      // so a clean unassign of a learner who just happened to have completed
+      // one attempt still leaves a row. Use the shared writeAudit helper so
+      // the actor's email is denormalised and the write is best-effort.
+      if (options?.adminId && (residual.hasAny || options.force)) {
+        await this.courseVersionService.writeAudit({
+          adminId: options.adminId,
+          action: residual.hasAny ? 'UNASSIGN_COURSE_FORCE' : 'UNASSIGN_COURSE',
+          targetType: 'UserCourse',
+          targetId: userCourse.id,
+          courseId,
+          userId,
+          metadata: {
+            ...residual.counts,
+            wiped,
+            priorEnrolledVersionId: userCourse.enrolledVersionId,
+          },
+        });
+      }
 
       return {
-        message: 'Successfully unassigned course from user',
+        message: residual.hasAny
+          ? 'Successfully unassigned course and wiped all learner state (force)'
+          : 'Successfully unassigned course from user',
         statusCode: 200,
-        data: {},
+        data: {
+          wiped: residual.hasAny ? wiped : undefined,
+        },
       };
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         {
           status: HttpStatus.FORBIDDEN,
@@ -3762,8 +4346,9 @@ export class CourseService {
       });
 
       return {
-        message: `Successfully ${isActive ? 'activated' : 'deactivated'
-          } course status for user`,
+        message: `Successfully ${
+          isActive ? 'activated' : 'deactivated'
+        } course status for user`,
         statusCode: 200,
         data: {
           userId,
@@ -3821,8 +4406,9 @@ export class CourseService {
       });
 
       return {
-        message: `Successfully ${isPaid ? 'activated' : 'deactivated'
-          } course payment status for user`,
+        message: `Successfully ${
+          isPaid ? 'activated' : 'deactivated'
+        } course payment status for user`,
         statusCode: 200,
         data: {
           userId,
@@ -3836,7 +4422,8 @@ export class CourseService {
           status: HttpStatus.FORBIDDEN,
           error:
             error?.message ||
-            `Failed to ${isPaid ? 'activate' : 'deactivate'
+            `Failed to ${
+              isPaid ? 'activate' : 'deactivate'
             } course payment status`,
         },
         HttpStatus.FORBIDDEN,
@@ -3879,16 +4466,53 @@ export class CourseService {
                   },
                 },
               },
+              // Live denominator source for UNPINNED learners (the pinned
+              // path uses versionSectionCounts from CourseVersion.sectionCount
+              // and skips this entirely). It must match countCompletionDenominator's
+              // live path — isArchived:false + isActive:true at every level —
+              // otherwise the list card can show 87% while the completion
+              // gate treats the learner as done. Now that "delete" archives
+              // instead of hard-deleting when a version references the row,
+              // archived sections routinely exist in the tree and this
+              // divergence would fire on almost every course that has ever
+              // been edited.
               modules: {
+                where: { isArchived: false },
                 select: {
                   chapters: {
+                    where: { isArchived: false },
                     select: {
-                      _count: { select: { sections: true } },
+                      _count: {
+                        select: {
+                          sections: {
+                            where: { isArchived: false, isActive: true },
+                          },
+                        },
+                      },
                     },
                   },
                 },
               },
-              _count: { select: { UserCourseProgress: { where: { userId } } } },
+              // Filter the numerator to match the denominator above
+              // (modules → chapters → sections filter isArchived:false,
+              // isActive:true). Prior to this filter, an unpinned learner
+              // with progress on a now-archived section would push
+              // percentage past 100 (userCourseProgressCount / sectionsCount
+              // with mismatched filters). The FE's calculateProgress helper
+              // does not clamp — see docs/frontend-progress-display-guide.md
+              // §4.2 line 106 — so the ratio must be pre-clamped here.
+              // UserCourseProgress cascades on section hard-delete but
+              // survives archive; this filter is the reason.
+              _count: {
+                select: {
+                  UserCourseProgress: {
+                    where: {
+                      userId,
+                      Section: { isArchived: false, isActive: true },
+                    },
+                  },
+                },
+              },
               feedbackForm: {
                 select: { isRequired: true, isActive: true },
               },
@@ -4021,8 +4645,7 @@ export class CourseService {
         };
 
         const sectionsCount =
-          enrolledVersionId &&
-          versionSectionCounts.has(enrolledVersionId)
+          enrolledVersionId && versionSectionCounts.has(enrolledVersionId)
             ? versionSectionCounts.get(enrolledVersionId)!
             : course.modules
                 ?.flatMap((module) => module.chapters)
@@ -4067,9 +4690,9 @@ export class CourseService {
           completedAt: completedAt ?? null,
           feedbackForm: course.feedbackForm
             ? {
-              isRequired: course.feedbackForm.isRequired,
-              isCompleted: feedbackSubmittedIds.has(course.id),
-            }
+                isRequired: course.feedbackForm.isRequired,
+                isCompleted: feedbackSubmittedIds.has(course.id),
+              }
             : null,
           percentage: isFrozen
             ? 100
@@ -4094,15 +4717,15 @@ export class CourseService {
           canAccessContent,
           latestLastSeenSection: latestLastSeenSection
             ? {
-              id: latestLastSeenSection.id,
-              userId: latestLastSeenSection.userId,
-              chapterId: latestLastSeenSection.chapterId,
-              moduleId: latestLastSeenSection.moduleId,
-              sectionId: latestLastSeenSection.sectionId,
-              createdAt: latestLastSeenSection.createdAt,
-              updatedAt: latestLastSeenSection.updatedAt,
-              title: latestLastSeenSection.section.title,
-            }
+                id: latestLastSeenSection.id,
+                userId: latestLastSeenSection.userId,
+                chapterId: latestLastSeenSection.chapterId,
+                moduleId: latestLastSeenSection.moduleId,
+                sectionId: latestLastSeenSection.sectionId,
+                createdAt: latestLastSeenSection.createdAt,
+                updatedAt: latestLastSeenSection.updatedAt,
+                title: latestLastSeenSection.section.title,
+              }
             : null,
         };
       });
@@ -4193,18 +4816,31 @@ export class CourseService {
         userEmail,
       );
 
-      // Get total modules in the course
+      // Existence check for the course. Previously this fetched the course
+      // with `include: { modules: true }` — every Module row for the course
+      // — but nothing in this method reads `course.modules`. The comment
+      // "Get total modules in the course" was a leftover from an older
+      // module-rollup path that no longer lives here. This runs on the
+      // hottest write path in the app (every section completion), so on a
+      // course with 12 modules that was 12 dead Module rows per completion,
+      // per user, forever.
       const course = await this.prisma.course.findUnique({
         where: { id: body.courseId },
-        include: { modules: true },
+        select: { id: true },
       });
       if (!course) {
         throw new Error('Course not found');
       }
 
-      // Get completed modules by the user
+      // Existence check for the user. `assertChapterAccessible` above
+      // already validates the JWT-derived userId against gating rules, so
+      // this is just a defensive "was the user hard-deleted between token
+      // issue and this call?" probe. Kept as `select: { id: true }` for the
+      // same reason we trimmed the course load — the previous full-row
+      // fetch was ~12 wasted columns per call.
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
+        select: { id: true },
       });
 
       if (!user) {
@@ -4315,8 +4951,9 @@ export class CourseService {
         expiresAt.setDate(expiresAt.getDate() + validityDays);
         if (new Date() > expiresAt) {
           throw new ForbiddenException({
-            detail: `Your access to this course expired on ${expiresAt.toISOString().split('T')[0]
-              }. Please contact your administrator to renew access.`,
+            detail: `Your access to this course expired on ${
+              expiresAt.toISOString().split('T')[0]
+            }. Please contact your administrator to renew access.`,
           });
         }
       }
@@ -4729,95 +5366,40 @@ export class CourseService {
         throw new BadRequestException('Course not found');
       }
 
-      const chapters = await this.prisma.chapter.findMany({
-        where: { module: { courseId } },
-        select: { id: true },
-      });
-      const chapterIds = chapters.map((c) => c.id);
+      // Uses the shared wipeUserCourseState helper so this admin reset and the
+      // unassign force-wipe path can't drift. Passes deleteSectionTimeSpent
+      // false to preserve totalSeconds — resetting progress isn't the same as
+      // erasing the enrollment.
+      //
+      // Timeout bump for the same reason unAssignCourse sets one: the wipe
+      // does 2 findMany + 13 sequential mutations; 5s default is not enough
+      // on Neon during cold starts.
+      const wiped = await this.prisma.$transaction(
+        (tx) =>
+          this.wipeUserCourseState(tx, userId, courseId, {
+            deleteSectionTimeSpent: false,
+          }),
+        { timeout: 15000, maxWait: 5000 },
+      );
 
-      const assessmentIds = (
-        await this.prisma.assessment.findMany({
-          where: { courseId },
-          select: { id: true },
-        })
-      ).map((a) => a.id);
-
-      const deleted = await this.prisma.$transaction(async (tx) => {
-        const sectionProgress = await tx.userCourseProgress.deleteMany({
-          where: { userId, courseId },
-        });
-        const lastSeen = await tx.lastSeenSection.deleteMany({
-          where: { userId, courseId },
-        });
-        const quizProgress =
-          chapterIds.length > 0
-            ? await tx.quizProgress.deleteMany({
-              where: { userId, chapterId: { in: chapterIds } },
-            })
-            : { count: 0 };
-        const quizAnswers =
-          chapterIds.length > 0
-            ? await tx.quizAnswer.deleteMany({
-              where: { userId, chapterId: { in: chapterIds } },
-            })
-            : { count: 0 };
-        const formCompletions = await tx.userFormCompletion.deleteMany({
-          where: { userId, courseId },
-        });
-        const policyCompletions = await tx.userPolicyCompletion.deleteMany({
-          where: { userId, courseId },
-        });
-        const policyItemCompletions =
-          await tx.userPolicyItemCompletion.deleteMany({
-            where: {
-              userId,
-              item: { policy: { courseId } },
-            },
-          });
-        const feedbackSubmissions =
-          await tx.courseFeedbackSubmission.deleteMany({
-            where: { userId, courseId },
-          });
-        const courseCompletions = await tx.courseCompletion.deleteMany({
-          where: { userId, courseId },
-        });
-        const chapterCompletions = await tx.userChapterCompletion.deleteMany({
-          where: { userId, courseId },
-        });
-        const moduleCompletions = await tx.userModuleCompletion.deleteMany({
-          where: { userId, courseId },
-        });
-        const sectionAttemptsReset = await tx.sectionTimeSpent.updateMany({
-          where: { userId, courseId },
-          data: {
-            totalAttempts: 0,
-            firstAttemptAt: null,
-            lastAttemptAt: null,
-          },
-        });
-        const assessmentAttempts =
-          assessmentIds.length > 0
-            ? await tx.assessmentAttempt.deleteMany({
-              where: { userId, assessmentId: { in: assessmentIds } },
-            })
-            : { count: 0 };
-
-        return {
-          sectionProgress: sectionProgress.count,
-          lastSeen: lastSeen.count,
-          quizProgress: quizProgress.count,
-          quizAnswers: quizAnswers.count,
-          formCompletions: formCompletions.count,
-          policyCompletions: policyCompletions.count,
-          policyItemCompletions: policyItemCompletions.count,
-          feedbackSubmissions: feedbackSubmissions.count,
-          courseCompletions: courseCompletions.count,
-          chapterCompletions: chapterCompletions.count,
-          moduleCompletions: moduleCompletions.count,
-          sectionAttemptsReset: sectionAttemptsReset.count,
-          assessmentAttempts: assessmentAttempts.count,
-        };
-      });
+      // Preserve the historical response shape callers may depend on. The
+      // 'sectionAttemptsReset' field mirrors the counter-reset semantics for
+      // SectionTimeSpent that resetUserCourseProgress uses.
+      const deleted = {
+        sectionProgress: wiped.sectionProgress,
+        lastSeen: wiped.lastSeen,
+        quizProgress: wiped.quizProgress,
+        quizAnswers: wiped.quizAnswers,
+        formCompletions: wiped.formCompletions,
+        policyCompletions: wiped.policyCompletions,
+        policyItemCompletions: wiped.policyItemCompletions,
+        feedbackSubmissions: wiped.feedbackSubmissions,
+        courseCompletions: wiped.courseCompletions,
+        chapterCompletions: wiped.chapterCompletions,
+        moduleCompletions: wiped.moduleCompletions,
+        sectionAttemptsReset: wiped.sectionTimeSpent,
+        assessmentAttempts: wiped.assessmentAttempts,
+      };
 
       return {
         message: 'User course progress reset successfully',

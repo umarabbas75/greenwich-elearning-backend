@@ -7,8 +7,6 @@ const INTERACTIVE_SECTION_TYPES = new Set<SectionType>([
   SectionType.MATCHING,
 ]);
 
-export function isInteractiveSectionType(
-  type: SectionType | string,
-): boolean {
+export function isInteractiveSectionType(type: SectionType | string): boolean {
   return INTERACTIVE_SECTION_TYPES.has(type as SectionType);
 }

@@ -160,6 +160,14 @@ export interface ResponseDto {
         versionNumber: number;
         versionId: string;
     };
+    outcome?: 'deleted' | 'archived' | 'unassigned';
+    stillServedTo?: number;
+    versionsReferencing?: Array<{
+        versionId: string;
+        versionNumber: number;
+        status: string;
+        enrollmentCount: number;
+    }>;
 }
 export declare enum SectionType {
     DEFAULT = "DEFAULT",

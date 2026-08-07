@@ -18,6 +18,10 @@ export declare class CourseService {
     private autoPublishAfterStructureChange;
     private resolveCourseIdFromModuleId;
     private resolveCourseIdFromChapterId;
+    private probeUserCourseResidualState;
+    private wipeUserCourseState;
+    private buildArchiveMessage;
+    private writeArchiveAudit;
     private assertValidOrderingItems;
     private sanitizeLessonSectionForStudent;
     markFormComplete(userId: string, userRole: Role, courseId: string, formId: string, metadata: Record<string, unknown> | undefined, courseFormId: string): Promise<any>;
@@ -88,7 +92,10 @@ export declare class CourseService {
     deleteSection(id: string, adminId?: string): Promise<ResponseDto>;
     assignCourse(userId: string, courseId: string): Promise<ResponseDto>;
     assignCoursePublic(userId: string, courseId: string): Promise<ResponseDto>;
-    unAssignCourse(userId: string, courseId: string): Promise<ResponseDto>;
+    unAssignCourse(userId: string, courseId: string, options?: {
+        force?: boolean;
+        adminId?: string;
+    }): Promise<ResponseDto>;
     toggleCourseStatus(userId: string, courseId: string, isActive: boolean): Promise<ResponseDto>;
     toggleCoursePaymentStatus(userId: string, courseId: string, isPaid: boolean): Promise<ResponseDto>;
     getAllAssignedCourses(userId: string, role: string): Promise<any>;

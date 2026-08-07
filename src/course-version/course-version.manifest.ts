@@ -129,11 +129,12 @@ export function parseManifest(raw: unknown): CourseVersionManifest | null {
   return obj as CourseVersionManifest;
 }
 
-export function countSectionsInManifest(manifest: CourseVersionManifest): number {
+export function countSectionsInManifest(
+  manifest: CourseVersionManifest,
+): number {
   return manifest.modules.reduce(
     (sum, mod) =>
-      sum +
-      mod.chapters.reduce((chSum, ch) => chSum + ch.sectionIds.length, 0),
+      sum + mod.chapters.reduce((chSum, ch) => chSum + ch.sectionIds.length, 0),
     0,
   );
 }
@@ -273,12 +274,20 @@ export async function buildManifestFromLiveTree(
         include: {
           sections: {
             where: { isArchived: false, isActive: true },
-            orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+            orderBy: [
+              { orderIndex: 'asc' },
+              { createdAt: 'asc' },
+              { id: 'asc' },
+            ],
             select: { id: true },
           },
           quizzes: {
             where: { isArchived: false },
-            orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+            orderBy: [
+              { orderIndex: 'asc' },
+              { createdAt: 'asc' },
+              { id: 'asc' },
+            ],
             select: { id: true },
           },
         },
@@ -483,8 +492,7 @@ export async function publishManifestVersion(
       status: options.status ?? 'PUBLISHED',
       isLatest: options.isLatest ?? false,
       publishedAt:
-        options.publishedAt ??
-        (options.status === 'PUBLISHED' ? now : null),
+        options.publishedAt ?? (options.status === 'PUBLISHED' ? now : null),
       publishedByAdminId: options.publishedByAdminId ?? null,
       changeNotes: options.changeNotes ?? null,
       manifest: built.manifest as unknown as Prisma.InputJsonValue,
@@ -660,7 +668,9 @@ export async function loadPinnedCurriculum(
 const MANIFEST_CACHE_MAX = 64;
 const manifestCache = new Map<string, CourseVersionManifest>();
 
-function getCachedManifest(versionId: string): CourseVersionManifest | undefined {
+function getCachedManifest(
+  versionId: string,
+): CourseVersionManifest | undefined {
   const cached = manifestCache.get(versionId);
   if (cached) {
     // Refresh recency: move to newest position.
@@ -740,12 +750,16 @@ export function compareQuizDisplayOrder(
   b: { orderIndex: number | null; createdAt: Date; id: string },
 ): number {
   if (a.orderIndex === null && b.orderIndex === null) {
-    return a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
+    return (
+      a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id)
+    );
   }
   if (a.orderIndex === null) return 1;
   if (b.orderIndex === null) return -1;
   if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
-  return a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
+  return (
+    a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id)
+  );
 }
 
 /**

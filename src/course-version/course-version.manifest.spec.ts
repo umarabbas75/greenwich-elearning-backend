@@ -154,7 +154,12 @@ describe('course-version.manifest', () => {
           sourceId: 'mod-1',
           order: 0,
           chapters: [
-            { sourceId: 'ch-1', order: 0, sectionIds: ['sec-1'], quizIds: ['quiz-1'] },
+            {
+              sourceId: 'ch-1',
+              order: 0,
+              sectionIds: ['sec-1'],
+              quizIds: ['quiz-1'],
+            },
             { sourceId: 'ch-2', order: 1, sectionIds: ['sec-2'], quizIds: [] },
           ],
         },
@@ -167,7 +172,12 @@ describe('course-version.manifest', () => {
           order: 0,
           chapters: [
             { sourceId: 'ch-1', order: 0, sectionIds: ['sec-1'], quizIds: [] },
-            { sourceId: 'ch-2', order: 1, sectionIds: ['sec-2'], quizIds: ['quiz-1'] },
+            {
+              sourceId: 'ch-2',
+              order: 1,
+              sectionIds: ['sec-2'],
+              quizIds: ['quiz-1'],
+            },
           ],
         },
       ],
@@ -186,9 +196,7 @@ describe('course-version.manifest', () => {
 
   it('checks manifest membership for delete guard', () => {
     expect(isIdReferencedInManifest(manifestA, 'section', 'sec-1')).toBe(true);
-    expect(isIdReferencedInManifest(manifestA, 'section', 'sec-9')).toBe(
-      false,
-    );
+    expect(isIdReferencedInManifest(manifestA, 'section', 'sec-9')).toBe(false);
     expect(isIdReferencedInManifest(manifestA, 'quiz', 'quiz-1')).toBe(true);
     expect(isIdReferencedInManifest(manifestA, 'chapter', 'ch-1')).toBe(true);
     expect(isIdReferencedInManifest(manifestA, 'module', 'mod-1')).toBe(true);

@@ -11,7 +11,9 @@ export function studentCourseDetail(courseId: string): string {
 }
 
 export function studentCourseFeedback(courseId: string): string {
-  return `${BRAND.website}/studentCourses/${encodeURIComponent(courseId)}/feedback`;
+  return `${BRAND.website}/studentCourses/${encodeURIComponent(
+    courseId,
+  )}/feedback`;
 }
 
 export function forumThread(threadId: string): string {
@@ -31,7 +33,9 @@ export function studentAssignmentDetail(assignmentId: string): string {
 }
 
 export function adminAssignmentSubmissions(assignmentId: string): string {
-  return `${BRAND.website}/admin/assignments/${encodeURIComponent(assignmentId)}/submissions`;
+  return `${BRAND.website}/admin/assignments/${encodeURIComponent(
+    assignmentId,
+  )}/submissions`;
 }
 
 export function adminContactInbox(): string {

@@ -37,7 +37,10 @@ async function bootstrapApp(): Promise<void> {
   await app.init();
 }
 
-export default async function handler(req: express.Request, res: express.Response) {
+export default async function handler(
+  req: express.Request,
+  res: express.Response,
+) {
   if (!bootstrapPromise) {
     bootstrapPromise = bootstrapApp().catch((err) => {
       // Don't cache a failed bootstrap; let the next invocation retry.

@@ -7,7 +7,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, Quiz } from '@prisma/client';
-import { CheckQuiz, QuizDto, ResponseDto, UpdateChapterQuizOrderDto, UpdateQuizDto } from '../dto';
+import {
+  CheckQuiz,
+  QuizDto,
+  ResponseDto,
+  UpdateChapterQuizOrderDto,
+  UpdateQuizDto,
+} from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseVersionService } from '../course-version/course-version.service';
 import {
@@ -251,7 +257,11 @@ export class QuizService {
           include: {
             quizzes: {
               where: { isArchived: false },
-              orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+              orderBy: [
+                { orderIndex: 'asc' },
+                { createdAt: 'asc' },
+                { id: 'asc' },
+              ],
               select: {
                 id: true,
                 question: true,
@@ -265,9 +275,7 @@ export class QuizService {
       }
 
       const updatedUserQuizData = quizzes?.map((item) => {
-        const userAnswer = userAnswers.find(
-          (ua) => ua.quizId === item.id,
-        );
+        const userAnswer = userAnswers.find((ua) => ua.quizId === item.id);
         return {
           ...item,
           userAnswered: userAnswer?.answer ? true : false,
@@ -628,12 +636,11 @@ export class QuizService {
         data: { chapterId, isArchived: false, orderIndex },
       });
 
-      const publishedVersion =
-        await this.autoPublishAfterQuizChange(
-          chapter.module.courseId,
-          adminId,
-          `Assigned quiz to chapter "${chapter.title}"`,
-        );
+      const publishedVersion = await this.autoPublishAfterQuizChange(
+        chapter.module.courseId,
+        adminId,
+        `Assigned quiz to chapter "${chapter.title}"`,
+      );
 
       return {
         message: publishedVersion
@@ -677,24 +684,57 @@ export class QuizService {
         throw new Error('chapter not exist');
       }
 
-      const referenced =
-        await this.courseVersionService.isReferencedByAnyVersion('quiz', quizId);
+      const references =
+        await this.courseVersionService.getReferencingVersionsWithEnrollments(
+          'quiz',
+          quizId,
+          chapter.module.courseId,
+        );
+      const referenced = references.versions.length > 0;
       if (referenced) {
         await this.prisma.quiz.update({
           where: { id: quizId },
           data: { isArchived: true, chapterId: null },
         });
-        const publishedVersion =
-          await this.autoPublishAfterQuizChange(
-            chapter.module.courseId,
+        const publishedVersion = await this.autoPublishAfterQuizChange(
+          chapter.module.courseId,
+          adminId,
+          `Archived quiz from chapter "${chapter.title}"`,
+        );
+        // Archive is high-consequence: a quiz that "disappeared" from the
+        // admin list is still being served to every learner pinned to a
+        // referencing version. Log who did it — best-effort via writeAudit.
+        if (adminId) {
+          await this.courseVersionService.writeAudit({
             adminId,
-            `Archived quiz from chapter "${chapter.title}"`,
-          );
+            action: 'ARCHIVE_QUIZ',
+            targetType: 'Quiz',
+            targetId: quizId,
+            courseId: chapter.module.courseId,
+            metadata: {
+              via: 'unAssignQuiz',
+              chapterId,
+              chapterTitle: chapter.title,
+              stillServedTo: references.stillServedTo,
+              versions: references.versions.map((v) => ({
+                versionNumber: v.versionNumber,
+                status: v.status,
+                enrollmentCount: v.enrollmentCount,
+              })),
+            },
+          });
+        }
         return {
-          message:
-            'Quiz is part of a published course version and was archived instead of unassigned',
+          message: this.courseVersionService.buildArchiveMessage(
+            'Quiz',
+            references.stillServedTo,
+            references.versions,
+          ),
           statusCode: 200,
           data: {},
+          outcome: 'archived',
+          stillServedTo: references.stillServedTo,
+          versionsReferencing: references.versions,
           publishedVersion: publishedVersion ?? undefined,
         };
       }
@@ -709,12 +749,11 @@ export class QuizService {
         },
       });
 
-      const publishedVersion =
-        await this.autoPublishAfterQuizChange(
-          chapter.module.courseId,
-          adminId,
-          `Unassigned quiz from chapter "${chapter.title}"`,
-        );
+      const publishedVersion = await this.autoPublishAfterQuizChange(
+        chapter.module.courseId,
+        adminId,
+        `Unassigned quiz from chapter "${chapter.title}"`,
+      );
 
       return {
         message: publishedVersion
@@ -722,6 +761,12 @@ export class QuizService {
           : 'Successfully unassigned quiz to module',
         statusCode: 200,
         data: {},
+        // Not 'deleted' — the quiz row survives in the bank and can be
+        // re-assigned to another chapter via assignQuiz. Rendering "deleted"
+        // for a reversible detach was the exact confusion `outcome` exists
+        // to prevent.
+        outcome: 'unassigned',
+        stillServedTo: 0,
         publishedVersion: publishedVersion ?? undefined,
       };
     } catch (error) {
@@ -790,12 +835,13 @@ export class QuizService {
 
       const courseId = quiz.chapter?.module?.courseId ?? null;
 
-      const referenced =
-        await this.courseVersionService.isReferencedByAnyVersion(
+      const references =
+        await this.courseVersionService.getReferencingVersionsWithEnrollments(
           'quiz',
           id,
           courseId ?? undefined,
         );
+      const referenced = references.versions.length > 0;
       if (referenced) {
         const archived = await this.prisma.quiz.update({
           where: { id },
@@ -808,11 +854,35 @@ export class QuizService {
               'Archived quiz',
             )
           : null;
+        if (adminId && courseId) {
+          await this.courseVersionService.writeAudit({
+            adminId,
+            action: 'ARCHIVE_QUIZ',
+            targetType: 'Quiz',
+            targetId: id,
+            courseId,
+            metadata: {
+              via: 'deleteQuiz',
+              stillServedTo: references.stillServedTo,
+              versions: references.versions.map((v) => ({
+                versionNumber: v.versionNumber,
+                status: v.status,
+                enrollmentCount: v.enrollmentCount,
+              })),
+            },
+          });
+        }
         return {
-          message:
-            'Quiz is part of a published course version and was archived instead of deleted',
+          message: this.courseVersionService.buildArchiveMessage(
+            'Quiz',
+            references.stillServedTo,
+            references.versions,
+          ),
           statusCode: 200,
           data: archived,
+          outcome: 'archived',
+          stillServedTo: references.stillServedTo,
+          versionsReferencing: references.versions,
           publishedVersion: publishedVersion ?? undefined,
         };
       }
@@ -835,6 +905,8 @@ export class QuizService {
           : 'Successfully deleted quiz record',
         statusCode: 200,
         data: {},
+        outcome: 'deleted',
+        stillServedTo: 0,
         publishedVersion: publishedVersion ?? undefined,
       };
     } catch (error) {

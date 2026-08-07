@@ -13,8 +13,7 @@ function assertNoInlineBase64(value, field = 'description') {
     }
     const bytes = Buffer.byteLength(value, 'utf8');
     if (bytes > MAX_HTML_BYTES) {
-        throw new common_1.BadRequestException(`${field} is ${(bytes / 1024).toFixed(0)}kB, above the ${MAX_HTML_BYTES / 1024}kB limit. ` +
-            `Move large embedded assets to file uploads.`);
+        throw new common_1.BadRequestException(`${field} is ${(bytes / 1024).toFixed(0)}kB, above the ${MAX_HTML_BYTES / 1024}kB limit. ` + `Move large embedded assets to file uploads.`);
     }
 }
 exports.assertNoInlineBase64 = assertNoInlineBase64;

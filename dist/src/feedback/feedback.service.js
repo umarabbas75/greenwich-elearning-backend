@@ -449,9 +449,7 @@ let FeedbackService = FeedbackService_1 = class FeedbackService {
             courseTitle: typeof formData.courseTitle === 'string' && formData.courseTitle.trim()
                 ? formData.courseTitle.trim()
                 : row.course.title,
-            trainerName: typeof formData.trainerName === 'string'
-                ? formData.trainerName
-                : null,
+            trainerName: typeof formData.trainerName === 'string' ? formData.trainerName : null,
             location: typeof formData.location === 'string' ? formData.location : null,
             overallRating: row.overallRating,
             meanRating: row.meanRating != null ? Number(row.meanRating) : null,
@@ -474,9 +472,7 @@ let FeedbackService = FeedbackService_1 = class FeedbackService {
             courseTitle: typeof formData.courseTitle === 'string'
                 ? formData.courseTitle
                 : courseTitle,
-            trainerName: typeof formData.trainerName === 'string'
-                ? formData.trainerName
-                : null,
+            trainerName: typeof formData.trainerName === 'string' ? formData.trainerName : null,
             location: typeof formData.location === 'string' ? formData.location : null,
             overallRating: row.overallRating,
             meanRating: row.meanRating != null

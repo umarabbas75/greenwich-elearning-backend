@@ -263,7 +263,6 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         };
     }
     async archiveVersion(adminId, courseId, versionId) {
-        void adminId;
         const version = await this.prisma.courseVersion.findFirst({
             where: { id: versionId, courseId },
             include: {
@@ -283,6 +282,17 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             where: { id: versionId },
             data: { status: 'ARCHIVED' },
         });
+        await this.writeAudit({
+            adminId,
+            action: 'ARCHIVE_VERSION',
+            targetType: 'CourseVersion',
+            targetId: versionId,
+            courseId,
+            metadata: {
+                versionNumber: version.versionNumber,
+                priorStatus: version.status,
+            },
+        });
         return {
             message: `Version ${version.versionNumber} archived`,
             statusCode: 200,
@@ -290,7 +300,6 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         };
     }
     async migrateLearnerToVersion(adminId, userCourseId, targetVersionId) {
-        void adminId;
         const uc = await this.prisma.userCourse.findUnique({
             where: { id: userCourseId },
         });
@@ -307,9 +316,29 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         if (!target) {
             throw new common_1.NotFoundException('Target version not found or not published');
         }
+        const priorVersion = uc.enrolledVersionId
+            ? await this.prisma.courseVersion.findUnique({
+                where: { id: uc.enrolledVersionId },
+                select: { id: true, versionNumber: true },
+            })
+            : null;
         await this.prisma.userCourse.update({
             where: { id: userCourseId },
             data: { enrolledVersionId: target.id },
+        });
+        await this.writeAudit({
+            adminId,
+            action: 'MIGRATE_LEARNER_VERSION',
+            targetType: 'UserCourse',
+            targetId: userCourseId,
+            courseId: uc.courseId,
+            userId: uc.userId,
+            metadata: {
+                fromVersionId: priorVersion?.id ?? null,
+                fromVersionNumber: priorVersion?.versionNumber ?? null,
+                toVersionId: target.id,
+                toVersionNumber: target.versionNumber,
+            },
         });
         return {
             message: `Enrollment pinned to version ${target.versionNumber}`,
@@ -320,6 +349,29 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 versionNumber: target.versionNumber,
             },
         };
+    }
+    async writeAudit(entry) {
+        try {
+            const actor = await this.prisma.user.findUnique({
+                where: { id: entry.adminId },
+                select: { email: true },
+            });
+            await this.prisma.adminAuditLog.create({
+                data: {
+                    adminId: entry.adminId,
+                    adminEmail: actor?.email ?? null,
+                    action: entry.action,
+                    targetType: entry.targetType,
+                    targetId: entry.targetId ?? null,
+                    courseId: entry.courseId ?? null,
+                    userId: entry.userId ?? null,
+                    metadata: entry.metadata ?? undefined,
+                },
+            });
+        }
+        catch (err) {
+            this.logger.warn(`AdminAuditLog write failed (${entry.action}): ${err instanceof Error ? err.message : String(err)}`);
+        }
     }
     async countCompletionDenominator(userId, courseId) {
         const liveDenominator = async () => {
@@ -454,6 +506,46 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             }
         }
         return false;
+    }
+    buildArchiveMessage(entity, stillServedTo, versions) {
+        if (stillServedTo === 0) {
+            return `Archived — ${entity.toLowerCase()} hidden from new users. No active enrollments are currently pinned to a version that still references it.`;
+        }
+        const versionList = versions.map((v) => `v${v.versionNumber}`).join(', ');
+        const userWord = stillServedTo === 1 ? 'user' : 'users';
+        return `Archived — hidden from new users, but still shown to ${stillServedTo} active ${userWord} pinned to ${versionList}. Use POST /courses/enrollments/migrate-version to move learners forward.`;
+    }
+    async getReferencingVersionsWithEnrollments(table, sourceId, courseId) {
+        const versions = await this.prisma.courseVersion.findMany({
+            where: courseId ? { courseId } : undefined,
+            select: {
+                id: true,
+                versionNumber: true,
+                status: true,
+                manifest: true,
+                _count: {
+                    select: { enrollments: { where: { isActive: true } } },
+                },
+            },
+        });
+        const referencing = [];
+        let stillServedTo = 0;
+        for (const v of versions) {
+            const manifest = (0, course_version_manifest_1.parseManifest)(v.manifest);
+            if (!manifest)
+                continue;
+            if (!(0, course_version_manifest_1.isIdReferencedInManifest)(manifest, table, sourceId))
+                continue;
+            referencing.push({
+                versionId: v.id,
+                versionNumber: v.versionNumber,
+                status: v.status,
+                enrollmentCount: v._count.enrollments,
+            });
+            stillServedTo += v._count.enrollments;
+        }
+        referencing.sort((a, b) => b.versionNumber - a.versionNumber);
+        return { stillServedTo, versions: referencing };
     }
     async pruneOrphanVersions(courseId) {
         const versions = await this.prisma.courseVersion.findMany({

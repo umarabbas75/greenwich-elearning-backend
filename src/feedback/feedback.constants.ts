@@ -51,7 +51,10 @@ export function feedbackDedupeKey(
   return `feedback:${courseId}:${userId}:${bucket}`;
 }
 
-export function feedbackReminderBucket(now: Date, cooldownDays: number): number {
+export function feedbackReminderBucket(
+  now: Date,
+  cooldownDays: number,
+): number {
   const msPerDay = 86_400_000;
   const epochDays = Math.floor(now.getTime() / msPerDay);
   return Math.floor(epochDays / Math.max(1, cooldownDays));
@@ -74,7 +77,9 @@ export function computeMeanLikertRating(
   return Math.round(mean * 100) / 100;
 }
 
-export function validateFeedbackFormData(formData: unknown): Record<string, unknown> {
+export function validateFeedbackFormData(
+  formData: unknown,
+): Record<string, unknown> {
   if (!formData || typeof formData !== 'object' || Array.isArray(formData)) {
     throw new Error('formData must be an object');
   }

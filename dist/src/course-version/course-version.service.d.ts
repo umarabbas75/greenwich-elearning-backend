@@ -129,6 +129,15 @@ export declare class CourseVersionService {
             versionNumber: number;
         };
     }>;
+    writeAudit(entry: {
+        adminId: string;
+        action: string;
+        targetType: string;
+        targetId?: string | null;
+        courseId?: string | null;
+        userId?: string | null;
+        metadata?: Record<string, unknown> | null;
+    }): Promise<void>;
     countCompletionDenominator(userId: string, courseId: string): Promise<{
         total: number;
         liveSectionIds: string[];
@@ -166,6 +175,18 @@ export declare class CourseVersionService {
         addedAt: Date | null;
     } | null>;
     isReferencedByAnyVersion(table: 'section' | 'chapter' | 'module' | 'quiz', sourceId: string, courseId?: string): Promise<boolean>;
+    buildArchiveMessage(entity: 'Module' | 'Chapter' | 'Section' | 'Quiz', stillServedTo: number, versions: Array<{
+        versionNumber: number;
+    }>): string;
+    getReferencingVersionsWithEnrollments(table: 'section' | 'chapter' | 'module' | 'quiz', sourceId: string, courseId?: string): Promise<{
+        stillServedTo: number;
+        versions: Array<{
+            versionId: string;
+            versionNumber: number;
+            status: string;
+            enrollmentCount: number;
+        }>;
+    }>;
     pruneOrphanVersions(courseId?: string): Promise<{
         message: string;
         statusCode: number;

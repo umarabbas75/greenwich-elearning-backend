@@ -121,12 +121,12 @@ function buildSectionReportRows(chapterId, sections, activity) {
             type: section.type,
             status: deriveSectionReportStatus({ completedAt, isLastSeen }),
             isLastSeen,
-            openedAt: isLastSeen ? (lastSeen?.createdAt ?? null) : null,
-            lastOpenedAt: isLastSeen ? (lastSeen?.updatedAt ?? null) : null,
+            openedAt: isLastSeen ? lastSeen?.createdAt ?? null : null,
+            lastOpenedAt: isLastSeen ? lastSeen?.updatedAt ?? null : null,
             completedAt,
             timeSpentSeconds: activity.timeSpentSecondsBySection.get(section.id) ?? 0,
             totalAttempts: (0, interactive_section_types_1.isInteractiveSectionType)(section.type)
-                ? (activity.totalAttemptsBySection.get(section.id) ?? 0)
+                ? activity.totalAttemptsBySection.get(section.id) ?? 0
                 : null,
         };
     });
@@ -171,9 +171,7 @@ function buildChapterReportRow(input) {
         hasOpened,
         completedAt: chapterCompletedAt,
     });
-    const enrichedQuiz = quizRow
-        ? (0, chapter_progression_1.enrichQuizProgressReport)(quizRow)
-        : null;
+    const enrichedQuiz = quizRow ? (0, chapter_progression_1.enrichQuizProgressReport)(quizRow) : null;
     const timeSpentSeconds = sections.reduce((sum, section) => sum + section.timeSpentSeconds, 0);
     const totalAttempts = sections.reduce((sum, section) => sum + (section.totalAttempts ?? 0), 0);
     return {

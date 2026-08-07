@@ -78,7 +78,11 @@ export function renderPendingFeedbackOutstanding(
   const title = escapeHtml(mail.courseTitle);
   const ctaUrl = studentCourseFeedback(mail.courseId);
   const completedLine = mail.completedAt
-    ? `<p style="margin-top:8px;color:${BRAND.muted};font-size:13px;">You completed this course on ${escapeHtml(mail.completedAt)}.</p>`
+    ? `<p style="margin-top:8px;color:${
+        BRAND.muted
+      };font-size:13px;">You completed this course on ${escapeHtml(
+        mail.completedAt,
+      )}.</p>`
     : '';
   const body = `<p>Dear ${name},</p>
     <p style="margin-top:12px;">Our records show you have <strong>completed</strong> <strong>${title}</strong>, but we have not yet received your course feedback.</p>
@@ -92,9 +96,15 @@ export function renderPendingFeedbackOutstanding(
       ctaLabel: 'Complete feedback form',
       ctaUrl,
     }),
-    text: `Dear ${mail.firstName || 'there'},\n\nOur records show you have completed ${mail.courseTitle}, but we have not yet received your course feedback.${
+    text: `Dear ${
+      mail.firstName || 'there'
+    },\n\nOur records show you have completed ${
+      mail.courseTitle
+    }, but we have not yet received your course feedback.${
       mail.completedAt ? ` You completed on ${mail.completedAt}.` : ''
-    }\n\nIt only takes a couple of minutes.\n\nComplete feedback: ${ctaUrl}\n\nKind regards,\nThe ${BRAND.name} Team`,
+    }\n\nIt only takes a couple of minutes.\n\nComplete feedback: ${ctaUrl}\n\nKind regards,\nThe ${
+      BRAND.name
+    } Team`,
   };
 }
 

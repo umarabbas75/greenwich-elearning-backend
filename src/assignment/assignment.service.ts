@@ -60,9 +60,7 @@ function resolveFiles(
   }
 
   if (legacy.fileUrl || legacy.fileName || legacy.fileType) {
-    throw new Error(
-      'fileUrl and fileType are required when uploading a file',
-    );
+    throw new Error('fileUrl and fileType are required when uploading a file');
   }
 
   return undefined;
@@ -311,15 +309,14 @@ interface CreateSubmissionInput {
   fileType?: AssignmentFileType;
 }
 
-function resolveSubmissionFiles(input: CreateSubmissionInput): FileInput[] | undefined {
-  return resolveFiles(
-    input.submissionAttachments ?? input.submissionFiles,
-    {
-      fileUrl: input.fileUrl,
-      fileName: input.fileName,
-      fileType: input.fileType,
-    },
-  );
+function resolveSubmissionFiles(
+  input: CreateSubmissionInput,
+): FileInput[] | undefined {
+  return resolveFiles(input.submissionAttachments ?? input.submissionFiles, {
+    fileUrl: input.fileUrl,
+    fileName: input.fileName,
+    fileType: input.fileType,
+  });
 }
 
 interface ReviewSubmissionInput {
@@ -685,7 +682,9 @@ export class AssignmentService {
       };
     } catch (error) {
       AssignmentService.logger.error(
-        `createAssignment failed: ${error instanceof Error ? error.message : String(error)}`,
+        `createAssignment failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
         error instanceof Error ? error.stack : undefined,
       );
       throw new HttpException(
@@ -746,14 +745,13 @@ export class AssignmentService {
 
       const data = assignments.map((assignment) => {
         const { _count, ...rest } = assignment;
-        const breakdown =
-          breakdownByAssignmentId.get(assignment.id) ?? {
-            submitted: 0,
-            in_review: 0,
-            approved: 0,
-            rejected: 0,
-            returned: 0,
-          };
+        const breakdown = breakdownByAssignmentId.get(assignment.id) ?? {
+          submitted: 0,
+          in_review: 0,
+          approved: 0,
+          rejected: 0,
+          returned: 0,
+        };
         return {
           ...formatAssignment(rest),
           submissionCount: _count.submissions,
@@ -958,7 +956,9 @@ export class AssignmentService {
       };
     } catch (error) {
       AssignmentService.logger.error(
-        `deleteAssignment failed: ${error instanceof Error ? error.message : String(error)}`,
+        `deleteAssignment failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
         error instanceof Error ? error.stack : undefined,
       );
       throw new HttpException(
@@ -1350,9 +1350,11 @@ export class AssignmentService {
       });
       if (!assignment) return;
 
-      const dedupeKey = `assignment-graded:${args.submissionId}:${args.submissionStatus}:${
-        args.score ?? 'no-score'
-      }:${args.feedback ? args.feedback.length : 0}`;
+      const dedupeKey = `assignment-graded:${args.submissionId}:${
+        args.submissionStatus
+      }:${args.score ?? 'no-score'}:${
+        args.feedback ? args.feedback.length : 0
+      }`;
 
       await this.notificationService.createNotification({
         userId: args.studentId,

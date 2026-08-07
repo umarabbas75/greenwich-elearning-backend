@@ -481,8 +481,6 @@ export class CourseVersionService {
   }
 
   async archiveVersion(adminId: string, courseId: string, versionId: string) {
-    void adminId;
-
     const version = await this.prisma.courseVersion.findFirst({
       where: { id: versionId, courseId },
       include: {
@@ -511,6 +509,19 @@ export class CourseVersionService {
       data: { status: 'ARCHIVED' },
     });
 
+    // Audit trail: previously this admin action was silent (`void adminId`).
+    await this.writeAudit({
+      adminId,
+      action: 'ARCHIVE_VERSION',
+      targetType: 'CourseVersion',
+      targetId: versionId,
+      courseId,
+      metadata: {
+        versionNumber: version.versionNumber,
+        priorStatus: version.status,
+      },
+    });
+
     return {
       message: `Version ${version.versionNumber} archived`,
       statusCode: 200,
@@ -523,8 +534,6 @@ export class CourseVersionService {
     userCourseId: string,
     targetVersionId: string,
   ) {
-    void adminId;
-
     const uc = await this.prisma.userCourse.findUnique({
       where: { id: userCourseId },
     });
@@ -543,9 +552,34 @@ export class CourseVersionService {
       throw new NotFoundException('Target version not found or not published');
     }
 
+    // Snapshot the prior pin BEFORE the update so the audit row captures the
+    // migration delta (from → to). Re-pinning a learner's curriculum silently
+    // changes their progress denominator; this leaves a trace.
+    const priorVersion = uc.enrolledVersionId
+      ? await this.prisma.courseVersion.findUnique({
+          where: { id: uc.enrolledVersionId },
+          select: { id: true, versionNumber: true },
+        })
+      : null;
+
     await this.prisma.userCourse.update({
       where: { id: userCourseId },
       data: { enrolledVersionId: target.id },
+    });
+
+    await this.writeAudit({
+      adminId,
+      action: 'MIGRATE_LEARNER_VERSION',
+      targetType: 'UserCourse',
+      targetId: userCourseId,
+      courseId: uc.courseId,
+      userId: uc.userId,
+      metadata: {
+        fromVersionId: priorVersion?.id ?? null,
+        fromVersionNumber: priorVersion?.versionNumber ?? null,
+        toVersionId: target.id,
+        toVersionNumber: target.versionNumber,
+      },
     });
 
     return {
@@ -557,6 +591,50 @@ export class CourseVersionService {
         versionNumber: target.versionNumber,
       },
     };
+  }
+
+  /**
+   * Best-effort audit write. Never throws — audit failures must not break the
+   * underlying admin operation. Callers should still `await` so the row is
+   * persisted within the same request lifecycle (Prisma buffers to the same
+   * pool), but any error is swallowed and logged.
+   */
+  async writeAudit(entry: {
+    adminId: string;
+    action: string;
+    targetType: string;
+    targetId?: string | null;
+    courseId?: string | null;
+    userId?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<void> {
+    try {
+      // Denormalise the actor's email at write time so the audit row remains
+      // attributable if the admin is later hard-deleted (adminId → null via
+      // ON DELETE SET NULL).
+      const actor = await this.prisma.user.findUnique({
+        where: { id: entry.adminId },
+        select: { email: true },
+      });
+      await this.prisma.adminAuditLog.create({
+        data: {
+          adminId: entry.adminId,
+          adminEmail: actor?.email ?? null,
+          action: entry.action,
+          targetType: entry.targetType,
+          targetId: entry.targetId ?? null,
+          courseId: entry.courseId ?? null,
+          userId: entry.userId ?? null,
+          metadata: (entry.metadata as Prisma.InputJsonValue) ?? undefined,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `AdminAuditLog write failed (${entry.action}): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   async countCompletionDenominator(
@@ -669,9 +747,14 @@ export class CourseVersionService {
   findVersionChapterBySourceId(
     tree: PinnedCurriculumTree,
     sourceChapterId: string,
-  ): { module: PinnedCurriculumModule; chapter: PinnedCurriculumChapter } | null {
+  ): {
+    module: PinnedCurriculumModule;
+    chapter: PinnedCurriculumChapter;
+  } | null {
     for (const mod of tree.modules) {
-      const ch = mod.chapters.find((c) => c.sourceChapterId === sourceChapterId);
+      const ch = mod.chapters.find(
+        (c) => c.sourceChapterId === sourceChapterId,
+      );
       if (ch) {
         return { module: mod, chapter: ch };
       }
@@ -750,6 +833,94 @@ export class CourseVersionService {
       }
     }
     return false;
+  }
+
+  /**
+   * Human-friendly summary line for a delete/archive response. Shared between
+   * CourseService and QuizService so the wording is identical across all four
+   * delete entry points.
+   */
+  buildArchiveMessage(
+    entity: 'Module' | 'Chapter' | 'Section' | 'Quiz',
+    stillServedTo: number,
+    versions: Array<{ versionNumber: number }>,
+  ): string {
+    if (stillServedTo === 0) {
+      return `Archived — ${entity.toLowerCase()} hidden from new users. No active enrollments are currently pinned to a version that still references it.`;
+    }
+    const versionList = versions.map((v) => `v${v.versionNumber}`).join(', ');
+    const userWord = stillServedTo === 1 ? 'user' : 'users';
+    return `Archived — hidden from new users, but still shown to ${stillServedTo} active ${userWord} pinned to ${versionList}. Use POST /courses/enrollments/migrate-version to move learners forward.`;
+  }
+
+  /**
+   * For a given live row that was just archived, return every version that
+   * still references it and how many active enrollments are pinned to those
+   * versions. This is what powers the delete-response's `stillServedTo` field:
+   * the admin needs to know that "archived" is not the same as "invisible" —
+   * pinned learners on referencing versions will continue to see this row
+   * until they are migrated or complete.
+   *
+   * Only PUBLISHED versions count. Archived versions can still have
+   * enrollments pinned (via UserCourse.enrolledVersion), so those are counted
+   * too — the point is "still served to a live human", not "still in
+   * publish rotation".
+   *
+   * `enrollmentCount` counts **active** enrollments only (UserCourse.isActive
+   * true). Deactivated and historical enrollments are not being served — the
+   * learner cannot open the course — so inflating stillServedTo with them
+   * would recreate the exact "how many is that really?" confusion this field
+   * was built to end.
+   */
+  async getReferencingVersionsWithEnrollments(
+    table: 'section' | 'chapter' | 'module' | 'quiz',
+    sourceId: string,
+    courseId?: string,
+  ): Promise<{
+    stillServedTo: number;
+    versions: Array<{
+      versionId: string;
+      versionNumber: number;
+      status: string;
+      enrollmentCount: number;
+    }>;
+  }> {
+    const versions = await this.prisma.courseVersion.findMany({
+      where: courseId ? { courseId } : undefined,
+      select: {
+        id: true,
+        versionNumber: true,
+        status: true,
+        manifest: true,
+        _count: {
+          select: { enrollments: { where: { isActive: true } } },
+        },
+      },
+    });
+
+    const referencing: Array<{
+      versionId: string;
+      versionNumber: number;
+      status: string;
+      enrollmentCount: number;
+    }> = [];
+    let stillServedTo = 0;
+
+    for (const v of versions) {
+      const manifest = parseManifest(v.manifest);
+      if (!manifest) continue;
+      if (!isIdReferencedInManifest(manifest, table, sourceId)) continue;
+      referencing.push({
+        versionId: v.id,
+        versionNumber: v.versionNumber,
+        status: v.status,
+        enrollmentCount: v._count.enrollments,
+      });
+      stillServedTo += v._count.enrollments;
+    }
+
+    referencing.sort((a, b) => b.versionNumber - a.versionNumber);
+    return { stillServedTo, versions: referencing };
   }
 
   async pruneOrphanVersions(courseId?: string): Promise<{

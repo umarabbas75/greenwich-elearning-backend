@@ -34,17 +34,18 @@ describe('course_versions_one_latest_per_course partial unique index', () => {
 
   it('is created in the migrations as a partial unique index on isLatest', () => {
     const sql = migrationSql();
-    const created =
-      new RegExp(
-        `CREATE\\s+UNIQUE\\s+INDEX\\s+"${indexName}"[\\s\\S]*?WHERE\\s+"isLatest"\\s*=\\s*true`,
-        'i',
-      ).test(sql);
+    const created = new RegExp(
+      `CREATE\\s+UNIQUE\\s+INDEX\\s+"${indexName}"[\\s\\S]*?WHERE\\s+"isLatest"\\s*=\\s*true`,
+      'i',
+    ).test(sql);
     expect(created).toBe(true);
   });
 
   it('is never dropped by a later migration', () => {
     const sql = migrationSql();
-    const dropped = new RegExp(`DROP\\s+INDEX[^;]*"${indexName}"`, 'i').test(sql);
+    const dropped = new RegExp(`DROP\\s+INDEX[^;]*"${indexName}"`, 'i').test(
+      sql,
+    );
     expect(dropped).toBe(false);
   });
 });

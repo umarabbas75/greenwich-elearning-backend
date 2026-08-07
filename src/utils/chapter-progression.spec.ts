@@ -61,13 +61,15 @@ describe('chapter-progression', () => {
     config = { get: jest.fn().mockReturnValue('') } as unknown as ConfigService;
     // Manifest quiz hydration: treat every manifest id as an existing row unless
     // a test overrides this mock.
-    prisma.quiz.findMany.mockImplementation((args: { where?: { id?: { in?: string[] } } }) => {
-      const ids = args?.where?.id?.in;
-      if (ids?.length) {
-        return Promise.resolve(ids.map((id) => ({ id })));
-      }
-      return Promise.resolve([]);
-    });
+    prisma.quiz.findMany.mockImplementation(
+      (args: { where?: { id?: { in?: string[] } } }) => {
+        const ids = args?.where?.id?.in;
+        if (ids?.length) {
+          return Promise.resolve(ids.map((id) => ({ id })));
+        }
+        return Promise.resolve([]);
+      },
+    );
   });
 
   describe('getOrderedChapterIdsForVersion', () => {
@@ -77,7 +79,10 @@ describe('chapter-progression', () => {
       });
 
       await expect(
-        getOrderedChapterIdsForVersion(prisma as unknown as PrismaService, 'v1'),
+        getOrderedChapterIdsForVersion(
+          prisma as unknown as PrismaService,
+          'v1',
+        ),
       ).resolves.toEqual(['ch-1', 'ch-2']);
     });
   });
@@ -90,7 +95,10 @@ describe('chapter-progression', () => {
     // the same non-archived set the learner is served.
     it('unpinned: denominator is the live non-archived quiz set (excludes archived)', async () => {
       // Live query returns only non-archived quizzes (the archived one is gone).
-      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-1' }, { id: 'quiz-2' }]);
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-1' },
+        { id: 'quiz-2' },
+      ]);
       prisma.quizAnswer.findMany.mockResolvedValue([
         { quizId: 'quiz-1', isAnswerCorrect: true },
         { quizId: 'quiz-2', isAnswerCorrect: true },
@@ -154,10 +162,15 @@ describe('chapter-progression', () => {
       prisma.quizProgress.findFirst.mockResolvedValue({ isPassed: true });
 
       await expect(
-        isChapterComplete(prisma as unknown as PrismaService, 'user-1', 'ch-1', {
-          courseId: 'course-1',
-          enrolledVersionId: 'version-1',
-        }),
+        isChapterComplete(
+          prisma as unknown as PrismaService,
+          'user-1',
+          'ch-1',
+          {
+            courseId: 'course-1',
+            enrolledVersionId: 'version-1',
+          },
+        ),
       ).resolves.toBe(true);
 
       expect(prisma.chapter.findUnique).not.toHaveBeenCalled();
@@ -172,10 +185,15 @@ describe('chapter-progression', () => {
       prisma.quizProgress.findFirst.mockResolvedValue(null);
 
       await expect(
-        isChapterComplete(prisma as unknown as PrismaService, 'user-1', 'ch-1', {
-          courseId: 'course-1',
-          enrolledVersionId: 'version-1',
-        }),
+        isChapterComplete(
+          prisma as unknown as PrismaService,
+          'user-1',
+          'ch-1',
+          {
+            courseId: 'course-1',
+            enrolledVersionId: 'version-1',
+          },
+        ),
       ).resolves.toBe(false);
     });
   });
@@ -191,7 +209,9 @@ describe('chapter-progression', () => {
             {
               sourceId: 'mod-1',
               order: 0,
-              chapters: [{ sourceId: 'ch-1', order: 0, sectionIds: [], quizIds: [] }],
+              chapters: [
+                { sourceId: 'ch-1', order: 0, sectionIds: [], quizIds: [] },
+              ],
             },
           ],
         },

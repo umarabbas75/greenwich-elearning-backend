@@ -97,6 +97,7 @@ describe('CourseService — course versioning', () => {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
+        delete: jest.fn().mockResolvedValue({}),
       },
       section: {
         findUnique: jest.fn(),
@@ -104,12 +105,72 @@ describe('CourseService — course versioning', () => {
         delete: jest.fn(),
         update: jest.fn(),
       },
-      chapter: { findUnique: jest.fn(), delete: jest.fn(), update: jest.fn() },
       module: { findUnique: jest.fn(), delete: jest.fn(), update: jest.fn() },
-      userCourseProgress: { findMany: jest.fn() },
-      courseCompletion: { findUnique: jest.fn() },
-      lastSeenSection: { findUnique: jest.fn() },
-      quizProgress: { findMany: jest.fn() },
+      userCourseDelete: null,
+      userCourseProgress: {
+        findMany: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      courseCompletion: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      lastSeenSection: {
+        findUnique: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      quizProgress: {
+        findMany: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      quizAnswer: {
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      userChapterCompletion: {
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      userModuleCompletion: {
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      sectionTimeSpent: {
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      userFormCompletion: {
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      userPolicyCompletion: {
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      userPolicyItemCompletion: {
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      courseFeedbackSubmission: {
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      assessmentAttempt: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      assessment: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      chapter: {
+        findUnique: jest.fn(),
+        delete: jest.fn(),
+        update: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       $transaction: jest.fn(async (cb) => cb(prisma)),
     };
 
@@ -118,6 +179,13 @@ describe('CourseService — course versioning', () => {
       summarizeNewSincePinnedVersion: jest.fn().mockResolvedValue(null),
       pinEnrollmentToLatest: jest.fn(),
       isReferencedByAnyVersion: jest.fn(),
+      // New: delete responses now include stillServedTo + versionsReferencing.
+      // Default mock returns "not referenced"; individual tests override.
+      getReferencingVersionsWithEnrollments: jest
+        .fn()
+        .mockResolvedValue({ stillServedTo: 0, versions: [] }),
+      buildArchiveMessage: jest.fn().mockReturnValue('Archived'),
+      writeAudit: jest.fn().mockResolvedValue(undefined),
       findVersionChapterBySourceId: jest.fn(),
       mapVersionSectionsForLearner: jest.fn(),
       mapVersionQuizzesForLearner: jest.fn(),
@@ -135,7 +203,10 @@ describe('CourseService — course versioning', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: MailService, useValue: { send: jest.fn() } },
-        { provide: FeedbackService, useValue: { notifyFeedbackRequiredIfNeeded: jest.fn() } },
+        {
+          provide: FeedbackService,
+          useValue: { notifyFeedbackRequiredIfNeeded: jest.fn() },
+        },
         { provide: CourseVersionService, useValue: courseVersionService },
       ],
     }).compile();
@@ -195,16 +266,49 @@ describe('CourseService — course versioning', () => {
         module: { courseId: 'course-1' },
       });
       courseVersionService.isReferencedByAnyVersion.mockResolvedValue(true);
-      prisma.section.update.mockResolvedValue({ id: 'sec-1', isArchived: true });
+      courseVersionService.getReferencingVersionsWithEnrollments.mockResolvedValue(
+        {
+          stillServedTo: 3,
+          versions: [
+            {
+              versionId: 'v-1',
+              versionNumber: 1,
+              status: 'PUBLISHED',
+              enrollmentCount: 3,
+            },
+          ],
+        },
+      );
+      prisma.section.update.mockResolvedValue({
+        id: 'sec-1',
+        isArchived: true,
+      });
 
-      const result = await service.deleteSection('sec-1');
+      const result = await service.deleteSection('sec-1', 'admin-1');
 
       expect(prisma.section.update).toHaveBeenCalledWith({
         where: { id: 'sec-1' },
         data: { isArchived: true },
       });
       expect(prisma.section.delete).not.toHaveBeenCalled();
-      expect(result.message).toContain('archived');
+      expect(result.message).toContain('Archived');
+      expect((result as any).outcome).toBe('archived');
+      expect((result as any).stillServedTo).toBe(3);
+      // Archive is high-consequence — the section vanishes from the admin
+      // list but keeps being served to pinned learners. Prior to this audit
+      // write, only the auto-publish landed in any log; the admin's own
+      // click was untraceable. Pin the ARCHIVE_SECTION row and its
+      // stillServedTo payload so a regression here is loud.
+      expect(courseVersionService.writeAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adminId: 'admin-1',
+          action: 'ARCHIVE_SECTION',
+          targetType: 'Section',
+          targetId: 'sec-1',
+          courseId: 'course-1',
+          metadata: expect.objectContaining({ stillServedTo: 3 }),
+        }),
+      );
     });
 
     it('hard-deletes when already archived and not in any manifest', async () => {
@@ -265,12 +369,27 @@ describe('CourseService — course versioning', () => {
         courseId: 'course-1',
       });
       courseVersionService.isReferencedByAnyVersion.mockResolvedValue(true);
+      courseVersionService.getReferencingVersionsWithEnrollments.mockResolvedValue(
+        {
+          stillServedTo: 1,
+          versions: [
+            {
+              versionId: 'v-1',
+              versionNumber: 2,
+              status: 'PUBLISHED',
+              enrollmentCount: 1,
+            },
+          ],
+        },
+      );
       prisma.chapter.update.mockResolvedValue({ id: 'ch-1', isArchived: true });
 
       const result = await service.deleteChapter('ch-1');
 
       expect(prisma.chapter.update).toHaveBeenCalled();
-      expect(result.message).toContain('archived');
+      expect(result.message).toContain('Archived');
+      expect((result as any).outcome).toBe('archived');
+      expect((result as any).stillServedTo).toBe(1);
     });
   });
 
@@ -282,12 +401,27 @@ describe('CourseService — course versioning', () => {
         title: 'M',
       });
       courseVersionService.isReferencedByAnyVersion.mockResolvedValue(true);
+      courseVersionService.getReferencingVersionsWithEnrollments.mockResolvedValue(
+        {
+          stillServedTo: 5,
+          versions: [
+            {
+              versionId: 'v-3',
+              versionNumber: 3,
+              status: 'PUBLISHED',
+              enrollmentCount: 5,
+            },
+          ],
+        },
+      );
       prisma.module.update.mockResolvedValue({ id: 'mod-1', isArchived: true });
 
       const result = await service.deleteModule('mod-1');
 
       expect(prisma.module.update).toHaveBeenCalled();
-      expect(result.message).toContain('archived');
+      expect(result.message).toContain('Archived');
+      expect((result as any).outcome).toBe('archived');
+      expect((result as any).stillServedTo).toBe(5);
     });
   });
 
@@ -388,7 +522,9 @@ describe('CourseService — course versioning', () => {
 
       expect(result.statusCode).toBe(200);
       expect(result.enrolledVersionNumber).toBe(1);
-      expect(courseVersionService.mapVersionSectionsForLearner).toHaveBeenCalled();
+      expect(
+        courseVersionService.mapVersionSectionsForLearner,
+      ).toHaveBeenCalled();
       expect(prisma.section.findMany).not.toHaveBeenCalled();
     });
 
@@ -402,6 +538,167 @@ describe('CourseService — course versioning', () => {
       await expect(
         service.getAllUserSections('missing-ch', 'user-1', 'course-1'),
       ).rejects.toBeInstanceOf(HttpException);
+    });
+  });
+
+  describe('unAssignCourse — loophole guard', () => {
+    // These tests pin the actual bug that motivated the whole fix:
+    // (userId, courseId)-keyed progress/completion rows have no FK to
+    // UserCourse, so a bare delete leaves them orphaned to re-attach on
+    // re-enrollment. The guard's job is to (a) refuse when residual state
+    // exists and force is not set, and (b) wipe EVERY table when force is
+    // set — including the ones Claude's review caught missing on the first
+    // pass (quiz answers, assessment attempts, form/policy completions).
+    const setupUnassignPreconditions = () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-1' });
+      prisma.course.findUnique.mockResolvedValue({ id: 'course-1' });
+      prisma.userCourse.findFirst.mockResolvedValue({
+        id: 'uc-1',
+        userId: 'user-1',
+        courseId: 'course-1',
+        enrolledVersionId: 'v-1',
+      });
+    };
+
+    it('unassigns cleanly when the learner has zero residual state', async () => {
+      setupUnassignPreconditions();
+      // All count mocks default to 0 in beforeEach → hasAny should be false.
+
+      const result = await service.unAssignCourse('user-1', 'course-1');
+
+      expect(result.statusCode).toBe(200);
+      expect(result.message).toContain('Successfully unassigned');
+      expect(prisma.userCourse.delete).toHaveBeenCalledWith({
+        where: { id: 'uc-1' },
+      });
+      // Clean unassign: no audit row is written when there was nothing to
+      // wipe (adminId not supplied here anyway).
+      expect(courseVersionService.writeAudit).not.toHaveBeenCalled();
+    });
+
+    it('refuses with 409 and structured details when learner has section progress', async () => {
+      setupUnassignPreconditions();
+      prisma.userCourseProgress.count.mockResolvedValue(42);
+
+      await expect(
+        service.unAssignCourse('user-1', 'course-1'),
+      ).rejects.toMatchObject({
+        response: {
+          status: 409,
+          details: expect.objectContaining({ progressRows: 42 }),
+        },
+      });
+      expect(prisma.userCourse.delete).not.toHaveBeenCalled();
+    });
+
+    // The exact regression Claude's review caught: pre-fix, only 6 tables
+    // were checked, so a learner who did chapter quizzes but had zero
+    // UserCourseProgress passed as "clean" and the guard was bypassed.
+    it('refuses when learner has quiz answers but no section progress', async () => {
+      setupUnassignPreconditions();
+      prisma.chapter.findMany.mockResolvedValue([{ id: 'ch-1' }]);
+      prisma.quizAnswer.count.mockResolvedValue(5);
+
+      await expect(
+        service.unAssignCourse('user-1', 'course-1'),
+      ).rejects.toMatchObject({
+        response: {
+          status: 409,
+          details: expect.objectContaining({ quizAnswerRows: 5 }),
+        },
+      });
+    });
+
+    it('refuses when learner has an assessment attempt but no section progress', async () => {
+      setupUnassignPreconditions();
+      prisma.assessment.findMany.mockResolvedValue([{ id: 'a-1' }]);
+      // No count mock for assessmentAttempt yet; wire one so the probe sees it.
+      prisma.assessmentAttempt.count = jest.fn().mockResolvedValue(1);
+
+      await expect(
+        service.unAssignCourse('user-1', 'course-1'),
+      ).rejects.toMatchObject({
+        response: {
+          status: 409,
+          details: expect.objectContaining({ assessmentAttemptRows: 1 }),
+        },
+      });
+    });
+
+    it('refuses when learner has a policy completion but no section progress', async () => {
+      setupUnassignPreconditions();
+      prisma.userPolicyCompletion.count.mockResolvedValue(1);
+
+      await expect(
+        service.unAssignCourse('user-1', 'course-1'),
+      ).rejects.toMatchObject({
+        response: {
+          status: 409,
+          details: expect.objectContaining({ policyCompletionRows: 1 }),
+        },
+      });
+    });
+
+    it('force: true wipes ALL learner state tables and audits the destructive path', async () => {
+      setupUnassignPreconditions();
+      prisma.userCourseProgress.count.mockResolvedValue(42);
+      prisma.chapter.findMany.mockResolvedValue([{ id: 'ch-1' }]);
+      prisma.assessment.findMany.mockResolvedValue([{ id: 'a-1' }]);
+      prisma.quizAnswer.count = jest.fn().mockResolvedValue(3);
+      prisma.assessmentAttempt.count = jest.fn().mockResolvedValue(1);
+      prisma.courseCompletion.findUnique.mockResolvedValue({
+        id: 'cc-1',
+        isPassed: true,
+        courseCompletedAt: new Date(),
+      });
+
+      const result = await service.unAssignCourse('user-1', 'course-1', {
+        force: true,
+        adminId: 'admin-1',
+      });
+
+      // Every table in the wipe enumeration must have been called — not just
+      // the six that were on the first pass.
+      expect(prisma.userCourseProgress.deleteMany).toHaveBeenCalled();
+      expect(prisma.userChapterCompletion.deleteMany).toHaveBeenCalled();
+      expect(prisma.userModuleCompletion.deleteMany).toHaveBeenCalled();
+      expect(prisma.courseCompletion.deleteMany).toHaveBeenCalled();
+      expect(prisma.lastSeenSection.deleteMany).toHaveBeenCalled();
+      expect(prisma.quizProgress.deleteMany).toHaveBeenCalled();
+      expect(prisma.quizAnswer.deleteMany).toHaveBeenCalled();
+      expect(prisma.userFormCompletion.deleteMany).toHaveBeenCalled();
+      expect(prisma.userPolicyCompletion.deleteMany).toHaveBeenCalled();
+      expect(prisma.userPolicyItemCompletion.deleteMany).toHaveBeenCalled();
+      expect(prisma.courseFeedbackSubmission.deleteMany).toHaveBeenCalled();
+      expect(prisma.assessmentAttempt.deleteMany).toHaveBeenCalled();
+      // sectionTimeSpent is hard-deleted (not just counter-reset) on the
+      // unassign path — the enrollment is going away.
+      expect(prisma.sectionTimeSpent.deleteMany).toHaveBeenCalled();
+      expect(prisma.userCourse.delete).toHaveBeenCalled();
+
+      expect(courseVersionService.writeAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adminId: 'admin-1',
+          action: 'UNASSIGN_COURSE_FORCE',
+          targetType: 'UserCourse',
+          courseId: 'course-1',
+          userId: 'user-1',
+        }),
+      );
+      expect(result.statusCode).toBe(200);
+      expect(result.message).toContain('force');
+    });
+
+    it('propagates the 409 as an HttpException — not silently swallowed to 403', async () => {
+      // Regression: the catch block adds `if (error instanceof HttpException) throw error;`
+      // for exactly this reason. Without it the CONFLICT is repackaged as
+      // FORBIDDEN and the FE loses the structured details payload.
+      setupUnassignPreconditions();
+      prisma.userCourseProgress.count.mockResolvedValue(1);
+
+      await expect(
+        service.unAssignCourse('user-1', 'course-1'),
+      ).rejects.toMatchObject({ status: 409 });
     });
   });
 });

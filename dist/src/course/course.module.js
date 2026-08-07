@@ -20,7 +20,12 @@ let CourseModule = class CourseModule {
 exports.CourseModule = CourseModule;
 exports.CourseModule = CourseModule = __decorate([
     (0, common_1.Module)({
-        imports: [jwt_1.JwtModule.register({}), mail_module_1.MailModule, feedback_module_1.FeedbackModule, course_version_module_1.CourseVersionModule],
+        imports: [
+            jwt_1.JwtModule.register({}),
+            mail_module_1.MailModule,
+            feedback_module_1.FeedbackModule,
+            course_version_module_1.CourseVersionModule,
+        ],
         providers: [
             course_service_1.CourseService,
             strategy_1.JwtUserStrategy,

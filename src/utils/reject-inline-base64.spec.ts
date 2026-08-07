@@ -29,7 +29,12 @@ describe('assertNoInlineBase64', () => {
   });
 
   it('rejects other inline image mime types', () => {
-    for (const mime of ['image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp']) {
+    for (const mime of [
+      'image/jpeg',
+      'image/gif',
+      'image/svg+xml',
+      'image/webp',
+    ]) {
       expect(() =>
         assertNoInlineBase64(`<img src="data:${mime};base64,AAAA" />`),
       ).toThrow(BadRequestException);

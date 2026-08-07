@@ -15,8 +15,7 @@ function parseManifest(raw) {
 }
 exports.parseManifest = parseManifest;
 function countSectionsInManifest(manifest) {
-    return manifest.modules.reduce((sum, mod) => sum +
-        mod.chapters.reduce((chSum, ch) => chSum + ch.sectionIds.length, 0), 0);
+    return manifest.modules.reduce((sum, mod) => sum + mod.chapters.reduce((chSum, ch) => chSum + ch.sectionIds.length, 0), 0);
 }
 exports.countSectionsInManifest = countSectionsInManifest;
 function getSectionIdsFromManifest(manifest) {
@@ -99,12 +98,20 @@ async function buildManifestFromLiveTree(prisma, courseId, options = {}) {
                 include: {
                     sections: {
                         where: { isArchived: false, isActive: true },
-                        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+                        orderBy: [
+                            { orderIndex: 'asc' },
+                            { createdAt: 'asc' },
+                            { id: 'asc' },
+                        ],
                         select: { id: true },
                     },
                     quizzes: {
                         where: { isArchived: false },
-                        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+                        orderBy: [
+                            { orderIndex: 'asc' },
+                            { createdAt: 'asc' },
+                            { id: 'asc' },
+                        ],
                         select: { id: true },
                     },
                 },
@@ -238,8 +245,7 @@ async function publishManifestVersion(prisma, courseId, options) {
             versionNumber: options.versionNumber,
             status: options.status ?? 'PUBLISHED',
             isLatest: options.isLatest ?? false,
-            publishedAt: options.publishedAt ??
-                (options.status === 'PUBLISHED' ? now : null),
+            publishedAt: options.publishedAt ?? (options.status === 'PUBLISHED' ? now : null),
             publishedByAdminId: options.publishedByAdminId ?? null,
             changeNotes: options.changeNotes ?? null,
             manifest: built.manifest,
@@ -437,7 +443,7 @@ function findManifestChapter(manifest, sourceChapterId) {
 }
 function compareQuizDisplayOrder(a, b) {
     if (a.orderIndex === null && b.orderIndex === null) {
-        return a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
+        return (a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
     }
     if (a.orderIndex === null)
         return 1;
@@ -445,7 +451,7 @@ function compareQuizDisplayOrder(a, b) {
         return -1;
     if (a.orderIndex !== b.orderIndex)
         return a.orderIndex - b.orderIndex;
-    return a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
+    return (a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
 }
 exports.compareQuizDisplayOrder = compareQuizDisplayOrder;
 async function sortQuizIdsByLiveOrder(prisma, quizIds) {

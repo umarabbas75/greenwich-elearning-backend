@@ -8,7 +8,9 @@ jest.mock('../utils/chapter-progression', () => ({
   assertChapterAccessible: jest.fn().mockResolvedValue(undefined),
   enrichQuizProgressReport: jest.fn((x) => x),
   gradeChapterQuizFromStoredAnswers: jest.fn(),
-  recordChapterAndModuleCompletionIfNeeded: jest.fn().mockResolvedValue(undefined),
+  recordChapterAndModuleCompletionIfNeeded: jest
+    .fn()
+    .mockResolvedValue(undefined),
   resolveChapterQuizIds: jest.fn(),
   resolvePassingCriteria: jest.fn(),
 }));
@@ -51,6 +53,10 @@ describe('QuizService — course versioning', () => {
       findVersionChapterBySourceId: jest.fn(),
       mapVersionQuizzesForLearner: jest.fn(),
       isReferencedByAnyVersion: jest.fn(),
+      getReferencingVersionsWithEnrollments: jest
+        .fn()
+        .mockResolvedValue({ stillServedTo: 0, versions: [] }),
+      buildArchiveMessage: jest.fn().mockReturnValue('Archived'),
       autoPublishAfterStructuralChange: jest.fn().mockResolvedValue({
         versionNumber: 2,
         versionId: 'version-2',
@@ -96,20 +102,15 @@ describe('QuizService — course versioning', () => {
       expect(result.statusCode).toBe(200);
       expect(result.data).toHaveLength(1);
       expect(result.data[0].id).toBe('quiz-1');
-      expect(courseVersionService.resolveEnrolledVersionId).toHaveBeenCalledWith(
-        'user-1',
-        'course-1',
-        { id: 'uc-1', enrolledVersionId: 'version-1' },
-      );
+      expect(
+        courseVersionService.resolveEnrolledVersionId,
+      ).toHaveBeenCalledWith('user-1', 'course-1', {
+        id: 'uc-1',
+        enrolledVersionId: 'version-1',
+      });
       expect(
         courseVersionService.getVersionQuizzesForChapter,
-      ).toHaveBeenCalledWith(
-        'user-1',
-        'course-1',
-        'ch-1',
-        false,
-        'version-1',
-      );
+      ).toHaveBeenCalledWith('user-1', 'course-1', 'ch-1', false, 'version-1');
       expect(courseVersionService.resolveCurriculumTree).not.toHaveBeenCalled();
     });
 
@@ -149,6 +150,19 @@ describe('QuizService — course versioning', () => {
         chapter: { module: { courseId: 'course-1' } },
       });
       courseVersionService.isReferencedByAnyVersion.mockResolvedValue(true);
+      courseVersionService.getReferencingVersionsWithEnrollments.mockResolvedValue(
+        {
+          stillServedTo: 2,
+          versions: [
+            {
+              versionId: 'v-1',
+              versionNumber: 1,
+              status: 'PUBLISHED',
+              enrollmentCount: 2,
+            },
+          ],
+        },
+      );
       prisma.quiz.update.mockResolvedValue({ id: 'quiz-1', isArchived: true });
 
       const result = await service.deleteQuiz('quiz-1');
@@ -158,7 +172,9 @@ describe('QuizService — course versioning', () => {
         data: { isArchived: true },
       });
       expect(prisma.quiz.delete).not.toHaveBeenCalled();
-      expect(result.message).toContain('archived');
+      expect(result.message).toContain('Archived');
+      expect((result as any).outcome).toBe('archived');
+      expect((result as any).stillServedTo).toBe(2);
       expect(
         courseVersionService.autoPublishAfterStructuralChange,
       ).toHaveBeenCalled();
@@ -381,7 +397,10 @@ describe('QuizService — course versioning', () => {
     });
 
     it('rejects when payload omits an active chapter quiz', async () => {
-      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-a' }, { id: 'quiz-b' }]);
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-a' },
+        { id: 'quiz-b' },
+      ]);
 
       await expect(
         service.reorderChapterQuizzes({
@@ -401,6 +420,19 @@ describe('QuizService — course versioning', () => {
         module: { courseId: 'course-1' },
       });
       courseVersionService.isReferencedByAnyVersion.mockResolvedValue(true);
+      courseVersionService.getReferencingVersionsWithEnrollments.mockResolvedValue(
+        {
+          stillServedTo: 4,
+          versions: [
+            {
+              versionId: 'v-2',
+              versionNumber: 2,
+              status: 'PUBLISHED',
+              enrollmentCount: 4,
+            },
+          ],
+        },
+      );
       prisma.quiz.update.mockResolvedValue({});
 
       const result = await service.unAssignQuiz('quiz-1', 'ch-1');
@@ -410,7 +442,9 @@ describe('QuizService — course versioning', () => {
         data: { isArchived: true, chapterId: null },
       });
       expect(prisma.chapter.update).not.toHaveBeenCalled();
-      expect(result.message).toContain('archived');
+      expect(result.message).toContain('Archived');
+      expect((result as any).outcome).toBe('archived');
+      expect((result as any).stillServedTo).toBe(4);
     });
 
     it('disconnects quiz when not referenced', async () => {

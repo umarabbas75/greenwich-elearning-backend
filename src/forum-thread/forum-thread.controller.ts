@@ -67,7 +67,10 @@ export class ForumThreadController {
   @UseGuards(AuthGuard('cJwt'))
   @Get('/:forumThreadId')
   async getForumThread(@Param() params: any, @GetUser() user: User) {
-    return this.forumThreadService.getForumThread(params.forumThreadId, user.id);
+    return this.forumThreadService.getForumThread(
+      params.forumThreadId,
+      user.id,
+    );
   }
   @UseGuards(AuthGuard('cJwt'))
   @Put('/update/:forumThreadId')

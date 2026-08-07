@@ -439,7 +439,9 @@ export class AdminDashboardService {
           JOIN "users" u ON u."id" = fv."userId"
           LEFT JOIN "forum_threads" ft ON ft."id" = fv."threadId"
           LEFT JOIN "courses" c ON c."id" = fv."courseId"
-         WHERE fv."createdAt" >= now() - make_interval(days => ${params.days}::int)
+         WHERE fv."createdAt" >= now() - make_interval(days => ${
+           params.days
+         }::int)
            ${userFilter}
            ${threadFilter}
            ${scopeFilter}
@@ -867,7 +869,9 @@ export class AdminDashboardService {
                  SUM(std."totalSeconds")::bigint AS total_seconds
             FROM "section_time_spent_daily" std
            WHERE std."userId" IN (${Prisma.join(userIds)})
-             AND std."day" >= (CURRENT_DATE - make_interval(days => ${days - 1}::int))::date
+             AND std."day" >= (CURRENT_DATE - make_interval(days => ${
+               days - 1
+             }::int))::date
              ${courseDailyFilter}
            GROUP BY std."userId", std."day"
            ORDER BY std."userId", std."day" DESC

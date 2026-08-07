@@ -19,7 +19,9 @@ function trimString(value: unknown): string | null {
 }
 
 /** Reads optional registration-form address from stored form metadata. */
-export function extractUserAddressFromMetadata(metadata: unknown): string | null {
+export function extractUserAddressFromMetadata(
+  metadata: unknown,
+): string | null {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
     return null;
   }

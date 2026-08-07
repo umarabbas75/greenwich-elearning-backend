@@ -12,7 +12,12 @@ import { FeedbackModule } from '../feedback/feedback.module';
 import { CourseVersionModule } from '../course-version/course-version.module';
 
 @Module({
-  imports: [JwtModule.register({}), MailModule, FeedbackModule, CourseVersionModule],
+  imports: [
+    JwtModule.register({}),
+    MailModule,
+    FeedbackModule,
+    CourseVersionModule,
+  ],
   providers: [
     CourseService,
     JwtUserStrategy,

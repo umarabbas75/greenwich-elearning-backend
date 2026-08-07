@@ -424,6 +424,30 @@ export interface ResponseDto {
   total?: number;
   /** Set when a structural edit auto-published a new course version. */
   publishedVersion?: { versionNumber: number; versionId: string };
+  /**
+   * Set on delete/unassign endpoints for versioned entities (module, chapter,
+   * section, quiz). Tells the admin whether the row was truly deleted or
+   * archived (kept as content source for pinned learners on referencing
+   * versions). Paired with `stillServedTo` and `versionsReferencing`.
+   */
+  outcome?: 'deleted' | 'archived' | 'unassigned';
+  /**
+   * When `outcome === 'archived'`, the number of active enrollments still
+   * pinned to a version that references the archived row. 0 when nothing is
+   * pinned to a referencing version, or when the row was truly deleted.
+   */
+  stillServedTo?: number;
+  /**
+   * When `outcome === 'archived'`, the list of versions that still reference
+   * the archived row and how many enrollments each holds. Sorted by
+   * versionNumber descending. Empty on true deletes.
+   */
+  versionsReferencing?: Array<{
+    versionId: string;
+    versionNumber: number;
+    status: string;
+    enrollmentCount: number;
+  }>;
 }
 
 // Section DTOs

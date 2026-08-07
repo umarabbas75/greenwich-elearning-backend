@@ -150,8 +150,11 @@ let CourseController = class CourseController {
     assignCoursePublic(params) {
         return this.appService.assignCoursePublic(params.userId, params.courseId);
     }
-    unAssignCourse(body) {
-        return this.appService.unAssignCourse(body.userId, body.courseId);
+    unAssignCourse(admin, body) {
+        return this.appService.unAssignCourse(body.userId, body.courseId, {
+            force: body?.force === true,
+            adminId: admin?.id,
+        });
     }
     toggleCourseStatus(body) {
         return this.appService.toggleCourseStatus(body.userId, body.courseId, body.isActive);
@@ -552,9 +555,10 @@ __decorate([
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Put)('/unAssignCourse/user'),
-    __param(0, (0, common_1.Body)()),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "unAssignCourse", null);
 __decorate([

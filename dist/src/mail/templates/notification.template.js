@@ -140,9 +140,7 @@ function renderNotificationEmail(mail) {
             const url = (0, mail_paths_1.studentAssignmentDetail)(mail.assignmentId);
             const copy = SUBMISSION_STATUS_COPY[mail.submissionStatus];
             const scoreLine = typeof mail.score === 'number'
-                ? `<p style="margin-top:8px;">Score: <strong>${mail.score}${typeof mail.maxPoints === 'number'
-                    ? ` / ${mail.maxPoints}`
-                    : ''}</strong></p>`
+                ? `<p style="margin-top:8px;">Score: <strong>${mail.score}${typeof mail.maxPoints === 'number' ? ` / ${mail.maxPoints}` : ''}</strong></p>`
                 : '';
             const feedbackLine = mail.feedback
                 ? `<p style="margin-top:8px;padding:12px 16px;background:#f4f5f7;border-radius:8px;font-style:italic;">"${(0, mail_layout_1.escapeHtml)(mail.feedback)}"</p>`

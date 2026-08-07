@@ -62,6 +62,7 @@ model User {
   sectionTimeSpentDaily    SectionTimeSpentDaily[]
   emailLogs                EmailLog[]
   securityEvents           SecurityEvent[]
+  adminAuditLogs           AdminAuditLog[]            @relation("AdminAuditLogActor")
   // Last time this user's password actually changed (reset, first-login force,
   // or admin change). Null = never changed since creation. Drives the security
   // dashboard; the SecurityEvent log holds the full history.
@@ -1289,4 +1290,41 @@ model SecurityEvent {
   @@index([userId, createdAt(sort: Desc)])
   @@index([type, createdAt(sort: Desc)])
   @@map("security_events")
+}
+
+/// Audit trail of sensitive admin actions around course versioning and
+/// enrollment lifecycle. Previously, migrateLearnerToVersion / archiveVersion
+/// received an adminId and immediately discarded it (`void adminId`), so
+/// re-pinning a learner or archiving a version left no trace. This model
+/// captures the who / when / what for those operations. Best-effort writes:
+/// failures here must never fail the underlying operation.
+///
+/// `action` is a free-form uppercase code (see docs/course-versioning-admin-fixes.md
+/// for the current vocabulary). `targetType` + `targetId` name the primary
+/// row affected. `courseId` / `userId` are denormalised for cheap filtering
+/// on the admin dashboard. `metadata` holds action-specific context (e.g.
+/// before/after version numbers, wiped-row counts).
+model AdminAuditLog {
+  id         String   @id @default(uuid())
+  /// FK to users.id; nullable and SetNull so the audit row survives a hard
+  /// user delete. `adminEmail` is captured at write time as a denormalised
+  /// fallback so the row remains attributable after the FK is nulled.
+  adminId    String?
+  adminEmail String?
+  action     String
+  targetType String
+  targetId   String?
+  courseId   String?
+  userId     String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  admin User? @relation("AdminAuditLogActor", fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([adminId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@index([courseId, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([targetType, targetId])
+  @@map("admin_audit_logs")
 }

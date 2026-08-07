@@ -199,7 +199,8 @@ export class TrackingService {
       throw new HttpException(
         {
           status: HttpStatus.BAD_REQUEST,
-          error: 'Section attempts are only tracked for interactive section types',
+          error:
+            'Section attempts are only tracked for interactive section types',
         },
         HttpStatus.BAD_REQUEST,
       );

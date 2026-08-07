@@ -331,8 +331,17 @@ export class CourseController {
 
   @UseGuards(AuthGuard('jwt'))
   @Put('/unAssignCourse/user')
-  unAssignCourse(@Body() body: any): Promise<ResponseDto> {
-    return this.appService.unAssignCourse(body.userId, body.courseId);
+  unAssignCourse(
+    @GetUser() admin: User,
+    @Body() body: { userId: string; courseId: string; force?: boolean },
+  ): Promise<ResponseDto> {
+    // Safe by default; { force: true } wipes all learner state atomically so
+    // a subsequent assignCourse cannot resurrect stale progress against a new
+    // version denominator. See CourseService.unAssignCourse for the rationale.
+    return this.appService.unAssignCourse(body.userId, body.courseId, {
+      force: body?.force === true,
+      adminId: admin?.id,
+    });
   }
 
   @UseGuards(AuthGuard('jwt'))

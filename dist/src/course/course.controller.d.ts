@@ -44,7 +44,11 @@ export declare class CourseController {
     updateSectionOrder(body: UpdateSectionOrderDto): Promise<ResponseDto>;
     assignCourse(params: AssignCourseDto): Promise<ResponseDto>;
     assignCoursePublic(params: any): Promise<ResponseDto>;
-    unAssignCourse(body: any): Promise<ResponseDto>;
+    unAssignCourse(admin: User, body: {
+        userId: string;
+        courseId: string;
+        force?: boolean;
+    }): Promise<ResponseDto>;
     toggleCourseStatus(body: any): Promise<ResponseDto>;
     toggleCoursePaymentStatus(body: any): Promise<ResponseDto>;
     getAllAssignedCourses(params: ParamsDto, user: User): Promise<ResponseDto>;

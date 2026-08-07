@@ -249,10 +249,7 @@ export class AssignmentController {
     @GetUser() user: User,
     @Param('courseId') courseId: string,
   ): Promise<ResponseDto> {
-    return this.feedbackService.getCourseFeedbackSubmissions(
-      courseId,
-      user.id,
-    );
+    return this.feedbackService.getCourseFeedbackSubmissions(courseId, user.id);
   }
 
   // Students: get assignments for courses they're enrolled in

@@ -80,6 +80,200 @@ let CourseService = CourseService_1 = class CourseService {
         }
         return chapter.module.courseId;
     }
+    async probeUserCourseResidualState(userId, courseId) {
+        const [chapters, assessments] = await Promise.all([
+            this.prisma.chapter.findMany({
+                where: { module: { courseId } },
+                select: { id: true },
+            }),
+            this.prisma.assessment.findMany({
+                where: { courseId },
+                select: { id: true },
+            }),
+        ]);
+        const chapterIds = chapters.map((c) => c.id);
+        const assessmentIds = assessments.map((a) => a.id);
+        const [progressRows, chapterCompletions, moduleCompletions, courseCompletion, timeSpentRows, lastSeenRows, quizProgressRows, quizAnswerRows, formCompletionRows, policyCompletionRows, policyItemCompletionRows, feedbackSubmissionRows, assessmentAttemptRows,] = await Promise.all([
+            this.prisma.userCourseProgress.count({ where: { userId, courseId } }),
+            this.prisma.userChapterCompletion.count({ where: { userId, courseId } }),
+            this.prisma.userModuleCompletion.count({ where: { userId, courseId } }),
+            this.prisma.courseCompletion.findUnique({
+                where: { userId_courseId: { userId, courseId } },
+                select: { id: true, isPassed: true, courseCompletedAt: true },
+            }),
+            this.prisma.sectionTimeSpent.count({ where: { userId, courseId } }),
+            this.prisma.lastSeenSection.count({ where: { userId, courseId } }),
+            chapterIds.length > 0
+                ? this.prisma.quizProgress.count({
+                    where: { userId, chapterId: { in: chapterIds } },
+                })
+                : Promise.resolve(0),
+            chapterIds.length > 0
+                ? this.prisma.quizAnswer.count({
+                    where: { userId, chapterId: { in: chapterIds } },
+                })
+                : Promise.resolve(0),
+            this.prisma.userFormCompletion.count({ where: { userId, courseId } }),
+            this.prisma.userPolicyCompletion.count({ where: { userId, courseId } }),
+            this.prisma.userPolicyItemCompletion.count({
+                where: { userId, item: { policy: { courseId } } },
+            }),
+            this.prisma.courseFeedbackSubmission.count({
+                where: { userId, courseId },
+            }),
+            assessmentIds.length > 0
+                ? this.prisma.assessmentAttempt.count({
+                    where: { userId, assessmentId: { in: assessmentIds } },
+                })
+                : Promise.resolve(0),
+        ]);
+        const counts = {
+            progressRows,
+            chapterCompletions,
+            moduleCompletions,
+            courseCompleted: !!courseCompletion?.courseCompletedAt,
+            certified: !!courseCompletion?.isPassed,
+            timeSpentRows,
+            lastSeenRows,
+            quizProgressRows,
+            quizAnswerRows,
+            formCompletionRows,
+            policyCompletionRows,
+            policyItemCompletionRows,
+            feedbackSubmissionRows,
+            assessmentAttemptRows,
+        };
+        const hasAny = progressRows > 0 ||
+            chapterCompletions > 0 ||
+            moduleCompletions > 0 ||
+            !!courseCompletion ||
+            timeSpentRows > 0 ||
+            lastSeenRows > 0 ||
+            quizProgressRows > 0 ||
+            quizAnswerRows > 0 ||
+            formCompletionRows > 0 ||
+            policyCompletionRows > 0 ||
+            policyItemCompletionRows > 0 ||
+            feedbackSubmissionRows > 0 ||
+            assessmentAttemptRows > 0;
+        return { hasAny, counts, chapterIds, assessmentIds };
+    }
+    async wipeUserCourseState(tx, userId, courseId, options) {
+        let chapterIds = options.chapterIds;
+        let assessmentIds = options.assessmentIds;
+        if (!chapterIds || !assessmentIds) {
+            const [chapters, assessments] = await Promise.all([
+                tx.chapter.findMany({
+                    where: { module: { courseId } },
+                    select: { id: true },
+                }),
+                tx.assessment.findMany({
+                    where: { courseId },
+                    select: { id: true },
+                }),
+            ]);
+            chapterIds = chapters.map((c) => c.id);
+            assessmentIds = assessments.map((a) => a.id);
+        }
+        const sectionProgress = await tx.userCourseProgress.deleteMany({
+            where: { userId, courseId },
+        });
+        const lastSeen = await tx.lastSeenSection.deleteMany({
+            where: { userId, courseId },
+        });
+        const quizProgress = chapterIds.length > 0
+            ? await tx.quizProgress.deleteMany({
+                where: { userId, chapterId: { in: chapterIds } },
+            })
+            : { count: 0 };
+        const quizAnswers = chapterIds.length > 0
+            ? await tx.quizAnswer.deleteMany({
+                where: { userId, chapterId: { in: chapterIds } },
+            })
+            : { count: 0 };
+        const formCompletions = await tx.userFormCompletion.deleteMany({
+            where: { userId, courseId },
+        });
+        const policyCompletions = await tx.userPolicyCompletion.deleteMany({
+            where: { userId, courseId },
+        });
+        const policyItemCompletions = await tx.userPolicyItemCompletion.deleteMany({
+            where: { userId, item: { policy: { courseId } } },
+        });
+        const feedbackSubmissions = await tx.courseFeedbackSubmission.deleteMany({
+            where: { userId, courseId },
+        });
+        const courseCompletions = await tx.courseCompletion.deleteMany({
+            where: { userId, courseId },
+        });
+        const chapterCompletions = await tx.userChapterCompletion.deleteMany({
+            where: { userId, courseId },
+        });
+        const moduleCompletions = await tx.userModuleCompletion.deleteMany({
+            where: { userId, courseId },
+        });
+        let sectionTimeSpentCount = 0;
+        if (options.deleteSectionTimeSpent) {
+            const res = await tx.sectionTimeSpent.deleteMany({
+                where: { userId, courseId },
+            });
+            sectionTimeSpentCount = res.count;
+        }
+        else {
+            const res = await tx.sectionTimeSpent.updateMany({
+                where: { userId, courseId },
+                data: {
+                    totalAttempts: 0,
+                    firstAttemptAt: null,
+                    lastAttemptAt: null,
+                },
+            });
+            sectionTimeSpentCount = res.count;
+        }
+        const assessmentAttempts = assessmentIds.length > 0
+            ? await tx.assessmentAttempt.deleteMany({
+                where: { userId, assessmentId: { in: assessmentIds } },
+            })
+            : { count: 0 };
+        return {
+            sectionProgress: sectionProgress.count,
+            lastSeen: lastSeen.count,
+            quizProgress: quizProgress.count,
+            quizAnswers: quizAnswers.count,
+            formCompletions: formCompletions.count,
+            policyCompletions: policyCompletions.count,
+            policyItemCompletions: policyItemCompletions.count,
+            feedbackSubmissions: feedbackSubmissions.count,
+            courseCompletions: courseCompletions.count,
+            chapterCompletions: chapterCompletions.count,
+            moduleCompletions: moduleCompletions.count,
+            sectionTimeSpent: sectionTimeSpentCount,
+            assessmentAttempts: assessmentAttempts.count,
+        };
+    }
+    buildArchiveMessage(entity, stillServedTo, versions) {
+        return this.courseVersionService.buildArchiveMessage(entity, stillServedTo, versions);
+    }
+    async writeArchiveAudit(params) {
+        if (!params.adminId)
+            return;
+        await this.courseVersionService.writeAudit({
+            adminId: params.adminId,
+            action: `ARCHIVE_${params.entity.toUpperCase()}`,
+            targetType: params.entity,
+            targetId: params.targetId,
+            courseId: params.courseId,
+            metadata: {
+                title: params.title ?? null,
+                stillServedTo: params.stillServedTo,
+                versions: params.versions.map((v) => ({
+                    versionNumber: v.versionNumber,
+                    status: v.status,
+                    enrollmentCount: v.enrollmentCount,
+                })),
+            },
+        });
+    }
     assertValidOrderingItems(items, correctOrder) {
         const ids = new Set(items.map((i) => i.id));
         if (ids.size !== items.length) {
@@ -578,10 +772,12 @@ let CourseService = CourseService_1 = class CourseService {
                     id: true,
                     title: true,
                     modules: {
+                        where: { isArchived: false },
                         select: {
                             id: true,
                             title: true,
                             chapters: {
+                                where: { isArchived: false },
                                 select: {
                                     id: true,
                                     title: true,
@@ -597,7 +793,7 @@ let CourseService = CourseService_1 = class CourseService {
                                     },
                                     _count: {
                                         select: {
-                                            quizzes: true,
+                                            quizzes: { where: { isArchived: false } },
                                         },
                                     },
                                 },
@@ -1461,15 +1657,22 @@ let CourseService = CourseService_1 = class CourseService {
                     image: true,
                     price: true,
                     modules: {
+                        where: { isArchived: false },
                         select: {
                             id: true,
                             title: true,
                             chapters: {
+                                where: { isArchived: false },
                                 orderBy: {
                                     createdAt: 'asc',
                                 },
                             },
-                            _count: true,
+                            _count: {
+                                select: {
+                                    chapters: { where: { isArchived: false } },
+                                    sections: { where: { isArchived: false, isActive: true } },
+                                },
+                            },
                         },
                         orderBy: {
                             createdAt: 'asc',
@@ -1665,11 +1868,12 @@ let CourseService = CourseService_1 = class CourseService {
             const modules = await this.prisma.module.findMany({
                 where: {
                     courseId: id,
+                    isArchived: false,
                 },
                 include: {
                     _count: {
                         select: {
-                            chapters: true,
+                            chapters: { where: { isArchived: false } },
                         },
                     },
                 },
@@ -1677,9 +1881,6 @@ let CourseService = CourseService_1 = class CourseService {
                     createdAt: 'asc',
                 },
             });
-            if (!(modules.length > 0)) {
-                throw new Error('No Modules found');
-            }
             return {
                 message: 'Successfully fetch all Modules info against course',
                 statusCode: 200,
@@ -1767,10 +1968,12 @@ let CourseService = CourseService_1 = class CourseService {
                         id: true,
                         title: true,
                         modules: {
+                            where: { isArchived: false },
                             select: {
                                 id: true,
                                 title: true,
                                 chapters: {
+                                    where: { isArchived: false },
                                     select: {
                                         id: true,
                                         title: true,
@@ -1779,8 +1982,10 @@ let CourseService = CourseService_1 = class CourseService {
                                                 UserCourseProgress: {
                                                     where: { userId },
                                                 },
-                                                sections: true,
-                                                quizzes: true,
+                                                sections: {
+                                                    where: { isArchived: false, isActive: true },
+                                                },
+                                                quizzes: { where: { isArchived: false } },
                                             },
                                         },
                                         QuizProgress: {
@@ -1796,7 +2001,9 @@ let CourseService = CourseService_1 = class CourseService {
                                         UserCourseProgress: {
                                             where: { userId },
                                         },
-                                        sections: true,
+                                        sections: {
+                                            where: { isArchived: false, isActive: true },
+                                        },
                                     },
                                 },
                             },
@@ -1839,6 +2046,7 @@ let CourseService = CourseService_1 = class CourseService {
             const chapters = await this.prisma.chapter.findMany({
                 where: {
                     moduleId: id,
+                    isArchived: false,
                 },
                 include: {
                     _count: {
@@ -2401,17 +2609,30 @@ let CourseService = CourseService_1 = class CourseService {
             if (!mod) {
                 throw new Error('Module not found');
             }
-            const referenced = await this.courseVersionService.isReferencedByAnyVersion('module', id, mod.courseId);
+            const references = await this.courseVersionService.getReferencingVersionsWithEnrollments('module', id, mod.courseId);
+            const referenced = references.versions.length > 0;
             if (referenced) {
                 const archived = await this.prisma.module.update({
                     where: { id },
                     data: { isArchived: true },
                 });
                 const publishedVersion = await this.autoPublishAfterStructureChange(mod.courseId, adminId, `Archived module "${mod.title}"`);
+                await this.writeArchiveAudit({
+                    adminId,
+                    entity: 'Module',
+                    targetId: id,
+                    courseId: mod.courseId,
+                    title: mod.title,
+                    stillServedTo: references.stillServedTo,
+                    versions: references.versions,
+                });
                 return {
-                    message: 'Module is part of a published course version and was archived instead of deleted',
+                    message: this.buildArchiveMessage('Module', references.stillServedTo, references.versions),
                     statusCode: 200,
                     data: archived,
+                    outcome: 'archived',
+                    stillServedTo: references.stillServedTo,
+                    versionsReferencing: references.versions,
                     publishedVersion: publishedVersion ?? undefined,
                 };
             }
@@ -2425,6 +2646,8 @@ let CourseService = CourseService_1 = class CourseService {
                     : 'Successfully deleted module record',
                 statusCode: 200,
                 data: mod,
+                outcome: 'deleted',
+                stillServedTo: 0,
                 publishedVersion: publishedVersion ?? undefined,
             };
         }
@@ -2455,17 +2678,30 @@ let CourseService = CourseService_1 = class CourseService {
                 throw new Error('Chapter not found');
             }
             const courseId = await this.resolveCourseIdFromModuleId(chapter.moduleId);
-            const referenced = await this.courseVersionService.isReferencedByAnyVersion('chapter', id, courseId);
+            const references = await this.courseVersionService.getReferencingVersionsWithEnrollments('chapter', id, courseId);
+            const referenced = references.versions.length > 0;
             if (referenced) {
                 const archived = await this.prisma.chapter.update({
                     where: { id },
                     data: { isArchived: true },
                 });
                 const publishedVersion = await this.autoPublishAfterStructureChange(courseId, adminId, `Archived chapter "${chapter.title}"`);
+                await this.writeArchiveAudit({
+                    adminId,
+                    entity: 'Chapter',
+                    targetId: id,
+                    courseId,
+                    title: chapter.title,
+                    stillServedTo: references.stillServedTo,
+                    versions: references.versions,
+                });
                 return {
-                    message: 'Chapter is part of a published course version and was archived instead of deleted',
+                    message: this.buildArchiveMessage('Chapter', references.stillServedTo, references.versions),
                     statusCode: 200,
                     data: archived,
+                    outcome: 'archived',
+                    stillServedTo: references.stillServedTo,
+                    versionsReferencing: references.versions,
                     publishedVersion: publishedVersion ?? undefined,
                 };
             }
@@ -2479,6 +2715,8 @@ let CourseService = CourseService_1 = class CourseService {
                     : 'Successfully deleted chapter record',
                 statusCode: 200,
                 data: chapter,
+                outcome: 'deleted',
+                stillServedTo: 0,
                 publishedVersion: publishedVersion ?? undefined,
             };
         }
@@ -2525,17 +2763,30 @@ let CourseService = CourseService_1 = class CourseService {
                     data: section,
                 };
             }
-            const referenced = await this.courseVersionService.isReferencedByAnyVersion('section', id, courseId);
+            const references = await this.courseVersionService.getReferencingVersionsWithEnrollments('section', id, courseId);
+            const referenced = references.versions.length > 0;
             if (referenced) {
                 const archived = await this.prisma.section.update({
                     where: { id },
                     data: { isArchived: true },
                 });
                 const publishedVersion = await this.autoPublishAfterStructureChange(courseId, adminId, `Archived section "${section.title}"`);
+                await this.writeArchiveAudit({
+                    adminId,
+                    entity: 'Section',
+                    targetId: id,
+                    courseId,
+                    title: section.title,
+                    stillServedTo: references.stillServedTo,
+                    versions: references.versions,
+                });
                 return {
-                    message: 'Section is part of a published course version and was archived instead of deleted',
+                    message: this.buildArchiveMessage('Section', references.stillServedTo, references.versions),
                     statusCode: 200,
                     data: archived,
+                    outcome: 'archived',
+                    stillServedTo: references.stillServedTo,
+                    versionsReferencing: references.versions,
                     publishedVersion: publishedVersion ?? undefined,
                 };
             }
@@ -2549,6 +2800,8 @@ let CourseService = CourseService_1 = class CourseService {
                     : 'Successfully deleted section record',
                 statusCode: 200,
                 data: section,
+                outcome: 'deleted',
+                stillServedTo: 0,
                 publishedVersion: publishedVersion ?? undefined,
             };
         }
@@ -2688,7 +2941,7 @@ let CourseService = CourseService_1 = class CourseService {
             }, common_1.HttpStatus.BAD_REQUEST);
         }
     }
-    async unAssignCourse(userId, courseId) {
+    async unAssignCourse(userId, courseId, options) {
         try {
             const user = await this.prisma.user.findUnique({
                 where: { id: userId },
@@ -2708,18 +2961,57 @@ let CourseService = CourseService_1 = class CourseService {
             if (!userCourse) {
                 throw new Error('User is not assigned to this course');
             }
-            await this.prisma.userCourse.delete({
-                where: {
-                    id: userCourse.id,
-                },
-            });
+            const residual = await this.probeUserCourseResidualState(userId, courseId);
+            if (residual.hasAny && !options?.force) {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.CONFLICT,
+                    error: 'Refusing to unassign: learner has progress or completion data. ' +
+                        'Deleting the enrollment now would leave orphaned state that ' +
+                        'silently re-attaches on re-assignment (progress % may drop, ' +
+                        'completion may be re-pinned to a newer version). ' +
+                        'Re-send with { force: true } to wipe all learner state for ' +
+                        'this course, or use POST /courses/enrollments/migrate-version ' +
+                        'to move the learner between versions without touching progress.',
+                    details: residual.counts,
+                }, common_1.HttpStatus.CONFLICT);
+            }
+            const wiped = await this.prisma.$transaction(async (tx) => {
+                const counts = await this.wipeUserCourseState(tx, userId, courseId, {
+                    deleteSectionTimeSpent: true,
+                    chapterIds: residual.chapterIds,
+                    assessmentIds: residual.assessmentIds,
+                });
+                await tx.userCourse.delete({ where: { id: userCourse.id } });
+                return counts;
+            }, { timeout: 15000, maxWait: 5000 });
+            if (options?.adminId && (residual.hasAny || options.force)) {
+                await this.courseVersionService.writeAudit({
+                    adminId: options.adminId,
+                    action: residual.hasAny ? 'UNASSIGN_COURSE_FORCE' : 'UNASSIGN_COURSE',
+                    targetType: 'UserCourse',
+                    targetId: userCourse.id,
+                    courseId,
+                    userId,
+                    metadata: {
+                        ...residual.counts,
+                        wiped,
+                        priorEnrolledVersionId: userCourse.enrolledVersionId,
+                    },
+                });
+            }
             return {
-                message: 'Successfully unassigned course from user',
+                message: residual.hasAny
+                    ? 'Successfully unassigned course and wiped all learner state (force)'
+                    : 'Successfully unassigned course from user',
                 statusCode: 200,
-                data: {},
+                data: {
+                    wiped: residual.hasAny ? wiped : undefined,
+                },
             };
         }
         catch (error) {
+            if (error instanceof common_1.HttpException)
+                throw error;
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.FORBIDDEN,
                 error: error?.message || 'Failed to unassign course from user',
@@ -2853,10 +3145,18 @@ let CourseService = CourseService_1 = class CourseService {
                                 },
                             },
                             modules: {
+                                where: { isArchived: false },
                                 select: {
                                     chapters: {
+                                        where: { isArchived: false },
                                         select: {
-                                            _count: { select: { sections: true } },
+                                            _count: {
+                                                select: {
+                                                    sections: {
+                                                        where: { isArchived: false, isActive: true },
+                                                    },
+                                                },
+                                            },
                                         },
                                     },
                                 },
@@ -2951,8 +3251,7 @@ let CourseService = CourseService_1 = class CourseService {
                         })) || [],
                     })) || [],
                 };
-                const sectionsCount = enrolledVersionId &&
-                    versionSectionCounts.has(enrolledVersionId)
+                const sectionsCount = enrolledVersionId && versionSectionCounts.has(enrolledVersionId)
                     ? versionSectionCounts.get(enrolledVersionId)
                     : course.modules
                         ?.flatMap((module) => module.chapters)
@@ -3422,85 +3721,24 @@ let CourseService = CourseService_1 = class CourseService {
             if (!course) {
                 throw new common_1.BadRequestException('Course not found');
             }
-            const chapters = await this.prisma.chapter.findMany({
-                where: { module: { courseId } },
-                select: { id: true },
-            });
-            const chapterIds = chapters.map((c) => c.id);
-            const assessmentIds = (await this.prisma.assessment.findMany({
-                where: { courseId },
-                select: { id: true },
-            })).map((a) => a.id);
-            const deleted = await this.prisma.$transaction(async (tx) => {
-                const sectionProgress = await tx.userCourseProgress.deleteMany({
-                    where: { userId, courseId },
-                });
-                const lastSeen = await tx.lastSeenSection.deleteMany({
-                    where: { userId, courseId },
-                });
-                const quizProgress = chapterIds.length > 0
-                    ? await tx.quizProgress.deleteMany({
-                        where: { userId, chapterId: { in: chapterIds } },
-                    })
-                    : { count: 0 };
-                const quizAnswers = chapterIds.length > 0
-                    ? await tx.quizAnswer.deleteMany({
-                        where: { userId, chapterId: { in: chapterIds } },
-                    })
-                    : { count: 0 };
-                const formCompletions = await tx.userFormCompletion.deleteMany({
-                    where: { userId, courseId },
-                });
-                const policyCompletions = await tx.userPolicyCompletion.deleteMany({
-                    where: { userId, courseId },
-                });
-                const policyItemCompletions = await tx.userPolicyItemCompletion.deleteMany({
-                    where: {
-                        userId,
-                        item: { policy: { courseId } },
-                    },
-                });
-                const feedbackSubmissions = await tx.courseFeedbackSubmission.deleteMany({
-                    where: { userId, courseId },
-                });
-                const courseCompletions = await tx.courseCompletion.deleteMany({
-                    where: { userId, courseId },
-                });
-                const chapterCompletions = await tx.userChapterCompletion.deleteMany({
-                    where: { userId, courseId },
-                });
-                const moduleCompletions = await tx.userModuleCompletion.deleteMany({
-                    where: { userId, courseId },
-                });
-                const sectionAttemptsReset = await tx.sectionTimeSpent.updateMany({
-                    where: { userId, courseId },
-                    data: {
-                        totalAttempts: 0,
-                        firstAttemptAt: null,
-                        lastAttemptAt: null,
-                    },
-                });
-                const assessmentAttempts = assessmentIds.length > 0
-                    ? await tx.assessmentAttempt.deleteMany({
-                        where: { userId, assessmentId: { in: assessmentIds } },
-                    })
-                    : { count: 0 };
-                return {
-                    sectionProgress: sectionProgress.count,
-                    lastSeen: lastSeen.count,
-                    quizProgress: quizProgress.count,
-                    quizAnswers: quizAnswers.count,
-                    formCompletions: formCompletions.count,
-                    policyCompletions: policyCompletions.count,
-                    policyItemCompletions: policyItemCompletions.count,
-                    feedbackSubmissions: feedbackSubmissions.count,
-                    courseCompletions: courseCompletions.count,
-                    chapterCompletions: chapterCompletions.count,
-                    moduleCompletions: moduleCompletions.count,
-                    sectionAttemptsReset: sectionAttemptsReset.count,
-                    assessmentAttempts: assessmentAttempts.count,
-                };
-            });
+            const wiped = await this.prisma.$transaction((tx) => this.wipeUserCourseState(tx, userId, courseId, {
+                deleteSectionTimeSpent: false,
+            }), { timeout: 15000, maxWait: 5000 });
+            const deleted = {
+                sectionProgress: wiped.sectionProgress,
+                lastSeen: wiped.lastSeen,
+                quizProgress: wiped.quizProgress,
+                quizAnswers: wiped.quizAnswers,
+                formCompletions: wiped.formCompletions,
+                policyCompletions: wiped.policyCompletions,
+                policyItemCompletions: wiped.policyItemCompletions,
+                feedbackSubmissions: wiped.feedbackSubmissions,
+                courseCompletions: wiped.courseCompletions,
+                chapterCompletions: wiped.chapterCompletions,
+                moduleCompletions: wiped.moduleCompletions,
+                sectionAttemptsReset: wiped.sectionTimeSpent,
+                assessmentAttempts: wiped.assessmentAttempts,
+            };
             return {
                 message: 'User course progress reset successfully',
                 statusCode: 200,

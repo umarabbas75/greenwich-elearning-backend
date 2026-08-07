@@ -168,7 +168,9 @@ describe('CourseVersionService', () => {
 
   describe('resolveCurriculumTree', () => {
     it('returns live mode when enrollment has no pin', async () => {
-      prisma.userCourse.findUnique.mockResolvedValue({ enrolledVersionId: null });
+      prisma.userCourse.findUnique.mockResolvedValue({
+        enrolledVersionId: null,
+      });
 
       await expect(
         service.resolveCurriculumTree('user-1', 'course-1'),
@@ -180,7 +182,9 @@ describe('CourseVersionService', () => {
         id: 'uc-1',
         enrolledVersionId: 'version-1',
       });
-      prisma.courseVersion.findUnique.mockResolvedValue({ manifest: mockManifest });
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: mockManifest,
+      });
 
       const result = await service.resolveCurriculumTree('user-1', 'course-1');
       expect(result.mode).toBe('versioned');
@@ -225,7 +229,9 @@ describe('CourseVersionService', () => {
         enrolledVersionId: 'version-1',
       });
       // Existence check now resolves the (cached) manifest, not just the id.
-      prisma.courseVersion.findUnique.mockResolvedValue({ manifest: mockManifest });
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: mockManifest,
+      });
 
       await expect(
         service.resolveEnrolledVersionId('user-1', 'course-1'),
@@ -287,7 +293,9 @@ describe('CourseVersionService', () => {
 
   describe('getVersionQuizzesForChapter', () => {
     it('returns null when learner is unpinned', async () => {
-      prisma.userCourse.findUnique.mockResolvedValue({ enrolledVersionId: null });
+      prisma.userCourse.findUnique.mockResolvedValue({
+        enrolledVersionId: null,
+      });
 
       await expect(
         service.getVersionQuizzesForChapter('user-1', 'course-1', 'ch-1'),
@@ -296,7 +304,9 @@ describe('CourseVersionService', () => {
 
     it('returns mapped quizzes for pinned chapter only (chapter-scoped load)', async () => {
       // Chapter-scoped loader: reads the manifest, then loads ONLY ch-1's quizzes.
-      prisma.courseVersion.findUnique.mockResolvedValue({ manifest: mockManifest });
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: mockManifest,
+      });
       prisma.quiz.findMany.mockResolvedValue([
         { id: 'quiz-1', question: 'Q', options: ['A'], answer: 'A' },
       ]);
@@ -309,9 +319,7 @@ describe('CourseVersionService', () => {
         'version-1',
       );
 
-      expect(result).toEqual([
-        { id: 'quiz-1', question: 'Q', options: ['A'] },
-      ]);
+      expect(result).toEqual([{ id: 'quiz-1', question: 'Q', options: ['A'] }]);
       // Only the target chapter's quiz ids are queried — no whole-tree hydration.
       expect(prisma.quiz.findMany).toHaveBeenCalledWith({
         where: { id: { in: ['quiz-1'] } },
@@ -320,13 +328,27 @@ describe('CourseVersionService', () => {
     });
 
     it('caches the immutable manifest: a second read skips the version fetch', async () => {
-      prisma.courseVersion.findUnique.mockResolvedValue({ manifest: mockManifest });
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: mockManifest,
+      });
       prisma.quiz.findMany.mockResolvedValue([
         { id: 'quiz-1', question: 'Q', options: ['A'], answer: 'A' },
       ]);
 
-      await service.getVersionQuizzesForChapter('u', 'c', 'ch-1', false, 'version-1');
-      await service.getVersionQuizzesForChapter('u', 'c', 'ch-1', false, 'version-1');
+      await service.getVersionQuizzesForChapter(
+        'u',
+        'c',
+        'ch-1',
+        false,
+        'version-1',
+      );
+      await service.getVersionQuizzesForChapter(
+        'u',
+        'c',
+        'ch-1',
+        false,
+        'version-1',
+      );
 
       // Manifest fetched once, served from cache the second time.
       expect(prisma.courseVersion.findUnique).toHaveBeenCalledTimes(1);
@@ -352,13 +374,15 @@ describe('CourseVersionService', () => {
         manifest: mockManifest,
         sectionCount: 2,
       });
-      (manifestModule.buildManifestFromLiveTree as jest.Mock).mockResolvedValue({
-        manifest: mockManifest,
-        sectionCount: 2,
-        moduleCount: 1,
-        chapterCount: 1,
-        quizCount: 1,
-      });
+      (manifestModule.buildManifestFromLiveTree as jest.Mock).mockResolvedValue(
+        {
+          manifest: mockManifest,
+          sectionCount: 2,
+          moduleCount: 1,
+          chapterCount: 1,
+          quizCount: 1,
+        },
+      );
 
       const result = await service.publishNewVersion('admin-1', 'course-1');
       expect((result.data as { skipped?: boolean }).skipped).toBe(true);
@@ -381,26 +405,28 @@ describe('CourseVersionService', () => {
       prisma.courseVersion.aggregate.mockResolvedValue({
         _max: { versionNumber: 1 },
       });
-      (manifestModule.buildManifestFromLiveTree as jest.Mock).mockResolvedValue({
-        manifest: {
-          ...mockManifest,
-          modules: [
-            {
-              ...mockManifest.modules[0],
-              chapters: [
-                {
-                  ...mockManifest.modules[0].chapters[0],
-                  sectionIds: ['sec-1', 'sec-2', 'sec-3'],
-                },
-              ],
-            },
-          ],
+      (manifestModule.buildManifestFromLiveTree as jest.Mock).mockResolvedValue(
+        {
+          manifest: {
+            ...mockManifest,
+            modules: [
+              {
+                ...mockManifest.modules[0],
+                chapters: [
+                  {
+                    ...mockManifest.modules[0].chapters[0],
+                    sectionIds: ['sec-1', 'sec-2', 'sec-3'],
+                  },
+                ],
+              },
+            ],
+          },
+          sectionCount: 3,
+          moduleCount: 1,
+          chapterCount: 1,
+          quizCount: 1,
         },
-        sectionCount: 3,
-        moduleCount: 1,
-        chapterCount: 1,
-        quizCount: 1,
-      });
+      );
       (manifestModule.publishManifestVersion as jest.Mock).mockResolvedValue({
         versionId: 'v-new',
         versionNumber: 2,
@@ -432,7 +458,11 @@ describe('CourseVersionService', () => {
       expect(prisma.$queryRaw).toHaveBeenCalled();
       // The active-unpinned enrollments get pinned to the new version.
       expect(prisma.userCourse.updateMany).toHaveBeenCalledWith({
-        where: { courseId: 'course-1', isActive: true, enrolledVersionId: null },
+        where: {
+          courseId: 'course-1',
+          isActive: true,
+          enrolledVersionId: null,
+        },
         data: { enrolledVersionId: 'v-new' },
       });
     });
@@ -452,7 +482,9 @@ describe('CourseVersionService', () => {
 
   describe('countCompletionDenominator', () => {
     it('uses live sections when unpinned', async () => {
-      prisma.userCourse.findUnique.mockResolvedValue({ enrolledVersionId: null });
+      prisma.userCourse.findUnique.mockResolvedValue({
+        enrolledVersionId: null,
+      });
       prisma.section.findMany.mockResolvedValue([{ id: 's1' }, { id: 's2' }]);
 
       await expect(
@@ -600,6 +632,199 @@ describe('CourseVersionService', () => {
       await expect(
         service.isReferencedByAnyVersion('quiz', 'quiz-9', 'course-1'),
       ).resolves.toBe(false);
+    });
+  });
+
+  describe('getReferencingVersionsWithEnrollments', () => {
+    // The whole point of this method is to answer "still shown to how many
+    // active users?". These tests pin the two behaviours the delete-response
+    // UX depends on: (a) count only referencing versions, and (b) sum only
+    // active enrollments — inactive ones are not being served and would
+    // recreate the "how many is that really?" confusion that motivated the
+    // field. The prisma mock's `enrollments: { where: { isActive: true } }`
+    // shape is asserted in the query args.
+    it('sums enrollmentCount across referencing versions only', async () => {
+      prisma.courseVersion.findMany.mockResolvedValue([
+        {
+          id: 'v1',
+          versionNumber: 1,
+          status: 'PUBLISHED',
+          manifest: mockManifest,
+          _count: { enrollments: 3 },
+        },
+        {
+          id: 'v2',
+          versionNumber: 2,
+          status: 'ARCHIVED',
+          // Different manifest — does not reference sec-1
+          manifest: {
+            modules: [
+              {
+                sourceId: 'mod-x',
+                order: 0,
+                chapters: [
+                  {
+                    sourceId: 'ch-x',
+                    order: 0,
+                    sectionIds: ['sec-x'],
+                    quizIds: [],
+                  },
+                ],
+              },
+            ],
+          },
+          _count: { enrollments: 99 },
+        },
+        {
+          id: 'v3',
+          versionNumber: 3,
+          status: 'PUBLISHED',
+          manifest: mockManifest,
+          _count: { enrollments: 7 },
+        },
+      ]);
+
+      const result = await service.getReferencingVersionsWithEnrollments(
+        'section',
+        'sec-1',
+        'course-1',
+      );
+
+      // v2 does not reference sec-1 → excluded; its 99 enrollments must NOT
+      // inflate stillServedTo.
+      expect(result.stillServedTo).toBe(10);
+      expect(result.versions).toHaveLength(2);
+      // Sorted by versionNumber DESC — matches the FE toast order (newest
+      // versions first) and stops the test from depending on manifest scan
+      // order.
+      expect(result.versions.map((v) => v.versionNumber)).toEqual([3, 1]);
+    });
+
+    it('scopes the count query to isActive:true enrollments', async () => {
+      prisma.courseVersion.findMany.mockResolvedValue([]);
+      await service.getReferencingVersionsWithEnrollments(
+        'quiz',
+        'quiz-1',
+        'course-1',
+      );
+
+      // This is the fix Claude's review caught: without the isActive filter,
+      // the delete-response would announce "still shown to 47 active users"
+      // when only 3 are actually being served, defeating the whole point of
+      // the field.
+      const call = prisma.courseVersion.findMany.mock.calls[0][0];
+      expect(call.select._count.select.enrollments).toEqual({
+        where: { isActive: true },
+      });
+    });
+
+    it('returns empty inventory when the id is not referenced anywhere', async () => {
+      prisma.courseVersion.findMany.mockResolvedValue([
+        {
+          id: 'v1',
+          versionNumber: 1,
+          status: 'PUBLISHED',
+          manifest: mockManifest,
+          _count: { enrollments: 3 },
+        },
+      ]);
+
+      const result = await service.getReferencingVersionsWithEnrollments(
+        'quiz',
+        'quiz-does-not-exist',
+        'course-1',
+      );
+
+      expect(result.stillServedTo).toBe(0);
+      expect(result.versions).toEqual([]);
+    });
+  });
+
+  describe('buildArchiveMessage', () => {
+    // These strings appear verbatim in the admin toast. The whole reason the
+    // helper lives on CourseVersionService is so CourseService and QuizService
+    // produce identical wording — a snapshot here catches accidental drift.
+    it('renders the zero-stillServed variant', () => {
+      const msg = service.buildArchiveMessage('Section', 0, []);
+      expect(msg).toContain('Archived');
+      expect(msg).toContain('hidden from new users');
+      // Must NOT reference migration when nobody is on a referencing version.
+      expect(msg).not.toContain('migrate-version');
+    });
+
+    it('renders the stillServed variant with version list and migrate hint', () => {
+      const msg = service.buildArchiveMessage('Quiz', 12, [
+        { versionNumber: 3 } as any,
+        { versionNumber: 2 } as any,
+      ]);
+      expect(msg).toContain('12 active users');
+      expect(msg).toContain('v3');
+      expect(msg).toContain('v2');
+      expect(msg).toContain('migrate-version');
+    });
+
+    it('pluralises singular vs plural users', () => {
+      expect(
+        service.buildArchiveMessage('Chapter', 1, [
+          { versionNumber: 2 } as any,
+        ]),
+      ).toContain('1 active user pinned');
+      expect(
+        service.buildArchiveMessage('Chapter', 2, [
+          { versionNumber: 2 } as any,
+        ]),
+      ).toContain('2 active users pinned');
+    });
+  });
+
+  describe('writeAudit', () => {
+    // The audit table exists specifically because the two most sensitive
+    // admin ops used to `void adminId`. These tests pin (a) the actor email
+    // gets denormalised so the row remains attributable after a user hard
+    // delete nulls adminId, and (b) audit failures never propagate.
+    it('denormalises adminEmail from the actor', async () => {
+      prisma.user = {
+        findUnique: jest.fn().mockResolvedValue({ email: 'admin@example.com' }),
+      };
+      prisma.adminAuditLog = { create: jest.fn().mockResolvedValue({}) };
+
+      await service.writeAudit({
+        adminId: 'admin-1',
+        action: 'ARCHIVE_VERSION',
+        targetType: 'CourseVersion',
+        targetId: 'v-1',
+        courseId: 'c-1',
+      });
+
+      expect(prisma.adminAuditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            adminId: 'admin-1',
+            adminEmail: 'admin@example.com',
+            action: 'ARCHIVE_VERSION',
+            targetType: 'CourseVersion',
+            targetId: 'v-1',
+            courseId: 'c-1',
+          }),
+        }),
+      );
+    });
+
+    it('never throws — audit write failures are best-effort', async () => {
+      prisma.user = {
+        findUnique: jest.fn().mockRejectedValue(new Error('db down')),
+      };
+      prisma.adminAuditLog = {
+        create: jest.fn().mockRejectedValue(new Error('db down')),
+      };
+
+      await expect(
+        service.writeAudit({
+          adminId: 'admin-1',
+          action: 'MIGRATE_LEARNER_VERSION',
+          targetType: 'UserCourse',
+        }),
+      ).resolves.toBeUndefined();
     });
   });
 

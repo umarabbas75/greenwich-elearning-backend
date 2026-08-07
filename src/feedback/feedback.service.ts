@@ -623,9 +623,7 @@ export class FeedbackService {
           ? formData.courseTitle.trim()
           : row.course.title,
       trainerName:
-        typeof formData.trainerName === 'string'
-          ? formData.trainerName
-          : null,
+        typeof formData.trainerName === 'string' ? formData.trainerName : null,
       location:
         typeof formData.location === 'string' ? formData.location : null,
       overallRating: row.overallRating,
@@ -673,9 +671,7 @@ export class FeedbackService {
           ? formData.courseTitle
           : courseTitle,
       trainerName:
-        typeof formData.trainerName === 'string'
-          ? formData.trainerName
-          : null,
+        typeof formData.trainerName === 'string' ? formData.trainerName : null,
       location:
         typeof formData.location === 'string' ? formData.location : null,
       overallRating: row.overallRating,
@@ -694,7 +690,9 @@ export class FeedbackService {
     };
   }
 
-  private extractTrainerName(tutorInfo: string | null | undefined): string | undefined {
+  private extractTrainerName(
+    tutorInfo: string | null | undefined,
+  ): string | undefined {
     if (!tutorInfo?.trim()) return undefined;
     const firstLine = tutorInfo.trim().split('\n')[0]?.trim();
     return firstLine || undefined;

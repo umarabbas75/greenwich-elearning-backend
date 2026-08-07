@@ -162,7 +162,11 @@ let QuizService = QuizService_1 = class QuizService {
                     include: {
                         quizzes: {
                             where: { isArchived: false },
-                            orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+                            orderBy: [
+                                { orderIndex: 'asc' },
+                                { createdAt: 'asc' },
+                                { id: 'asc' },
+                            ],
                             select: {
                                 id: true,
                                 question: true,
@@ -464,17 +468,41 @@ let QuizService = QuizService_1 = class QuizService {
             if (!chapter) {
                 throw new Error('chapter not exist');
             }
-            const referenced = await this.courseVersionService.isReferencedByAnyVersion('quiz', quizId);
+            const references = await this.courseVersionService.getReferencingVersionsWithEnrollments('quiz', quizId, chapter.module.courseId);
+            const referenced = references.versions.length > 0;
             if (referenced) {
                 await this.prisma.quiz.update({
                     where: { id: quizId },
                     data: { isArchived: true, chapterId: null },
                 });
                 const publishedVersion = await this.autoPublishAfterQuizChange(chapter.module.courseId, adminId, `Archived quiz from chapter "${chapter.title}"`);
+                if (adminId) {
+                    await this.courseVersionService.writeAudit({
+                        adminId,
+                        action: 'ARCHIVE_QUIZ',
+                        targetType: 'Quiz',
+                        targetId: quizId,
+                        courseId: chapter.module.courseId,
+                        metadata: {
+                            via: 'unAssignQuiz',
+                            chapterId,
+                            chapterTitle: chapter.title,
+                            stillServedTo: references.stillServedTo,
+                            versions: references.versions.map((v) => ({
+                                versionNumber: v.versionNumber,
+                                status: v.status,
+                                enrollmentCount: v.enrollmentCount,
+                            })),
+                        },
+                    });
+                }
                 return {
-                    message: 'Quiz is part of a published course version and was archived instead of unassigned',
+                    message: this.courseVersionService.buildArchiveMessage('Quiz', references.stillServedTo, references.versions),
                     statusCode: 200,
                     data: {},
+                    outcome: 'archived',
+                    stillServedTo: references.stillServedTo,
+                    versionsReferencing: references.versions,
                     publishedVersion: publishedVersion ?? undefined,
                 };
             }
@@ -493,6 +521,8 @@ let QuizService = QuizService_1 = class QuizService {
                     : 'Successfully unassigned quiz to module',
                 statusCode: 200,
                 data: {},
+                outcome: 'unassigned',
+                stillServedTo: 0,
                 publishedVersion: publishedVersion ?? undefined,
             };
         }
@@ -549,7 +579,8 @@ let QuizService = QuizService_1 = class QuizService {
                 throw new Error('Course not found');
             }
             const courseId = quiz.chapter?.module?.courseId ?? null;
-            const referenced = await this.courseVersionService.isReferencedByAnyVersion('quiz', id, courseId ?? undefined);
+            const references = await this.courseVersionService.getReferencingVersionsWithEnrollments('quiz', id, courseId ?? undefined);
+            const referenced = references.versions.length > 0;
             if (referenced) {
                 const archived = await this.prisma.quiz.update({
                     where: { id },
@@ -558,10 +589,31 @@ let QuizService = QuizService_1 = class QuizService {
                 const publishedVersion = courseId
                     ? await this.autoPublishAfterQuizChange(courseId, adminId, 'Archived quiz')
                     : null;
+                if (adminId && courseId) {
+                    await this.courseVersionService.writeAudit({
+                        adminId,
+                        action: 'ARCHIVE_QUIZ',
+                        targetType: 'Quiz',
+                        targetId: id,
+                        courseId,
+                        metadata: {
+                            via: 'deleteQuiz',
+                            stillServedTo: references.stillServedTo,
+                            versions: references.versions.map((v) => ({
+                                versionNumber: v.versionNumber,
+                                status: v.status,
+                                enrollmentCount: v.enrollmentCount,
+                            })),
+                        },
+                    });
+                }
                 return {
-                    message: 'Quiz is part of a published course version and was archived instead of deleted',
+                    message: this.courseVersionService.buildArchiveMessage('Quiz', references.stillServedTo, references.versions),
                     statusCode: 200,
                     data: archived,
+                    outcome: 'archived',
+                    stillServedTo: references.stillServedTo,
+                    versionsReferencing: references.versions,
                     publishedVersion: publishedVersion ?? undefined,
                 };
             }
@@ -577,6 +629,8 @@ let QuizService = QuizService_1 = class QuizService {
                     : 'Successfully deleted quiz record',
                 statusCode: 200,
                 data: {},
+                outcome: 'deleted',
+                stillServedTo: 0,
                 publishedVersion: publishedVersion ?? undefined,
             };
         }

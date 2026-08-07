@@ -31,8 +31,9 @@ export function assertNoInlineBase64(
   const bytes = Buffer.byteLength(value, 'utf8');
   if (bytes > MAX_HTML_BYTES) {
     throw new BadRequestException(
-      `${field} is ${(bytes / 1024).toFixed(0)}kB, above the ${MAX_HTML_BYTES / 1024}kB limit. ` +
-        `Move large embedded assets to file uploads.`,
+      `${field} is ${(bytes / 1024).toFixed(0)}kB, above the ${
+        MAX_HTML_BYTES / 1024
+      }kB limit. ` + `Move large embedded assets to file uploads.`,
     );
   }
 }

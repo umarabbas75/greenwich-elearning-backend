@@ -33,11 +33,7 @@ describe('TrackingService.recordSectionAttempt', () => {
       lastAttemptAt: new Date('2026-06-29T18:57:00.000Z'),
     });
 
-    const result = await service.recordSectionAttempt(
-      'user-1',
-      'sec-1',
-      false,
-    );
+    const result = await service.recordSectionAttempt('user-1', 'sec-1', false);
 
     expect(result.data.totalAttempts).toBe(1);
     expect(prisma.sectionTimeSpent.upsert).toHaveBeenCalledWith(
@@ -61,11 +57,7 @@ describe('TrackingService.recordSectionAttempt', () => {
       lastAttemptAt: new Date('2026-06-29T19:00:00.000Z'),
     });
 
-    const result = await service.recordSectionAttempt(
-      'user-1',
-      'sec-1',
-      true,
-    );
+    const result = await service.recordSectionAttempt('user-1', 'sec-1', true);
 
     expect(result.data.totalAttempts).toBe(2);
     expect(prisma.sectionTimeSpent.upsert).toHaveBeenCalledWith(
