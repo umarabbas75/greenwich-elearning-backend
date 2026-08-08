@@ -17,6 +17,10 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseVersionService } from '../course-version/course-version.service';
 import {
+  parseManifest,
+  isIdReferencedInManifest,
+} from '../course-version/course-version.manifest';
+import {
   assertChapterAccessible,
   enrichQuizProgressReport,
   gradeChapterQuizFromStoredAnswers,
@@ -694,7 +698,16 @@ export class QuizService {
       if (referenced) {
         await this.prisma.quiz.update({
           where: { id: quizId },
-          data: { isArchived: true, chapterId: null },
+          data: {
+            isArchived: true,
+            chapterId: null,
+            // archivedAt: set on the archive branch of unAssignQuiz for
+            // symmetry with deleteQuiz and with module/chapter/section
+            // archives. Both branches ultimately produce an archived row,
+            // and the inventory endpoint's sort would be broken if only one
+            // of the two entry points wrote the timestamp.
+            archivedAt: new Date(),
+          },
         });
         const publishedVersion = await this.autoPublishAfterQuizChange(
           chapter.module.courseId,
@@ -845,7 +858,7 @@ export class QuizService {
       if (referenced) {
         const archived = await this.prisma.quiz.update({
           where: { id },
-          data: { isArchived: true },
+          data: { isArchived: true, archivedAt: new Date() },
         });
         const publishedVersion = courseId
           ? await this.autoPublishAfterQuizChange(
@@ -937,6 +950,164 @@ export class QuizService {
         );
       }
     }
+  }
+
+  /**
+   * Restore an archived quiz — flip `isArchived: false`, clear `archivedAt`,
+   * and (best-effort) publish a new version so the quiz reappears for new
+   * enrollments. Rejects if the quiz is already live.
+   *
+   * Parent guard: a quiz's `chapterId` can legitimately be null (either
+   * because it's an in-the-bank quiz never assigned, or because
+   * `unAssignQuiz` niled the FK on archive). We only reject when the
+   * quiz is currently attached to an archived chapter — restoring a
+   * chapter-less quiz is fine and lands it back in the "unassigned" pool
+   * where `assignQuiz` can put it into a chapter.
+   */
+  async restoreQuiz(id: string, adminId?: string): Promise<ResponseDto> {
+    const quiz = await this.prisma.quiz.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        chapterId: true,
+        isArchived: true,
+        question: true,
+        chapter: {
+          select: {
+            id: true,
+            isArchived: true,
+            title: true,
+            module: {
+              select: {
+                id: true,
+                isArchived: true,
+                title: true,
+                courseId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!quiz) {
+      throw new HttpException(
+        { status: HttpStatus.NOT_FOUND, error: 'Quiz not found' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if (!quiz.isArchived) {
+      throw new HttpException(
+        {
+          status: HttpStatus.CONFLICT,
+          error: 'Cannot restore: Quiz is already live (not archived)',
+          details: { id: quiz.id, isArchived: false },
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    // Parent-chain guard (only when the quiz is currently attached to a
+    // chapter). Same shape as CourseService.restoreSection so the FE's
+    // 409 handler stays identical across entity types.
+    if (quiz.chapter) {
+      const chain: Array<{ entityType: string; id: string; title: string }> =
+        [];
+      if (quiz.chapter.module?.isArchived) {
+        chain.push({
+          entityType: 'module',
+          id: quiz.chapter.module.id,
+          title: quiz.chapter.module.title,
+        });
+      }
+      if (quiz.chapter.isArchived) {
+        chain.push({
+          entityType: 'chapter',
+          id: quiz.chapter.id,
+          title: quiz.chapter.title,
+        });
+      }
+      if (chain.length > 0) {
+        const highest = chain[0];
+        throw new HttpException(
+          {
+            status: HttpStatus.CONFLICT,
+            error: `Cannot restore: parent ${
+              highest.entityType === 'module' ? 'Module' : 'Chapter'
+            } "${highest.title}" is archived; restore the ${
+              highest.entityType
+            } first`,
+            details: {
+              parentEntityType: highest.entityType,
+              parentId: highest.id,
+              parentTitle: highest.title,
+              chain,
+            },
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+    }
+
+    const restored = await this.prisma.quiz.update({
+      where: { id },
+      data: { isArchived: false, archivedAt: null },
+    });
+
+    const courseId = quiz.chapter?.module?.courseId ?? null;
+    // `publishedInLatest` is true only if the latest published version's
+    // manifest already includes this quiz's id. For a quiz that was
+    // unassigned-and-archived (chapterId nulled), this will typically be
+    // false — publishing a new version after the restore + reassign is the
+    // path that gets it back into the live tree.
+    let publishedInLatest = false;
+    let latest: Awaited<
+      ReturnType<typeof this.courseVersionService.getLatestPublishedVersion>
+    > = null;
+    if (courseId) {
+      latest =
+        await this.courseVersionService.getLatestPublishedVersion(courseId);
+      if (latest) {
+        const parsed = parseManifest(latest.manifest);
+        publishedInLatest = parsed
+          ? isIdReferencedInManifest(parsed, 'quiz', id)
+          : false;
+      }
+    }
+
+    if (adminId) {
+      await this.courseVersionService.writeAudit({
+        adminId,
+        action: 'RESTORE_ENTITY',
+        targetType: 'Quiz',
+        targetId: id,
+        courseId: courseId ?? undefined,
+        metadata: {
+          entityType: 'quiz',
+          priorIsArchived: true,
+          parentWasArchived: false,
+          publishedInLatest,
+          questionSnippet:
+            quiz.question.length > 100
+              ? quiz.question.slice(0, 100) + '…'
+              : quiz.question,
+        },
+      });
+    }
+
+    return {
+      message: 'Restored',
+      statusCode: 200,
+      data: {
+        ...restored,
+        entityType: 'quiz',
+        latestPublishedVersionId: latest?.id ?? null,
+        latestPublishedVersionNumber: latest?.versionNumber ?? null,
+        publishedInLatest,
+        note: publishedInLatest
+          ? undefined
+          : this.courseVersionService.buildRestoreNote(latest?.versionNumber),
+      },
+    };
   }
 
   async checkQuiz(

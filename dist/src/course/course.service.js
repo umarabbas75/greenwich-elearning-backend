@@ -24,6 +24,7 @@ const promote_form_address_to_user_1 = require("../utils/promote-form-address-to
 const mail_service_1 = require("../mail/mail.service");
 const feedback_service_1 = require("../feedback/feedback.service");
 const course_version_service_1 = require("../course-version/course-version.service");
+const course_version_manifest_1 = require("../course-version/course-version.manifest");
 let CourseService = CourseService_1 = class CourseService {
     constructor(prisma, config, mail, feedbackService, courseVersionService) {
         this.prisma = prisma;
@@ -1767,7 +1768,7 @@ let CourseService = CourseService_1 = class CourseService {
                 include: {
                     _count: {
                         select: {
-                            modules: true,
+                            modules: { where: { isArchived: false } },
                         },
                     },
                 },
@@ -1804,7 +1805,7 @@ let CourseService = CourseService_1 = class CourseService {
                 include: {
                     _count: {
                         select: {
-                            modules: true,
+                            modules: { where: { isArchived: false } },
                         },
                     },
                 },
@@ -1980,7 +1981,13 @@ let CourseService = CourseService_1 = class CourseService {
                                         _count: {
                                             select: {
                                                 UserCourseProgress: {
-                                                    where: { userId },
+                                                    where: {
+                                                        userId,
+                                                        Section: {
+                                                            isArchived: false,
+                                                            isActive: true,
+                                                        },
+                                                    },
                                                 },
                                                 sections: {
                                                     where: { isArchived: false, isActive: true },
@@ -1999,7 +2006,13 @@ let CourseService = CourseService_1 = class CourseService {
                                 _count: {
                                     select: {
                                         UserCourseProgress: {
-                                            where: { userId },
+                                            where: {
+                                                userId,
+                                                Section: {
+                                                    isArchived: false,
+                                                    isActive: true,
+                                                },
+                                            },
                                         },
                                         sections: {
                                             where: { isArchived: false, isActive: true },
@@ -2614,7 +2627,7 @@ let CourseService = CourseService_1 = class CourseService {
             if (referenced) {
                 const archived = await this.prisma.module.update({
                     where: { id },
-                    data: { isArchived: true },
+                    data: { isArchived: true, archivedAt: new Date() },
                 });
                 const publishedVersion = await this.autoPublishAfterStructureChange(mod.courseId, adminId, `Archived module "${mod.title}"`);
                 await this.writeArchiveAudit({
@@ -2683,7 +2696,7 @@ let CourseService = CourseService_1 = class CourseService {
             if (referenced) {
                 const archived = await this.prisma.chapter.update({
                     where: { id },
-                    data: { isArchived: true },
+                    data: { isArchived: true, archivedAt: new Date() },
                 });
                 const publishedVersion = await this.autoPublishAfterStructureChange(courseId, adminId, `Archived chapter "${chapter.title}"`);
                 await this.writeArchiveAudit({
@@ -2768,7 +2781,7 @@ let CourseService = CourseService_1 = class CourseService {
             if (referenced) {
                 const archived = await this.prisma.section.update({
                     where: { id },
-                    data: { isArchived: true },
+                    data: { isArchived: true, archivedAt: new Date() },
                 });
                 const publishedVersion = await this.autoPublishAfterStructureChange(courseId, adminId, `Archived section "${section.title}"`);
                 await this.writeArchiveAudit({
@@ -2822,6 +2835,470 @@ let CourseService = CourseService_1 = class CourseService {
                 });
             }
         }
+    }
+    async restoreModule(id, adminId) {
+        const mod = await this.prisma.module.findUnique({
+            where: { id },
+            select: { id: true, courseId: true, isArchived: true, title: true },
+        });
+        if (!mod) {
+            throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Module not found' }, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (!mod.isArchived) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.CONFLICT,
+                error: 'Cannot restore: Module is already live (not archived)',
+                details: { id: mod.id, isArchived: false },
+            }, common_1.HttpStatus.CONFLICT);
+        }
+        const restored = await this.prisma.module.update({
+            where: { id },
+            data: { isArchived: false, archivedAt: null },
+        });
+        const latest = await this.courseVersionService.getLatestPublishedVersion(mod.courseId);
+        const publishedInLatest = this._isRowInVersion(latest, 'module', id);
+        if (adminId) {
+            await this.courseVersionService.writeAudit({
+                adminId,
+                action: 'RESTORE_ENTITY',
+                targetType: 'Module',
+                targetId: id,
+                courseId: mod.courseId,
+                metadata: {
+                    entityType: 'module',
+                    priorIsArchived: true,
+                    parentWasArchived: false,
+                    publishedInLatest,
+                    title: mod.title,
+                },
+            });
+        }
+        return {
+            message: 'Restored',
+            statusCode: 200,
+            data: {
+                ...restored,
+                entityType: 'module',
+                latestPublishedVersionId: latest?.id ?? null,
+                latestPublishedVersionNumber: latest?.versionNumber ?? null,
+                publishedInLatest,
+                note: publishedInLatest
+                    ? undefined
+                    : this.courseVersionService.buildRestoreNote(latest?.versionNumber),
+            },
+        };
+    }
+    async restoreChapter(id, adminId) {
+        const chapter = await this.prisma.chapter.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                moduleId: true,
+                isArchived: true,
+                title: true,
+                module: {
+                    select: {
+                        id: true,
+                        isArchived: true,
+                        title: true,
+                        courseId: true,
+                    },
+                },
+            },
+        });
+        if (!chapter) {
+            throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Chapter not found' }, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (!chapter.isArchived) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.CONFLICT,
+                error: 'Cannot restore: Chapter is already live (not archived)',
+                details: { id: chapter.id, isArchived: false },
+            }, common_1.HttpStatus.CONFLICT);
+        }
+        if (chapter.module?.isArchived) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.CONFLICT,
+                error: `Cannot restore: parent Module "${chapter.module.title}" is archived; restore the module first`,
+                details: {
+                    parentEntityType: 'module',
+                    parentId: chapter.module.id,
+                    parentTitle: chapter.module.title,
+                    chain: [
+                        {
+                            entityType: 'module',
+                            id: chapter.module.id,
+                            title: chapter.module.title,
+                        },
+                    ],
+                },
+            }, common_1.HttpStatus.CONFLICT);
+        }
+        const restored = await this.prisma.chapter.update({
+            where: { id },
+            data: { isArchived: false, archivedAt: null },
+        });
+        const courseId = chapter.module?.courseId ?? '';
+        const latest = courseId
+            ? await this.courseVersionService.getLatestPublishedVersion(courseId)
+            : null;
+        const publishedInLatest = this._isRowInVersion(latest, 'chapter', id);
+        if (adminId) {
+            await this.courseVersionService.writeAudit({
+                adminId,
+                action: 'RESTORE_ENTITY',
+                targetType: 'Chapter',
+                targetId: id,
+                courseId,
+                metadata: {
+                    entityType: 'chapter',
+                    priorIsArchived: true,
+                    parentWasArchived: false,
+                    publishedInLatest,
+                    title: chapter.title,
+                },
+            });
+        }
+        return {
+            message: 'Restored',
+            statusCode: 200,
+            data: {
+                ...restored,
+                entityType: 'chapter',
+                latestPublishedVersionId: latest?.id ?? null,
+                latestPublishedVersionNumber: latest?.versionNumber ?? null,
+                publishedInLatest,
+                note: publishedInLatest
+                    ? undefined
+                    : this.courseVersionService.buildRestoreNote(latest?.versionNumber),
+            },
+        };
+    }
+    async restoreSection(id, adminId) {
+        const section = await this.prisma.section.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                chapterId: true,
+                isArchived: true,
+                title: true,
+                chapter: {
+                    select: {
+                        id: true,
+                        isArchived: true,
+                        title: true,
+                        module: {
+                            select: {
+                                id: true,
+                                isArchived: true,
+                                title: true,
+                                courseId: true,
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        if (!section) {
+            throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Section not found' }, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (!section.isArchived) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.CONFLICT,
+                error: 'Cannot restore: Section is already live (not archived)',
+                details: { id: section.id, isArchived: false },
+            }, common_1.HttpStatus.CONFLICT);
+        }
+        const chain = [];
+        if (section.chapter?.module?.isArchived) {
+            chain.push({
+                entityType: 'module',
+                id: section.chapter.module.id,
+                title: section.chapter.module.title,
+            });
+        }
+        if (section.chapter?.isArchived) {
+            chain.push({
+                entityType: 'chapter',
+                id: section.chapter.id,
+                title: section.chapter.title,
+            });
+        }
+        if (chain.length > 0) {
+            const highest = chain[0];
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.CONFLICT,
+                error: `Cannot restore: parent ${highest.entityType === 'module' ? 'Module' : 'Chapter'} "${highest.title}" is archived; restore the ${highest.entityType} first`,
+                details: {
+                    parentEntityType: highest.entityType,
+                    parentId: highest.id,
+                    parentTitle: highest.title,
+                    chain,
+                },
+            }, common_1.HttpStatus.CONFLICT);
+        }
+        const restored = await this.prisma.section.update({
+            where: { id },
+            data: { isArchived: false, archivedAt: null },
+        });
+        const courseId = section.chapter?.module?.courseId ?? '';
+        const latest = courseId
+            ? await this.courseVersionService.getLatestPublishedVersion(courseId)
+            : null;
+        const publishedInLatest = this._isRowInVersion(latest, 'section', id);
+        if (adminId) {
+            await this.courseVersionService.writeAudit({
+                adminId,
+                action: 'RESTORE_ENTITY',
+                targetType: 'Section',
+                targetId: id,
+                courseId,
+                metadata: {
+                    entityType: 'section',
+                    priorIsArchived: true,
+                    parentWasArchived: false,
+                    publishedInLatest,
+                    title: section.title,
+                },
+            });
+        }
+        return {
+            message: 'Restored',
+            statusCode: 200,
+            data: {
+                ...restored,
+                entityType: 'section',
+                latestPublishedVersionId: latest?.id ?? null,
+                latestPublishedVersionNumber: latest?.versionNumber ?? null,
+                publishedInLatest,
+                note: publishedInLatest
+                    ? undefined
+                    : this.courseVersionService.buildRestoreNote(latest?.versionNumber),
+            },
+        };
+    }
+    _isRowInVersion(version, table, sourceId) {
+        if (!version)
+            return false;
+        const parsed = (0, course_version_manifest_1.parseManifest)(version.manifest);
+        return parsed ? (0, course_version_manifest_1.isIdReferencedInManifest)(parsed, table, sourceId) : false;
+    }
+    async getArchivedInventory(courseId, opts) {
+        const page = Math.max(1, opts.page ?? 1);
+        const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 20));
+        const search = opts.search?.trim() || undefined;
+        const sort = opts.sort || 'archivedAt:desc';
+        const searchWhere = search
+            ? { title: { contains: search, mode: 'insensitive' } }
+            : {};
+        const wantModule = !opts.entityType || opts.entityType === 'module';
+        const wantChapter = !opts.entityType || opts.entityType === 'chapter';
+        const wantSection = !opts.entityType || opts.entityType === 'section';
+        const wantQuiz = !opts.entityType || opts.entityType === 'quiz';
+        const [modules, chapters, sections, quizzes] = await Promise.all([
+            wantModule
+                ? this.prisma.module.findMany({
+                    where: { courseId, isArchived: true, ...searchWhere },
+                    select: {
+                        id: true,
+                        title: true,
+                        archivedAt: true,
+                        updatedAt: true,
+                    },
+                })
+                : Promise.resolve([]),
+            wantChapter
+                ? this.prisma.chapter.findMany({
+                    where: {
+                        module: { courseId },
+                        isArchived: true,
+                        ...searchWhere,
+                    },
+                    select: {
+                        id: true,
+                        title: true,
+                        archivedAt: true,
+                        updatedAt: true,
+                        module: {
+                            select: { id: true, title: true, isArchived: true },
+                        },
+                    },
+                })
+                : Promise.resolve([]),
+            wantSection
+                ? this.prisma.section.findMany({
+                    where: {
+                        chapter: { module: { courseId } },
+                        isArchived: true,
+                        ...searchWhere,
+                    },
+                    select: {
+                        id: true,
+                        title: true,
+                        archivedAt: true,
+                        updatedAt: true,
+                        chapter: {
+                            select: {
+                                id: true,
+                                title: true,
+                                isArchived: true,
+                                module: {
+                                    select: { id: true, title: true, isArchived: true },
+                                },
+                            },
+                        },
+                    },
+                })
+                : Promise.resolve([]),
+            wantQuiz
+                ? this.prisma.quiz.findMany({
+                    where: {
+                        chapter: { module: { courseId } },
+                        isArchived: true,
+                        ...(search
+                            ? { question: { contains: search, mode: 'insensitive' } }
+                            : {}),
+                    },
+                    select: {
+                        id: true,
+                        question: true,
+                        archivedAt: true,
+                        updatedAt: true,
+                        chapter: {
+                            select: {
+                                id: true,
+                                title: true,
+                                isArchived: true,
+                                module: {
+                                    select: { id: true, title: true, isArchived: true },
+                                },
+                            },
+                        },
+                    },
+                })
+                : Promise.resolve([]),
+        ]);
+        const effArchivedAt = (r) => r.archivedAt ?? r.updatedAt;
+        const flat = [
+            ...modules.map((m) => ({
+                id: m.id,
+                entityType: 'module',
+                title: m.title,
+                parentPath: null,
+                parentIsArchived: false,
+                parentId: null,
+                parentEntityType: null,
+                archivedAt: effArchivedAt(m),
+                stillServedTo: 0,
+                versionsReferencing: [],
+            })),
+            ...chapters.map((c) => ({
+                id: c.id,
+                entityType: 'chapter',
+                title: c.title,
+                parentPath: c.module.title,
+                parentIsArchived: c.module.isArchived,
+                parentId: c.module.isArchived ? c.module.id : null,
+                parentEntityType: c.module.isArchived ? 'module' : null,
+                archivedAt: effArchivedAt(c),
+                stillServedTo: 0,
+                versionsReferencing: [],
+            })),
+            ...sections.map((s) => ({
+                id: s.id,
+                entityType: 'section',
+                title: s.title,
+                parentPath: `${s.chapter.module.title} › ${s.chapter.title}`,
+                parentIsArchived: s.chapter.module.isArchived || s.chapter.isArchived,
+                parentId: s.chapter.module.isArchived
+                    ? s.chapter.module.id
+                    : s.chapter.isArchived
+                        ? s.chapter.id
+                        : null,
+                parentEntityType: s.chapter.module.isArchived
+                    ? 'module'
+                    : s.chapter.isArchived
+                        ? 'chapter'
+                        : null,
+                archivedAt: effArchivedAt(s),
+                stillServedTo: 0,
+                versionsReferencing: [],
+            })),
+            ...quizzes.map((q) => ({
+                id: q.id,
+                entityType: 'quiz',
+                title: q.question.length > 100 ? q.question.slice(0, 100) + '…' : q.question,
+                parentPath: q.chapter
+                    ? `${q.chapter.module.title} › ${q.chapter.title}`
+                    : null,
+                parentIsArchived: q.chapter
+                    ? q.chapter.module.isArchived || q.chapter.isArchived
+                    : false,
+                parentId: q.chapter
+                    ? q.chapter.module.isArchived
+                        ? q.chapter.module.id
+                        : q.chapter.isArchived
+                            ? q.chapter.id
+                            : null
+                    : null,
+                parentEntityType: q.chapter
+                    ? q.chapter.module.isArchived
+                        ? 'module'
+                        : q.chapter.isArchived
+                            ? 'chapter'
+                            : null
+                    : null,
+                archivedAt: effArchivedAt(q),
+                stillServedTo: 0,
+                versionsReferencing: [],
+            })),
+        ];
+        const idsByType = new Map();
+        for (const row of flat) {
+            const bucket = idsByType.get(row.entityType) ?? [];
+            bucket.push(row.id);
+            idsByType.set(row.entityType, bucket);
+        }
+        const referencesByType = new Map();
+        for (const [type, ids] of idsByType) {
+            if (ids.length === 0)
+                continue;
+            const map = await this.courseVersionService.getReferencingVersionsWithEnrollmentsBatch(type, ids, courseId);
+            referencesByType.set(type, map);
+        }
+        for (const row of flat) {
+            const map = referencesByType.get(row.entityType);
+            const ref = map?.get(row.id);
+            if (ref) {
+                row.stillServedTo = ref.stillServedTo;
+                row.versionsReferencing = ref.versions;
+            }
+        }
+        const [sortKey, sortDirRaw] = sort.split(':');
+        const sortDir = sortDirRaw === 'asc' ? 1 : -1;
+        flat.sort((a, b) => {
+            if (sortKey === 'title') {
+                return a.title.localeCompare(b.title) * sortDir;
+            }
+            if (sortKey === 'stillServedTo') {
+                return (a.stillServedTo - b.stillServedTo) * sortDir;
+            }
+            const aTime = a.archivedAt?.getTime() ?? -Infinity;
+            const bTime = b.archivedAt?.getTime() ?? -Infinity;
+            return (aTime - bTime) * sortDir;
+        });
+        const total = flat.length;
+        const paged = flat.slice((page - 1) * pageSize, page * pageSize);
+        return {
+            message: 'OK',
+            statusCode: 200,
+            data: {
+                rows: paged,
+                total,
+                page,
+                pageSize,
+            },
+        };
     }
     async assignCourse(userId, courseId) {
         try {
@@ -3161,7 +3638,16 @@ let CourseService = CourseService_1 = class CourseService {
                                     },
                                 },
                             },
-                            _count: { select: { UserCourseProgress: { where: { userId } } } },
+                            _count: {
+                                select: {
+                                    UserCourseProgress: {
+                                        where: {
+                                            userId,
+                                            Section: { isArchived: false, isActive: true },
+                                        },
+                                    },
+                                },
+                            },
                             feedbackForm: {
                                 select: { isRequired: true, isActive: true },
                             },
@@ -3365,13 +3851,14 @@ let CourseService = CourseService_1 = class CourseService {
             await (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, body.chapterId, userEmail);
             const course = await this.prisma.course.findUnique({
                 where: { id: body.courseId },
-                include: { modules: true },
+                select: { id: true },
             });
             if (!course) {
                 throw new Error('Course not found');
             }
             const user = await this.prisma.user.findUnique({
                 where: { id: userId },
+                select: { id: true },
             });
             if (!user) {
                 throw new Error('user not found');

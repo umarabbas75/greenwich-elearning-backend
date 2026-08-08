@@ -598,25 +598,44 @@ export class CourseVersionService {
    * underlying admin operation. Callers should still `await` so the row is
    * persisted within the same request lifecycle (Prisma buffers to the same
    * pool), but any error is swallowed and logged.
+   *
+   * Optional `tx` parameter: when provided, both the actor-email lookup and
+   * the `adminAuditLog.create` run on that transaction client. This lets a
+   * caller emit an audit row *inside* an interactive transaction — required
+   * by PR 5's `_migrateOneLearner` so a caller cannot observe a migrated
+   * UserCourse with no corresponding audit row (or vice versa on rollback).
+   *
+   * Important atomicity note: the audit write stays **best-effort even
+   * inside a tx**. On failure we log a structured warning and return —
+   * we do NOT rethrow. Rationale: the caller's business side effect (the
+   * migration, archive, etc.) is more valuable than a guaranteed audit row.
+   * Losing an audit row is a lesser bad than rolling back a bulk migration
+   * that leaves the admin with no idea which learners actually moved. See
+   * CC3 in `docs/course-versioning-admin-features-plan.md` for the FE-vs-BE
+   * agreement on this.
    */
-  async writeAudit(entry: {
-    adminId: string;
-    action: string;
-    targetType: string;
-    targetId?: string | null;
-    courseId?: string | null;
-    userId?: string | null;
-    metadata?: Record<string, unknown> | null;
-  }): Promise<void> {
+  async writeAudit(
+    entry: {
+      adminId: string;
+      action: string;
+      targetType: string;
+      targetId?: string | null;
+      courseId?: string | null;
+      userId?: string | null;
+      metadata?: Record<string, unknown> | null;
+    },
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx ?? this.prisma;
     try {
       // Denormalise the actor's email at write time so the audit row remains
       // attributable if the admin is later hard-deleted (adminId → null via
       // ON DELETE SET NULL).
-      const actor = await this.prisma.user.findUnique({
+      const actor = await client.user.findUnique({
         where: { id: entry.adminId },
         select: { email: true },
       });
-      await this.prisma.adminAuditLog.create({
+      await client.adminAuditLog.create({
         data: {
           adminId: entry.adminId,
           adminEmail: actor?.email ?? null,
@@ -630,9 +649,11 @@ export class CourseVersionService {
       });
     } catch (err) {
       this.logger.warn(
-        `AdminAuditLog write failed (${entry.action}): ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        `AdminAuditLog write failed (${entry.action}, target=${
+          entry.targetType
+        }:${entry.targetId ?? '-'}, course=${entry.courseId ?? '-'}, user=${
+          entry.userId ?? '-'
+        }): ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -885,6 +906,71 @@ export class CourseVersionService {
       enrollmentCount: number;
     }>;
   }> {
+    // Delegate to the batched implementation with a one-element array. Kept
+    // as a thin wrapper so existing single-ID call sites (deleteModule,
+    // deleteChapter, deleteSection, deleteQuiz, unAssignQuiz) don't need to
+    // change shape in this PR — inventory (the O(N) caller that motivated
+    // batching) is the only one paying the map-unwrap cost.
+    const map = await this.getReferencingVersionsWithEnrollmentsBatch(
+      table,
+      [sourceId],
+      courseId,
+    );
+    return map.get(sourceId) ?? { stillServedTo: 0, versions: [] };
+  }
+
+  /**
+   * Batch variant of `getReferencingVersionsWithEnrollments`. Given N source
+   * ids of the same entity type, scans every version's manifest **once** and
+   * returns a `Map<sourceId, {stillServedTo, versions}>` covering all N ids.
+   *
+   * The archive inventory endpoint calls this once per entity type (module,
+   * chapter, section, quiz) for the full page of archived rows, so a page
+   * of 50 archived sections costs 1 manifest scan instead of 50.
+   *
+   * Semantics identical to the single-ID method: enrollmentCount is scoped
+   * to `UserCourse.isActive: true`, both PUBLISHED and archived versions are
+   * counted (an archived version can still pin learners via
+   * `UserCourse.enrolledVersionId`), and each entry's `versions` is sorted
+   * by versionNumber descending.
+   */
+  async getReferencingVersionsWithEnrollmentsBatch(
+    table: 'section' | 'chapter' | 'module' | 'quiz',
+    sourceIds: string[],
+    courseId?: string,
+  ): Promise<
+    Map<
+      string,
+      {
+        stillServedTo: number;
+        versions: Array<{
+          versionId: string;
+          versionNumber: number;
+          status: string;
+          enrollmentCount: number;
+        }>;
+      }
+    >
+  > {
+    // Pre-seed the map with empty entries for every requested id so callers
+    // can `map.get(id) ?? empty` without a nullish branch.
+    const result = new Map<
+      string,
+      {
+        stillServedTo: number;
+        versions: Array<{
+          versionId: string;
+          versionNumber: number;
+          status: string;
+          enrollmentCount: number;
+        }>;
+      }
+    >();
+    for (const id of sourceIds) {
+      result.set(id, { stillServedTo: 0, versions: [] });
+    }
+    if (sourceIds.length === 0) return result;
+
     const versions = await this.prisma.courseVersion.findMany({
       where: courseId ? { courseId } : undefined,
       select: {
@@ -898,29 +984,54 @@ export class CourseVersionService {
       },
     });
 
-    const referencing: Array<{
-      versionId: string;
-      versionNumber: number;
-      status: string;
-      enrollmentCount: number;
-    }> = [];
-    let stillServedTo = 0;
+    const idSet = new Set(sourceIds);
 
     for (const v of versions) {
       const manifest = parseManifest(v.manifest);
       if (!manifest) continue;
-      if (!isIdReferencedInManifest(manifest, table, sourceId)) continue;
-      referencing.push({
-        versionId: v.id,
-        versionNumber: v.versionNumber,
-        status: v.status,
-        enrollmentCount: v._count.enrollments,
-      });
-      stillServedTo += v._count.enrollments;
+      // For each id, check membership in this manifest. isIdReferencedInManifest
+      // is O(modules × chapters × ids-per-chapter) per call, so ideally we'd
+      // walk the manifest once and collect membership for all ids in one pass.
+      // But: manifest membership sets are tiny (rarely > ~500 ids total), and
+      // idSet.has() is O(1), so the current shape stays readable at a
+      // negligible cost. Revisit if this becomes a hot spot.
+      for (const id of idSet) {
+        if (!isIdReferencedInManifest(manifest, table, id)) continue;
+        const entry = result.get(id)!;
+        entry.versions.push({
+          versionId: v.id,
+          versionNumber: v.versionNumber,
+          status: v.status,
+          enrollmentCount: v._count.enrollments,
+        });
+        entry.stillServedTo += v._count.enrollments;
+      }
     }
 
-    referencing.sort((a, b) => b.versionNumber - a.versionNumber);
-    return { stillServedTo, versions: referencing };
+    for (const entry of result.values()) {
+      entry.versions.sort((a, b) => b.versionNumber - a.versionNumber);
+    }
+    return result;
+  }
+
+  /**
+   * Human-friendly note attached to a successful restore response. The FE
+   * renders it as a secondary line beneath the "Restored" toast so the admin
+   * understands whether the newly-restored row is actually visible to new
+   * learners yet.
+   *
+   * A restore only flips `isArchived: false` — it does NOT publish a new
+   * version. Until the admin publishes, new enrollments still pin to the
+   * latest published version, which does not reference the restored row.
+   * The note is only omitted when the latest published version already
+   * references this row (i.e. the row was archived after publishing and
+   * survived in the pinned manifest anyway).
+   */
+  buildRestoreNote(latestVersionNumber: number | null | undefined): string {
+    if (!latestVersionNumber) {
+      return 'Restored to the live tree. No published versions exist yet — publish a new version to make this row visible to new enrollments.';
+    }
+    return `Restored to the live tree. Latest published version (v${latestVersionNumber}) does not reference this row; new enrollments will not see it until you publish a new version.`;
   }
 
   async pruneOrphanVersions(courseId?: string): Promise<{

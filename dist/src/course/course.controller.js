@@ -189,6 +189,24 @@ let CourseController = class CourseController {
     deleteSection(user, params) {
         return this.appService.deleteSection(params.id, user.id);
     }
+    restoreModule(user, params) {
+        return this.appService.restoreModule(params.id, user.id);
+    }
+    restoreChapter(user, params) {
+        return this.appService.restoreChapter(params.id, user.id);
+    }
+    restoreSection(user, params) {
+        return this.appService.restoreSection(params.id, user.id);
+    }
+    getArchivedInventory(courseId, page, pageSize, entityType, search, sort) {
+        return this.appService.getArchivedInventory(courseId, {
+            page: page ? parseInt(page, 10) : undefined,
+            pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+            entityType,
+            search,
+            sort,
+        });
+    }
     updateUserChapterProgress(body, user) {
         return this.appService.updateUserChapterProgress(user.id, body, user.email);
     }
@@ -656,6 +674,46 @@ __decorate([
     __metadata("design:paramtypes", [Object, dto_1.ParamsDto]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "deleteSection", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Post)('/module/:id/restore'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, dto_1.ParamsDto]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "restoreModule", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Post)('/chapter/:id/restore'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, dto_1.ParamsDto]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "restoreChapter", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Post)('/section/:id/restore'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, dto_1.ParamsDto]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "restoreSection", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Get)('/:courseId/archived'),
+    __param(0, (0, common_1.Param)('courseId')),
+    __param(1, (0, common_1.Query)('page')),
+    __param(2, (0, common_1.Query)('pageSize')),
+    __param(3, (0, common_1.Query)('entityType')),
+    __param(4, (0, common_1.Query)('search')),
+    __param(5, (0, common_1.Query)('sort')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String, String, String, String]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "getArchivedInventory", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('uJwt')),
     (0, common_1.Put)('/updateUserChapter/progress'),

@@ -90,6 +90,17 @@ export declare class CourseService {
     deleteModule(id: string, adminId?: string): Promise<ResponseDto>;
     deleteChapter(id: string, adminId?: string): Promise<ResponseDto>;
     deleteSection(id: string, adminId?: string): Promise<ResponseDto>;
+    restoreModule(id: string, adminId?: string): Promise<ResponseDto>;
+    restoreChapter(id: string, adminId?: string): Promise<ResponseDto>;
+    restoreSection(id: string, adminId?: string): Promise<ResponseDto>;
+    private _isRowInVersion;
+    getArchivedInventory(courseId: string, opts: {
+        page?: number;
+        pageSize?: number;
+        entityType?: 'module' | 'chapter' | 'section' | 'quiz';
+        search?: string;
+        sort?: string;
+    }): Promise<ResponseDto>;
     assignCourse(userId: string, courseId: string): Promise<ResponseDto>;
     assignCoursePublic(userId: string, courseId: string): Promise<ResponseDto>;
     unAssignCourse(userId: string, courseId: string, options?: {

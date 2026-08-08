@@ -351,6 +351,11 @@ model Module {
   description        String
   courseId           String
   isArchived         Boolean              @default(false)
+  /// When this row was archived. Nullable — populated by delete/archive paths
+  /// (from PR 1 onward) and backfilled from `updatedAt` for pre-existing archived
+  /// rows. Consumed by the archive inventory endpoint's `archivedAt:desc` sort
+  /// and by audit correlation.
+  archivedAt         DateTime?
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   chapters           Chapter[]
@@ -371,6 +376,8 @@ model Chapter {
   moduleId           String
   quizId             String?              @unique
   isArchived         Boolean              @default(false)
+  /// See `Module.archivedAt` — same semantics.
+  archivedAt         DateTime?
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   LastSeenSection    LastSeenSection[]
@@ -413,6 +420,8 @@ model Section {
   maxPerCategory   Int               @default(1)
   isActive         Boolean           @default(true)
   isArchived       Boolean           @default(false)
+  /// See `Module.archivedAt` — same semantics.
+  archivedAt       DateTime?
   
   // Visual Activity specific fields (nullable, used when type = VISUAL_ACTIVITY)
   questionText           String?
@@ -470,6 +479,8 @@ model Quiz {
   /// updates do not publish a new course version — see quiz reorder API.
   orderIndex Int?
   isArchived Boolean  @default(false)
+  /// See `Module.archivedAt` — same semantics.
+  archivedAt DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   chapter    Chapter? @relation(fields: [chapterId], references: [id])

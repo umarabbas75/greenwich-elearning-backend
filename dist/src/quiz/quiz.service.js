@@ -16,6 +16,7 @@ const config_1 = require("@nestjs/config");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const course_version_service_1 = require("../course-version/course-version.service");
+const course_version_manifest_1 = require("../course-version/course-version.manifest");
 const chapter_progression_1 = require("../utils/chapter-progression");
 let QuizService = QuizService_1 = class QuizService {
     constructor(prisma, config, courseVersionService) {
@@ -473,7 +474,11 @@ let QuizService = QuizService_1 = class QuizService {
             if (referenced) {
                 await this.prisma.quiz.update({
                     where: { id: quizId },
-                    data: { isArchived: true, chapterId: null },
+                    data: {
+                        isArchived: true,
+                        chapterId: null,
+                        archivedAt: new Date(),
+                    },
                 });
                 const publishedVersion = await this.autoPublishAfterQuizChange(chapter.module.courseId, adminId, `Archived quiz from chapter "${chapter.title}"`);
                 if (adminId) {
@@ -584,7 +589,7 @@ let QuizService = QuizService_1 = class QuizService {
             if (referenced) {
                 const archived = await this.prisma.quiz.update({
                     where: { id },
-                    data: { isArchived: true },
+                    data: { isArchived: true, archivedAt: new Date() },
                 });
                 const publishedVersion = courseId
                     ? await this.autoPublishAfterQuizChange(courseId, adminId, 'Archived quiz')
@@ -651,6 +656,121 @@ let QuizService = QuizService_1 = class QuizService {
                 });
             }
         }
+    }
+    async restoreQuiz(id, adminId) {
+        const quiz = await this.prisma.quiz.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                chapterId: true,
+                isArchived: true,
+                question: true,
+                chapter: {
+                    select: {
+                        id: true,
+                        isArchived: true,
+                        title: true,
+                        module: {
+                            select: {
+                                id: true,
+                                isArchived: true,
+                                title: true,
+                                courseId: true,
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        if (!quiz) {
+            throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Quiz not found' }, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (!quiz.isArchived) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.CONFLICT,
+                error: 'Cannot restore: Quiz is already live (not archived)',
+                details: { id: quiz.id, isArchived: false },
+            }, common_1.HttpStatus.CONFLICT);
+        }
+        if (quiz.chapter) {
+            const chain = [];
+            if (quiz.chapter.module?.isArchived) {
+                chain.push({
+                    entityType: 'module',
+                    id: quiz.chapter.module.id,
+                    title: quiz.chapter.module.title,
+                });
+            }
+            if (quiz.chapter.isArchived) {
+                chain.push({
+                    entityType: 'chapter',
+                    id: quiz.chapter.id,
+                    title: quiz.chapter.title,
+                });
+            }
+            if (chain.length > 0) {
+                const highest = chain[0];
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.CONFLICT,
+                    error: `Cannot restore: parent ${highest.entityType === 'module' ? 'Module' : 'Chapter'} "${highest.title}" is archived; restore the ${highest.entityType} first`,
+                    details: {
+                        parentEntityType: highest.entityType,
+                        parentId: highest.id,
+                        parentTitle: highest.title,
+                        chain,
+                    },
+                }, common_1.HttpStatus.CONFLICT);
+            }
+        }
+        const restored = await this.prisma.quiz.update({
+            where: { id },
+            data: { isArchived: false, archivedAt: null },
+        });
+        const courseId = quiz.chapter?.module?.courseId ?? null;
+        let publishedInLatest = false;
+        let latest = null;
+        if (courseId) {
+            latest =
+                await this.courseVersionService.getLatestPublishedVersion(courseId);
+            if (latest) {
+                const parsed = (0, course_version_manifest_1.parseManifest)(latest.manifest);
+                publishedInLatest = parsed
+                    ? (0, course_version_manifest_1.isIdReferencedInManifest)(parsed, 'quiz', id)
+                    : false;
+            }
+        }
+        if (adminId) {
+            await this.courseVersionService.writeAudit({
+                adminId,
+                action: 'RESTORE_ENTITY',
+                targetType: 'Quiz',
+                targetId: id,
+                courseId: courseId ?? undefined,
+                metadata: {
+                    entityType: 'quiz',
+                    priorIsArchived: true,
+                    parentWasArchived: false,
+                    publishedInLatest,
+                    questionSnippet: quiz.question.length > 100
+                        ? quiz.question.slice(0, 100) + '…'
+                        : quiz.question,
+                },
+            });
+        }
+        return {
+            message: 'Restored',
+            statusCode: 200,
+            data: {
+                ...restored,
+                entityType: 'quiz',
+                latestPublishedVersionId: latest?.id ?? null,
+                latestPublishedVersionNumber: latest?.versionNumber ?? null,
+                publishedInLatest,
+                note: publishedInLatest
+                    ? undefined
+                    : this.courseVersionService.buildRestoreNote(latest?.versionNumber),
+            },
+        };
     }
     async checkQuiz(userId, body, userEmail) {
         try {

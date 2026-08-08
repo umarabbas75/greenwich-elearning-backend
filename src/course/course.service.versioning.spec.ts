@@ -288,7 +288,7 @@ describe('CourseService — course versioning', () => {
 
       expect(prisma.section.update).toHaveBeenCalledWith({
         where: { id: 'sec-1' },
-        data: { isArchived: true },
+        data: { isArchived: true, archivedAt: expect.any(Date) },
       });
       expect(prisma.section.delete).not.toHaveBeenCalled();
       expect(result.message).toContain('Archived');

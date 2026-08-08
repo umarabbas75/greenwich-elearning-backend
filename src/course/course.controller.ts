@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Query,
   UseGuards,
   Put,
   Patch,
@@ -434,6 +435,57 @@ export class CourseController {
     @Param() params: ParamsDto,
   ): Promise<ResponseDto> {
     return this.appService.deleteSection(params.id, user.id);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Restore + archive inventory (PR 1)
+  // ─────────────────────────────────────────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('/module/:id/restore')
+  restoreModule(
+    @GetUser() user: User,
+    @Param() params: ParamsDto,
+  ): Promise<ResponseDto> {
+    return this.appService.restoreModule(params.id, user.id);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('/chapter/:id/restore')
+  restoreChapter(
+    @GetUser() user: User,
+    @Param() params: ParamsDto,
+  ): Promise<ResponseDto> {
+    return this.appService.restoreChapter(params.id, user.id);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('/section/:id/restore')
+  restoreSection(
+    @GetUser() user: User,
+    @Param() params: ParamsDto,
+  ): Promise<ResponseDto> {
+    return this.appService.restoreSection(params.id, user.id);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('/:courseId/archived')
+  getArchivedInventory(
+    @Param('courseId') courseId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('entityType')
+    entityType?: 'module' | 'chapter' | 'section' | 'quiz',
+    @Query('search') search?: string,
+    @Query('sort') sort?: string,
+  ): Promise<ResponseDto> {
+    return this.appService.getArchivedInventory(courseId, {
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+      entityType,
+      search,
+      sort,
+    });
   }
 
   @UseGuards(AuthGuard('uJwt'))

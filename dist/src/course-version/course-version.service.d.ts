@@ -137,7 +137,7 @@ export declare class CourseVersionService {
         courseId?: string | null;
         userId?: string | null;
         metadata?: Record<string, unknown> | null;
-    }): Promise<void>;
+    }, tx?: Prisma.TransactionClient): Promise<void>;
     countCompletionDenominator(userId: string, courseId: string): Promise<{
         total: number;
         liveSectionIds: string[];
@@ -187,6 +187,16 @@ export declare class CourseVersionService {
             enrollmentCount: number;
         }>;
     }>;
+    getReferencingVersionsWithEnrollmentsBatch(table: 'section' | 'chapter' | 'module' | 'quiz', sourceIds: string[], courseId?: string): Promise<Map<string, {
+        stillServedTo: number;
+        versions: Array<{
+            versionId: string;
+            versionNumber: number;
+            status: string;
+            enrollmentCount: number;
+        }>;
+    }>>;
+    buildRestoreNote(latestVersionNumber: number | null | undefined): string;
     pruneOrphanVersions(courseId?: string): Promise<{
         message: string;
         statusCode: number;

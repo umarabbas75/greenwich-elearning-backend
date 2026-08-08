@@ -826,6 +826,176 @@ describe('CourseVersionService', () => {
         }),
       ).resolves.toBeUndefined();
     });
+
+    // CC3 (see docs/course-versioning-admin-features-plan.md): the widened
+    // writeAudit(tx?) signature lets PR 5's bulk migrator emit its audit row
+    // inside the same transaction as the UserCourse update. These tests pin
+    // (a) the tx client is used for both the actor lookup AND the row create,
+    // and (b) failure inside the tx is still swallowed — audit stays
+    // best-effort even inside a transaction boundary, because a rolled-back
+    // migration is worse than a missing audit row.
+    it('uses the tx client for both the actor lookup and the row create when tx is passed', async () => {
+      // Regular prisma should NOT be touched — the tx is the whole point.
+      prisma.user = { findUnique: jest.fn() };
+      prisma.adminAuditLog = { create: jest.fn() };
+
+      const tx = {
+        user: {
+          findUnique: jest
+            .fn()
+            .mockResolvedValue({ email: 'tx-admin@example.com' }),
+        },
+        adminAuditLog: {
+          create: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+        },
+      };
+
+      await service.writeAudit(
+        {
+          adminId: 'admin-1',
+          action: 'MIGRATE_LEARNER_VERSION',
+          targetType: 'UserCourse',
+          targetId: 'uc-1',
+          courseId: 'course-1',
+          userId: 'user-1',
+        },
+        tx as any,
+      );
+
+      // Tx must own both reads and writes.
+      expect(tx.user.findUnique).toHaveBeenCalledWith({
+        where: { id: 'admin-1' },
+        select: { email: true },
+      });
+      expect(tx.adminAuditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            adminId: 'admin-1',
+            adminEmail: 'tx-admin@example.com',
+            action: 'MIGRATE_LEARNER_VERSION',
+          }),
+        }),
+      );
+      // Outer prisma untouched — otherwise the audit would land outside the
+      // caller's transaction boundary, defeating the purpose of passing tx.
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+      expect(prisma.adminAuditLog.create).not.toHaveBeenCalled();
+    });
+
+    it('swallows failures inside a tx without rolling it back (best-effort even in tx)', async () => {
+      const tx = {
+        user: { findUnique: jest.fn().mockResolvedValue({ email: 'x' }) },
+        adminAuditLog: {
+          create: jest.fn().mockRejectedValue(new Error('constraint x')),
+        },
+      };
+
+      // The whole point: does not throw. The caller's tx keeps going.
+      await expect(
+        service.writeAudit(
+          {
+            adminId: 'admin-1',
+            action: 'MIGRATE_LEARNER_VERSION',
+            targetType: 'UserCourse',
+            targetId: 'uc-1',
+          },
+          tx as any,
+        ),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('getReferencingVersionsWithEnrollmentsBatch', () => {
+    // CC2: this is what turns the O(N × M) manifest scans in the archive
+    // inventory endpoint into O(M). Two properties matter: (a) one
+    // manifest scan covers all requested ids, and (b) the returned Map has
+    // an entry for every requested id — including ids that appear in zero
+    // versions, so callers can `.get(id) ?? empty` without a null branch.
+    it('returns a Map with a per-id entry, including ids not referenced anywhere', async () => {
+      prisma.courseVersion.findMany.mockResolvedValue([
+        {
+          id: 'v1',
+          versionNumber: 1,
+          status: 'PUBLISHED',
+          manifest: mockManifest,
+          _count: { enrollments: 3 },
+        },
+      ]);
+
+      const result = await service.getReferencingVersionsWithEnrollmentsBatch(
+        'section',
+        ['sec-1', 'sec-does-not-exist'],
+        'course-1',
+      );
+
+      expect(result.get('sec-1')).toEqual({
+        stillServedTo: 3,
+        versions: [
+          expect.objectContaining({
+            versionId: 'v1',
+            versionNumber: 1,
+            enrollmentCount: 3,
+          }),
+        ],
+      });
+      // Not referenced anywhere → still present with an empty entry so
+      // callers can `.get(id) ?? empty` without a null branch.
+      expect(result.get('sec-does-not-exist')).toEqual({
+        stillServedTo: 0,
+        versions: [],
+      });
+    });
+
+    it('performs a single manifest scan for N ids (calls findMany once)', async () => {
+      prisma.courseVersion.findMany.mockResolvedValue([
+        {
+          id: 'v1',
+          versionNumber: 1,
+          status: 'PUBLISHED',
+          manifest: mockManifest,
+          _count: { enrollments: 5 },
+        },
+      ]);
+
+      await service.getReferencingVersionsWithEnrollmentsBatch(
+        'section',
+        ['sec-1', 'sec-2', 'sec-x', 'sec-y'],
+        'course-1',
+      );
+
+      // The whole reason the batch helper exists — inventory pages with 50+
+      // rows would otherwise fire 50 separate findMany calls. One is
+      // enough regardless of N.
+      expect(prisma.courseVersion.findMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('handles empty sourceIds by returning an empty Map without hitting the DB', async () => {
+      const result = await service.getReferencingVersionsWithEnrollmentsBatch(
+        'section',
+        [],
+        'course-1',
+      );
+      expect(result.size).toBe(0);
+      expect(prisma.courseVersion.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('buildRestoreNote', () => {
+    // The restore FE toast reads this string verbatim below the main
+    // "Restored" line. Pin the copy so accidental rewording during a lint
+    // sweep never changes what the admin actually reads.
+    it('mentions "no published versions" when the course has never been published', () => {
+      const note = service.buildRestoreNote(null);
+      expect(note).toContain('No published versions');
+      expect(note).toContain('publish a new version');
+    });
+
+    it('names the latest version number when one exists', () => {
+      const note = service.buildRestoreNote(5);
+      expect(note).toContain('v5');
+      expect(note).toContain('does not reference this row');
+      expect(note).toContain('publish a new version');
+    });
   });
 
   describe('pruneOrphanVersions', () => {

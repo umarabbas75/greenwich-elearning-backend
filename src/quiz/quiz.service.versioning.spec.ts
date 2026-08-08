@@ -1,3 +1,4 @@
+import { HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CourseVersionService } from '../course-version/course-version.service';
@@ -57,6 +58,12 @@ describe('QuizService — course versioning', () => {
         .fn()
         .mockResolvedValue({ stillServedTo: 0, versions: [] }),
       buildArchiveMessage: jest.fn().mockReturnValue('Archived'),
+      // PR 1 additions — restoreQuiz uses these three. Default mocks keep
+      // the existing 40+ tests untouched (delete/archive paths do not read
+      // them), and restoreQuiz tests below override with focused fixtures.
+      writeAudit: jest.fn().mockResolvedValue(undefined),
+      getLatestPublishedVersion: jest.fn().mockResolvedValue(null),
+      buildRestoreNote: jest.fn().mockReturnValue('RESTORE_NOTE_STUB'),
       autoPublishAfterStructuralChange: jest.fn().mockResolvedValue({
         versionNumber: 2,
         versionId: 'version-2',
@@ -169,7 +176,7 @@ describe('QuizService — course versioning', () => {
 
       expect(prisma.quiz.update).toHaveBeenCalledWith({
         where: { id: 'quiz-1' },
-        data: { isArchived: true },
+        data: { isArchived: true, archivedAt: expect.any(Date) },
       });
       expect(prisma.quiz.delete).not.toHaveBeenCalled();
       expect(result.message).toContain('Archived');
@@ -439,7 +446,11 @@ describe('QuizService — course versioning', () => {
 
       expect(prisma.quiz.update).toHaveBeenCalledWith({
         where: { id: 'quiz-1' },
-        data: { isArchived: true, chapterId: null },
+        data: {
+          isArchived: true,
+          chapterId: null,
+          archivedAt: expect.any(Date),
+        },
       });
       expect(prisma.chapter.update).not.toHaveBeenCalled();
       expect(result.message).toContain('Archived');
@@ -463,6 +474,171 @@ describe('QuizService — course versioning', () => {
         where: { id: 'ch-1' },
         data: { quizzes: { disconnect: { id: 'quiz-1' } } },
       });
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // PR 1: restoreQuiz — the un-archive endpoint. Mirrors CourseService's
+  // three restore endpoints; kept in this file because it lives on
+  // QuizService. The parent-chain guard is the interesting bit because
+  // quizzes are two levels deep (chapter → module → course) and can
+  // legitimately be chapter-less (unassigned + archived).
+  // ────────────────────────────────────────────────────────────────────
+
+  describe('restoreQuiz', () => {
+    it('flips isArchived to false, clears archivedAt, and emits RESTORE_ENTITY audit', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({
+        id: 'quiz-1',
+        chapterId: 'ch-1',
+        isArchived: true,
+        question: 'Old Q?',
+        chapter: {
+          id: 'ch-1',
+          isArchived: false,
+          title: 'Live Chapter',
+          module: {
+            id: 'mod-1',
+            isArchived: false,
+            title: 'Live Module',
+            courseId: 'course-1',
+          },
+        },
+      });
+      prisma.quiz.update.mockResolvedValue({
+        id: 'quiz-1',
+        isArchived: false,
+      });
+
+      const result = await service.restoreQuiz('quiz-1', 'admin-1');
+
+      expect(prisma.quiz.update).toHaveBeenCalledWith({
+        where: { id: 'quiz-1' },
+        data: { isArchived: false, archivedAt: null },
+      });
+      expect(result.statusCode).toBe(200);
+      expect(courseVersionService.writeAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'RESTORE_ENTITY',
+          targetType: 'Quiz',
+          targetId: 'quiz-1',
+          courseId: 'course-1',
+          metadata: expect.objectContaining({
+            entityType: 'quiz',
+            priorIsArchived: true,
+          }),
+        }),
+      );
+    });
+
+    it('returns 409 when the parent chapter is archived', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({
+        id: 'quiz-1',
+        chapterId: 'ch-1',
+        isArchived: true,
+        question: 'Q?',
+        chapter: {
+          id: 'ch-1',
+          isArchived: true, // ← archived parent
+          title: 'Archived Ch',
+          module: {
+            id: 'mod-1',
+            isArchived: false,
+            title: 'Live Module',
+            courseId: 'course-1',
+          },
+        },
+      });
+
+      await expect(service.restoreQuiz('quiz-1', 'admin-1')).rejects.toThrow(
+        HttpException,
+      );
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 with module first in chain when grandparent module is archived', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({
+        id: 'quiz-1',
+        chapterId: 'ch-1',
+        isArchived: true,
+        question: 'Q?',
+        chapter: {
+          id: 'ch-1',
+          isArchived: false, // chapter live
+          title: 'Live Ch',
+          module: {
+            id: 'mod-1',
+            isArchived: true, // grandparent archived
+            title: 'Archived Module',
+            courseId: 'course-1',
+          },
+        },
+      });
+
+      try {
+        await service.restoreQuiz('quiz-1', 'admin-1');
+        throw new Error('should have thrown');
+      } catch (e) {
+        const err = (e as any).getResponse();
+        expect(err.details.parentEntityType).toBe('module');
+        expect(err.details.chain[0].entityType).toBe('module');
+      }
+    });
+
+    it('restores a chapter-less quiz (unassigned + archived) without a parent-chain check', async () => {
+      // unAssignQuiz nulls the FK on archive. Restoring returns the quiz to
+      // the bank; assignQuiz can later put it back in a chapter. No parent
+      // to guard against.
+      prisma.quiz.findUnique.mockResolvedValue({
+        id: 'quiz-1',
+        chapterId: null,
+        isArchived: true,
+        question: 'Q?',
+        chapter: null,
+      });
+      prisma.quiz.update.mockResolvedValue({
+        id: 'quiz-1',
+        isArchived: false,
+      });
+
+      const result = await service.restoreQuiz('quiz-1', 'admin-1');
+
+      expect(result.statusCode).toBe(200);
+      // No latest-version lookup: without a courseId we can't ask which
+      // version references what.
+      expect(
+        courseVersionService.getLatestPublishedVersion,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 when the quiz is already live', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({
+        id: 'quiz-1',
+        chapterId: 'ch-1',
+        isArchived: false,
+        question: 'Q?',
+        chapter: {
+          id: 'ch-1',
+          isArchived: false,
+          title: 'Ch',
+          module: {
+            id: 'mod',
+            isArchived: false,
+            title: 'M',
+            courseId: 'course-1',
+          },
+        },
+      });
+
+      await expect(service.restoreQuiz('quiz-1', 'admin-1')).rejects.toThrow(
+        HttpException,
+      );
+    });
+
+    it('returns 404 when the quiz row is missing', async () => {
+      prisma.quiz.findUnique.mockResolvedValue(null);
+      await expect(service.restoreQuiz('quiz-gone', 'admin-1')).rejects.toThrow(
+        HttpException,
+      );
     });
   });
 });

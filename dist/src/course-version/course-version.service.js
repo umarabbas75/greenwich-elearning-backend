@@ -350,13 +350,14 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             },
         };
     }
-    async writeAudit(entry) {
+    async writeAudit(entry, tx) {
+        const client = tx ?? this.prisma;
         try {
-            const actor = await this.prisma.user.findUnique({
+            const actor = await client.user.findUnique({
                 where: { id: entry.adminId },
                 select: { email: true },
             });
-            await this.prisma.adminAuditLog.create({
+            await client.adminAuditLog.create({
                 data: {
                     adminId: entry.adminId,
                     adminEmail: actor?.email ?? null,
@@ -370,7 +371,7 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             });
         }
         catch (err) {
-            this.logger.warn(`AdminAuditLog write failed (${entry.action}): ${err instanceof Error ? err.message : String(err)}`);
+            this.logger.warn(`AdminAuditLog write failed (${entry.action}, target=${entry.targetType}:${entry.targetId ?? '-'}, course=${entry.courseId ?? '-'}, user=${entry.userId ?? '-'}): ${err instanceof Error ? err.message : String(err)}`);
         }
     }
     async countCompletionDenominator(userId, courseId) {
@@ -516,6 +517,16 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         return `Archived — hidden from new users, but still shown to ${stillServedTo} active ${userWord} pinned to ${versionList}. Use POST /courses/enrollments/migrate-version to move learners forward.`;
     }
     async getReferencingVersionsWithEnrollments(table, sourceId, courseId) {
+        const map = await this.getReferencingVersionsWithEnrollmentsBatch(table, [sourceId], courseId);
+        return map.get(sourceId) ?? { stillServedTo: 0, versions: [] };
+    }
+    async getReferencingVersionsWithEnrollmentsBatch(table, sourceIds, courseId) {
+        const result = new Map();
+        for (const id of sourceIds) {
+            result.set(id, { stillServedTo: 0, versions: [] });
+        }
+        if (sourceIds.length === 0)
+            return result;
         const versions = await this.prisma.courseVersion.findMany({
             where: courseId ? { courseId } : undefined,
             select: {
@@ -528,24 +539,34 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 },
             },
         });
-        const referencing = [];
-        let stillServedTo = 0;
+        const idSet = new Set(sourceIds);
         for (const v of versions) {
             const manifest = (0, course_version_manifest_1.parseManifest)(v.manifest);
             if (!manifest)
                 continue;
-            if (!(0, course_version_manifest_1.isIdReferencedInManifest)(manifest, table, sourceId))
-                continue;
-            referencing.push({
-                versionId: v.id,
-                versionNumber: v.versionNumber,
-                status: v.status,
-                enrollmentCount: v._count.enrollments,
-            });
-            stillServedTo += v._count.enrollments;
+            for (const id of idSet) {
+                if (!(0, course_version_manifest_1.isIdReferencedInManifest)(manifest, table, id))
+                    continue;
+                const entry = result.get(id);
+                entry.versions.push({
+                    versionId: v.id,
+                    versionNumber: v.versionNumber,
+                    status: v.status,
+                    enrollmentCount: v._count.enrollments,
+                });
+                entry.stillServedTo += v._count.enrollments;
+            }
         }
-        referencing.sort((a, b) => b.versionNumber - a.versionNumber);
-        return { stillServedTo, versions: referencing };
+        for (const entry of result.values()) {
+            entry.versions.sort((a, b) => b.versionNumber - a.versionNumber);
+        }
+        return result;
+    }
+    buildRestoreNote(latestVersionNumber) {
+        if (!latestVersionNumber) {
+            return 'Restored to the live tree. No published versions exist yet — publish a new version to make this row visible to new enrollments.';
+        }
+        return `Restored to the live tree. Latest published version (v${latestVersionNumber}) does not reference this row; new enrollments will not see it until you publish a new version.`;
     }
     async pruneOrphanVersions(courseId) {
         const versions = await this.prisma.courseVersion.findMany({

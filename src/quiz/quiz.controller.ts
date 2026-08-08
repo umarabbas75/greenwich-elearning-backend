@@ -125,6 +125,18 @@ export class QuizController {
     return this.appService.deleteQuiz(params.id, user.id);
   }
 
+  // POST /quiz/:id/restore — PR 1's un-archive endpoint. Mirrors the three
+  // course-side restores (module, chapter, section) so FE's admin restore UI
+  // has a single 4-way branch on entityType.
+  @UseGuards(AuthGuard('jwt'))
+  @Post('/:id/restore')
+  restoreQuiz(
+    @GetUser() user: User,
+    @Param() params: ParamsDto,
+  ): Promise<ResponseDto> {
+    return this.appService.restoreQuiz(params.id, user.id);
+  }
+
   @UseGuards(AuthGuard('jwt'))
   @Put('/assignQuiz/:quizId/:chapterId')
   assignQuiz(

@@ -44,6 +44,10 @@ import { promoteFormAddressToUserIfMissing } from '../utils/promote-form-address
 import { MailService } from '../mail/mail.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { CourseVersionService } from '../course-version/course-version.service';
+import {
+  parseManifest,
+  isIdReferencedInManifest,
+} from '../course-version/course-version.manifest';
 @Injectable()
 export class CourseService {
   private static readonly completionLogger = new Logger(CourseService.name);
@@ -3596,7 +3600,10 @@ export class CourseService {
       if (referenced) {
         const archived = await this.prisma.module.update({
           where: { id },
-          data: { isArchived: true },
+          // archivedAt: authoritative timestamp for the inventory endpoint's
+          // sort. Set explicitly (not derived from updatedAt) so it survives
+          // subsequent edits to the row while archived.
+          data: { isArchived: true, archivedAt: new Date() },
         });
         const publishedVersion = await this.autoPublishAfterStructureChange(
           mod.courseId,
@@ -3698,7 +3705,7 @@ export class CourseService {
       if (referenced) {
         const archived = await this.prisma.chapter.update({
           where: { id },
-          data: { isArchived: true },
+          data: { isArchived: true, archivedAt: new Date() },
         });
         const publishedVersion = await this.autoPublishAfterStructureChange(
           courseId,
@@ -3856,7 +3863,7 @@ export class CourseService {
       if (referenced) {
         const archived = await this.prisma.section.update({
           where: { id },
-          data: { isArchived: true },
+          data: { isArchived: true, archivedAt: new Date() },
         });
         const publishedVersion = await this.autoPublishAfterStructureChange(
           courseId,
@@ -3935,6 +3942,666 @@ export class CourseService {
         );
       }
     }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Restore endpoints (PR 1)
+  //
+  // For every delete/unassign path that archives (instead of hard-deletes)
+  // because a published version still references the row, we now expose an
+  // explicit "un-archive" endpoint. Previously the only way back was the
+  // accidental blind-key-copy path in updateChapter/updateModule, which was
+  // both undocumented and easy to fire by mistake.
+  //
+  // Cascade semantics (verified 2026-08-08 against the delete methods above):
+  // archiving a parent does NOT flip children's `isArchived` — the four
+  // delete methods only touch their own row. Therefore the parent-chain
+  // guard on restore must reject if the *immediate* parent is archived, and
+  // for Section (two levels deep) also reject if the grandparent module is
+  // archived. Restoring a child under an archived ancestor would leave the
+  // tree inconsistent (a live section under an archived chapter), which no
+  // downstream code is defensive against.
+  //
+  // Restoring a parent does NOT auto-restore its archived children — that's
+  // deliberate (cascade-on-restore is too much magic on a high-consequence
+  // path). The admin walks top-down: restore module first, then chapter,
+  // then section/quiz, seeing the count of remaining archived descendants
+  // in the FE toast.
+  // ───────────────────────────────────────────────────────────────────────
+
+  async restoreModule(id: string, adminId?: string): Promise<ResponseDto> {
+    const mod = await this.prisma.module.findUnique({
+      where: { id },
+      select: { id: true, courseId: true, isArchived: true, title: true },
+    });
+    if (!mod) {
+      throw new HttpException(
+        { status: HttpStatus.NOT_FOUND, error: 'Module not found' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if (!mod.isArchived) {
+      throw new HttpException(
+        {
+          status: HttpStatus.CONFLICT,
+          error: 'Cannot restore: Module is already live (not archived)',
+          details: { id: mod.id, isArchived: false },
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    // Restore. archivedAt cleared so the row disappears from inventory and
+    // sorting-by-archived-time never surfaces a live row.
+    const restored = await this.prisma.module.update({
+      where: { id },
+      data: { isArchived: false, archivedAt: null },
+    });
+
+    // Look up the latest published version and check whether it references
+    // this module. If it does, the row is already reachable by new
+    // enrollments and the FE can suppress the "publish to make visible" note.
+    const latest = await this.courseVersionService.getLatestPublishedVersion(
+      mod.courseId,
+    );
+    const publishedInLatest = this._isRowInVersion(latest, 'module', id);
+
+    // Best-effort audit — writeAudit swallows failures internally.
+    if (adminId) {
+      await this.courseVersionService.writeAudit({
+        adminId,
+        action: 'RESTORE_ENTITY',
+        targetType: 'Module',
+        targetId: id,
+        courseId: mod.courseId,
+        metadata: {
+          entityType: 'module',
+          priorIsArchived: true,
+          parentWasArchived: false, // module has no parent
+          publishedInLatest,
+          title: mod.title,
+        },
+      });
+    }
+
+    return {
+      message: 'Restored',
+      statusCode: 200,
+      data: {
+        ...restored,
+        entityType: 'module',
+        latestPublishedVersionId: latest?.id ?? null,
+        latestPublishedVersionNumber: latest?.versionNumber ?? null,
+        publishedInLatest,
+        note: publishedInLatest
+          ? undefined
+          : this.courseVersionService.buildRestoreNote(latest?.versionNumber),
+      },
+    };
+  }
+
+  async restoreChapter(id: string, adminId?: string): Promise<ResponseDto> {
+    const chapter = await this.prisma.chapter.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        moduleId: true,
+        isArchived: true,
+        title: true,
+        module: {
+          select: {
+            id: true,
+            isArchived: true,
+            title: true,
+            courseId: true,
+          },
+        },
+      },
+    });
+    if (!chapter) {
+      throw new HttpException(
+        { status: HttpStatus.NOT_FOUND, error: 'Chapter not found' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if (!chapter.isArchived) {
+      throw new HttpException(
+        {
+          status: HttpStatus.CONFLICT,
+          error: 'Cannot restore: Chapter is already live (not archived)',
+          details: { id: chapter.id, isArchived: false },
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    // Parent guard: reject if the module is archived. The admin must
+    // restore the module first — a live chapter under an archived module
+    // creates a tree inconsistency the rest of the system does not
+    // defensively handle.
+    if (chapter.module?.isArchived) {
+      throw new HttpException(
+        {
+          status: HttpStatus.CONFLICT,
+          error: `Cannot restore: parent Module "${chapter.module.title}" is archived; restore the module first`,
+          details: {
+            parentEntityType: 'module',
+            parentId: chapter.module.id,
+            parentTitle: chapter.module.title,
+            chain: [
+              {
+                entityType: 'module',
+                id: chapter.module.id,
+                title: chapter.module.title,
+              },
+            ],
+          },
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const restored = await this.prisma.chapter.update({
+      where: { id },
+      data: { isArchived: false, archivedAt: null },
+    });
+
+    const courseId = chapter.module?.courseId ?? '';
+    const latest = courseId
+      ? await this.courseVersionService.getLatestPublishedVersion(courseId)
+      : null;
+    const publishedInLatest = this._isRowInVersion(latest, 'chapter', id);
+
+    if (adminId) {
+      await this.courseVersionService.writeAudit({
+        adminId,
+        action: 'RESTORE_ENTITY',
+        targetType: 'Chapter',
+        targetId: id,
+        courseId,
+        metadata: {
+          entityType: 'chapter',
+          priorIsArchived: true,
+          parentWasArchived: false,
+          publishedInLatest,
+          title: chapter.title,
+        },
+      });
+    }
+
+    return {
+      message: 'Restored',
+      statusCode: 200,
+      data: {
+        ...restored,
+        entityType: 'chapter',
+        latestPublishedVersionId: latest?.id ?? null,
+        latestPublishedVersionNumber: latest?.versionNumber ?? null,
+        publishedInLatest,
+        note: publishedInLatest
+          ? undefined
+          : this.courseVersionService.buildRestoreNote(latest?.versionNumber),
+      },
+    };
+  }
+
+  async restoreSection(id: string, adminId?: string): Promise<ResponseDto> {
+    const section = await this.prisma.section.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        chapterId: true,
+        isArchived: true,
+        title: true,
+        chapter: {
+          select: {
+            id: true,
+            isArchived: true,
+            title: true,
+            module: {
+              select: {
+                id: true,
+                isArchived: true,
+                title: true,
+                courseId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!section) {
+      throw new HttpException(
+        { status: HttpStatus.NOT_FOUND, error: 'Section not found' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if (!section.isArchived) {
+      throw new HttpException(
+        {
+          status: HttpStatus.CONFLICT,
+          error: 'Cannot restore: Section is already live (not archived)',
+          details: { id: section.id, isArchived: false },
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    // Parent-chain guard: walk chapter → module. Because archives don't
+    // cascade, a section can legitimately sit under an archived chapter or
+    // an archived module, and either state blocks restore.
+    const chain: Array<{ entityType: string; id: string; title: string }> = [];
+    if (section.chapter?.module?.isArchived) {
+      chain.push({
+        entityType: 'module',
+        id: section.chapter.module.id,
+        title: section.chapter.module.title,
+      });
+    }
+    if (section.chapter?.isArchived) {
+      chain.push({
+        entityType: 'chapter',
+        id: section.chapter.id,
+        title: section.chapter.title,
+      });
+    }
+    if (chain.length > 0) {
+      // Report the highest archived ancestor first so the FE can direct the
+      // admin at the top of the chain — restoring a mid-level ancestor
+      // would still leave the section un-restorable.
+      const highest = chain[0];
+      throw new HttpException(
+        {
+          status: HttpStatus.CONFLICT,
+          error: `Cannot restore: parent ${
+            highest.entityType === 'module' ? 'Module' : 'Chapter'
+          } "${highest.title}" is archived; restore the ${
+            highest.entityType
+          } first`,
+          details: {
+            parentEntityType: highest.entityType,
+            parentId: highest.id,
+            parentTitle: highest.title,
+            chain,
+          },
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const restored = await this.prisma.section.update({
+      where: { id },
+      data: { isArchived: false, archivedAt: null },
+    });
+
+    const courseId = section.chapter?.module?.courseId ?? '';
+    const latest = courseId
+      ? await this.courseVersionService.getLatestPublishedVersion(courseId)
+      : null;
+    const publishedInLatest = this._isRowInVersion(latest, 'section', id);
+
+    if (adminId) {
+      await this.courseVersionService.writeAudit({
+        adminId,
+        action: 'RESTORE_ENTITY',
+        targetType: 'Section',
+        targetId: id,
+        courseId,
+        metadata: {
+          entityType: 'section',
+          priorIsArchived: true,
+          parentWasArchived: false,
+          publishedInLatest,
+          title: section.title,
+        },
+      });
+    }
+
+    return {
+      message: 'Restored',
+      statusCode: 200,
+      data: {
+        ...restored,
+        entityType: 'section',
+        latestPublishedVersionId: latest?.id ?? null,
+        latestPublishedVersionNumber: latest?.versionNumber ?? null,
+        publishedInLatest,
+        note: publishedInLatest
+          ? undefined
+          : this.courseVersionService.buildRestoreNote(latest?.versionNumber),
+      },
+    };
+  }
+
+  /**
+   * Cheap membership probe for the restore response's `publishedInLatest`
+   * field. Delegates to the manifest helper (already used by
+   * `getReferencingVersionsWithEnrollments`) so a change in what "referenced"
+   * means only has to move in one place.
+   */
+  private _isRowInVersion(
+    version: { manifest: Prisma.JsonValue } | null | undefined,
+    table: 'module' | 'chapter' | 'section' | 'quiz',
+    sourceId: string,
+  ): boolean {
+    if (!version) return false;
+    const parsed = parseManifest(version.manifest);
+    return parsed ? isIdReferencedInManifest(parsed, table, sourceId) : false;
+  }
+
+  /**
+   * Archive inventory for a course: every archived Module/Chapter/Section/
+   * Quiz that still exists in the DB, annotated with "still served to" and
+   * "which versions still reference this row".
+   *
+   * Pagination is in-memory because the archived-row count per course is
+   * bounded by admin behaviour (typically dozens, worst case hundreds).
+   * Cursor pagination against a UNION view is the escape hatch if a course
+   * ever accumulates thousands of archived rows.
+   *
+   * The batched `getReferencingVersionsWithEnrollmentsBatch` helper turns
+   * what would otherwise be O(N archived rows × M versions) manifest scans
+   * into O(M) per entity type — the reason CC2 was folded into this PR.
+   */
+  async getArchivedInventory(
+    courseId: string,
+    opts: {
+      page?: number;
+      pageSize?: number;
+      entityType?: 'module' | 'chapter' | 'section' | 'quiz';
+      search?: string;
+      sort?: string;
+    },
+  ): Promise<ResponseDto> {
+    const page = Math.max(1, opts.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 20));
+    const search = opts.search?.trim() || undefined;
+    const sort = opts.sort || 'archivedAt:desc';
+
+    const searchWhere = search
+      ? { title: { contains: search, mode: 'insensitive' as const } }
+      : {};
+
+    const wantModule = !opts.entityType || opts.entityType === 'module';
+    const wantChapter = !opts.entityType || opts.entityType === 'chapter';
+    const wantSection = !opts.entityType || opts.entityType === 'section';
+    const wantQuiz = !opts.entityType || opts.entityType === 'quiz';
+
+    const [modules, chapters, sections, quizzes] = await Promise.all([
+      wantModule
+        ? this.prisma.module.findMany({
+            where: { courseId, isArchived: true, ...searchWhere },
+            select: {
+              id: true,
+              title: true,
+              archivedAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      wantChapter
+        ? this.prisma.chapter.findMany({
+            where: {
+              module: { courseId },
+              isArchived: true,
+              ...searchWhere,
+            },
+            select: {
+              id: true,
+              title: true,
+              archivedAt: true,
+              updatedAt: true,
+              module: {
+                select: { id: true, title: true, isArchived: true },
+              },
+            },
+          })
+        : Promise.resolve([]),
+      wantSection
+        ? this.prisma.section.findMany({
+            where: {
+              chapter: { module: { courseId } },
+              isArchived: true,
+              ...searchWhere,
+            },
+            select: {
+              id: true,
+              title: true,
+              archivedAt: true,
+              updatedAt: true,
+              chapter: {
+                select: {
+                  id: true,
+                  title: true,
+                  isArchived: true,
+                  module: {
+                    select: { id: true, title: true, isArchived: true },
+                  },
+                },
+              },
+            },
+          })
+        : Promise.resolve([]),
+      wantQuiz
+        ? this.prisma.quiz.findMany({
+            where: {
+              // Quizzes can legitimately have a null chapterId (unassigned but
+              // still in the bank). Scope to this course by joining through
+              // chapter.module. Quizzes archived via unAssignQuiz also set
+              // chapterId to null, so we need an OR: either their current
+              // chapter belongs to this course, OR they were originally
+              // assigned to a chapter in this course and are now dangling
+              // (best-effort — we can't recover the historical courseId).
+              // Pragmatic compromise: include only quizzes still linked to a
+              // chapter in this course. The unlinked-and-archived quizzes
+              // surface via the (separate) POST /quiz/:id/restore audit trail.
+              chapter: { module: { courseId } },
+              isArchived: true,
+              ...(search
+                ? { question: { contains: search, mode: 'insensitive' } }
+                : {}),
+            },
+            select: {
+              id: true,
+              question: true,
+              archivedAt: true,
+              updatedAt: true,
+              chapter: {
+                select: {
+                  id: true,
+                  title: true,
+                  isArchived: true,
+                  module: {
+                    select: { id: true, title: true, isArchived: true },
+                  },
+                },
+              },
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    type Row = {
+      id: string;
+      entityType: 'module' | 'chapter' | 'section' | 'quiz';
+      title: string;
+      parentPath: string | null;
+      parentIsArchived: boolean;
+      parentId: string | null;
+      parentEntityType: 'module' | 'chapter' | null;
+      archivedAt: Date | null;
+      stillServedTo: number;
+      versionsReferencing: Array<{
+        versionId: string;
+        versionNumber: number;
+        status: string;
+        enrollmentCount: number;
+      }>;
+    };
+
+    // effectiveArchivedAt: falls back to updatedAt when the row was archived
+    // before the archivedAt column existed and the backfill migration copied
+    // updatedAt into archivedAt. We keep both in mind here because a row can
+    // still legitimately have archivedAt = null in edge scenarios (e.g. an
+    // older archive that predates both the backfill and PR 1 was subsequently
+    // re-archived by hand in the DB) — this fallback keeps the sort stable.
+    const effArchivedAt = (r: { archivedAt: Date | null; updatedAt: Date }) =>
+      r.archivedAt ?? r.updatedAt;
+
+    const flat: Row[] = [
+      ...modules.map<Row>((m) => ({
+        id: m.id,
+        entityType: 'module',
+        title: m.title,
+        parentPath: null,
+        parentIsArchived: false,
+        parentId: null,
+        parentEntityType: null,
+        archivedAt: effArchivedAt(m),
+        stillServedTo: 0,
+        versionsReferencing: [],
+      })),
+      ...chapters.map<Row>((c) => ({
+        id: c.id,
+        entityType: 'chapter',
+        title: c.title,
+        parentPath: c.module.title,
+        parentIsArchived: c.module.isArchived,
+        parentId: c.module.isArchived ? c.module.id : null,
+        parentEntityType: c.module.isArchived ? 'module' : null,
+        archivedAt: effArchivedAt(c),
+        stillServedTo: 0,
+        versionsReferencing: [],
+      })),
+      ...sections.map<Row>((s) => ({
+        id: s.id,
+        entityType: 'section',
+        title: s.title,
+        parentPath: `${s.chapter.module.title} › ${s.chapter.title}`,
+        // Highest-severity archived ancestor determines parentIsArchived.
+        // If the module is archived we point the FE at the module first
+        // because restoring the section requires the module to be restored
+        // first anyway.
+        parentIsArchived: s.chapter.module.isArchived || s.chapter.isArchived,
+        parentId: s.chapter.module.isArchived
+          ? s.chapter.module.id
+          : s.chapter.isArchived
+            ? s.chapter.id
+            : null,
+        parentEntityType: s.chapter.module.isArchived
+          ? 'module'
+          : s.chapter.isArchived
+            ? 'chapter'
+            : null,
+        archivedAt: effArchivedAt(s),
+        stillServedTo: 0,
+        versionsReferencing: [],
+      })),
+      ...quizzes.map<Row>((q) => ({
+        id: q.id,
+        entityType: 'quiz',
+        // Quizzes don't have a `title` column — surface the question text
+        // (truncated) so inventory search-by-title still works usefully.
+        title:
+          q.question.length > 100 ? q.question.slice(0, 100) + '…' : q.question,
+        parentPath: q.chapter
+          ? `${q.chapter.module.title} › ${q.chapter.title}`
+          : null,
+        parentIsArchived: q.chapter
+          ? q.chapter.module.isArchived || q.chapter.isArchived
+          : false,
+        parentId: q.chapter
+          ? q.chapter.module.isArchived
+            ? q.chapter.module.id
+            : q.chapter.isArchived
+              ? q.chapter.id
+              : null
+          : null,
+        parentEntityType: q.chapter
+          ? q.chapter.module.isArchived
+            ? 'module'
+            : q.chapter.isArchived
+              ? 'chapter'
+              : null
+          : null,
+        archivedAt: effArchivedAt(q),
+        stillServedTo: 0,
+        versionsReferencing: [],
+      })),
+    ];
+
+    // Batch-resolve stillServedTo/versionsReferencing per entity type. This
+    // is O(#entity_types × #versions) manifest scans total, regardless of
+    // how many archived rows fit in the inventory. Without CC2 this would be
+    // O(#rows × #versions) — 20× worse on a fully-populated page.
+    const idsByType = new Map<
+      'module' | 'chapter' | 'section' | 'quiz',
+      string[]
+    >();
+    for (const row of flat) {
+      const bucket = idsByType.get(row.entityType) ?? [];
+      bucket.push(row.id);
+      idsByType.set(row.entityType, bucket);
+    }
+    const referencesByType = new Map<
+      string,
+      Awaited<
+        ReturnType<
+          typeof this.courseVersionService.getReferencingVersionsWithEnrollmentsBatch
+        >
+      >
+    >();
+    for (const [type, ids] of idsByType) {
+      if (ids.length === 0) continue;
+      const map =
+        await this.courseVersionService.getReferencingVersionsWithEnrollmentsBatch(
+          type,
+          ids,
+          courseId,
+        );
+      referencesByType.set(type, map);
+    }
+    for (const row of flat) {
+      const map = referencesByType.get(row.entityType);
+      const ref = map?.get(row.id);
+      if (ref) {
+        row.stillServedTo = ref.stillServedTo;
+        row.versionsReferencing = ref.versions;
+      }
+    }
+
+    // Sort. `stillServedTo:desc` sorts to help the admin triage
+    // highest-consequence archives first (many pinned learners still
+    // seeing content that admin thinks is deleted).
+    const [sortKey, sortDirRaw] = sort.split(':');
+    const sortDir = sortDirRaw === 'asc' ? 1 : -1;
+    flat.sort((a, b) => {
+      if (sortKey === 'title') {
+        return a.title.localeCompare(b.title) * sortDir;
+      }
+      if (sortKey === 'stillServedTo') {
+        return (a.stillServedTo - b.stillServedTo) * sortDir;
+      }
+      // Default: archivedAt. Null archivedAt sorts last regardless of dir
+      // (both edges of the sort are more interesting than unknown times).
+      const aTime = a.archivedAt?.getTime() ?? -Infinity;
+      const bTime = b.archivedAt?.getTime() ?? -Infinity;
+      return (aTime - bTime) * sortDir;
+    });
+
+    const total = flat.length;
+    const paged = flat.slice((page - 1) * pageSize, page * pageSize);
+
+    return {
+      message: 'OK',
+      statusCode: 200,
+      data: {
+        rows: paged,
+        total,
+        page,
+        pageSize,
+      },
+    };
   }
 
   // async assignCourse(userId: string, courseId: string): Promise<ResponseDto> {

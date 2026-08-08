@@ -60,6 +60,10 @@ export declare class CourseController {
     deleteModule(user: User, params: ParamsDto): Promise<ResponseDto>;
     deleteChapter(user: User, params: ParamsDto): Promise<ResponseDto>;
     deleteSection(user: User, params: ParamsDto): Promise<ResponseDto>;
+    restoreModule(user: User, params: ParamsDto): Promise<ResponseDto>;
+    restoreChapter(user: User, params: ParamsDto): Promise<ResponseDto>;
+    restoreSection(user: User, params: ParamsDto): Promise<ResponseDto>;
+    getArchivedInventory(courseId: string, page?: string, pageSize?: string, entityType?: 'module' | 'chapter' | 'section' | 'quiz', search?: string, sort?: string): Promise<ResponseDto>;
     updateUserChapterProgress(body: any, user: User): Promise<ResponseDto>;
     getUserChapterProgress(params: AssignCourseDto): Promise<ResponseDto>;
     getLastSeen(param: GetUpdateLastSeen): Promise<ResponseDto>;

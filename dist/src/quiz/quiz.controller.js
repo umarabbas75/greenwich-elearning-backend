@@ -55,6 +55,9 @@ let QuizController = class QuizController {
     deleteQuiz(user, params) {
         return this.appService.deleteQuiz(params.id, user.id);
     }
+    restoreQuiz(user, params) {
+        return this.appService.restoreQuiz(params.id, user.id);
+    }
     assignQuiz(user, params) {
         return this.appService.assignQuiz(params.quizId, params.chapterId, user.id);
     }
@@ -164,6 +167,15 @@ __decorate([
     __metadata("design:paramtypes", [Object, dto_1.ParamsDto]),
     __metadata("design:returntype", Promise)
 ], QuizController.prototype, "deleteQuiz", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Post)('/:id/restore'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, dto_1.ParamsDto]),
+    __metadata("design:returntype", Promise)
+], QuizController.prototype, "restoreQuiz", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Put)('/assignQuiz/:quizId/:chapterId'),
