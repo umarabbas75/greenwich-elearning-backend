@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.mapPinnedQuizzesForLearner = exports.mapPinnedSectionsForLearner = exports.loadPinnedCurriculumForReport = exports.loadPinnedChapterQuizzes = exports.sortQuizIdsByLiveOrder = exports.compareQuizDisplayOrder = exports.loadManifestForVersion = exports.resetManifestCache = exports.loadPinnedCurriculum = exports.publishManifestVersion = exports.buildManifestFromLegacySnapshot = exports.buildManifestFromLiveTree = exports.diffManifests = exports.isIdReferencedInManifest = exports.computeStructuralFingerprint = exports.getQuizIdsFromManifest = exports.getChapterIdsFromManifest = exports.getSectionIdsFromManifest = exports.countSectionsInManifest = exports.parseManifest = void 0;
+exports.mapPinnedQuizzesForLearner = exports.mapPinnedSectionsForLearner = exports.loadPinnedCurriculumForReport = exports.loadPinnedChapterQuizzes = exports.sortQuizIdsByLiveOrder = exports.compareQuizDisplayOrder = exports.loadManifestForVersion = exports.resetManifestCache = exports.loadPinnedCurriculum = exports.publishManifestVersion = exports.buildManifestFromLegacySnapshot = exports.buildManifestFromLiveTree = exports.diffManifests = exports.diffManifestsTitled = exports.isIdReferencedInManifest = exports.computeStructuralFingerprint = exports.getQuizIdsFromManifest = exports.getChapterIdsFromManifest = exports.getSectionIdsFromManifest = exports.countSectionsInManifest = exports.parseManifest = void 0;
 const client_1 = require("@prisma/client");
 const crypto_1 = require("crypto");
 function parseManifest(raw) {
@@ -55,6 +55,104 @@ function isIdReferencedInManifest(manifest, table, sourceId) {
     }
 }
 exports.isIdReferencedInManifest = isIdReferencedInManifest;
+function diffManifestsTitled(from, to, titles) {
+    const fromIndex = indexManifestBySourceId(from, titles);
+    const toIndex = indexManifestBySourceId(to, titles);
+    const added = [];
+    const removed = [];
+    const moved = [];
+    const renamed = [];
+    for (const [sid, toEntry] of toIndex) {
+        const fromEntry = fromIndex.get(sid);
+        if (!fromEntry) {
+            added.push({
+                id: sid,
+                entityType: toEntry.entityType,
+                title: toEntry.title,
+                path: toEntry.path,
+            });
+            continue;
+        }
+        const sameChain = arraysEqual(fromEntry.parentChain, toEntry.parentChain);
+        if (!sameChain) {
+            moved.push({
+                id: sid,
+                entityType: toEntry.entityType,
+                title: toEntry.title,
+                fromPath: fromEntry.path,
+                toPath: toEntry.path,
+            });
+        }
+        else if (fromEntry.title !== toEntry.title) {
+            renamed.push({
+                id: sid,
+                entityType: toEntry.entityType,
+                fromTitle: fromEntry.title,
+                toTitle: toEntry.title,
+                path: toEntry.path,
+            });
+        }
+    }
+    for (const [sid, fromEntry] of fromIndex) {
+        if (!toIndex.has(sid)) {
+            removed.push({
+                id: sid,
+                entityType: fromEntry.entityType,
+                title: fromEntry.title,
+                path: fromEntry.path,
+            });
+        }
+    }
+    return { added, removed, moved, renamed };
+}
+exports.diffManifestsTitled = diffManifestsTitled;
+function indexManifestBySourceId(m, titles) {
+    const out = new Map();
+    const t = (sid) => titles.get(sid) ?? '(untitled)';
+    for (const mod of m.modules) {
+        out.set(mod.sourceId, {
+            entityType: 'module',
+            title: t(mod.sourceId),
+            path: '',
+            parentChain: [],
+        });
+        const modPath = t(mod.sourceId);
+        for (const ch of mod.chapters) {
+            out.set(ch.sourceId, {
+                entityType: 'chapter',
+                title: t(ch.sourceId),
+                path: modPath,
+                parentChain: [mod.sourceId],
+            });
+            const chPath = `${modPath} › ${t(ch.sourceId)}`;
+            for (const sid of ch.sectionIds) {
+                out.set(sid, {
+                    entityType: 'section',
+                    title: t(sid),
+                    path: chPath,
+                    parentChain: [mod.sourceId, ch.sourceId],
+                });
+            }
+            for (const qid of ch.quizIds) {
+                out.set(qid, {
+                    entityType: 'quiz',
+                    title: t(qid),
+                    path: chPath,
+                    parentChain: [mod.sourceId, ch.sourceId],
+                });
+            }
+        }
+    }
+    return out;
+}
+function arraysEqual(a, b) {
+    if (a.length !== b.length)
+        return false;
+    for (let i = 0; i < a.length; i++)
+        if (a[i] !== b[i])
+            return false;
+    return true;
+}
 function diffManifests(pinned, latest) {
     const pinnedSectionIds = new Set(getSectionIdsFromManifest(pinned));
     const pinnedChapterIds = new Set(getChapterIdsFromManifest(pinned));

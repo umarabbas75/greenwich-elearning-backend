@@ -122,5 +122,49 @@ export declare class CourseVersionController {
             pageSize: number;
         };
     }>;
+    diffVersions(courseId: string, from: string, to: string): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            fromVersionNumber: number;
+            toVersionNumber: number;
+        } & import("./course-version.manifest").DiffTitledResult;
+    }>;
+    getVersionTree(courseId: string, versionId: string): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            versionId: string;
+            versionNumber: number;
+            status: string;
+            publishedAt: Date;
+            modules: {
+                id: string;
+                sourceId: string;
+                title: string;
+                orderIndex: number;
+                chapters: {
+                    id: string;
+                    sourceId: string;
+                    title: string;
+                    orderIndex: number;
+                    hasQuiz: boolean;
+                    sections: {
+                        id: string;
+                        sourceId: string;
+                        title: string;
+                        type: string;
+                        orderIndex: number;
+                    }[];
+                    quizzes: {
+                        id: string;
+                        sourceId: string;
+                        question: string;
+                        orderIndex: number;
+                    }[];
+                }[];
+            }[];
+        };
+    }>;
 }
 export {};

@@ -107,6 +107,34 @@ export declare function getChapterIdsFromManifest(manifest: CourseVersionManifes
 export declare function getQuizIdsFromManifest(manifest: CourseVersionManifest): string[];
 export declare function computeStructuralFingerprint(manifest: CourseVersionManifest): string;
 export declare function isIdReferencedInManifest(manifest: CourseVersionManifest, table: 'section' | 'chapter' | 'module' | 'quiz', sourceId: string): boolean;
+export type DiffEntityType = 'module' | 'chapter' | 'section' | 'quiz';
+export type DiffAddedRemovedEntry = {
+    id: string;
+    entityType: DiffEntityType;
+    title: string;
+    path: string;
+};
+export type DiffMovedEntry = {
+    id: string;
+    entityType: DiffEntityType;
+    title: string;
+    fromPath: string;
+    toPath: string;
+};
+export type DiffRenamedEntry = {
+    id: string;
+    entityType: DiffEntityType;
+    fromTitle: string;
+    toTitle: string;
+    path: string;
+};
+export type DiffTitledResult = {
+    added: DiffAddedRemovedEntry[];
+    removed: DiffAddedRemovedEntry[];
+    moved: DiffMovedEntry[];
+    renamed: DiffRenamedEntry[];
+};
+export declare function diffManifestsTitled(from: CourseVersionManifest, to: CourseVersionManifest, titles: Map<string, string>): DiffTitledResult;
 export declare function diffManifests(pinned: CourseVersionManifest, latest: CourseVersionManifest): {
     newSections: number;
     newChapters: number;

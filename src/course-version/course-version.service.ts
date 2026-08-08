@@ -11,6 +11,8 @@ import {
   computeStructuralFingerprint,
   countSectionsInManifest,
   diffManifests,
+  diffManifestsTitled,
+  DiffTitledResult,
   getChapterIdsFromManifest,
   getQuizIdsFromManifest,
   getSectionIdsFromManifest,
@@ -1318,6 +1320,264 @@ export class CourseVersionService {
       default:
         return { user: { email: 'asc' } };
     }
+  }
+
+  // ────────────────────────────────────────────────────────────────────
+  // PR 3 — Version tree + diff
+  //
+  // getVersionTree: titled Module → Chapter → { Sections, Quizzes } tree
+  // for one specific version. `listVersions` (already exists) omits the
+  // manifest entirely, so without this endpoint the admin has no way to
+  // see what's inside a version.
+  //
+  // diffVersionsTitled: added/removed/moved/renamed lists between two
+  // versions. Renames are always empty in the current schema (titles
+  // aren't snapshotted per version); the bucket stays in the response
+  // shape so a future manifest-title snapshot lights it up without a
+  // contract change.
+  // ────────────────────────────────────────────────────────────────────
+
+  async getVersionTree(
+    courseId: string,
+    versionId: string,
+  ): Promise<{
+    message: string;
+    statusCode: number;
+    data: {
+      versionId: string;
+      versionNumber: number;
+      status: string;
+      publishedAt: Date | null;
+      modules: Array<{
+        id: string;
+        sourceId: string;
+        title: string;
+        orderIndex: number;
+        chapters: Array<{
+          id: string;
+          sourceId: string;
+          title: string;
+          orderIndex: number;
+          hasQuiz: boolean;
+          sections: Array<{
+            id: string;
+            sourceId: string;
+            title: string;
+            type: string;
+            orderIndex: number | null;
+          }>;
+          quizzes: Array<{
+            id: string;
+            sourceId: string;
+            question: string;
+            orderIndex: number | null;
+          }>;
+        }>;
+      }>;
+    };
+  }> {
+    // Scope by courseId AND id so an admin can't peek at a version from a
+    // different course by guessing its uuid.
+    const version = await this.prisma.courseVersion.findFirst({
+      where: { id: versionId, courseId },
+      select: {
+        id: true,
+        versionNumber: true,
+        status: true,
+        publishedAt: true,
+      },
+    });
+    if (!version) {
+      throw new NotFoundException(
+        `Version ${versionId} not found for course ${courseId}`,
+      );
+    }
+
+    // loadPinnedCurriculum hydrates the manifest into titled tree via
+    // live-table lookups. Includes section body/config which is heavier
+    // than we strictly need — acceptable for an admin-only endpoint that
+    // fires at most once per admin tree-view.
+    const tree = await loadPinnedCurriculum(this.prisma, versionId);
+    if (!tree) {
+      // Version row exists but manifest is unparseable / missing. Treat
+      // as an empty tree rather than a 500 so the FE can render a
+      // clear "empty version" state.
+      return {
+        message: 'OK',
+        statusCode: 200,
+        data: {
+          versionId: version.id,
+          versionNumber: version.versionNumber,
+          status: version.status,
+          publishedAt: version.publishedAt,
+          modules: [],
+        },
+      };
+    }
+
+    // Manifest-only schema note: there is no separate `CourseVersionModule`
+    // frozen-row-id — `id` and `sourceId` are the same value. The FE spec
+    // ships both fields for future compatibility with a normalised-version
+    // schema; here they are identical by construction.
+    return {
+      message: 'OK',
+      statusCode: 200,
+      data: {
+        versionId: version.id,
+        versionNumber: version.versionNumber,
+        status: version.status,
+        publishedAt: version.publishedAt,
+        modules: tree.modules.map((m) => ({
+          id: m.sourceModuleId,
+          sourceId: m.sourceModuleId,
+          title: m.title,
+          orderIndex: m.orderIndex,
+          chapters: m.chapters.map((c) => ({
+            id: c.sourceChapterId,
+            sourceId: c.sourceChapterId,
+            title: c.title,
+            orderIndex: c.orderIndex,
+            hasQuiz: c.quizzes.length > 0,
+            sections: c.sections.map((s) => ({
+              id: s.id,
+              sourceId: s.id,
+              title: s.title,
+              type: s.type,
+              orderIndex: s.orderIndex,
+            })),
+            quizzes: c.quizzes.map((q) => ({
+              id: q.id,
+              sourceId: q.id,
+              question: q.question,
+              orderIndex: null, // Quiz.orderIndex isn't on the pinned type;
+              // pull from live if needed by the FE.
+            })),
+          })),
+        })),
+      },
+    };
+  }
+
+  async diffVersionsTitled(
+    courseId: string,
+    fromVersionId: string,
+    toVersionId: string,
+  ): Promise<{
+    message: string;
+    statusCode: number;
+    data: {
+      fromVersionNumber: number;
+      toVersionNumber: number;
+    } & DiffTitledResult;
+  }> {
+    const [from, to] = await Promise.all([
+      this.prisma.courseVersion.findFirst({
+        where: { id: fromVersionId, courseId },
+        select: { versionNumber: true, manifest: true },
+      }),
+      this.prisma.courseVersion.findFirst({
+        where: { id: toVersionId, courseId },
+        select: { versionNumber: true, manifest: true },
+      }),
+    ]);
+    if (!from) {
+      throw new NotFoundException(
+        `Version ${fromVersionId} not found for course ${courseId}`,
+      );
+    }
+    if (!to) {
+      throw new NotFoundException(
+        `Version ${toVersionId} not found for course ${courseId}`,
+      );
+    }
+
+    const fromManifest = parseManifest(from.manifest);
+    const toManifest = parseManifest(to.manifest);
+    if (!fromManifest || !toManifest) {
+      // At least one manifest failed to parse — return an empty diff
+      // with the version numbers so the FE can render a clear "cannot
+      // diff, one side has an invalid manifest" state.
+      return {
+        message: 'OK',
+        statusCode: 200,
+        data: {
+          fromVersionNumber: from.versionNumber,
+          toVersionNumber: to.versionNumber,
+          added: [],
+          removed: [],
+          moved: [],
+          renamed: [],
+        },
+      };
+    }
+
+    // Union of all sourceIds appearing in either manifest — this is the
+    // set of ids we need titles for. Fetched with 4 batched findMany
+    // calls (one per entity type) so the diff endpoint's DB budget is
+    // fixed regardless of how many entities appear in the manifests.
+    const moduleIds = new Set<string>();
+    const chapterIds = new Set<string>();
+    const sectionIds = new Set<string>();
+    const quizIds = new Set<string>();
+    for (const m of [...fromManifest.modules, ...toManifest.modules]) {
+      moduleIds.add(m.sourceId);
+      for (const ch of m.chapters) {
+        chapterIds.add(ch.sourceId);
+        for (const sid of ch.sectionIds) sectionIds.add(sid);
+        for (const qid of ch.quizIds) quizIds.add(qid);
+      }
+    }
+
+    const [modules, chapters, sections, quizzes] = await Promise.all([
+      moduleIds.size > 0
+        ? this.prisma.module.findMany({
+            where: { id: { in: Array.from(moduleIds) } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; title: string }>),
+      chapterIds.size > 0
+        ? this.prisma.chapter.findMany({
+            where: { id: { in: Array.from(chapterIds) } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; title: string }>),
+      sectionIds.size > 0
+        ? this.prisma.section.findMany({
+            where: { id: { in: Array.from(sectionIds) } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; title: string }>),
+      quizIds.size > 0
+        ? this.prisma.quiz.findMany({
+            where: { id: { in: Array.from(quizIds) } },
+            select: { id: true, question: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; question: string }>),
+    ]);
+
+    const titles = new Map<string, string>();
+    for (const m of modules) titles.set(m.id, m.title);
+    for (const c of chapters) titles.set(c.id, c.title);
+    for (const s of sections) titles.set(s.id, s.title);
+    for (const q of quizzes) {
+      // Quiz's "title" is the question text — trim to a reasonable snippet
+      // so the diff response doesn't balloon with essay-length questions.
+      const snippet =
+        q.question.length > 120 ? q.question.slice(0, 120) + '…' : q.question;
+      titles.set(q.id, snippet);
+    }
+
+    const diff = diffManifestsTitled(fromManifest, toManifest, titles);
+
+    return {
+      message: 'OK',
+      statusCode: 200,
+      data: {
+        fromVersionNumber: from.versionNumber,
+        toVersionNumber: to.versionNumber,
+        ...diff,
+      },
+    };
   }
 
   async pruneOrphanVersions(courseId?: string): Promise<{

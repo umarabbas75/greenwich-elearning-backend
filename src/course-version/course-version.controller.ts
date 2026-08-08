@@ -98,4 +98,32 @@ export class CourseVersionController {
       versionFilter,
     });
   }
+
+  /**
+   * PR 3a — Titled version tree. Expand one version's manifest into
+   * a Module → Chapter → { Sections, Quizzes } tree with live titles.
+   * `listVersions` deliberately omits the manifest; this is the drill-in.
+   *
+   * IMPORTANT: the `/diff` route must be registered BEFORE the generic
+   * `/:versionId` route below, otherwise NestJS matches `diff` as a
+   * versionId and returns a 404.
+   */
+  @UseGuards(AuthGuard('jwt'))
+  @Get(':courseId/versions/diff')
+  diffVersions(
+    @Param('courseId') courseId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    return this.courseVersionService.diffVersionsTitled(courseId, from, to);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get(':courseId/versions/:versionId')
+  getVersionTree(
+    @Param('courseId') courseId: string,
+    @Param('versionId') versionId: string,
+  ) {
+    return this.courseVersionService.getVersionTree(courseId, versionId);
+  }
 }

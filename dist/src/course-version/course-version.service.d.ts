@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { getChapterIdsFromManifest, getQuizIdsFromManifest, getSectionIdsFromManifest, PinnedCurriculumModule, PinnedCurriculumQuiz, PinnedCurriculumSection, PinnedCurriculumTree, ReportCurriculumTree } from './course-version.manifest';
+import { DiffTitledResult, getChapterIdsFromManifest, getQuizIdsFromManifest, getSectionIdsFromManifest, PinnedCurriculumModule, PinnedCurriculumQuiz, PinnedCurriculumSection, PinnedCurriculumTree, ReportCurriculumTree } from './course-version.manifest';
 export type CurriculumResolveResult = {
     mode: 'live';
 } | {
@@ -226,6 +226,50 @@ export declare class CourseVersionService {
         };
     }>;
     private _buildRosterOrderBy;
+    getVersionTree(courseId: string, versionId: string): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            versionId: string;
+            versionNumber: number;
+            status: string;
+            publishedAt: Date | null;
+            modules: Array<{
+                id: string;
+                sourceId: string;
+                title: string;
+                orderIndex: number;
+                chapters: Array<{
+                    id: string;
+                    sourceId: string;
+                    title: string;
+                    orderIndex: number;
+                    hasQuiz: boolean;
+                    sections: Array<{
+                        id: string;
+                        sourceId: string;
+                        title: string;
+                        type: string;
+                        orderIndex: number | null;
+                    }>;
+                    quizzes: Array<{
+                        id: string;
+                        sourceId: string;
+                        question: string;
+                        orderIndex: number | null;
+                    }>;
+                }>;
+            }>;
+        };
+    }>;
+    diffVersionsTitled(courseId: string, fromVersionId: string, toVersionId: string): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            fromVersionNumber: number;
+            toVersionNumber: number;
+        } & DiffTitledResult;
+    }>;
     pruneOrphanVersions(courseId?: string): Promise<{
         message: string;
         statusCode: number;

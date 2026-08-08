@@ -211,6 +211,209 @@ export function isIdReferencedInManifest(
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// PR 3 — Titled version diff
+//
+// `diffManifests` (below) returns count-only summaries; it's what the
+// pinned-vs-latest "you're behind" banner uses. The FE spec asks for a
+// richer, titled diff for admin drill-in: added/removed/moved/renamed
+// entries with source ids, entity types, and human-readable paths.
+//
+// Design notes:
+// - Manifests store ONLY sourceIds (§7 of course-versioning-plan.md).
+//   Titles come from the live tables. That means renames can only be
+//   detected if callers preserve historical titles — which we do NOT.
+//   `renamed[]` will always be empty in the current schema. The plumbing
+//   stays because a future schema change (title snapshot in manifest)
+//   would light it up with zero call-site changes.
+// - Move detection is STRUCTURAL, not string-based. Two entries "move"
+//   iff their parent-sourceId chain differs. A pure title change on any
+//   ancestor does NOT cascade into descendant `moved` entries — that
+//   was the FE-review-flagged bug from v1 of the plan.
+// - `path` in every emitted entry is title-derived for admin
+//   readability. It is display-only; the diff logic never touches it.
+// ──────────────────────────────────────────────────────────────────────
+
+export type DiffEntityType = 'module' | 'chapter' | 'section' | 'quiz';
+
+export type DiffAddedRemovedEntry = {
+  id: string;
+  entityType: DiffEntityType;
+  title: string;
+  path: string;
+};
+
+export type DiffMovedEntry = {
+  id: string;
+  entityType: DiffEntityType;
+  title: string;
+  fromPath: string;
+  toPath: string;
+};
+
+export type DiffRenamedEntry = {
+  id: string;
+  entityType: DiffEntityType;
+  fromTitle: string;
+  toTitle: string;
+  path: string;
+};
+
+export type DiffTitledResult = {
+  added: DiffAddedRemovedEntry[];
+  removed: DiffAddedRemovedEntry[];
+  moved: DiffMovedEntry[];
+  renamed: DiffRenamedEntry[];
+};
+
+type IndexedEntry = {
+  entityType: DiffEntityType;
+  title: string;
+  path: string;
+  parentChain: string[];
+};
+
+/**
+ * Structural + title diff between two manifest snapshots. Pure function —
+ * all DB reads happen in the service layer, which passes their result in
+ * via the `titles` Map.
+ *
+ * `titles` is a `sourceId → display string` lookup. For sections/modules/
+ * chapters the display string is the row's `title`; for quizzes it's the
+ * row's `question` (Quiz has no title column). Missing entries fall back
+ * to `'(untitled)'` so the diff never crashes on a stale reference.
+ */
+export function diffManifestsTitled(
+  from: CourseVersionManifest,
+  to: CourseVersionManifest,
+  titles: Map<string, string>,
+): DiffTitledResult {
+  const fromIndex = indexManifestBySourceId(from, titles);
+  const toIndex = indexManifestBySourceId(to, titles);
+
+  const added: DiffAddedRemovedEntry[] = [];
+  const removed: DiffAddedRemovedEntry[] = [];
+  const moved: DiffMovedEntry[] = [];
+  const renamed: DiffRenamedEntry[] = [];
+
+  for (const [sid, toEntry] of toIndex) {
+    const fromEntry = fromIndex.get(sid);
+    if (!fromEntry) {
+      added.push({
+        id: sid,
+        entityType: toEntry.entityType,
+        title: toEntry.title,
+        path: toEntry.path,
+      });
+      continue;
+    }
+
+    // Structural comparison — same parent chain means same location,
+    // regardless of any ancestor's title. This is the fix for the FE-
+    // reviewer-flagged v1 bug where renaming a chapter title cascaded
+    // into hundreds of spurious "moved" entries for its descendants
+    // (their computed path string had changed).
+    const sameChain = arraysEqual(fromEntry.parentChain, toEntry.parentChain);
+
+    if (!sameChain) {
+      moved.push({
+        id: sid,
+        entityType: toEntry.entityType,
+        title: toEntry.title,
+        fromPath: fromEntry.path,
+        toPath: toEntry.path,
+      });
+    } else if (fromEntry.title !== toEntry.title) {
+      // See design note: with current schema titles are always LIVE, so
+      // fromEntry.title === toEntry.title identically. This branch is
+      // reachable only if the caller supplies a per-version title Map
+      // (future work).
+      renamed.push({
+        id: sid,
+        entityType: toEntry.entityType,
+        fromTitle: fromEntry.title,
+        toTitle: toEntry.title,
+        path: toEntry.path,
+      });
+    }
+    // Same chain + same title = not in the diff. This is the base case;
+    // the vast majority of entries hit it on every diff request.
+  }
+  for (const [sid, fromEntry] of fromIndex) {
+    if (!toIndex.has(sid)) {
+      removed.push({
+        id: sid,
+        entityType: fromEntry.entityType,
+        title: fromEntry.title,
+        path: fromEntry.path,
+      });
+    }
+  }
+
+  return { added, removed, moved, renamed };
+}
+
+/**
+ * Flatten a manifest to `Map<sourceId, IndexedEntry>` with parent-sourceId
+ * chain populated. This is the piece that makes structural move-detection
+ * work: two entries have "moved" iff their parent chains differ.
+ *
+ * NOTE: `titles` overrides source-of-truth lookups — pass the same map
+ * to both `from` and `to` and titles will resolve consistently. When the
+ * source table has no row (archived + hard-deleted after the manifest
+ * was published), the fallback string is `(untitled)` so the diff still
+ * renders.
+ */
+function indexManifestBySourceId(
+  m: CourseVersionManifest,
+  titles: Map<string, string>,
+): Map<string, IndexedEntry> {
+  const out = new Map<string, IndexedEntry>();
+  const t = (sid: string) => titles.get(sid) ?? '(untitled)';
+
+  for (const mod of m.modules) {
+    out.set(mod.sourceId, {
+      entityType: 'module',
+      title: t(mod.sourceId),
+      path: '',
+      parentChain: [],
+    });
+    const modPath = t(mod.sourceId);
+    for (const ch of mod.chapters) {
+      out.set(ch.sourceId, {
+        entityType: 'chapter',
+        title: t(ch.sourceId),
+        path: modPath, // display: parent title
+        parentChain: [mod.sourceId], // detection: parent sourceId
+      });
+      const chPath = `${modPath} › ${t(ch.sourceId)}`;
+      for (const sid of ch.sectionIds) {
+        out.set(sid, {
+          entityType: 'section',
+          title: t(sid),
+          path: chPath,
+          parentChain: [mod.sourceId, ch.sourceId],
+        });
+      }
+      for (const qid of ch.quizIds) {
+        out.set(qid, {
+          entityType: 'quiz',
+          title: t(qid),
+          path: chPath,
+          parentChain: [mod.sourceId, ch.sourceId],
+        });
+      }
+    }
+  }
+  return out;
+}
+
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 export function diffManifests(
   pinned: CourseVersionManifest,
   latest: CourseVersionManifest,

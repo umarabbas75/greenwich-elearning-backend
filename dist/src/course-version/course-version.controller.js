@@ -49,6 +49,12 @@ let CourseVersionController = class CourseVersionController {
             versionFilter,
         });
     }
+    diffVersions(courseId, from, to) {
+        return this.courseVersionService.diffVersionsTitled(courseId, from, to);
+    }
+    getVersionTree(courseId, versionId) {
+        return this.courseVersionService.getVersionTree(courseId, versionId);
+    }
 };
 exports.CourseVersionController = CourseVersionController;
 __decorate([
@@ -109,6 +115,25 @@ __decorate([
     __metadata("design:paramtypes", [String, String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], CourseVersionController.prototype, "getRoster", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Get)(':courseId/versions/diff'),
+    __param(0, (0, common_1.Param)('courseId')),
+    __param(1, (0, common_1.Query)('from')),
+    __param(2, (0, common_1.Query)('to')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String]),
+    __metadata("design:returntype", void 0)
+], CourseVersionController.prototype, "diffVersions", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Get)(':courseId/versions/:versionId'),
+    __param(0, (0, common_1.Param)('courseId')),
+    __param(1, (0, common_1.Param)('versionId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], CourseVersionController.prototype, "getVersionTree", null);
 exports.CourseVersionController = CourseVersionController = __decorate([
     (0, common_1.Controller)('courses'),
     __metadata("design:paramtypes", [course_version_service_1.CourseVersionService])

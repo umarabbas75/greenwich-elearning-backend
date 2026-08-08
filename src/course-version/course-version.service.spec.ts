@@ -127,6 +127,15 @@ describe('CourseVersionService', () => {
       quiz: {
         findMany: jest.fn(),
       },
+      // Added for PR 3's diffVersionsTitled title hydration. Batched
+      // findMany calls per entity type build the titles Map that the
+      // pure diff function consumes.
+      module: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      chapter: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       courseVersion: {
         findUnique: jest.fn(),
         findFirst: jest.fn().mockResolvedValue({
@@ -1019,6 +1028,206 @@ describe('CourseVersionService', () => {
       expect(prisma.courseVersion.delete).toHaveBeenCalledTimes(1);
       expect(result.data.deleted).toBe(1);
       expect(result.data.versionNumbers).toEqual([1]);
+    });
+  });
+
+  // ─── PR 3: getVersionTree + diffVersionsTitled ─────────────────────
+  //
+  // The pure diff logic is covered exhaustively in
+  // course-version.manifest.spec.ts. These tests focus on the service-
+  // layer wiring: courseId-scoped 404s, manifest parsing, and the
+  // titles-map hydration for the diff endpoint.
+
+  describe('getVersionTree', () => {
+    it('returns the titled tree hydrated from loadPinnedCurriculum', async () => {
+      prisma.courseVersion.findFirst.mockResolvedValueOnce({
+        id: 'version-1',
+        versionNumber: 1,
+        status: 'PUBLISHED',
+        publishedAt: new Date('2026-05-01'),
+      });
+      // The mocked loadPinnedCurriculum (set in beforeEach) returns
+      // mockPinnedTree — one module, one chapter, two sections, one quiz.
+
+      const result = await service.getVersionTree('course-1', 'version-1');
+
+      expect(result.data.versionId).toBe('version-1');
+      expect(result.data.versionNumber).toBe(1);
+      expect(result.data.status).toBe('PUBLISHED');
+      expect(result.data.modules).toHaveLength(1);
+      const mod = result.data.modules[0];
+      // sourceId and id are the same in the manifest-only schema; the
+      // response ships both for future compatibility with a normalised
+      // schema.
+      expect(mod.id).toBe(mod.sourceId);
+      expect(mod.title).toBe('Module');
+      const ch = mod.chapters[0];
+      expect(ch.title).toBe('Chapter');
+      expect(ch.hasQuiz).toBe(true);
+      expect(ch.sections).toHaveLength(2);
+      expect(ch.quizzes).toHaveLength(1);
+      expect(ch.quizzes[0].question).toBe('Q');
+    });
+
+    it('returns 404 when the version does not belong to the course (courseId scope)', async () => {
+      // The findFirst.where scopes by BOTH id AND courseId so an admin
+      // can't peek at a version from another course. Simulate the miss.
+      prisma.courseVersion.findFirst.mockResolvedValueOnce(null);
+      await expect(
+        service.getVersionTree('course-other', 'version-1'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('returns empty modules[] when the manifest is unparseable', async () => {
+      // Version row exists but loadPinnedCurriculum returns null (e.g.
+      // the manifest column is corrupted or empty). Better to return a
+      // consistent empty shape than 500 on the admin tree-view.
+      prisma.courseVersion.findFirst.mockResolvedValueOnce({
+        id: 'version-1',
+        versionNumber: 1,
+        status: 'PUBLISHED',
+        publishedAt: null,
+      });
+      (manifestModule.loadPinnedCurriculum as jest.Mock).mockResolvedValueOnce(
+        null,
+      );
+      const result = await service.getVersionTree('course-1', 'version-1');
+      expect(result.data.modules).toEqual([]);
+    });
+  });
+
+  describe('diffVersionsTitled', () => {
+    // Two tiny manifests: v1 has (mod-1 → ch-1 → sec-1), v2 has
+    // (mod-1 → ch-1 → sec-1, sec-2). The diff should surface sec-2 as
+    // an addition and nothing else.
+    const v1Manifest = {
+      modules: [
+        {
+          sourceId: 'mod-1',
+          order: 0,
+          chapters: [
+            {
+              sourceId: 'ch-1',
+              order: 0,
+              sectionIds: ['sec-1'],
+              quizIds: [],
+            },
+          ],
+        },
+      ],
+    };
+    const v2Manifest = {
+      modules: [
+        {
+          sourceId: 'mod-1',
+          order: 0,
+          chapters: [
+            {
+              sourceId: 'ch-1',
+              order: 0,
+              sectionIds: ['sec-1', 'sec-2'],
+              quizIds: [],
+            },
+          ],
+        },
+      ],
+    };
+
+    it('wires manifest parsing and title hydration into diffManifestsTitled', async () => {
+      prisma.courseVersion.findFirst
+        .mockResolvedValueOnce({ versionNumber: 1, manifest: v1Manifest })
+        .mockResolvedValueOnce({ versionNumber: 2, manifest: v2Manifest });
+
+      prisma.module.findMany.mockResolvedValue([
+        { id: 'mod-1', title: 'Module 1' },
+      ]);
+      prisma.chapter.findMany.mockResolvedValue([
+        { id: 'ch-1', title: 'Chapter 1' },
+      ]);
+      prisma.section.findMany.mockResolvedValue([
+        { id: 'sec-1', title: 'Section 1' },
+        { id: 'sec-2', title: 'Section 2' },
+      ]);
+      prisma.quiz.findMany.mockResolvedValue([]);
+
+      const result = await service.diffVersionsTitled('course-1', 'v-1', 'v-2');
+
+      expect(result.data.fromVersionNumber).toBe(1);
+      expect(result.data.toVersionNumber).toBe(2);
+      expect(result.data.added).toEqual([
+        expect.objectContaining({
+          id: 'sec-2',
+          entityType: 'section',
+          title: 'Section 2',
+          path: 'Module 1 › Chapter 1',
+        }),
+      ]);
+      expect(result.data.removed).toEqual([]);
+      expect(result.data.moved).toEqual([]);
+      // In the current schema (titles always live) renamed is always
+      // empty. The bucket stays in the response for future compatibility.
+      expect(result.data.renamed).toEqual([]);
+    });
+
+    it('returns 404 for from-version that does not belong to the course', async () => {
+      prisma.courseVersion.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ versionNumber: 2, manifest: v2Manifest });
+      await expect(
+        service.diffVersionsTitled('course-1', 'v-gone', 'v-2'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('returns 404 for to-version that does not belong to the course', async () => {
+      prisma.courseVersion.findFirst
+        .mockResolvedValueOnce({ versionNumber: 1, manifest: v1Manifest })
+        .mockResolvedValueOnce(null);
+      await expect(
+        service.diffVersionsTitled('course-1', 'v-1', 'v-gone'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('trims quiz question snippets to 120 chars in the titles map', async () => {
+      const longQ = 'x'.repeat(200);
+      const withQuiz = {
+        modules: [
+          {
+            sourceId: 'mod-1',
+            order: 0,
+            chapters: [
+              {
+                sourceId: 'ch-1',
+                order: 0,
+                sectionIds: [],
+                quizIds: ['quiz-1'],
+              },
+            ],
+          },
+        ],
+      };
+      prisma.courseVersion.findFirst
+        .mockResolvedValueOnce({
+          versionNumber: 1,
+          manifest: { modules: [] },
+        })
+        .mockResolvedValueOnce({
+          versionNumber: 2,
+          manifest: withQuiz,
+        });
+      prisma.module.findMany.mockResolvedValue([{ id: 'mod-1', title: 'M' }]);
+      prisma.chapter.findMany.mockResolvedValue([{ id: 'ch-1', title: 'C' }]);
+      prisma.section.findMany.mockResolvedValue([]);
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-1', question: longQ },
+      ]);
+
+      const result = await service.diffVersionsTitled('course-1', 'v-1', 'v-2');
+      // The added quiz's rendered title should be trimmed. The 120-char
+      // cap prevents a diff response ballooning on essay-length quiz
+      // questions.
+      const addedQuiz = result.data.added.find((a) => a.id === 'quiz-1')!;
+      expect(addedQuiz.title.length).toBeLessThanOrEqual(121); // 120 + '…'
+      expect(addedQuiz.title.endsWith('…')).toBe(true);
     });
   });
 });

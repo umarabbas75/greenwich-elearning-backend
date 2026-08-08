@@ -730,6 +730,165 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 return { user: { email: 'asc' } };
         }
     }
+    async getVersionTree(courseId, versionId) {
+        const version = await this.prisma.courseVersion.findFirst({
+            where: { id: versionId, courseId },
+            select: {
+                id: true,
+                versionNumber: true,
+                status: true,
+                publishedAt: true,
+            },
+        });
+        if (!version) {
+            throw new common_1.NotFoundException(`Version ${versionId} not found for course ${courseId}`);
+        }
+        const tree = await (0, course_version_manifest_1.loadPinnedCurriculum)(this.prisma, versionId);
+        if (!tree) {
+            return {
+                message: 'OK',
+                statusCode: 200,
+                data: {
+                    versionId: version.id,
+                    versionNumber: version.versionNumber,
+                    status: version.status,
+                    publishedAt: version.publishedAt,
+                    modules: [],
+                },
+            };
+        }
+        return {
+            message: 'OK',
+            statusCode: 200,
+            data: {
+                versionId: version.id,
+                versionNumber: version.versionNumber,
+                status: version.status,
+                publishedAt: version.publishedAt,
+                modules: tree.modules.map((m) => ({
+                    id: m.sourceModuleId,
+                    sourceId: m.sourceModuleId,
+                    title: m.title,
+                    orderIndex: m.orderIndex,
+                    chapters: m.chapters.map((c) => ({
+                        id: c.sourceChapterId,
+                        sourceId: c.sourceChapterId,
+                        title: c.title,
+                        orderIndex: c.orderIndex,
+                        hasQuiz: c.quizzes.length > 0,
+                        sections: c.sections.map((s) => ({
+                            id: s.id,
+                            sourceId: s.id,
+                            title: s.title,
+                            type: s.type,
+                            orderIndex: s.orderIndex,
+                        })),
+                        quizzes: c.quizzes.map((q) => ({
+                            id: q.id,
+                            sourceId: q.id,
+                            question: q.question,
+                            orderIndex: null,
+                        })),
+                    })),
+                })),
+            },
+        };
+    }
+    async diffVersionsTitled(courseId, fromVersionId, toVersionId) {
+        const [from, to] = await Promise.all([
+            this.prisma.courseVersion.findFirst({
+                where: { id: fromVersionId, courseId },
+                select: { versionNumber: true, manifest: true },
+            }),
+            this.prisma.courseVersion.findFirst({
+                where: { id: toVersionId, courseId },
+                select: { versionNumber: true, manifest: true },
+            }),
+        ]);
+        if (!from) {
+            throw new common_1.NotFoundException(`Version ${fromVersionId} not found for course ${courseId}`);
+        }
+        if (!to) {
+            throw new common_1.NotFoundException(`Version ${toVersionId} not found for course ${courseId}`);
+        }
+        const fromManifest = (0, course_version_manifest_1.parseManifest)(from.manifest);
+        const toManifest = (0, course_version_manifest_1.parseManifest)(to.manifest);
+        if (!fromManifest || !toManifest) {
+            return {
+                message: 'OK',
+                statusCode: 200,
+                data: {
+                    fromVersionNumber: from.versionNumber,
+                    toVersionNumber: to.versionNumber,
+                    added: [],
+                    removed: [],
+                    moved: [],
+                    renamed: [],
+                },
+            };
+        }
+        const moduleIds = new Set();
+        const chapterIds = new Set();
+        const sectionIds = new Set();
+        const quizIds = new Set();
+        for (const m of [...fromManifest.modules, ...toManifest.modules]) {
+            moduleIds.add(m.sourceId);
+            for (const ch of m.chapters) {
+                chapterIds.add(ch.sourceId);
+                for (const sid of ch.sectionIds)
+                    sectionIds.add(sid);
+                for (const qid of ch.quizIds)
+                    quizIds.add(qid);
+            }
+        }
+        const [modules, chapters, sections, quizzes] = await Promise.all([
+            moduleIds.size > 0
+                ? this.prisma.module.findMany({
+                    where: { id: { in: Array.from(moduleIds) } },
+                    select: { id: true, title: true },
+                })
+                : Promise.resolve([]),
+            chapterIds.size > 0
+                ? this.prisma.chapter.findMany({
+                    where: { id: { in: Array.from(chapterIds) } },
+                    select: { id: true, title: true },
+                })
+                : Promise.resolve([]),
+            sectionIds.size > 0
+                ? this.prisma.section.findMany({
+                    where: { id: { in: Array.from(sectionIds) } },
+                    select: { id: true, title: true },
+                })
+                : Promise.resolve([]),
+            quizIds.size > 0
+                ? this.prisma.quiz.findMany({
+                    where: { id: { in: Array.from(quizIds) } },
+                    select: { id: true, question: true },
+                })
+                : Promise.resolve([]),
+        ]);
+        const titles = new Map();
+        for (const m of modules)
+            titles.set(m.id, m.title);
+        for (const c of chapters)
+            titles.set(c.id, c.title);
+        for (const s of sections)
+            titles.set(s.id, s.title);
+        for (const q of quizzes) {
+            const snippet = q.question.length > 120 ? q.question.slice(0, 120) + '…' : q.question;
+            titles.set(q.id, snippet);
+        }
+        const diff = (0, course_version_manifest_1.diffManifestsTitled)(fromManifest, toManifest, titles);
+        return {
+            message: 'OK',
+            statusCode: 200,
+            data: {
+                fromVersionNumber: from.versionNumber,
+                toVersionNumber: to.versionNumber,
+                ...diff,
+            },
+        };
+    }
     async pruneOrphanVersions(courseId) {
         const versions = await this.prisma.courseVersion.findMany({
             where: courseId ? { courseId } : undefined,
