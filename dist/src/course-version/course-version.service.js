@@ -889,6 +889,127 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             },
         };
     }
+    async getCoverage() {
+        const [unpinnedGroups, coursesWithoutV1] = await Promise.all([
+            this.prisma.userCourse.groupBy({
+                by: ['courseId'],
+                where: { isActive: true, enrolledVersionId: null },
+                _count: { _all: true },
+            }),
+            this.prisma.course.findMany({
+                where: {
+                    courseVersions: {
+                        none: { versionNumber: 1 },
+                    },
+                },
+                select: { id: true, title: true },
+                orderBy: { title: 'asc' },
+            }),
+        ]);
+        const courseIds = unpinnedGroups.map((u) => u.courseId);
+        const titles = courseIds.length
+            ? await this.prisma.course.findMany({
+                where: { id: { in: courseIds } },
+                select: { id: true, title: true },
+            })
+            : [];
+        const titleById = new Map(titles.map((c) => [c.id, c.title]));
+        const rows = unpinnedGroups
+            .map((u) => ({
+            courseId: u.courseId,
+            courseTitle: titleById.get(u.courseId) ?? '(unknown)',
+            activeEnrollmentsWithNullPin: u._count._all,
+        }))
+            .sort((a, b) => b.activeEnrollmentsWithNullPin - a.activeEnrollmentsWithNullPin);
+        return {
+            message: 'OK',
+            statusCode: 200,
+            data: {
+                rows,
+                coursesWithoutV1: coursesWithoutV1.map((c) => ({
+                    courseId: c.id,
+                    courseTitle: c.title,
+                })),
+            },
+        };
+    }
+    async getDrift(courseId) {
+        const [latest, liveManifest] = await Promise.all([
+            this.prisma.courseVersion.findFirst({
+                where: { courseId, status: 'PUBLISHED' },
+                orderBy: { versionNumber: 'desc' },
+                select: {
+                    id: true,
+                    versionNumber: true,
+                    publishedAt: true,
+                    manifest: true,
+                },
+            }),
+            (0, course_version_manifest_1.buildManifestFromLiveTree)(this.prisma, courseId),
+        ]);
+        const liveFingerprint = (0, course_version_manifest_1.computeStructuralFingerprint)(liveManifest.manifest);
+        const emptyTitles = new Map();
+        if (!latest) {
+            const emptyManifest = { modules: [] };
+            const { added, removed, moved, renamed } = (0, course_version_manifest_1.diffManifestsTitled)(emptyManifest, liveManifest.manifest, emptyTitles);
+            return {
+                message: 'OK',
+                statusCode: 200,
+                data: {
+                    hasDrift: liveManifest.manifest.modules.length > 0,
+                    changeCount: {
+                        added: added.length,
+                        removed: removed.length,
+                        moved: moved.length,
+                        renamed: renamed.length,
+                    },
+                    latestPublishedVersionId: null,
+                    latestPublishedVersionNumber: null,
+                    latestPublishedAt: null,
+                    liveFingerprint,
+                    publishedFingerprint: null,
+                },
+            };
+        }
+        const publishedManifest = (0, course_version_manifest_1.parseManifest)(latest.manifest);
+        if (!publishedManifest) {
+            return {
+                message: 'OK',
+                statusCode: 200,
+                data: {
+                    hasDrift: true,
+                    changeCount: { added: 0, removed: 0, moved: 0, renamed: 0 },
+                    latestPublishedVersionId: latest.id,
+                    latestPublishedVersionNumber: latest.versionNumber,
+                    latestPublishedAt: latest.publishedAt,
+                    liveFingerprint,
+                    publishedFingerprint: null,
+                },
+            };
+        }
+        const publishedFingerprint = (0, course_version_manifest_1.computeStructuralFingerprint)(publishedManifest);
+        const { added, removed, moved, renamed } = (0, course_version_manifest_1.diffManifestsTitled)(publishedManifest, liveManifest.manifest, emptyTitles);
+        const changeCount = {
+            added: added.length,
+            removed: removed.length,
+            moved: moved.length,
+            renamed: renamed.length,
+        };
+        const hasDrift = liveFingerprint !== publishedFingerprint;
+        return {
+            message: 'OK',
+            statusCode: 200,
+            data: {
+                hasDrift,
+                changeCount,
+                latestPublishedVersionId: latest.id,
+                latestPublishedVersionNumber: latest.versionNumber,
+                latestPublishedAt: latest.publishedAt,
+                liveFingerprint,
+                publishedFingerprint,
+            },
+        };
+    }
     async pruneOrphanVersions(courseId) {
         const versions = await this.prisma.courseVersion.findMany({
             where: courseId ? { courseId } : undefined,

@@ -1580,6 +1580,224 @@ export class CourseVersionService {
     };
   }
 
+  // ────────────────────────────────────────────────────────────────────
+  // PR 4 — Coverage + Drift
+  //
+  // Two read-only endpoints, both thin wrappers over existing logic:
+  // - getCoverage: ports scripts/_audit-version-coverage.ts to an admin
+  //   GET endpoint. Surfaces active enrollments with a null pin (the
+  //   "unpinned learner" bug signal) + courses missing v1 snapshot.
+  // - getDrift: ports the reconcile CLI's fingerprint compare to a
+  //   read-only admin GET. Reports hasDrift + a 4-bucket changeCount
+  //   using the same diff logic as PR 3.
+  //
+  // Reconcile itself (POST /versions/reconcile) stays CLI-only per
+  // decisions §7 — a mutation this consequential shouldn't be a click
+  // away from the admin roster.
+  // ────────────────────────────────────────────────────────────────────
+
+  async getCoverage(): Promise<{
+    message: string;
+    statusCode: number;
+    data: {
+      rows: Array<{
+        courseId: string;
+        courseTitle: string;
+        activeEnrollmentsWithNullPin: number;
+      }>;
+      coursesWithoutV1: Array<{ courseId: string; courseTitle: string }>;
+    };
+  }> {
+    // Two signals in parallel:
+    // 1) UserCourse rows that are isActive: true but pinned to no
+    //    version — the "unpinned active learner" bug (see
+    //    scripts/_audit-version-coverage.ts). Should be zero in a
+    //    healthy system; nonzero rows indicate learners activated
+    //    before their course had a v1 snapshot.
+    // 2) Courses that have never had a v1 published — a course can
+    //    exist in the DB without any published version, in which case
+    //    all its enrollments are unpinned by construction. Cross-check
+    //    to help admins prioritise which unpinned rows are structural
+    //    vs. learner-specific.
+    const [unpinnedGroups, coursesWithoutV1] = await Promise.all([
+      this.prisma.userCourse.groupBy({
+        by: ['courseId'],
+        where: { isActive: true, enrolledVersionId: null },
+        _count: { _all: true },
+      }),
+      // A course has no v1 if none of its versions carry versionNumber=1.
+      // (Version numbering is dense from 1 per course, so absence of a
+      // v1 row is definitive.)
+      this.prisma.course.findMany({
+        where: {
+          courseVersions: {
+            none: { versionNumber: 1 },
+          },
+        },
+        select: { id: true, title: true },
+        orderBy: { title: 'asc' },
+      }),
+    ]);
+
+    // Resolve course titles for the unpinned groups in one batch.
+    const courseIds = unpinnedGroups.map((u) => u.courseId);
+    const titles = courseIds.length
+      ? await this.prisma.course.findMany({
+          where: { id: { in: courseIds } },
+          select: { id: true, title: true },
+        })
+      : [];
+    const titleById = new Map(titles.map((c) => [c.id, c.title]));
+
+    const rows = unpinnedGroups
+      .map((u) => ({
+        courseId: u.courseId,
+        courseTitle: titleById.get(u.courseId) ?? '(unknown)',
+        activeEnrollmentsWithNullPin: u._count._all,
+      }))
+      // Highest count first so admin triages the worst offender first.
+      .sort(
+        (a, b) =>
+          b.activeEnrollmentsWithNullPin - a.activeEnrollmentsWithNullPin,
+      );
+
+    return {
+      message: 'OK',
+      statusCode: 200,
+      data: {
+        rows,
+        coursesWithoutV1: coursesWithoutV1.map((c) => ({
+          courseId: c.id,
+          courseTitle: c.title,
+        })),
+      },
+    };
+  }
+
+  async getDrift(courseId: string): Promise<{
+    message: string;
+    statusCode: number;
+    data: {
+      hasDrift: boolean;
+      changeCount: {
+        added: number;
+        removed: number;
+        moved: number;
+        renamed: number;
+      };
+      latestPublishedVersionId: string | null;
+      latestPublishedVersionNumber: number | null;
+      latestPublishedAt: Date | null;
+      liveFingerprint: string;
+      publishedFingerprint: string | null;
+    };
+  }> {
+    const [latest, liveManifest] = await Promise.all([
+      this.prisma.courseVersion.findFirst({
+        where: { courseId, status: 'PUBLISHED' },
+        orderBy: { versionNumber: 'desc' },
+        select: {
+          id: true,
+          versionNumber: true,
+          publishedAt: true,
+          manifest: true,
+        },
+      }),
+      buildManifestFromLiveTree(this.prisma, courseId),
+    ]);
+
+    const liveFingerprint = computeStructuralFingerprint(liveManifest.manifest);
+
+    // No published versions yet — everything in the live tree is "added"
+    // relative to an empty published side. changeCount reflects that.
+    // Titles map intentionally empty: the drift endpoint only cares about
+    // bucket lengths, not the display strings inside each bucket entry.
+    // Callers that want titled per-entry lists use PR 3's diff endpoint.
+    const emptyTitles = new Map<string, string>();
+    if (!latest) {
+      const emptyManifest = { modules: [] };
+      const { added, removed, moved, renamed } = diffManifestsTitled(
+        emptyManifest,
+        liveManifest.manifest,
+        emptyTitles,
+      );
+      return {
+        message: 'OK',
+        statusCode: 200,
+        data: {
+          hasDrift: liveManifest.manifest.modules.length > 0,
+          changeCount: {
+            added: added.length,
+            removed: removed.length,
+            moved: moved.length,
+            renamed: renamed.length,
+          },
+          latestPublishedVersionId: null,
+          latestPublishedVersionNumber: null,
+          latestPublishedAt: null,
+          liveFingerprint,
+          publishedFingerprint: null,
+        },
+      };
+    }
+
+    const publishedManifest = parseManifest(latest.manifest);
+    if (!publishedManifest) {
+      // Latest published row exists but its manifest is unparseable.
+      // Emit an explicit drift signal so an admin surfaces this as a
+      // data-integrity issue rather than getting a silent 500.
+      return {
+        message: 'OK',
+        statusCode: 200,
+        data: {
+          hasDrift: true,
+          changeCount: { added: 0, removed: 0, moved: 0, renamed: 0 },
+          latestPublishedVersionId: latest.id,
+          latestPublishedVersionNumber: latest.versionNumber,
+          latestPublishedAt: latest.publishedAt,
+          liveFingerprint,
+          publishedFingerprint: null,
+        },
+      };
+    }
+
+    const publishedFingerprint =
+      computeStructuralFingerprint(publishedManifest);
+    const { added, removed, moved, renamed } = diffManifestsTitled(
+      publishedManifest,
+      liveManifest.manifest,
+      emptyTitles,
+    );
+    const changeCount = {
+      added: added.length,
+      removed: removed.length,
+      moved: moved.length,
+      renamed: renamed.length,
+    };
+
+    // Invariant: hasDrift derives from the fingerprint compare (fast
+    // path — no diff-tree walk) but MUST match sum(changeCount) > 0.
+    // Both are computed from the same manifest pair, so they can only
+    // diverge if `computeStructuralFingerprint` and `diffManifestsTitled`
+    // disagree about what counts as structural — which would itself be a
+    // bug we want to surface. Pinned in the getDrift invariant test.
+    const hasDrift = liveFingerprint !== publishedFingerprint;
+
+    return {
+      message: 'OK',
+      statusCode: 200,
+      data: {
+        hasDrift,
+        changeCount,
+        latestPublishedVersionId: latest.id,
+        latestPublishedVersionNumber: latest.versionNumber,
+        latestPublishedAt: latest.publishedAt,
+        liveFingerprint,
+        publishedFingerprint,
+      },
+    };
+  }
+
   async pruneOrphanVersions(courseId?: string): Promise<{
     message: string;
     statusCode: number;

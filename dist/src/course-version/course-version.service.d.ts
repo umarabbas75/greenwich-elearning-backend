@@ -270,6 +270,39 @@ export declare class CourseVersionService {
             toVersionNumber: number;
         } & DiffTitledResult;
     }>;
+    getCoverage(): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            rows: Array<{
+                courseId: string;
+                courseTitle: string;
+                activeEnrollmentsWithNullPin: number;
+            }>;
+            coursesWithoutV1: Array<{
+                courseId: string;
+                courseTitle: string;
+            }>;
+        };
+    }>;
+    getDrift(courseId: string): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            hasDrift: boolean;
+            changeCount: {
+                added: number;
+                removed: number;
+                moved: number;
+                renamed: number;
+            };
+            latestPublishedVersionId: string | null;
+            latestPublishedVersionNumber: number | null;
+            latestPublishedAt: Date | null;
+            liveFingerprint: string;
+            publishedFingerprint: string | null;
+        };
+    }>;
     pruneOrphanVersions(courseId?: string): Promise<{
         message: string;
         statusCode: number;

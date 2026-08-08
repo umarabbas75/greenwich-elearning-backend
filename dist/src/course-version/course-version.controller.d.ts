@@ -166,5 +166,38 @@ export declare class CourseVersionController {
             }[];
         };
     }>;
+    getCoverage(): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            rows: {
+                courseId: string;
+                courseTitle: string;
+                activeEnrollmentsWithNullPin: number;
+            }[];
+            coursesWithoutV1: {
+                courseId: string;
+                courseTitle: string;
+            }[];
+        };
+    }>;
+    getDrift(courseId: string): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            hasDrift: boolean;
+            changeCount: {
+                added: number;
+                removed: number;
+                moved: number;
+                renamed: number;
+            };
+            latestPublishedVersionId: string;
+            latestPublishedVersionNumber: number;
+            latestPublishedAt: Date;
+            liveFingerprint: string;
+            publishedFingerprint: string;
+        };
+    }>;
 }
 export {};

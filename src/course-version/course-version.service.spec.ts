@@ -1230,4 +1230,292 @@ describe('CourseVersionService', () => {
       expect(addedQuiz.title.endsWith('…')).toBe(true);
     });
   });
+
+  // ─── PR 4: getCoverage + getDrift ──────────────────────────────────
+  //
+  // Both endpoints are read-only wrappers over existing logic:
+  // - getCoverage: ports scripts/_audit-version-coverage.ts to an admin
+  //   GET endpoint.
+  // - getDrift: ports the fingerprint compare from the reconcile CLI.
+  //
+  // Reconcile itself (POST /versions/reconcile) is intentionally NOT
+  // exposed as an endpoint — pinned in the risk register.
+
+  describe('getCoverage', () => {
+    beforeEach(() => {
+      prisma.course = {
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+      };
+    });
+
+    it('returns empty rows when no active enrollments are unpinned', async () => {
+      prisma.userCourse.groupBy = jest.fn().mockResolvedValue([]);
+
+      const result = await service.getCoverage();
+      expect(result.data.rows).toEqual([]);
+      // Query MUST scope to isActive: true AND enrolledVersionId: null —
+      // inactive rows or already-pinned rows are not health signals.
+      // Pinning it here catches accidental filter loosening.
+      const call = prisma.userCourse.groupBy.mock.calls[0][0];
+      expect(call.where).toEqual({
+        isActive: true,
+        enrolledVersionId: null,
+      });
+    });
+
+    it('surfaces courses with unpinned enrollments sorted by count desc', async () => {
+      prisma.userCourse.groupBy = jest.fn().mockResolvedValue([
+        { courseId: 'c-1', _count: { _all: 3 } },
+        { courseId: 'c-2', _count: { _all: 10 } },
+      ]);
+      prisma.course.findMany.mockResolvedValueOnce([]); // coursesWithoutV1
+      prisma.course.findMany.mockResolvedValueOnce([
+        { id: 'c-1', title: 'Course One' },
+        { id: 'c-2', title: 'Course Two' },
+      ]);
+
+      const result = await service.getCoverage();
+      // Highest count first — admin should triage the worst offender
+      // before smaller signals.
+      expect(result.data.rows.map((r) => r.courseId)).toEqual(['c-2', 'c-1']);
+      expect(result.data.rows[0].activeEnrollmentsWithNullPin).toBe(10);
+      expect(result.data.rows[0].courseTitle).toBe('Course Two');
+    });
+
+    it('lists courses missing v1 snapshot separately', async () => {
+      prisma.userCourse.groupBy = jest.fn().mockResolvedValue([]);
+      prisma.course.findMany.mockResolvedValueOnce([
+        { id: 'c-nev', title: 'Never Published' },
+      ]);
+
+      const result = await service.getCoverage();
+      expect(result.data.coursesWithoutV1).toEqual([
+        { courseId: 'c-nev', courseTitle: 'Never Published' },
+      ]);
+    });
+
+    it('falls back to "(unknown)" when a course title cannot be resolved', async () => {
+      // Edge case: groupBy returned a courseId whose Course row was
+      // deleted between the two queries. Better to surface "(unknown)"
+      // than crash — admin can still see the count and investigate.
+      prisma.userCourse.groupBy = jest
+        .fn()
+        .mockResolvedValue([{ courseId: 'c-gone', _count: { _all: 1 } }]);
+      prisma.course.findMany.mockResolvedValueOnce([]); // coursesWithoutV1
+      prisma.course.findMany.mockResolvedValueOnce([]); // titles
+
+      const result = await service.getCoverage();
+      expect(result.data.rows[0].courseTitle).toBe('(unknown)');
+    });
+  });
+
+  describe('getDrift', () => {
+    const liveManifest = mockManifest;
+    const liveFingerprint = 'sha256-live-mock';
+    const publishedFingerprint = 'sha256-published-mock';
+
+    beforeEach(() => {
+      (manifestModule.buildManifestFromLiveTree as jest.Mock).mockResolvedValue(
+        {
+          manifest: liveManifest,
+          sectionCount: 2,
+          moduleCount: 1,
+          chapterCount: 1,
+          quizCount: 1,
+        },
+      );
+      // Mock the fingerprint helper so we can force the two branches
+      // (drift / no-drift) deterministically without hand-crafting
+      // manifests to hash-collide.
+      jest
+        .spyOn(manifestModule, 'computeStructuralFingerprint')
+        .mockImplementation((m) =>
+          m === liveManifest ? liveFingerprint : publishedFingerprint,
+        );
+    });
+
+    afterEach(() => {
+      (
+        manifestModule.computeStructuralFingerprint as jest.Mock
+      ).mockRestore?.();
+    });
+
+    it('hasDrift=false when live fingerprint === latest published fingerprint', async () => {
+      // Force both sides to the same fingerprint (structurally identical
+      // manifests). This is the healthy case — no unpublished changes.
+      (
+        manifestModule.computeStructuralFingerprint as jest.Mock
+      ).mockImplementation(() => 'sha256-same');
+      prisma.courseVersion.findFirst.mockResolvedValueOnce({
+        id: 'v-1',
+        versionNumber: 3,
+        publishedAt: new Date('2026-05-01'),
+        manifest: liveManifest,
+      });
+
+      const result = await service.getDrift('course-1');
+      expect(result.data.hasDrift).toBe(false);
+      // Invariant — sum(changeCount) must be 0 when hasDrift is false.
+      // Guards against a future diffManifestsTitled refactor that would
+      // silently split the two.
+      const total =
+        result.data.changeCount.added +
+        result.data.changeCount.removed +
+        result.data.changeCount.moved +
+        result.data.changeCount.renamed;
+      expect(total).toBe(0);
+    });
+
+    it('hasDrift=true when live diverges from latest published', async () => {
+      // Different fingerprints; add a section to the live manifest so
+      // diffManifestsTitled produces at least one added entry.
+      const publishedManifest = {
+        modules: [
+          {
+            sourceId: 'mod-1',
+            order: 0,
+            chapters: [
+              {
+                sourceId: 'ch-1',
+                order: 0,
+                sectionIds: ['sec-1'], // one section
+                quizIds: [],
+              },
+            ],
+          },
+        ],
+      };
+      const liveWithExtra = {
+        modules: [
+          {
+            sourceId: 'mod-1',
+            order: 0,
+            chapters: [
+              {
+                sourceId: 'ch-1',
+                order: 0,
+                sectionIds: ['sec-1', 'sec-2'], // added sec-2
+                quizIds: [],
+              },
+            ],
+          },
+        ],
+      };
+      (manifestModule.buildManifestFromLiveTree as jest.Mock).mockResolvedValue(
+        {
+          manifest: liveWithExtra,
+          sectionCount: 2,
+          moduleCount: 1,
+          chapterCount: 1,
+          quizCount: 0,
+        },
+      );
+      (
+        manifestModule.computeStructuralFingerprint as jest.Mock
+      ).mockImplementation((m) =>
+        m === liveWithExtra ? 'sha256-live' : 'sha256-published',
+      );
+      prisma.courseVersion.findFirst.mockResolvedValueOnce({
+        id: 'v-3',
+        versionNumber: 3,
+        publishedAt: new Date('2026-05-01'),
+        manifest: publishedManifest,
+      });
+
+      const result = await service.getDrift('course-1');
+      expect(result.data.hasDrift).toBe(true);
+      expect(result.data.changeCount.added).toBe(1); // sec-2 added
+      expect(result.data.changeCount.removed).toBe(0);
+    });
+
+    it('returns null latest fields with hasDrift=(live has any modules) when no published version exists', async () => {
+      prisma.courseVersion.findFirst.mockResolvedValueOnce(null);
+      const result = await service.getDrift('course-1');
+      expect(result.data.latestPublishedVersionId).toBeNull();
+      expect(result.data.latestPublishedVersionNumber).toBeNull();
+      expect(result.data.publishedFingerprint).toBeNull();
+      // live has modules → drift.
+      expect(result.data.hasDrift).toBe(true);
+    });
+
+    it('invariant: hasDrift === (sum(changeCount) > 0) for a normal published-vs-live pair', async () => {
+      // Reset the fingerprint override so real values flow through.
+      (
+        manifestModule.computeStructuralFingerprint as jest.Mock
+      ).mockRestore?.();
+      // Move sec-1 to a different chapter to guarantee moved[] is
+      // non-empty and fingerprints differ.
+      const publishedManifest = {
+        modules: [
+          {
+            sourceId: 'mod-1',
+            order: 0,
+            chapters: [
+              {
+                sourceId: 'ch-1',
+                order: 0,
+                sectionIds: ['sec-1'],
+                quizIds: [],
+              },
+              {
+                sourceId: 'ch-2',
+                order: 1,
+                sectionIds: [],
+                quizIds: [],
+              },
+            ],
+          },
+        ],
+      };
+      const liveMoved = {
+        modules: [
+          {
+            sourceId: 'mod-1',
+            order: 0,
+            chapters: [
+              {
+                sourceId: 'ch-1',
+                order: 0,
+                sectionIds: [],
+                quizIds: [],
+              },
+              {
+                // sec-1 reparented here
+                sourceId: 'ch-2',
+                order: 1,
+                sectionIds: ['sec-1'],
+                quizIds: [],
+              },
+            ],
+          },
+        ],
+      };
+      (manifestModule.buildManifestFromLiveTree as jest.Mock).mockResolvedValue(
+        {
+          manifest: liveMoved,
+          sectionCount: 1,
+          moduleCount: 1,
+          chapterCount: 2,
+          quizCount: 0,
+        },
+      );
+      prisma.courseVersion.findFirst.mockResolvedValueOnce({
+        id: 'v-1',
+        versionNumber: 1,
+        publishedAt: new Date(),
+        manifest: publishedManifest,
+      });
+
+      const result = await service.getDrift('course-1');
+      const total =
+        result.data.changeCount.added +
+        result.data.changeCount.removed +
+        result.data.changeCount.moved +
+        result.data.changeCount.renamed;
+      expect(result.data.hasDrift).toBe(total > 0);
+      // And specifically: the move surfaces as one entry in moved[].
+      expect(result.data.changeCount.moved).toBe(1);
+    });
+  });
 });

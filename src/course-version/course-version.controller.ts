@@ -126,4 +126,25 @@ export class CourseVersionController {
   ) {
     return this.courseVersionService.getVersionTree(courseId, versionId);
   }
+
+  // ────────────────────────────────────────────────────────────────────
+  // PR 4 — Coverage + Drift
+  //
+  // Coverage is course-scoped-globally (all courses); route sits at
+  // /courses/versions/coverage. Drift is per-course.
+  //
+  // Reconcile stays CLI-only per decisions §7 — no POST endpoint here.
+  // ────────────────────────────────────────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('versions/coverage')
+  getCoverage() {
+    return this.courseVersionService.getCoverage();
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get(':courseId/versions/drift')
+  getDrift(@Param('courseId') courseId: string) {
+    return this.courseVersionService.getDrift(courseId);
+  }
 }
