@@ -302,6 +302,7 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
     async migrateLearnerToVersion(adminId, userCourseId, targetVersionId) {
         const uc = await this.prisma.userCourse.findUnique({
             where: { id: userCourseId },
+            select: { id: true, courseId: true },
         });
         if (!uc) {
             throw new common_1.NotFoundException('Enrollment not found');
@@ -312,33 +313,17 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 courseId: uc.courseId,
                 status: 'PUBLISHED',
             },
+            select: { id: true, versionNumber: true },
         });
         if (!target) {
             throw new common_1.NotFoundException('Target version not found or not published');
         }
-        const priorVersion = uc.enrolledVersionId
-            ? await this.prisma.courseVersion.findUnique({
-                where: { id: uc.enrolledVersionId },
-                select: { id: true, versionNumber: true },
-            })
-            : null;
-        await this.prisma.userCourse.update({
-            where: { id: userCourseId },
-            data: { enrolledVersionId: target.id },
-        });
-        await this.writeAudit({
+        await this._migrateOneLearner({
+            userCourseId,
+            targetVersionId: target.id,
             adminId,
-            action: 'MIGRATE_LEARNER_VERSION',
-            targetType: 'UserCourse',
-            targetId: userCourseId,
-            courseId: uc.courseId,
-            userId: uc.userId,
-            metadata: {
-                fromVersionId: priorVersion?.id ?? null,
-                fromVersionNumber: priorVersion?.versionNumber ?? null,
-                toVersionId: target.id,
-                toVersionNumber: target.versionNumber,
-            },
+            auditAction: 'MIGRATE_LEARNER_VERSION',
+            auditFlags: { wouldRegress: false, forced: false },
         });
         return {
             message: `Enrollment pinned to version ${target.versionNumber}`,
@@ -349,6 +334,51 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 versionNumber: target.versionNumber,
             },
         };
+    }
+    async _migrateOneLearner(params) {
+        await this.prisma.$transaction(async (tx) => {
+            const uc = await tx.userCourse.findUnique({
+                where: { id: params.userCourseId },
+                select: {
+                    id: true,
+                    courseId: true,
+                    userId: true,
+                    enrolledVersionId: true,
+                    enrolledVersion: { select: { versionNumber: true } },
+                },
+            });
+            if (!uc)
+                throw new Error('UserCourse not found');
+            const target = await tx.courseVersion.findFirst({
+                where: {
+                    id: params.targetVersionId,
+                    courseId: uc.courseId,
+                },
+                select: { id: true, versionNumber: true },
+            });
+            if (!target)
+                throw new Error('target version invalid inside tx');
+            await tx.userCourse.update({
+                where: { id: params.userCourseId },
+                data: { enrolledVersionId: target.id },
+            });
+            await this.writeAudit({
+                adminId: params.adminId,
+                action: params.auditAction,
+                targetType: 'UserCourse',
+                targetId: params.userCourseId,
+                courseId: uc.courseId,
+                userId: uc.userId,
+                metadata: {
+                    fromVersionId: uc.enrolledVersionId,
+                    fromVersionNumber: uc.enrolledVersion?.versionNumber ?? null,
+                    toVersionId: target.id,
+                    toVersionNumber: target.versionNumber,
+                    wouldRegress: params.auditFlags.wouldRegress,
+                    forced: params.auditFlags.forced,
+                },
+            }, tx);
+        }, { timeout: 8000, maxWait: 3000 });
     }
     async writeAudit(entry, tx) {
         const client = tx ?? this.prisma;
@@ -1007,6 +1037,195 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 latestPublishedAt: latest.publishedAt,
                 liveFingerprint,
                 publishedFingerprint,
+            },
+        };
+    }
+    async migrateLearnersToVersionBulk(adminId, courseId, params) {
+        const CEILING = 500;
+        const userIds = Array.from(new Set(params.userIds));
+        if (userIds.length > CEILING) {
+            throw new common_1.HttpException({
+                status: 400,
+                error: 'Batch size exceeds ceiling',
+                details: { ceiling: CEILING, requested: userIds.length },
+            }, common_1.HttpStatus.BAD_REQUEST);
+        }
+        const target = await this.prisma.courseVersion.findFirst({
+            where: { id: params.targetVersionId, courseId },
+            select: { id: true, versionNumber: true, sectionCount: true },
+        });
+        if (!target) {
+            throw new common_1.NotFoundException(`Target version ${params.targetVersionId} not found for course ${courseId}`);
+        }
+        const [enrollments, progressCounts, completions] = await Promise.all([
+            userIds.length
+                ? this.prisma.userCourse.findMany({
+                    where: { courseId, userId: { in: userIds } },
+                    select: {
+                        id: true,
+                        userId: true,
+                        enrolledVersionId: true,
+                        user: {
+                            select: {
+                                email: true,
+                                firstName: true,
+                                lastName: true,
+                                deletedAt: true,
+                            },
+                        },
+                        enrolledVersion: {
+                            select: { versionNumber: true, sectionCount: true },
+                        },
+                    },
+                })
+                : Promise.resolve([]),
+            userIds.length
+                ? this.prisma.userCourseProgress.groupBy({
+                    by: ['userId'],
+                    where: {
+                        courseId,
+                        userId: { in: userIds },
+                        Section: { isArchived: false, isActive: true },
+                    },
+                    _count: { _all: true },
+                })
+                : Promise.resolve([]),
+            userIds.length
+                ? this.prisma.courseCompletion.findMany({
+                    where: {
+                        courseId,
+                        userId: { in: userIds },
+                        courseCompletedAt: { not: null },
+                    },
+                    select: { userId: true },
+                })
+                : Promise.resolve([]),
+        ]);
+        const enrollmentByUserId = new Map(enrollments.map((e) => [e.userId, e]));
+        const progressByUser = new Map(progressCounts.map((p) => [p.userId, p._count._all]));
+        const certifiedSet = new Set(completions.map((c) => c.userId));
+        const projections = userIds.map((uid) => {
+            const e = enrollmentByUserId.get(uid);
+            if (!e || e.user.deletedAt) {
+                return { decision: 'user_not_enrolled', userId: uid };
+            }
+            if (e.enrolledVersionId === params.targetVersionId) {
+                return { decision: 'already_on_target_version', userId: uid };
+            }
+            const fromDenom = e.enrolledVersion?.sectionCount ?? null;
+            const toDenom = target.sectionCount ?? null;
+            const numer = progressByUser.get(uid) ?? 0;
+            const isCertified = certifiedSet.has(uid);
+            const currentPct = isCertified
+                ? 100
+                : fromDenom && fromDenom > 0
+                    ? Math.min(100, Math.round((numer * 100) / fromDenom))
+                    : 0;
+            const projectedPct = isCertified
+                ? 100
+                : toDenom && toDenom > 0
+                    ? Math.min(100, Math.round((numer * 100) / toDenom))
+                    : 0;
+            const wouldRegress = projectedPct < currentPct;
+            return {
+                decision: 'projected',
+                userId: uid,
+                userCourseId: e.id,
+                userLabel: [e.user.firstName, e.user.lastName].filter(Boolean).join(' ') ||
+                    e.user.email,
+                email: e.user.email,
+                fromVersionId: e.enrolledVersionId,
+                fromVersionNumber: e.enrolledVersion?.versionNumber ?? null,
+                fromSectionCount: fromDenom,
+                toSectionCount: toDenom,
+                currentPercentage: currentPct,
+                projectedPercentage: projectedPct,
+                wouldRegress,
+                isCertified,
+            };
+        });
+        if (params.dryRun) {
+            const projected = projections.filter((p) => p.decision === 'projected');
+            const results = projected.map((p) => ({
+                userId: p.userId,
+                userLabel: p.userLabel,
+                email: p.email,
+                fromVersionId: p.fromVersionId,
+                fromVersionNumber: p.fromVersionNumber,
+                fromSectionCount: p.fromSectionCount,
+                toSectionCount: p.toSectionCount,
+                currentPercentage: p.currentPercentage,
+                projectedPercentage: p.projectedPercentage,
+                wouldRegress: p.wouldRegress,
+                isCertified: p.isCertified,
+            }));
+            return {
+                message: 'Dry run',
+                statusCode: 200,
+                data: {
+                    dryRun: true,
+                    targetVersionNumber: target.versionNumber,
+                    results,
+                    summary: {
+                        total: userIds.length,
+                        wouldRegress: results.filter((r) => r.wouldRegress).length,
+                        certifiedAndWouldRegress: results.filter((r) => r.wouldRegress && r.isCertified).length,
+                        notEnrolled: projections.filter((p) => p.decision === 'user_not_enrolled').length,
+                        alreadyOnTarget: projections.filter((p) => p.decision === 'already_on_target_version').length,
+                    },
+                },
+            };
+        }
+        const accepted = new Set(params.acceptRegressionFor ?? []);
+        const migrated = [];
+        const skipped = [];
+        for (const p of projections) {
+            if (p.decision === 'user_not_enrolled') {
+                skipped.push({ userId: p.userId, reason: 'user_not_enrolled' });
+                continue;
+            }
+            if (p.decision === 'already_on_target_version') {
+                skipped.push({
+                    userId: p.userId,
+                    reason: 'already_on_target_version',
+                });
+                continue;
+            }
+            if (p.wouldRegress && !accepted.has(p.userId)) {
+                skipped.push({
+                    userId: p.userId,
+                    reason: 'would_regress_not_accepted',
+                });
+                continue;
+            }
+            try {
+                await this._migrateOneLearner({
+                    userCourseId: p.userCourseId,
+                    targetVersionId: params.targetVersionId,
+                    adminId,
+                    auditAction: 'BULK_MIGRATE_LEARNER_VERSION',
+                    auditFlags: {
+                        wouldRegress: p.wouldRegress,
+                        forced: p.wouldRegress && accepted.has(p.userId),
+                    },
+                });
+                migrated.push(p.userId);
+            }
+            catch (err) {
+                skipped.push({
+                    userId: p.userId,
+                    reason: 'migration_failed',
+                    errorMessage: err instanceof Error ? err.message : String(err),
+                });
+            }
+        }
+        return {
+            message: 'Bulk migration complete',
+            statusCode: 200,
+            data: {
+                dryRun: false,
+                migrated,
+                skipped,
             },
         };
     }

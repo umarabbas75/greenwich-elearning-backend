@@ -1,5 +1,7 @@
 import {
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -536,8 +538,16 @@ export class CourseVersionService {
     userCourseId: string,
     targetVersionId: string,
   ) {
+    // Single-learner endpoint used by the roster row-action. Existing
+    // behaviour preserved (allow migration to any PUBLISHED version, no
+    // regression check on the row-action path — matches FE's PR 2 rollout
+    // note: "Do not surface a regression preview from the row-action
+    // until PR 5"; this IS PR 5 but the single-learner endpoint stays
+    // regression-check-free because the FE row-action hasn't shipped a
+    // preview UI. Bulk endpoint below adds regression checking on top).
     const uc = await this.prisma.userCourse.findUnique({
       where: { id: userCourseId },
+      select: { id: true, courseId: true },
     });
     if (!uc) {
       throw new NotFoundException('Enrollment not found');
@@ -549,39 +559,18 @@ export class CourseVersionService {
         courseId: uc.courseId,
         status: 'PUBLISHED',
       },
+      select: { id: true, versionNumber: true },
     });
     if (!target) {
       throw new NotFoundException('Target version not found or not published');
     }
 
-    // Snapshot the prior pin BEFORE the update so the audit row captures the
-    // migration delta (from → to). Re-pinning a learner's curriculum silently
-    // changes their progress denominator; this leaves a trace.
-    const priorVersion = uc.enrolledVersionId
-      ? await this.prisma.courseVersion.findUnique({
-          where: { id: uc.enrolledVersionId },
-          select: { id: true, versionNumber: true },
-        })
-      : null;
-
-    await this.prisma.userCourse.update({
-      where: { id: userCourseId },
-      data: { enrolledVersionId: target.id },
-    });
-
-    await this.writeAudit({
+    await this._migrateOneLearner({
+      userCourseId,
+      targetVersionId: target.id,
       adminId,
-      action: 'MIGRATE_LEARNER_VERSION',
-      targetType: 'UserCourse',
-      targetId: userCourseId,
-      courseId: uc.courseId,
-      userId: uc.userId,
-      metadata: {
-        fromVersionId: priorVersion?.id ?? null,
-        fromVersionNumber: priorVersion?.versionNumber ?? null,
-        toVersionId: target.id,
-        toVersionNumber: target.versionNumber,
-      },
+      auditAction: 'MIGRATE_LEARNER_VERSION',
+      auditFlags: { wouldRegress: false, forced: false },
     });
 
     return {
@@ -593,6 +582,95 @@ export class CourseVersionService {
         versionNumber: target.versionNumber,
       },
     };
+  }
+
+  /**
+   * PR 5 shared core. Extracted from `migrateLearnerToVersion` so the
+   * single-learner endpoint (row-action from PR 2's roster) and the
+   * bulk endpoint (`migrateLearnersToVersionBulk`) share one code path.
+   *
+   * Runs in a per-learner interactive transaction so:
+   * - The pin update and the audit row commit atomically (with the CC3
+   *   caveat that audit write remains best-effort even inside the tx).
+   * - A wedged learner (e.g. transient Prisma P2034 write conflict)
+   *   rolls back its OWN transaction only — bulk callers can skip and
+   *   proceed to the next learner rather than tearing down the batch.
+   *
+   * `{ timeout: 8000, maxWait: 3000 }`:
+   * - timeout: 2 writes + 2 reads per learner. 8s covers a Neon cold
+   *   start plus generous slack. Compare fixes doc §2's wipe-13-tables
+   *   tx sized at 15s.
+   * - maxWait: how long the caller waits to acquire the tx slot before
+   *   Prisma throws. 3s keeps a stalled connection pool from starving
+   *   the bulk loop.
+   */
+  private async _migrateOneLearner(params: {
+    userCourseId: string;
+    targetVersionId: string;
+    adminId: string;
+    auditAction: 'MIGRATE_LEARNER_VERSION' | 'BULK_MIGRATE_LEARNER_VERSION';
+    auditFlags: { wouldRegress: boolean; forced: boolean };
+  }): Promise<void> {
+    await this.prisma.$transaction(
+      async (tx) => {
+        const uc = await tx.userCourse.findUnique({
+          where: { id: params.userCourseId },
+          select: {
+            id: true,
+            courseId: true,
+            userId: true,
+            enrolledVersionId: true,
+            enrolledVersion: { select: { versionNumber: true } },
+          },
+        });
+        if (!uc) throw new Error('UserCourse not found');
+
+        // Re-verify target belongs to the same course inside the tx —
+        // guards against race where the version was archived / course
+        // reassigned between the outer read and the tx begin.
+        const target = await tx.courseVersion.findFirst({
+          where: {
+            id: params.targetVersionId,
+            courseId: uc.courseId,
+          },
+          select: { id: true, versionNumber: true },
+        });
+        if (!target) throw new Error('target version invalid inside tx');
+
+        await tx.userCourse.update({
+          where: { id: params.userCourseId },
+          data: { enrolledVersionId: target.id },
+        });
+
+        // Per-learner audit. `writeAudit(entry, tx)` uses the tx client so
+        // the row lives in the same transaction as the UserCourse update,
+        // but the write itself stays best-effort — a failure logs a
+        // warning and returns without rolling back the migration (CC3).
+        // The migration is the useful side effect; audit drift is a
+        // lesser bad than a rolled-back migration that leaves the admin
+        // with no signal about what actually moved.
+        await this.writeAudit(
+          {
+            adminId: params.adminId,
+            action: params.auditAction,
+            targetType: 'UserCourse',
+            targetId: params.userCourseId,
+            courseId: uc.courseId,
+            userId: uc.userId,
+            metadata: {
+              fromVersionId: uc.enrolledVersionId,
+              fromVersionNumber: uc.enrolledVersion?.versionNumber ?? null,
+              toVersionId: target.id,
+              toVersionNumber: target.versionNumber,
+              wouldRegress: params.auditFlags.wouldRegress,
+              forced: params.auditFlags.forced,
+            },
+          },
+          tx,
+        );
+      },
+      { timeout: 8000, maxWait: 3000 },
+    );
   }
 
   /**
@@ -1794,6 +1872,373 @@ export class CourseVersionService {
         latestPublishedAt: latest.publishedAt,
         liveFingerprint,
         publishedFingerprint,
+      },
+    };
+  }
+
+  // ────────────────────────────────────────────────────────────────────
+  // PR 5 — Bulk migration
+  //
+  // Migrate many learners to a target version in one API call, with a
+  // dry-run preview showing each learner's before/after percentage and
+  // whether they would regress.
+  //
+  // Design goals:
+  // - Regression preview: default deny, opt-in via acceptRegressionFor.
+  //   A migration that drops a certified learner from 100% to 66% is
+  //   the exact bug versioning exists to prevent — surface it, don't
+  //   apply it silently.
+  // - Per-learner mini-transactions: one wedged learner rolls back
+  //   ITS OWN tx only. Other N-1 proceed. Bulk endpoint returns a
+  //   skipped[] entry with errorMessage for the failure and continues.
+  // - Best-effort audit per learner (CC3 + FE review #3): audit write
+  //   inside the tx, but audit failures don't roll back migrations.
+  //
+  // Guardrails:
+  // - Batch ceiling: 500 learners per call. Multi-batch to migrate
+  //   larger sets. Configurable if real usage shows friction.
+  // - Dry-run summary counts wouldRegress and certifiedAndWouldRegress
+  //   so admin can spot the "100% learner about to drop" cases up front.
+  // ────────────────────────────────────────────────────────────────────
+
+  async migrateLearnersToVersionBulk(
+    adminId: string,
+    courseId: string,
+    params: {
+      userIds: string[];
+      targetVersionId: string;
+      dryRun: boolean;
+      acceptRegressionFor?: string[];
+    },
+  ): Promise<{
+    message: string;
+    statusCode: number;
+    data:
+      | {
+          dryRun: true;
+          targetVersionNumber: number;
+          results: Array<{
+            userId: string;
+            userLabel: string;
+            email: string;
+            fromVersionId: string | null;
+            fromVersionNumber: number | null;
+            fromSectionCount: number | null;
+            toSectionCount: number | null;
+            currentPercentage: number;
+            projectedPercentage: number;
+            wouldRegress: boolean;
+            isCertified: boolean;
+          }>;
+          summary: {
+            total: number;
+            wouldRegress: number;
+            certifiedAndWouldRegress: number;
+            notEnrolled: number;
+            alreadyOnTarget: number;
+          };
+        }
+      | {
+          dryRun: false;
+          migrated: string[];
+          skipped: Array<{
+            userId: string;
+            reason:
+              | 'would_regress_not_accepted'
+              | 'migration_failed'
+              | 'user_not_enrolled'
+              | 'already_on_target_version';
+            errorMessage?: string;
+          }>;
+        };
+  }> {
+    const CEILING = 500;
+    // Dedupe up front so a duplicate userId isn't attempted twice (which
+    // would produce a duplicate audit row + a spurious
+    // already_on_target_version on the second pass).
+    const userIds = Array.from(new Set(params.userIds));
+    if (userIds.length > CEILING) {
+      throw new HttpException(
+        {
+          status: 400,
+          error: 'Batch size exceeds ceiling',
+          details: { ceiling: CEILING, requested: userIds.length },
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Resolve target version + validate it belongs to courseId. Allow
+    // both PUBLISHED and ARCHIVED targets — migrating to an archived
+    // version is a legit ops motion (backwards migrate a learner to an
+    // older frozen curriculum for compliance/appeals).
+    const target = await this.prisma.courseVersion.findFirst({
+      where: { id: params.targetVersionId, courseId },
+      select: { id: true, versionNumber: true, sectionCount: true },
+    });
+    if (!target) {
+      throw new NotFoundException(
+        `Target version ${params.targetVersionId} not found for course ${courseId}`,
+      );
+    }
+
+    // Preload everything needed for per-learner projection in three
+    // batched queries. Fixed cost regardless of userIds.length within
+    // the CEILING.
+    const [enrollments, progressCounts, completions] = await Promise.all([
+      userIds.length
+        ? this.prisma.userCourse.findMany({
+            where: { courseId, userId: { in: userIds } },
+            select: {
+              id: true,
+              userId: true,
+              enrolledVersionId: true,
+              user: {
+                select: {
+                  email: true,
+                  firstName: true,
+                  lastName: true,
+                  deletedAt: true,
+                },
+              },
+              enrolledVersion: {
+                select: { versionNumber: true, sectionCount: true },
+              },
+            },
+          })
+        : Promise.resolve([] as any[]),
+      userIds.length
+        ? this.prisma.userCourseProgress.groupBy({
+            by: ['userId'],
+            where: {
+              courseId,
+              userId: { in: userIds },
+              Section: { isArchived: false, isActive: true },
+            },
+            _count: { _all: true },
+          })
+        : Promise.resolve(
+            [] as Array<{
+              userId: string;
+              _count: { _all: number };
+            }>,
+          ),
+      userIds.length
+        ? this.prisma.courseCompletion.findMany({
+            where: {
+              courseId,
+              userId: { in: userIds },
+              courseCompletedAt: { not: null },
+            },
+            select: { userId: true },
+          })
+        : Promise.resolve([] as Array<{ userId: string }>),
+    ]);
+
+    const enrollmentByUserId = new Map(
+      enrollments.map((e: any) => [e.userId, e]),
+    );
+    const progressByUser = new Map(
+      progressCounts.map((p) => [p.userId, p._count._all]),
+    );
+    const certifiedSet = new Set(completions.map((c) => c.userId));
+
+    // Per-learner decision + projection. `decision` drives whether the
+    // real-run path attempts a migration for this learner.
+    type ProjectedRow = {
+      decision: 'projected';
+      userId: string;
+      userCourseId: string;
+      userLabel: string;
+      email: string;
+      fromVersionId: string | null;
+      fromVersionNumber: number | null;
+      fromSectionCount: number | null;
+      toSectionCount: number | null;
+      currentPercentage: number;
+      projectedPercentage: number;
+      wouldRegress: boolean;
+      isCertified: boolean;
+    };
+    // Split into two SkipRow variants (one per discriminator) so TS
+    // narrows to ProjectedRow correctly after the two continues in the
+    // real-run loop. A single SkipRow with a union `decision` field
+    // leaves the union un-narrowable — Prisma's clientExtension typing
+    // has the same shape and the same workaround.
+    type SkipRowNotEnrolled = {
+      decision: 'user_not_enrolled';
+      userId: string;
+    };
+    type SkipRowAlreadyOnTarget = {
+      decision: 'already_on_target_version';
+      userId: string;
+    };
+    type Projection =
+      | ProjectedRow
+      | SkipRowNotEnrolled
+      | SkipRowAlreadyOnTarget;
+
+    const projections: Projection[] = userIds.map((uid): Projection => {
+      const e = enrollmentByUserId.get(uid);
+      // Missing enrollment OR soft-deleted user → skip. deletedAt users
+      // don't appear in the roster (PR 2), so getting one here likely
+      // means the FE passed a stale id.
+      if (!e || e.user.deletedAt) {
+        return { decision: 'user_not_enrolled', userId: uid };
+      }
+      if (e.enrolledVersionId === params.targetVersionId) {
+        return { decision: 'already_on_target_version', userId: uid };
+      }
+
+      const fromDenom = e.enrolledVersion?.sectionCount ?? null;
+      const toDenom = target.sectionCount ?? null;
+      const numer = progressByUser.get(uid) ?? 0;
+      const isCertified = certifiedSet.has(uid);
+
+      // Completers clamp to 100 in both current and projected. Matches
+      // roster/completion-gate semantics — a certified learner never
+      // shows <100 no matter what the raw numerator says.
+      const currentPct = isCertified
+        ? 100
+        : fromDenom && fromDenom > 0
+          ? Math.min(100, Math.round((numer * 100) / fromDenom))
+          : 0;
+      const projectedPct = isCertified
+        ? 100
+        : toDenom && toDenom > 0
+          ? Math.min(100, Math.round((numer * 100) / toDenom))
+          : 0;
+
+      const wouldRegress = projectedPct < currentPct;
+
+      return {
+        decision: 'projected',
+        userId: uid,
+        userCourseId: e.id,
+        userLabel:
+          [e.user.firstName, e.user.lastName].filter(Boolean).join(' ') ||
+          e.user.email,
+        email: e.user.email,
+        fromVersionId: e.enrolledVersionId,
+        fromVersionNumber: e.enrolledVersion?.versionNumber ?? null,
+        fromSectionCount: fromDenom,
+        toSectionCount: toDenom,
+        currentPercentage: currentPct,
+        projectedPercentage: projectedPct,
+        wouldRegress,
+        isCertified,
+      };
+    });
+
+    // Dry run — return the projection table + summary. No mutation, no
+    // audit row. This is what powers the FE's confirmation modal
+    // BEFORE the admin clicks "Migrate N learners".
+    if (params.dryRun) {
+      const projected = projections.filter(
+        (p): p is ProjectedRow => p.decision === 'projected',
+      );
+      const results = projected.map((p) => ({
+        userId: p.userId,
+        userLabel: p.userLabel,
+        email: p.email,
+        fromVersionId: p.fromVersionId,
+        fromVersionNumber: p.fromVersionNumber,
+        fromSectionCount: p.fromSectionCount,
+        toSectionCount: p.toSectionCount,
+        currentPercentage: p.currentPercentage,
+        projectedPercentage: p.projectedPercentage,
+        wouldRegress: p.wouldRegress,
+        isCertified: p.isCertified,
+      }));
+      return {
+        message: 'Dry run',
+        statusCode: 200,
+        data: {
+          dryRun: true,
+          targetVersionNumber: target.versionNumber,
+          results,
+          summary: {
+            total: userIds.length,
+            wouldRegress: results.filter((r) => r.wouldRegress).length,
+            certifiedAndWouldRegress: results.filter(
+              (r) => r.wouldRegress && r.isCertified,
+            ).length,
+            notEnrolled: projections.filter(
+              (p) => p.decision === 'user_not_enrolled',
+            ).length,
+            alreadyOnTarget: projections.filter(
+              (p) => p.decision === 'already_on_target_version',
+            ).length,
+          },
+        },
+      };
+    }
+
+    // Real run — one interactive tx per learner via _migrateOneLearner.
+    // Accepted regressions come from acceptRegressionFor; anything not
+    // in that set that would regress is skipped rather than silently
+    // applying the percentage drop.
+    const accepted = new Set(params.acceptRegressionFor ?? []);
+    const migrated: string[] = [];
+    const skipped: Array<{
+      userId: string;
+      reason:
+        | 'would_regress_not_accepted'
+        | 'migration_failed'
+        | 'user_not_enrolled'
+        | 'already_on_target_version';
+      errorMessage?: string;
+    }> = [];
+
+    for (const p of projections) {
+      if (p.decision === 'user_not_enrolled') {
+        skipped.push({ userId: p.userId, reason: 'user_not_enrolled' });
+        continue;
+      }
+      if (p.decision === 'already_on_target_version') {
+        skipped.push({
+          userId: p.userId,
+          reason: 'already_on_target_version',
+        });
+        continue;
+      }
+      // p.decision === 'projected'
+      if (p.wouldRegress && !accepted.has(p.userId)) {
+        skipped.push({
+          userId: p.userId,
+          reason: 'would_regress_not_accepted',
+        });
+        continue;
+      }
+
+      try {
+        await this._migrateOneLearner({
+          userCourseId: p.userCourseId,
+          targetVersionId: params.targetVersionId,
+          adminId,
+          auditAction: 'BULK_MIGRATE_LEARNER_VERSION',
+          auditFlags: {
+            wouldRegress: p.wouldRegress,
+            forced: p.wouldRegress && accepted.has(p.userId),
+          },
+        });
+        migrated.push(p.userId);
+      } catch (err) {
+        skipped.push({
+          userId: p.userId,
+          reason: 'migration_failed',
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return {
+      message: 'Bulk migration complete',
+      statusCode: 200,
+      data: {
+        dryRun: false,
+        migrated,
+        skipped,
       },
     };
   }

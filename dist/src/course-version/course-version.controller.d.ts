@@ -7,6 +7,12 @@ declare class MigrateEnrollmentDto {
     userCourseId: string;
     targetVersionId: string;
 }
+declare class BulkMigrateEnrollmentDto {
+    userIds: string[];
+    targetVersionId: string;
+    dryRun: boolean;
+    acceptRegressionFor?: string[];
+}
 export declare class CourseVersionController {
     private readonly courseVersionService;
     constructor(courseVersionService: CourseVersionService);
@@ -197,6 +203,42 @@ export declare class CourseVersionController {
             latestPublishedAt: Date;
             liveFingerprint: string;
             publishedFingerprint: string;
+        };
+    }>;
+    bulkMigrate(admin: User, courseId: string, body: BulkMigrateEnrollmentDto): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            dryRun: true;
+            targetVersionNumber: number;
+            results: {
+                userId: string;
+                userLabel: string;
+                email: string;
+                fromVersionId: string;
+                fromVersionNumber: number;
+                fromSectionCount: number;
+                toSectionCount: number;
+                currentPercentage: number;
+                projectedPercentage: number;
+                wouldRegress: boolean;
+                isCertified: boolean;
+            }[];
+            summary: {
+                total: number;
+                wouldRegress: number;
+                certifiedAndWouldRegress: number;
+                notEnrolled: number;
+                alreadyOnTarget: number;
+            };
+        } | {
+            dryRun: false;
+            migrated: string[];
+            skipped: {
+                userId: string;
+                reason: "would_regress_not_accepted" | "migration_failed" | "user_not_enrolled" | "already_on_target_version";
+                errorMessage?: string;
+            }[];
         };
     }>;
 }

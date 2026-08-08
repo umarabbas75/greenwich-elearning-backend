@@ -21,6 +21,8 @@ class PublishVersionDto {
 }
 class MigrateEnrollmentDto {
 }
+class BulkMigrateEnrollmentDto {
+}
 let CourseVersionController = class CourseVersionController {
     constructor(courseVersionService) {
         this.courseVersionService = courseVersionService;
@@ -60,6 +62,14 @@ let CourseVersionController = class CourseVersionController {
     }
     getDrift(courseId) {
         return this.courseVersionService.getDrift(courseId);
+    }
+    bulkMigrate(admin, courseId, body) {
+        return this.courseVersionService.migrateLearnersToVersionBulk(admin.id, courseId, {
+            userIds: body.userIds,
+            targetVersionId: body.targetVersionId,
+            dryRun: body.dryRun,
+            acceptRegressionFor: body.acceptRegressionFor,
+        });
     }
 };
 exports.CourseVersionController = CourseVersionController;
@@ -155,6 +165,16 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", void 0)
 ], CourseVersionController.prototype, "getDrift", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Post)(':courseId/enrollments/migrate-version-bulk'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)('courseId')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, BulkMigrateEnrollmentDto]),
+    __metadata("design:returntype", void 0)
+], CourseVersionController.prototype, "bulkMigrate", null);
 exports.CourseVersionController = CourseVersionController = __decorate([
     (0, common_1.Controller)('courses'),
     __metadata("design:paramtypes", [course_version_service_1.CourseVersionService])

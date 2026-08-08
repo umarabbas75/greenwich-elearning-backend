@@ -129,6 +129,7 @@ export declare class CourseVersionService {
             versionNumber: number;
         };
     }>;
+    private _migrateOneLearner;
     writeAudit(entry: {
         adminId: string;
         action: string;
@@ -301,6 +302,47 @@ export declare class CourseVersionService {
             latestPublishedAt: Date | null;
             liveFingerprint: string;
             publishedFingerprint: string | null;
+        };
+    }>;
+    migrateLearnersToVersionBulk(adminId: string, courseId: string, params: {
+        userIds: string[];
+        targetVersionId: string;
+        dryRun: boolean;
+        acceptRegressionFor?: string[];
+    }): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            dryRun: true;
+            targetVersionNumber: number;
+            results: Array<{
+                userId: string;
+                userLabel: string;
+                email: string;
+                fromVersionId: string | null;
+                fromVersionNumber: number | null;
+                fromSectionCount: number | null;
+                toSectionCount: number | null;
+                currentPercentage: number;
+                projectedPercentage: number;
+                wouldRegress: boolean;
+                isCertified: boolean;
+            }>;
+            summary: {
+                total: number;
+                wouldRegress: number;
+                certifiedAndWouldRegress: number;
+                notEnrolled: number;
+                alreadyOnTarget: number;
+            };
+        } | {
+            dryRun: false;
+            migrated: string[];
+            skipped: Array<{
+                userId: string;
+                reason: 'would_regress_not_accepted' | 'migration_failed' | 'user_not_enrolled' | 'already_on_target_version';
+                errorMessage?: string;
+            }>;
         };
     }>;
     pruneOrphanVersions(courseId?: string): Promise<{

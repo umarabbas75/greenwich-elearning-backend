@@ -21,6 +21,13 @@ class MigrateEnrollmentDto {
   targetVersionId: string;
 }
 
+class BulkMigrateEnrollmentDto {
+  userIds: string[];
+  targetVersionId: string;
+  dryRun: boolean;
+  acceptRegressionFor?: string[];
+}
+
 @Controller('courses')
 export class CourseVersionController {
   constructor(private readonly courseVersionService: CourseVersionService) {}
@@ -146,5 +153,34 @@ export class CourseVersionController {
   @Get(':courseId/versions/drift')
   getDrift(@Param('courseId') courseId: string) {
     return this.courseVersionService.getDrift(courseId);
+  }
+
+  // ────────────────────────────────────────────────────────────────────
+  // PR 5 — Bulk migration
+  //
+  // Distinct route from the pre-existing single-learner
+  // /enrollments/migrate-version. The two paths share
+  // _migrateOneLearner but keep different HTTP contracts because the
+  // single-learner endpoint doesn't do regression checking (row-action
+  // on the roster) — see the plan's PR 5 rollout note.
+  // ────────────────────────────────────────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post(':courseId/enrollments/migrate-version-bulk')
+  bulkMigrate(
+    @GetUser() admin: User,
+    @Param('courseId') courseId: string,
+    @Body() body: BulkMigrateEnrollmentDto,
+  ) {
+    return this.courseVersionService.migrateLearnersToVersionBulk(
+      admin.id,
+      courseId,
+      {
+        userIds: body.userIds,
+        targetVersionId: body.targetVersionId,
+        dryRun: body.dryRun,
+        acceptRegressionFor: body.acceptRegressionFor,
+      },
+    );
   }
 }
