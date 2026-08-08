@@ -40,6 +40,15 @@ let CourseVersionController = class CourseVersionController {
     migrateLearner(admin, body) {
         return this.courseVersionService.migrateLearnerToVersion(admin.id, body.userCourseId, body.targetVersionId);
     }
+    getRoster(courseId, page, pageSize, sort, search, versionFilter) {
+        return this.courseVersionService.getRoster(courseId, {
+            page: page ? parseInt(page, 10) : undefined,
+            pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+            sort,
+            search,
+            versionFilter,
+        });
+    }
 };
 exports.CourseVersionController = CourseVersionController;
 __decorate([
@@ -87,6 +96,19 @@ __decorate([
     __metadata("design:paramtypes", [Object, MigrateEnrollmentDto]),
     __metadata("design:returntype", void 0)
 ], CourseVersionController.prototype, "migrateLearner", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Get)(':courseId/enrollments'),
+    __param(0, (0, common_1.Param)('courseId')),
+    __param(1, (0, common_1.Query)('page')),
+    __param(2, (0, common_1.Query)('pageSize')),
+    __param(3, (0, common_1.Query)('sort')),
+    __param(4, (0, common_1.Query)('search')),
+    __param(5, (0, common_1.Query)('versionFilter')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String, String, String, String]),
+    __metadata("design:returntype", void 0)
+], CourseVersionController.prototype, "getRoster", null);
 exports.CourseVersionController = CourseVersionController = __decorate([
     (0, common_1.Controller)('courses'),
     __metadata("design:paramtypes", [course_version_service_1.CourseVersionService])

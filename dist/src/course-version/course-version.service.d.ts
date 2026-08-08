@@ -197,6 +197,35 @@ export declare class CourseVersionService {
         }>;
     }>>;
     buildRestoreNote(latestVersionNumber: number | null | undefined): string;
+    getRoster(courseId: string, opts: {
+        page?: number;
+        pageSize?: number;
+        sort?: string;
+        search?: string;
+        versionFilter?: string;
+    }): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            latestPublishedVersionId: string | null;
+            latestPublishedVersionNumber: number | null;
+            rows: Array<{
+                userId: string;
+                userLabel: string;
+                email: string;
+                enrolledVersionId: string | null;
+                enrolledVersionNumber: number | null;
+                percentage: number;
+                isCompleted: boolean;
+                isActive: boolean;
+                isPaid: boolean;
+            }>;
+            total: number;
+            page: number;
+            pageSize: number;
+        };
+    }>;
+    private _buildRosterOrderBy;
     pruneOrphanVersions(courseId?: string): Promise<{
         message: string;
         statusCode: number;

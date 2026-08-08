@@ -1034,6 +1034,292 @@ export class CourseVersionService {
     return `Restored to the live tree. Latest published version (v${latestVersionNumber}) does not reference this row; new enrollments will not see it until you publish a new version.`;
   }
 
+  // ────────────────────────────────────────────────────────────────────
+  // PR 2 — Roster
+  //
+  // Answers "who is on which version of this course, how far along, are
+  // they behind latest?". Single biggest admin-visibility gap identified
+  // in the pre-PR-1 sweep — before this, `GET /courses/report/:courseId/:userId`
+  // returned per-learner data but there was no way to enumerate learners.
+  //
+  // Query budget: 5 per request regardless of pageSize. Latest version
+  // (1), page rows + count in parallel (2), progress groupBy (1),
+  // completion findMany (1). No per-row queries.
+  //
+  // Percentage-sort branch overfetches all matching rows because we don't
+  // (yet) have a materialized `UserCourse.percentage` column. Acceptable
+  // at current scale (largest course ~2k learners); the materialized-
+  // column escape hatch is a scale followup, tracked in PR 2 risks in
+  // docs/course-versioning-admin-features-plan.md.
+  // ────────────────────────────────────────────────────────────────────
+
+  async getRoster(
+    courseId: string,
+    opts: {
+      page?: number;
+      pageSize?: number;
+      sort?: string;
+      search?: string;
+      versionFilter?: string;
+    },
+  ): Promise<{
+    message: string;
+    statusCode: number;
+    data: {
+      latestPublishedVersionId: string | null;
+      latestPublishedVersionNumber: number | null;
+      rows: Array<{
+        userId: string;
+        userLabel: string;
+        email: string;
+        enrolledVersionId: string | null;
+        enrolledVersionNumber: number | null;
+        percentage: number;
+        isCompleted: boolean;
+        isActive: boolean;
+        isPaid: boolean;
+      }>;
+      total: number;
+      page: number;
+      pageSize: number;
+    };
+  }> {
+    const page = Math.max(1, opts.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 20));
+    const sort = opts.sort || 'percentage:desc';
+    const search = opts.search?.trim() || undefined;
+
+    // Phase 1: latest published version. Single query. Used for the
+    // top-level `latestPublishedVersionId` field — FE derives per-row
+    // "is on latest?" from that top-level field, not a per-row flag, so a
+    // publish landing mid-page never produces inconsistent rows.
+    const latest = await this.prisma.courseVersion.findFirst({
+      where: { courseId, status: 'PUBLISHED' },
+      orderBy: { versionNumber: 'desc' },
+      select: { id: true, versionNumber: true },
+    });
+
+    // Phase 2: rows + count. `sortIsPercentage` decides whether we can
+    // paginate in the DB (fast, bounded) or must overfetch and sort in
+    // memory (slow at scale; tolerable at current scale).
+    const sortIsPercentage =
+      sort === 'percentage:desc' || sort === 'percentage:asc';
+
+    // Whitelist: any unknown non-percentage sort falls back to email:asc
+    // rather than injecting untrusted strings into orderBy.
+    const orderBy = this._buildRosterOrderBy(sort);
+
+    const searchWhere = search
+      ? {
+          OR: [
+            { email: { contains: search, mode: 'insensitive' as const } },
+            {
+              firstName: {
+                contains: search,
+                mode: 'insensitive' as const,
+              },
+            },
+            {
+              lastName: { contains: search, mode: 'insensitive' as const },
+            },
+          ],
+        }
+      : undefined;
+
+    // Soft-deleted users don't appear in the roster — per decision 6, an
+    // admin should not see rows for accounts that have been anonymised or
+    // deleted. Sub-select the `user` filter so the join enforces it.
+    const userFilter = searchWhere
+      ? { deletedAt: null, ...searchWhere }
+      : { deletedAt: null };
+
+    const whereClause: Prisma.UserCourseWhereInput = {
+      courseId,
+      user: userFilter,
+      ...(opts.versionFilter ? { enrolledVersionId: opts.versionFilter } : {}),
+    };
+
+    // Select shape as a const so both branches (paginated in DB /
+    // overfetched for percentage sort) produce the same Prisma payload
+    // type. Without the `as const` narrowing, Prisma's return type
+    // widens to the full UserCourse row and TS loses the joined
+    // user/enrolledVersion fields.
+    const rosterSelect = {
+      userId: true,
+      isActive: true,
+      isPaid: true,
+      enrolledVersionId: true,
+      user: { select: { email: true, firstName: true, lastName: true } },
+      enrolledVersion: {
+        select: { versionNumber: true, sectionCount: true },
+      },
+    } as const;
+
+    const [rowsRaw, total] = await Promise.all([
+      sortIsPercentage
+        ? this.prisma.userCourse.findMany({
+            where: whereClause,
+            select: rosterSelect,
+          })
+        : this.prisma.userCourse.findMany({
+            where: whereClause,
+            select: rosterSelect,
+            orderBy,
+            take: pageSize,
+            skip: (page - 1) * pageSize,
+          }),
+      this.prisma.userCourse.count({ where: whereClause }),
+    ]);
+
+    // Phase 3: batch-load the two per-user aggregates needed for percentage
+    // and isCompleted. groupBy on UserCourseProgress keeps this to one
+    // round-trip regardless of pageSize (or overfetched N in the
+    // percentage-sort case).
+    //
+    // The `Section` filter (isArchived: false, isActive: true) is what
+    // keeps the numerator consistent with countCompletionDenominator's
+    // live path. Without it, an unpinned learner's percentage in the
+    // roster would count progress on archived/inactive sections while the
+    // completion gate does not — reproducing the exact "roster shows 92%,
+    // completion says 100%" bug the pre-PR-1 fixes closed.
+    const userIds = rowsRaw.map((r) => r.userId);
+    const [progressCounts, completions, liveSectionCount] = await Promise.all([
+      userIds.length
+        ? this.prisma.userCourseProgress.groupBy({
+            by: ['userId'],
+            where: {
+              courseId,
+              userId: { in: userIds },
+              Section: { isArchived: false, isActive: true },
+            },
+            _count: { _all: true },
+          })
+        : Promise.resolve(
+            [] as Array<{ userId: string; _count: { _all: number } }>,
+          ),
+      userIds.length
+        ? this.prisma.courseCompletion.findMany({
+            where: {
+              courseId,
+              userId: { in: userIds },
+              courseCompletedAt: { not: null },
+            },
+            select: { userId: true },
+          })
+        : Promise.resolve([] as Array<{ userId: string }>),
+      // Live denominator: only queried when the page has any unpinned
+      // learner. Small cost regardless; keeping it unconditional lets
+      // us skip a "does this page need it?" branch and avoids a follow-
+      // up round-trip if the answer flips.
+      this.prisma.section.count({
+        where: {
+          isActive: true,
+          isArchived: false,
+          chapter: {
+            isArchived: false,
+            module: { courseId, isArchived: false },
+          },
+        },
+      }),
+    ]);
+
+    const progressByUser = new Map(
+      progressCounts.map((p) => [p.userId, p._count._all]),
+    );
+    const completedSet = new Set(completions.map((c) => c.userId));
+
+    // Phase 4: build typed rows.
+    const rows = rowsRaw.map((r) => {
+      const isCompleted = completedSet.has(r.userId);
+      // Pinned learners: denominator is the version's sectionCount (the
+      // count captured at publish time). Unpinned learners: denominator
+      // is the current live section count. sectionCount can be null on
+      // very old rows that pre-date the column — fall back to live.
+      const denom = r.enrolledVersion?.sectionCount ?? liveSectionCount;
+      const numer = progressByUser.get(r.userId) ?? 0;
+      const percentage = isCompleted
+        ? 100
+        : denom > 0
+          ? Math.min(100, Math.round((numer * 100) / denom) / 1)
+          : 0;
+      // Clamp completers to 100. This is the counterpart to the
+      // completion-freeze in the learner UI: an admin looking at the
+      // roster right after a learner completed should never see 98.7%.
+      const userLabel =
+        [r.user.firstName, r.user.lastName].filter(Boolean).join(' ') ||
+        r.user.email;
+      return {
+        userId: r.userId,
+        userLabel,
+        email: r.user.email,
+        enrolledVersionId: r.enrolledVersionId,
+        enrolledVersionNumber: r.enrolledVersion?.versionNumber ?? null,
+        percentage,
+        isCompleted,
+        isActive: r.isActive,
+        isPaid: r.isPaid,
+      };
+    });
+
+    // Percentage-sort branch: sort the overfetched N in memory, then
+    // slice. Secondary sort by email for a deterministic order on ties
+    // (many learners at 100% is common; without a tiebreaker the page
+    // shuffles between requests).
+    let paged: typeof rows;
+    if (sortIsPercentage) {
+      const dir = sort === 'percentage:asc' ? 1 : -1;
+      rows.sort((a, b) => {
+        const d = (a.percentage - b.percentage) * dir;
+        return d !== 0 ? d : a.email.localeCompare(b.email);
+      });
+      paged = rows.slice((page - 1) * pageSize, page * pageSize);
+    } else {
+      paged = rows;
+    }
+
+    return {
+      message: 'OK',
+      statusCode: 200,
+      data: {
+        latestPublishedVersionId: latest?.id ?? null,
+        latestPublishedVersionNumber: latest?.versionNumber ?? null,
+        rows: paged,
+        total,
+        page,
+        pageSize,
+      },
+    };
+  }
+
+  /**
+   * Translate the roster's `sort` query param into a Prisma orderBy. Any
+   * unknown sort key falls back to email:asc — an admin passing a typo
+   * gets a stable order instead of a 500.
+   */
+  private _buildRosterOrderBy(
+    sort: string,
+  ): Prisma.UserCourseOrderByWithRelationInput {
+    switch (sort) {
+      case 'email:asc':
+        return { user: { email: 'asc' } };
+      case 'email:desc':
+        return { user: { email: 'desc' } };
+      case 'enrolledVersionNumber:asc':
+        return { enrolledVersion: { versionNumber: 'asc' } };
+      case 'enrolledVersionNumber:desc':
+        return { enrolledVersion: { versionNumber: 'desc' } };
+      // isCompleted is derived (join to CourseCompletion) — can't
+      // orderBy it directly. Fall back to createdAt for now; PR 5 or a
+      // schema change can materialise `isCompleted` on UserCourse if
+      // this becomes a common admin sort.
+      case 'isCompleted:asc':
+      case 'isCompleted:desc':
+        return { createdAt: sort === 'isCompleted:desc' ? 'desc' : 'asc' };
+      default:
+        return { user: { email: 'asc' } };
+    }
+  }
+
   async pruneOrphanVersions(courseId?: string): Promise<{
     message: string;
     statusCode: number;

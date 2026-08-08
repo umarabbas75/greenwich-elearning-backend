@@ -100,5 +100,27 @@ export declare class CourseVersionController {
             versionNumber: number;
         };
     }>;
+    getRoster(courseId: string, page?: string, pageSize?: string, sort?: string, search?: string, versionFilter?: string): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            latestPublishedVersionId: string;
+            latestPublishedVersionNumber: number;
+            rows: {
+                userId: string;
+                userLabel: string;
+                email: string;
+                enrolledVersionId: string;
+                enrolledVersionNumber: number;
+                percentage: number;
+                isCompleted: boolean;
+                isActive: boolean;
+                isPaid: boolean;
+            }[];
+            total: number;
+            page: number;
+            pageSize: number;
+        };
+    }>;
 }
 export {};

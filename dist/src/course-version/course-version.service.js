@@ -568,6 +568,168 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         }
         return `Restored to the live tree. Latest published version (v${latestVersionNumber}) does not reference this row; new enrollments will not see it until you publish a new version.`;
     }
+    async getRoster(courseId, opts) {
+        const page = Math.max(1, opts.page ?? 1);
+        const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 20));
+        const sort = opts.sort || 'percentage:desc';
+        const search = opts.search?.trim() || undefined;
+        const latest = await this.prisma.courseVersion.findFirst({
+            where: { courseId, status: 'PUBLISHED' },
+            orderBy: { versionNumber: 'desc' },
+            select: { id: true, versionNumber: true },
+        });
+        const sortIsPercentage = sort === 'percentage:desc' || sort === 'percentage:asc';
+        const orderBy = this._buildRosterOrderBy(sort);
+        const searchWhere = search
+            ? {
+                OR: [
+                    { email: { contains: search, mode: 'insensitive' } },
+                    {
+                        firstName: {
+                            contains: search,
+                            mode: 'insensitive',
+                        },
+                    },
+                    {
+                        lastName: { contains: search, mode: 'insensitive' },
+                    },
+                ],
+            }
+            : undefined;
+        const userFilter = searchWhere
+            ? { deletedAt: null, ...searchWhere }
+            : { deletedAt: null };
+        const whereClause = {
+            courseId,
+            user: userFilter,
+            ...(opts.versionFilter ? { enrolledVersionId: opts.versionFilter } : {}),
+        };
+        const rosterSelect = {
+            userId: true,
+            isActive: true,
+            isPaid: true,
+            enrolledVersionId: true,
+            user: { select: { email: true, firstName: true, lastName: true } },
+            enrolledVersion: {
+                select: { versionNumber: true, sectionCount: true },
+            },
+        };
+        const [rowsRaw, total] = await Promise.all([
+            sortIsPercentage
+                ? this.prisma.userCourse.findMany({
+                    where: whereClause,
+                    select: rosterSelect,
+                })
+                : this.prisma.userCourse.findMany({
+                    where: whereClause,
+                    select: rosterSelect,
+                    orderBy,
+                    take: pageSize,
+                    skip: (page - 1) * pageSize,
+                }),
+            this.prisma.userCourse.count({ where: whereClause }),
+        ]);
+        const userIds = rowsRaw.map((r) => r.userId);
+        const [progressCounts, completions, liveSectionCount] = await Promise.all([
+            userIds.length
+                ? this.prisma.userCourseProgress.groupBy({
+                    by: ['userId'],
+                    where: {
+                        courseId,
+                        userId: { in: userIds },
+                        Section: { isArchived: false, isActive: true },
+                    },
+                    _count: { _all: true },
+                })
+                : Promise.resolve([]),
+            userIds.length
+                ? this.prisma.courseCompletion.findMany({
+                    where: {
+                        courseId,
+                        userId: { in: userIds },
+                        courseCompletedAt: { not: null },
+                    },
+                    select: { userId: true },
+                })
+                : Promise.resolve([]),
+            this.prisma.section.count({
+                where: {
+                    isActive: true,
+                    isArchived: false,
+                    chapter: {
+                        isArchived: false,
+                        module: { courseId, isArchived: false },
+                    },
+                },
+            }),
+        ]);
+        const progressByUser = new Map(progressCounts.map((p) => [p.userId, p._count._all]));
+        const completedSet = new Set(completions.map((c) => c.userId));
+        const rows = rowsRaw.map((r) => {
+            const isCompleted = completedSet.has(r.userId);
+            const denom = r.enrolledVersion?.sectionCount ?? liveSectionCount;
+            const numer = progressByUser.get(r.userId) ?? 0;
+            const percentage = isCompleted
+                ? 100
+                : denom > 0
+                    ? Math.min(100, Math.round((numer * 100) / denom) / 1)
+                    : 0;
+            const userLabel = [r.user.firstName, r.user.lastName].filter(Boolean).join(' ') ||
+                r.user.email;
+            return {
+                userId: r.userId,
+                userLabel,
+                email: r.user.email,
+                enrolledVersionId: r.enrolledVersionId,
+                enrolledVersionNumber: r.enrolledVersion?.versionNumber ?? null,
+                percentage,
+                isCompleted,
+                isActive: r.isActive,
+                isPaid: r.isPaid,
+            };
+        });
+        let paged;
+        if (sortIsPercentage) {
+            const dir = sort === 'percentage:asc' ? 1 : -1;
+            rows.sort((a, b) => {
+                const d = (a.percentage - b.percentage) * dir;
+                return d !== 0 ? d : a.email.localeCompare(b.email);
+            });
+            paged = rows.slice((page - 1) * pageSize, page * pageSize);
+        }
+        else {
+            paged = rows;
+        }
+        return {
+            message: 'OK',
+            statusCode: 200,
+            data: {
+                latestPublishedVersionId: latest?.id ?? null,
+                latestPublishedVersionNumber: latest?.versionNumber ?? null,
+                rows: paged,
+                total,
+                page,
+                pageSize,
+            },
+        };
+    }
+    _buildRosterOrderBy(sort) {
+        switch (sort) {
+            case 'email:asc':
+                return { user: { email: 'asc' } };
+            case 'email:desc':
+                return { user: { email: 'desc' } };
+            case 'enrolledVersionNumber:asc':
+                return { enrolledVersion: { versionNumber: 'asc' } };
+            case 'enrolledVersionNumber:desc':
+                return { enrolledVersion: { versionNumber: 'desc' } };
+            case 'isCompleted:asc':
+            case 'isCompleted:desc':
+                return { createdAt: sort === 'isCompleted:desc' ? 'desc' : 'asc' };
+            default:
+                return { user: { email: 'asc' } };
+        }
+    }
     async pruneOrphanVersions(courseId) {
         const versions = await this.prisma.courseVersion.findMany({
             where: courseId ? { courseId } : undefined,

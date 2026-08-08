@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { User } from '@prisma/client';
 import { GetUser } from '../decorator';
@@ -65,5 +73,29 @@ export class CourseVersionController {
       body.userCourseId,
       body.targetVersionId,
     );
+  }
+
+  /**
+   * PR 2 — Roster. Answers "who is on which version of this course, how
+   * far along, and are they behind latest?". Paginated + sortable +
+   * searchable — see CourseVersionService.getRoster for query semantics.
+   */
+  @UseGuards(AuthGuard('jwt'))
+  @Get(':courseId/enrollments')
+  getRoster(
+    @Param('courseId') courseId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('sort') sort?: string,
+    @Query('search') search?: string,
+    @Query('versionFilter') versionFilter?: string,
+  ) {
+    return this.courseVersionService.getRoster(courseId, {
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+      sort,
+      search,
+      versionFilter,
+    });
   }
 }
