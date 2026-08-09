@@ -49,6 +49,10 @@ import {
   isIdReferencedInManifest,
 } from '../course-version/course-version.manifest';
 import { CourseCompletionService } from '../course-completion/course-completion.service';
+import {
+  computeLearnerPercentages,
+  percentageKey,
+} from '../course-version/learner-percentage';
 @Injectable()
 export class CourseService {
   private static readonly completionLogger = new Logger(CourseService.name);
@@ -3018,7 +3022,11 @@ export class CourseService {
 
       const [sections, chapter] = await Promise.all([
         this.prisma.section.findMany({
-          where: { chapterId: id, isArchived: false },
+          // isActive:true to match every other live path. The lesson-player
+          // sidebar derives its "N/N" from this array's length, so including
+          // inactive sections made its denominator disagree with the chapter
+          // percentage and the completion gate.
+          where: { chapterId: id, isArchived: false, isActive: true },
           orderBy: {
             createdAt: 'asc',
           },
@@ -5228,29 +5236,31 @@ export class CourseService {
           .map((c) => [c.courseId, c.courseCompletedAt as Date]),
       );
 
-      const versionIds = [
-        ...new Set(
-          assignedCourses
-            .map((uc) => uc.enrolledVersionId)
-            .filter((id): id is string => !!id),
-        ),
-      ];
-      const versionSectionCounts = new Map<string, number>();
-      if (versionIds.length > 0) {
-        const versions = await this.prisma.courseVersion.findMany({
-          where: { id: { in: versionIds } },
-          select: { id: true, sectionCount: true },
-        });
-        for (const row of versions) {
-          if (row.sectionCount != null) {
-            versionSectionCounts.set(row.id, row.sectionCount);
-          }
-        }
-      }
+      // Percentages via the shared engine. Batched across every assigned
+      // course in one call — a 10-course dashboard costs a fixed number of
+      // round trips, not one per card. Pins are already on the rows, so the
+      // engine skips its own enrollment lookup.
+      //
+      // Previously the denominator came from the stored
+      // CourseVersion.sectionCount while the numerator came from a `_count`
+      // sub-select filtered to LIVE sections. Those describe different trees:
+      // a learner who finished their pinned version read <100 once one of its
+      // sections was archived, disagreeing with the completion gate (which
+      // derives both halves from the manifest). The engine derives both from
+      // one view, so that cannot happen here.
+      const learnerPercentages = await computeLearnerPercentages(
+        this.prisma,
+        assignedCourses.map((uc) => ({
+          userId,
+          courseId: uc.courseId,
+          enrolledVersionId: uc.enrolledVersionId ?? null,
+        })),
+      );
 
       const coursesWithDetails = assignedCourses.map((userCourse) => {
-        const { course, isActive, isPaid, enrolledVersionId } =
-          userCourse as any;
+        // enrolledVersionId is no longer read here — the percentage engine
+        // resolves the learner's curriculum from the pin passed in above.
+        const { course, isActive, isPaid } = userCourse as any;
 
         // Form completion status (unchanged)
         const formStatus = {
@@ -5313,15 +5323,20 @@ export class CourseService {
             })) || [],
         };
 
+        const learnerProgress = learnerPercentages.get(
+          percentageKey(userId, course.id),
+        );
+        // Fall back to the live tree only if the engine somehow has no entry
+        // for this pair (it pre-seeds every pair, so this is belt-and-braces).
         const sectionsCount =
-          enrolledVersionId && versionSectionCounts.has(enrolledVersionId)
-            ? versionSectionCounts.get(enrolledVersionId)!
-            : course.modules
-                ?.flatMap((module) => module.chapters)
-                ?.reduce((acc, chapter) => acc + chapter._count.sections, 0) ||
-              0;
+          learnerProgress?.denominator ??
+          (course.modules
+            ?.flatMap((module) => module.chapters)
+            ?.reduce((acc, chapter) => acc + chapter._count.sections, 0) ||
+            0);
 
-        const userCourseProgressCount = course._count?.UserCourseProgress || 0;
+        const userCourseProgressCount =
+          learnerProgress?.numerator ?? course._count?.UserCourseProgress ?? 0;
 
         const latestLastSeenSection = course.LastSeenSection?.[0];
 
@@ -5341,6 +5356,24 @@ export class CourseService {
         // "expired" state without a per-course gate fetch. Learners only.
         const completedAt = completedAtByCourse.get(course.id);
         const isFrozen = !!completedAt;
+
+        // Invariant, not a fix: with numerator and denominator drawn from one
+        // curriculum view a certified learner cannot compute below 100. If
+        // this fires, scoping has drifted somewhere and the freeze is masking
+        // it — which is exactly what the old `isFrozen ? 100` clamp did
+        // silently. Warn rather than clamp-and-forget.
+        if (
+          completedAt &&
+          learnerProgress &&
+          learnerProgress.percentage < 100 &&
+          learnerProgress.denominator > 0
+        ) {
+          CourseService.completionLogger.warn(
+            `Percentage invariant: certified learner ${userId} on course ${course.id} computed ` +
+              `${learnerProgress.numerator}/${learnerProgress.denominator} ` +
+              `(source=${learnerProgress.denominatorSource}); frozen to 100 for display.`,
+          );
+        }
         let expired = false;
         let expiresAt: Date | null = null;
         if (completedAt) {
@@ -5363,16 +5396,22 @@ export class CourseService {
                 isCompleted: feedbackSubmittedIds.has(course.id),
               }
             : null,
-          percentage: isFrozen
-            ? 100
-            : sectionsCount > 0
-              ? (userCourseProgressCount * 100) / sectionsCount
-              : 0,
+          percentage: learnerProgress
+            ? learnerProgress.percentage
+            : isFrozen
+              ? 100
+              : sectionsCount > 0
+                ? (userCourseProgressCount * 100) / sectionsCount
+                : 0,
+          // Raw counts stay truthful for a frozen completer EXCEPT that the
+          // numerator is clamped to the denominator: the FE divides these two
+          // itself (CourseContent.tsx) and its `done >= sections` gate is
+          // unclamped, so letting them disagree would unlock content early.
           _count: {
             totalSections: sectionsCount,
             userCourseProgress: isFrozen
               ? sectionsCount
-              : userCourseProgressCount,
+              : Math.min(userCourseProgressCount, sectionsCount),
           },
           formStatus,
           policyStatus,
@@ -5710,7 +5749,15 @@ export class CourseService {
       const chapter = await this.prisma.chapter.findUnique({
         where: { id: chapterId },
         include: {
-          sections: { where: { isArchived: false }, select: { id: true } },
+          // isActive:true belongs here alongside isArchived:false — every
+          // other live path (countCompletionDenominator, getAllUserModules,
+          // the percentage engine) treats an inactive section as outside the
+          // curriculum, and omitting it made this endpoint's denominator
+          // larger than the completion gate's for the same chapter.
+          sections: {
+            where: { isArchived: false, isActive: true },
+            select: { id: true },
+          },
           module: { select: { courseId: true } },
         },
       });
@@ -5732,16 +5779,20 @@ export class CourseService {
       }
 
       const isFrozen = !!completion?.courseCompletedAt;
-      const totalSections = chapter.sections.length;
-      // Clamp completed sections to the number of sections that actually
-      // exist in this chapter — UserCourseProgress rows can outlive the
-      // sections they reference (e.g. a section was deleted/moved after the
-      // learner completed it), and counting those would push percentage
-      // above 100% for in-progress users.
-      const completedSections = Math.min(
-        userCourseProgress.length,
-        totalSections,
+      const liveSectionIds = chapter.sections.map((s) => s.id);
+      const totalSections = liveSectionIds.length;
+      // Intersect rather than count-and-clamp. UserCourseProgress rows outlive
+      // the sections they reference (they only cascade on hard delete), so a
+      // raw count includes progress on sections that are no longer part of the
+      // chapter. Clamping hid that as "exactly 100%"; intersecting reports the
+      // learner's true position against the live chapter, matching the
+      // versioned branch above and countCompletionDenominator.
+      const progressedSectionIds = new Set(
+        userCourseProgress.map((p) => p.sectionId),
       );
+      const completedSections = liveSectionIds.filter((sid) =>
+        progressedSectionIds.has(sid),
+      ).length;
 
       let percentage = 0;
       if (isFrozen) {

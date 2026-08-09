@@ -510,9 +510,98 @@ describe('CourseService — course versioning', () => {
       expect(data.totalSections).toBe(3);
       expect(data.userCourseProgress).toBeCloseTo(33.33, 0);
     });
+
+    it('excludes inactive sections from the live denominator', async () => {
+      // A5: this query filtered isArchived only, so an inactive section
+      // inflated the denominator here while every other live path
+      // (countCompletionDenominator, getAllUserModules, the percentage
+      // engine) excluded it — the same chapter read differently depending
+      // on which endpoint you asked.
+      courseVersionService.resolveCurriculumTree.mockResolvedValue({
+        mode: 'live',
+      });
+      prisma.userCourseProgress.findMany.mockResolvedValue([
+        { sectionId: 'sec-1' },
+      ]);
+      prisma.courseCompletion.findUnique.mockResolvedValue(null);
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        sections: [{ id: 'sec-1' }, { id: 'sec-2' }],
+        module: { courseId: 'course-1' },
+      });
+
+      await service.getUserChapterProgress('user-1', 'course-1', 'ch-1');
+
+      const call = prisma.chapter.findUnique.mock.calls[0][0];
+      expect(call.include.sections.where).toEqual({
+        isArchived: false,
+        isActive: true,
+      });
+    });
+
+    it('ignores progress on sections no longer in the live chapter', async () => {
+      // A5: the numerator was a raw count of the learner's progress rows,
+      // clamped to the section total. Clamping reported a learner with stale
+      // rows as exactly 100%; intersecting reports their true position.
+      courseVersionService.resolveCurriculumTree.mockResolvedValue({
+        mode: 'live',
+      });
+      prisma.userCourseProgress.findMany.mockResolvedValue([
+        { sectionId: 'sec-1' },
+        { sectionId: 'gone-1' },
+        { sectionId: 'gone-2' },
+      ]);
+      prisma.courseCompletion.findUnique.mockResolvedValue(null);
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        sections: [{ id: 'sec-1' }, { id: 'sec-2' }],
+        module: { courseId: 'course-1' },
+      });
+
+      const result = await service.getUserChapterProgress(
+        'user-1',
+        'course-1',
+        'ch-1',
+      );
+      const data = result.data as any;
+
+      // 1 of 2 live sections done — NOT 100% via a clamped count of 3.
+      expect(data.completedSections).toBe(1);
+      expect(data.userCourseProgress).toBe(50);
+    });
   });
 
   describe('getAllUserSections', () => {
+    it('excludes inactive sections from the live section list', async () => {
+      // A5: this query filtered isArchived only. The lesson-player sidebar
+      // derives its "N/N" from this array's length, so an inactive section
+      // made that denominator disagree with the chapter percentage and the
+      // completion gate.
+      courseVersionService.resolveCurriculumTree.mockResolvedValue({
+        mode: 'live',
+      });
+      prisma.userCourseProgress.findMany.mockResolvedValue([]);
+      prisma.courseCompletion.findUnique.mockResolvedValue(null);
+      prisma.lastSeenSection.findUnique.mockResolvedValue(null);
+      // Only the live/active section comes back — the inactive one is
+      // excluded by the query filter this test pins.
+      prisma.section.findMany.mockResolvedValue([
+        { id: 'sec-1', title: 'S1', chapterId: 'ch-1' },
+      ]);
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        quizzes: [],
+        module: { courseId: 'course-1' },
+      });
+
+      await service.getAllUserSections('ch-1', 'user-1', 'course-1');
+
+      const call = prisma.section.findMany.mock.calls[0][0];
+      expect(call.where).toEqual(
+        expect.objectContaining({ isArchived: false, isActive: true }),
+      );
+    });
+
     it('returns versioned sections for pinned enrollment', async () => {
       courseVersionService.resolveCurriculumTree.mockResolvedValue(versionTree);
       courseVersionService.findVersionChapterBySourceId.mockReturnValue({

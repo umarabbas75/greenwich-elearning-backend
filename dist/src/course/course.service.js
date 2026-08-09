@@ -26,6 +26,7 @@ const feedback_service_1 = require("../feedback/feedback.service");
 const course_version_service_1 = require("../course-version/course-version.service");
 const course_version_manifest_1 = require("../course-version/course-version.manifest");
 const course_completion_service_1 = require("../course-completion/course-completion.service");
+const learner_percentage_1 = require("../course-version/learner-percentage");
 let CourseService = CourseService_1 = class CourseService {
     constructor(prisma, config, mail, feedbackService, courseVersionService, courseCompletion) {
         this.prisma = prisma;
@@ -2184,7 +2185,7 @@ let CourseService = CourseService_1 = class CourseService {
             }
             const [sections, chapter] = await Promise.all([
                 this.prisma.section.findMany({
-                    where: { chapterId: id, isArchived: false },
+                    where: { chapterId: id, isArchived: false, isActive: true },
                     orderBy: {
                         createdAt: 'asc',
                     },
@@ -3687,25 +3688,13 @@ let CourseService = CourseService_1 = class CourseService {
             const completedAtByCourse = new Map(completions
                 .filter((c) => c.courseCompletedAt)
                 .map((c) => [c.courseId, c.courseCompletedAt]));
-            const versionIds = [
-                ...new Set(assignedCourses
-                    .map((uc) => uc.enrolledVersionId)
-                    .filter((id) => !!id)),
-            ];
-            const versionSectionCounts = new Map();
-            if (versionIds.length > 0) {
-                const versions = await this.prisma.courseVersion.findMany({
-                    where: { id: { in: versionIds } },
-                    select: { id: true, sectionCount: true },
-                });
-                for (const row of versions) {
-                    if (row.sectionCount != null) {
-                        versionSectionCounts.set(row.id, row.sectionCount);
-                    }
-                }
-            }
+            const learnerPercentages = await (0, learner_percentage_1.computeLearnerPercentages)(this.prisma, assignedCourses.map((uc) => ({
+                userId,
+                courseId: uc.courseId,
+                enrolledVersionId: uc.enrolledVersionId ?? null,
+            })));
             const coursesWithDetails = assignedCourses.map((userCourse) => {
-                const { course, isActive, isPaid, enrolledVersionId } = userCourse;
+                const { course, isActive, isPaid } = userCourse;
                 const formStatus = {
                     totalForms: course.courseForms?.length || 0,
                     completedForms: course.courseForms?.filter((form) => form.userFormCompletions?.some((uc) => uc.isComplete)).length || 0,
@@ -3739,13 +3728,13 @@ let CourseService = CourseService_1 = class CourseService {
                         })) || [],
                     })) || [],
                 };
-                const sectionsCount = enrolledVersionId && versionSectionCounts.has(enrolledVersionId)
-                    ? versionSectionCounts.get(enrolledVersionId)
-                    : course.modules
+                const learnerProgress = learnerPercentages.get((0, learner_percentage_1.percentageKey)(userId, course.id));
+                const sectionsCount = learnerProgress?.denominator ??
+                    (course.modules
                         ?.flatMap((module) => module.chapters)
                         ?.reduce((acc, chapter) => acc + chapter._count.sections, 0) ||
-                        0;
-                const userCourseProgressCount = course._count?.UserCourseProgress || 0;
+                        0);
+                const userCourseProgressCount = learnerProgress?.numerator ?? course._count?.UserCourseProgress ?? 0;
                 const latestLastSeenSection = course.LastSeenSection?.[0];
                 const formsCompleted = formStatus.totalForms === formStatus.completedForms;
                 const canAccessPolicies = formsCompleted;
@@ -3753,6 +3742,14 @@ let CourseService = CourseService_1 = class CourseService {
                     allRequiredItemsCompleted;
                 const completedAt = completedAtByCourse.get(course.id);
                 const isFrozen = !!completedAt;
+                if (completedAt &&
+                    learnerProgress &&
+                    learnerProgress.percentage < 100 &&
+                    learnerProgress.denominator > 0) {
+                    CourseService_1.completionLogger.warn(`Percentage invariant: certified learner ${userId} on course ${course.id} computed ` +
+                        `${learnerProgress.numerator}/${learnerProgress.denominator} ` +
+                        `(source=${learnerProgress.denominatorSource}); frozen to 100 for display.`);
+                }
                 let expired = false;
                 let expiresAt = null;
                 if (completedAt) {
@@ -3774,16 +3771,18 @@ let CourseService = CourseService_1 = class CourseService {
                             isCompleted: feedbackSubmittedIds.has(course.id),
                         }
                         : null,
-                    percentage: isFrozen
-                        ? 100
-                        : sectionsCount > 0
-                            ? (userCourseProgressCount * 100) / sectionsCount
-                            : 0,
+                    percentage: learnerProgress
+                        ? learnerProgress.percentage
+                        : isFrozen
+                            ? 100
+                            : sectionsCount > 0
+                                ? (userCourseProgressCount * 100) / sectionsCount
+                                : 0,
                     _count: {
                         totalSections: sectionsCount,
                         userCourseProgress: isFrozen
                             ? sectionsCount
-                            : userCourseProgressCount,
+                            : Math.min(userCourseProgressCount, sectionsCount),
                     },
                     formStatus,
                     policyStatus,
@@ -3995,7 +3994,10 @@ let CourseService = CourseService_1 = class CourseService {
             const chapter = await this.prisma.chapter.findUnique({
                 where: { id: chapterId },
                 include: {
-                    sections: { where: { isArchived: false }, select: { id: true } },
+                    sections: {
+                        where: { isArchived: false, isActive: true },
+                        select: { id: true },
+                    },
                     module: { select: { courseId: true } },
                 },
             });
@@ -4009,8 +4011,10 @@ let CourseService = CourseService_1 = class CourseService {
                 }, common_1.HttpStatus.BAD_REQUEST);
             }
             const isFrozen = !!completion?.courseCompletedAt;
-            const totalSections = chapter.sections.length;
-            const completedSections = Math.min(userCourseProgress.length, totalSections);
+            const liveSectionIds = chapter.sections.map((s) => s.id);
+            const totalSections = liveSectionIds.length;
+            const progressedSectionIds = new Set(userCourseProgress.map((p) => p.sectionId));
+            const completedSections = liveSectionIds.filter((sid) => progressedSectionIds.has(sid)).length;
             let percentage = 0;
             if (isFrozen) {
                 percentage = 100;
