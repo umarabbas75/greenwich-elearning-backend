@@ -10,6 +10,7 @@ export type LearnerPercentage = {
 export type LearnerCourseKey = {
     userId: string;
     courseId: string;
+    enrolledVersionId?: string | null;
 };
 export declare const percentageKey: (userId: string, courseId: string) => string;
 export declare function computeLearnerPercentages(prisma: PrismaService, pairs: LearnerCourseKey[]): Promise<Map<string, LearnerPercentage>>;

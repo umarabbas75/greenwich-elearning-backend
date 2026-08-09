@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseVersionService } from './course-version.service';
+import { resetManifestCache } from './course-version.manifest';
 
 /**
  * PR 2 tests — `getRoster(courseId, opts)`. Kept in its own spec file
@@ -23,20 +24,27 @@ describe('CourseVersionService.getRoster (PR 2)', () => {
       courseVersion: {
         // The Phase-1 latest-published lookup.
         findFirst: jest.fn().mockResolvedValue(defaultLatest),
+        // Manifest loads for pinned learners (via loadManifestForVersion).
+        findUnique: jest.fn().mockResolvedValue(null),
       },
       userCourse: {
         findMany: jest.fn().mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(0),
       },
+      // The percentage engine's inputs. getRoster no longer assembles the
+      // ratio itself — it delegates to computeLearnerPercentages, so these
+      // mocks describe the learner's curriculum and progress rather than a
+      // pre-computed groupBy count.
       userCourseProgress: {
-        groupBy: jest.fn().mockResolvedValue([]),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       courseCompletion: {
         findMany: jest.fn().mockResolvedValue([]),
       },
       section: {
-        count: jest.fn().mockResolvedValue(10),
+        findMany: jest.fn().mockResolvedValue([]),
       },
+      $queryRaw: jest.fn().mockResolvedValue([]),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -48,7 +56,45 @@ describe('CourseVersionService.getRoster (PR 2)', () => {
 
     service = module.get(CourseVersionService);
     jest.clearAllMocks();
+    resetManifestCache();
+    prisma.courseVersion.findFirst.mockResolvedValue(defaultLatest);
+    prisma.courseVersion.findUnique.mockResolvedValue(null);
+    prisma.userCourseProgress.findMany.mockResolvedValue([]);
+    prisma.courseCompletion.findMany.mockResolvedValue([]);
+    prisma.section.findMany.mockResolvedValue([]);
   });
+
+  /** Manifest for a pinned version with N sections (sec-0..sec-N-1). */
+  const manifestWithSections = (n: number) => ({
+    modules: [
+      {
+        sourceId: 'mod-1',
+        order: 0,
+        chapters: [
+          {
+            sourceId: 'ch-1',
+            order: 0,
+            sectionIds: Array.from({ length: n }, (_, i) => `sec-${i}`),
+            quizIds: [],
+          },
+        ],
+      },
+    ],
+  });
+
+  /** Live sections for an unpinned learner's course. */
+  const liveSections = (n: number, courseId = 'course-1') =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `live-${i}`,
+      chapter: { module: { courseId } },
+    }));
+
+  /** Progress rows for a learner over the given section ids. */
+  const progressFor = (
+    userId: string,
+    sectionIds: string[],
+    courseId = 'course-1',
+  ) => sectionIds.map((sectionId) => ({ userId, courseId, sectionId }));
 
   // Helper for a valid raw row shape (matches the `rosterSelect` const).
   const rawRow = (over: Partial<any> = {}) => ({
@@ -148,8 +194,16 @@ describe('CourseVersionService.getRoster (PR 2)', () => {
     prisma.userCourse.findMany.mockResolvedValue(rows);
     prisma.userCourse.count.mockResolvedValue(10);
     // Progress: user-i has i sections completed out of 10 (0%, 10%, …, 90%).
-    prisma.userCourseProgress.groupBy.mockResolvedValue(
-      rows.map((_, i) => ({ userId: `user-${i}`, _count: { _all: i } })),
+    prisma.courseVersion.findUnique.mockResolvedValue({
+      manifest: manifestWithSections(10),
+    });
+    prisma.userCourseProgress.findMany.mockResolvedValue(
+      rows.flatMap((_, i) =>
+        progressFor(
+          `user-${i}`,
+          Array.from({ length: i }, (_, j) => `sec-${j}`),
+        ),
+      ),
     );
 
     const result = await service.getRoster('course-1', {
@@ -173,55 +227,94 @@ describe('CourseVersionService.getRoster (PR 2)', () => {
     expect(result.data.rows[0].userId).toBe('user-9');
   });
 
-  it('pinned learner uses the enrolledVersion.sectionCount as denominator', async () => {
+  it('pinned learner is measured against their own version manifest', async () => {
     prisma.userCourse.findMany.mockResolvedValue([
       rawRow({
-        enrolledVersion: { versionNumber: 3, sectionCount: 20 }, // pinned to 20
+        enrolledVersionId: 'ver-3',
+        enrolledVersion: { versionNumber: 3, sectionCount: 20 },
       }),
     ]);
     prisma.userCourse.count.mockResolvedValue(1);
-    // 5 completed / 20 pinned = 25% (round(500/20) = 25).
-    prisma.userCourseProgress.groupBy.mockResolvedValue([
-      { userId: 'user-1', _count: { _all: 5 } },
-    ]);
-    // Live count set to 10 — MUST NOT be used for a pinned learner.
-    // If it were, we'd wrongly get 50%.
-    prisma.section.count.mockResolvedValue(10);
+    // v3's manifest holds 20 sections; the learner completed 5 => 25%.
+    prisma.courseVersion.findUnique.mockResolvedValue({
+      manifest: manifestWithSections(20),
+    });
+    prisma.userCourseProgress.findMany.mockResolvedValue(
+      progressFor('user-1', ['sec-0', 'sec-1', 'sec-2', 'sec-3', 'sec-4']),
+    );
+    // Live sections MUST NOT be consulted for a resolvable pinned learner.
+    prisma.section.findMany.mockResolvedValue(liveSections(10));
 
     const result = await service.getRoster('course-1', {});
     expect(result.data.rows[0].percentage).toBe(25);
+    expect(prisma.section.findMany).not.toHaveBeenCalled();
   });
 
-  it('unpinned learner uses the live section count as denominator', async () => {
+  it('pinned learner reads 100 when a section was archived after they pinned', async () => {
+    // THE regression A3 fixes. Previously the numerator was filtered to LIVE
+    // sections while the denominator came from the frozen sectionCount, so a
+    // learner who finished all 12 sections of their version read 92% once one
+    // was archived. Both halves now come from the manifest.
+    prisma.userCourse.findMany.mockResolvedValue([
+      rawRow({
+        enrolledVersionId: 'ver-3',
+        enrolledVersion: { versionNumber: 3, sectionCount: 12 },
+      }),
+    ]);
+    prisma.userCourse.count.mockResolvedValue(1);
+    prisma.courseVersion.findUnique.mockResolvedValue({
+      manifest: manifestWithSections(12),
+    });
+    // All 12 completed — including sec-11, whose Section row is now archived.
+    prisma.userCourseProgress.findMany.mockResolvedValue(
+      progressFor(
+        'user-1',
+        Array.from({ length: 12 }, (_, i) => `sec-${i}`),
+      ),
+    );
+
+    const result = await service.getRoster('course-1', {});
+    expect(result.data.rows[0].percentage).toBe(100);
+  });
+
+  it('unpinned learner is measured against the live tree', async () => {
     prisma.userCourse.findMany.mockResolvedValue([
       rawRow({ enrolledVersionId: null, enrolledVersion: null }),
     ]);
     prisma.userCourse.count.mockResolvedValue(1);
-    prisma.userCourseProgress.groupBy.mockResolvedValue([
-      { userId: 'user-1', _count: { _all: 4 } },
-    ]);
-    // Live count = 8 → 4/8 = 50%.
-    prisma.section.count.mockResolvedValue(8);
+    // 8 live sections, 4 completed => 50%.
+    prisma.section.findMany.mockResolvedValue(liveSections(8));
+    prisma.userCourseProgress.findMany.mockResolvedValue(
+      progressFor('user-1', ['live-0', 'live-1', 'live-2', 'live-3']),
+    );
 
     const result = await service.getRoster('course-1', {});
     expect(result.data.rows[0].percentage).toBe(50);
   });
 
-  it('applies the isArchived/isActive Section filter on the numerator groupBy (aligns with countCompletionDenominator)', async () => {
-    prisma.userCourse.findMany.mockResolvedValue([rawRow()]);
+  it('scopes the numerator to the learner curriculum, not raw progress rows', async () => {
+    // Previously this pinned a `Section: { isArchived, isActive }` filter on a
+    // groupBy. The engine supersedes that: progress is intersected with the
+    // learner's own section id set, so a row outside that set (archived after
+    // they pinned, or left from a reassignment) cannot inflate the numerator.
+    prisma.userCourse.findMany.mockResolvedValue([
+      rawRow({
+        enrolledVersionId: 'ver-3',
+        enrolledVersion: { versionNumber: 3, sectionCount: 4 },
+      }),
+    ]);
     prisma.userCourse.count.mockResolvedValue(1);
-
-    await service.getRoster('course-1', {});
-
-    // If this filter isn't applied, the roster's numerator counts
-    // archived-section progress that the completion gate does not,
-    // reproducing the roster-shows-92%-completion-says-100% bug. Pinning
-    // it here catches an accidental removal.
-    const call = prisma.userCourseProgress.groupBy.mock.calls[0][0];
-    expect(call.where.Section).toEqual({
-      isArchived: false,
-      isActive: true,
+    prisma.courseVersion.findUnique.mockResolvedValue({
+      manifest: manifestWithSections(4),
     });
+    prisma.userCourseProgress.findMany.mockResolvedValue([
+      ...progressFor('user-1', ['sec-0', 'sec-1']),
+      // Not in this learner's manifest — must be ignored.
+      ...progressFor('user-1', ['orphan-section']),
+    ]);
+
+    const result = await service.getRoster('course-1', {});
+    expect(result.data.rows[0].percentage).toBe(50);
   });
 
   it('isCompleted flag reflects the CourseCompletion.courseCompletedAt filter', async () => {
@@ -234,7 +327,7 @@ describe('CourseVersionService.getRoster (PR 2)', () => {
     ]);
     prisma.userCourse.count.mockResolvedValue(2);
     prisma.courseCompletion.findMany.mockResolvedValue([
-      { userId: 'completed-user' },
+      { userId: 'completed-user', courseId: 'course-1' },
     ]);
 
     const result = await service.getRoster('course-1', {});
@@ -256,16 +349,25 @@ describe('CourseVersionService.getRoster (PR 2)', () => {
   });
 
   it('clamps completers to exactly 100 regardless of raw numerator', async () => {
-    // The learner completed the course, but their UserCourseProgress
-    // rows haven't caught up (or archived sections are still counted).
-    // The clamp guarantees the admin never sees 98.7% for a certified
-    // learner — matches the frontend completion freeze.
-    prisma.userCourse.findMany.mockResolvedValue([rawRow()]);
-    prisma.userCourse.count.mockResolvedValue(1);
-    prisma.userCourseProgress.groupBy.mockResolvedValue([
-      { userId: 'user-1', _count: { _all: 3 } }, // 3/10 = 30% raw
+    prisma.userCourse.findMany.mockResolvedValue([
+      rawRow({
+        enrolledVersionId: 'ver-3',
+        enrolledVersion: { versionNumber: 3, sectionCount: 10 },
+      }),
     ]);
-    prisma.courseCompletion.findMany.mockResolvedValue([{ userId: 'user-1' }]);
+    prisma.userCourse.count.mockResolvedValue(1);
+    prisma.courseVersion.findUnique.mockResolvedValue({
+      manifest: manifestWithSections(10),
+    });
+    // Only 3/10 raw — but the learner is certified, so the roster must read
+    // 100. Counterpart to the learner-side completion freeze: an admin looking
+    // at the roster right after completion should never see 30%.
+    prisma.userCourseProgress.findMany.mockResolvedValue(
+      progressFor('user-1', ['sec-0', 'sec-1', 'sec-2']),
+    );
+    prisma.courseCompletion.findMany.mockResolvedValue([
+      { userId: 'user-1', courseId: 'course-1' },
+    ]);
 
     const result = await service.getRoster('course-1', {});
     expect(result.data.rows[0].percentage).toBe(100);
@@ -281,7 +383,9 @@ describe('CourseVersionService.getRoster (PR 2)', () => {
     expect(result.data.total).toBe(0);
     // Batch-per-user queries must not fire when userIds is empty (would
     // still work, but noisy in production logs).
-    expect(prisma.userCourseProgress.groupBy).not.toHaveBeenCalled();
+    // The engine short-circuits on an empty pair list, so none of its
+    // per-learner queries fire.
+    expect(prisma.userCourseProgress.findMany).not.toHaveBeenCalled();
     expect(prisma.courseCompletion.findMany).not.toHaveBeenCalled();
   });
 
@@ -312,9 +416,9 @@ describe('CourseVersionService.getRoster (PR 2)', () => {
     ]);
     prisma.userCourse.count.mockResolvedValue(3);
     prisma.courseCompletion.findMany.mockResolvedValue([
-      { userId: 'u-c' },
-      { userId: 'u-a' },
-      { userId: 'u-b' },
+      { userId: 'u-c', courseId: 'course-1' },
+      { userId: 'u-a', courseId: 'course-1' },
+      { userId: 'u-b', courseId: 'course-1' },
     ]);
 
     const result = await service.getRoster('course-1', {

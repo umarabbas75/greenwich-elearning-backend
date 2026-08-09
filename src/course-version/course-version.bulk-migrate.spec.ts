@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseVersionService } from './course-version.service';
 import { makeAbortAwareTransactionMock } from '../test-utils/prisma-transaction-mock';
+import { resetManifestCache } from './course-version.manifest';
 
 /**
  * PR 5 tests — bulk migration.
@@ -42,18 +43,64 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
     ...over,
   });
 
+  /** Manifest with N sections named sec-0..sec-N-1. */
+  const manifestWithSections = (n: number, prefix = 'sec') => ({
+    modules: [
+      {
+        sourceId: 'mod-1',
+        order: 0,
+        chapters: [
+          {
+            sourceId: 'ch-1',
+            order: 0,
+            sectionIds: Array.from({ length: n }, (_, i) => `${prefix}-${i}`),
+            quizIds: [],
+          },
+        ],
+      },
+    ],
+  });
+
+  /**
+   * Route loadManifestForVersion by versionId. `ver-old` is the learners'
+   * current pin, `ver-target` the migration target.
+   */
+  const manifestsByVersion = (fromSections: number, toSections: number) => {
+    return ({ where }: any) => {
+      if (where.id === 'ver-target') {
+        return Promise.resolve({ manifest: manifestWithSections(toSections) });
+      }
+      return Promise.resolve({ manifest: manifestWithSections(fromSections) });
+    };
+  };
+
+  /** Progress rows for a learner over the given section ids. */
+  const progressFor = (
+    userId: string,
+    sectionIds: string[],
+    courseId = 'course-1',
+  ) => sectionIds.map((sectionId) => ({ userId, courseId, sectionId }));
+
   beforeEach(async () => {
     prisma = {
       courseVersion: {
         findFirst: jest.fn().mockResolvedValue(targetVersion),
+        // Manifest loads (learner pins + the migration target).
+        findUnique: jest.fn().mockResolvedValue(null),
       },
+      section: { findMany: jest.fn().mockResolvedValue([]) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
       userCourse: {
         findMany: jest.fn().mockResolvedValue([]),
         findUnique: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
       },
+      // Percentage engine inputs. The dry-run no longer divides a groupBy
+      // count by a stored sectionCount — current percentages come from
+      // computeLearnerPercentages and the projection is intersected with the
+      // TARGET version's manifest section ids.
       userCourseProgress: {
-        groupBy: jest.fn().mockResolvedValue([]),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       courseCompletion: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -84,7 +131,10 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
     jest.clearAllMocks();
     // Reset the default resolutions after clearAllMocks wipes them.
     prisma.courseVersion.findFirst.mockResolvedValue(targetVersion);
-    prisma.userCourseProgress.groupBy.mockResolvedValue([]);
+    prisma.userCourseProgress.findMany.mockResolvedValue([]);
+    prisma.courseVersion.findUnique.mockResolvedValue(null);
+    prisma.section.findMany.mockResolvedValue([]);
+    resetManifestCache();
     prisma.courseCompletion.findMany.mockResolvedValue([]);
     prisma.user.findUnique.mockResolvedValue({ email: 'admin@example.com' });
     prisma.adminAuditLog.create.mockResolvedValue({ id: 'audit-1' });
@@ -147,10 +197,18 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
       prisma.userCourse.findMany.mockResolvedValue([
         makeEnrollment(), // pinned to v3 with 12 sections
       ]);
-      // 6/12 = 50% current; 6/20 = 30% projected on target v5.
-      prisma.userCourseProgress.groupBy.mockResolvedValue([
-        { userId: 'user-1', _count: { _all: 6 } },
-      ]);
+      // The learner's v3 manifest holds 12 sections; the target v5 holds 20,
+      // and the first 12 ids carry over. 6 done => 6/12 = 50% current,
+      // 6/20 = 30% projected.
+      prisma.courseVersion.findUnique.mockImplementation(
+        manifestsByVersion(12, 20),
+      );
+      prisma.userCourseProgress.findMany.mockResolvedValue(
+        progressFor(
+          'user-1',
+          Array.from({ length: 6 }, (_, i) => `sec-${i}`),
+        ),
+      );
 
       const result = await service.migrateLearnersToVersionBulk(
         'admin-1',
@@ -174,6 +232,47 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
       expect(row.userLabel).toBe('Jane Doe');
     });
 
+    it('does not invent a regression from a stale-scoped current percentage', async () => {
+      // REGRESSION (A3). currentPercentage used to divide a LIVE-filtered
+      // progress count by the pinned version's frozen sectionCount. When a
+      // section was archived after the learner pinned, that understated the
+      // current percentage — and an understated current makes
+      // `projected < current` LESS likely to fire, so the default-deny guard
+      // silently under-triggered.
+      //
+      // Here the learner completed all 12 sections of their pinned version and
+      // the target carries the same 12 forward: 100% -> 100%, no regression.
+      // Under the old math the current read 11/12 = 92%, and the learner would
+      // have been reported as improving rather than steady.
+      prisma.userCourse.findMany.mockResolvedValue([makeEnrollment()]);
+      prisma.courseVersion.findUnique.mockImplementation(
+        manifestsByVersion(12, 12),
+      );
+      prisma.userCourseProgress.findMany.mockResolvedValue(
+        progressFor(
+          'user-1',
+          Array.from({ length: 12 }, (_, i) => `sec-${i}`),
+        ),
+      );
+
+      const result = await service.migrateLearnersToVersionBulk(
+        'admin-1',
+        'course-1',
+        {
+          userIds: ['user-1'],
+          targetVersionId: 'ver-target',
+          dryRun: true,
+        },
+      );
+
+      if (!('results' in result.data))
+        throw new Error('expected dryRun response');
+      const row = result.data.results[0];
+      expect(row.currentPercentage).toBe(100);
+      expect(row.projectedPercentage).toBe(100);
+      expect(row.wouldRegress).toBe(false);
+    });
+
     it('summary counts wouldRegress and certifiedAndWouldRegress correctly', async () => {
       prisma.userCourse.findMany.mockResolvedValue([
         makeEnrollment({ userId: 'user-regress-only' }),
@@ -188,9 +287,20 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
           },
         }),
       ]);
-      prisma.userCourseProgress.groupBy.mockResolvedValue([
-        { userId: 'user-regress-only', _count: { _all: 6 } },
-        { userId: 'user-regress-and-cert', _count: { _all: 12 } },
+      prisma.courseVersion.findUnique.mockImplementation(
+        manifestsByVersion(12, 20),
+      );
+      prisma.userCourseProgress.findMany.mockResolvedValue([
+        // 6/12 = 50% now, 6/20 = 30% projected => regresses.
+        ...progressFor(
+          'user-regress-only',
+          Array.from({ length: 6 }, (_, i) => `sec-${i}`),
+        ),
+        // Certified: clamps to 100 on both sides regardless of raw counts.
+        ...progressFor(
+          'user-regress-and-cert',
+          Array.from({ length: 12 }, (_, i) => `sec-${i}`),
+        ),
       ]);
       // The certified learner clamps to 100 on BOTH sides (current AND
       // projected) — they're certified regardless of denominator.
@@ -253,9 +363,16 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
   describe('real run', () => {
     it('skips regressing learners not in acceptRegressionFor', async () => {
       prisma.userCourse.findMany.mockResolvedValue([makeEnrollment()]);
-      prisma.userCourseProgress.groupBy.mockResolvedValue([
-        { userId: 'user-1', _count: { _all: 6 } },
-      ]);
+      prisma.courseVersion.findUnique.mockImplementation(
+        manifestsByVersion(12, 20),
+      );
+      // 6/12 = 50% now, 6/20 = 30% projected => regresses.
+      prisma.userCourseProgress.findMany.mockResolvedValue(
+        progressFor(
+          'user-1',
+          Array.from({ length: 6 }, (_, i) => `sec-${i}`),
+        ),
+      );
       // Real-run inside a tx re-reads the row.
       prisma.userCourse.findUnique.mockResolvedValue(null);
 
@@ -282,9 +399,16 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
 
     it('migrates regressing learners when in acceptRegressionFor with forced=true audit', async () => {
       prisma.userCourse.findMany.mockResolvedValue([makeEnrollment()]);
-      prisma.userCourseProgress.groupBy.mockResolvedValue([
-        { userId: 'user-1', _count: { _all: 6 } },
-      ]);
+      prisma.courseVersion.findUnique.mockImplementation(
+        manifestsByVersion(12, 20),
+      );
+      // 6/12 = 50% now, 6/20 = 30% projected => regresses.
+      prisma.userCourseProgress.findMany.mockResolvedValue(
+        progressFor(
+          'user-1',
+          Array.from({ length: 6 }, (_, i) => `sec-${i}`),
+        ),
+      );
       // Inside the tx: reload the enrollment.
       prisma.userCourse.findUnique.mockResolvedValue({
         id: 'uc-1',
@@ -332,12 +456,16 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
         makeEnrollment({ userId: 'user-good', id: 'uc-good' }),
         makeEnrollment({ userId: 'user-wedged', id: 'uc-wedged' }),
       ]);
-      prisma.userCourseProgress.groupBy.mockResolvedValue([
-        // Non-regressing progress (both at 100% denom / low numer),
-        // acceptRegressionFor is empty so both must pass regression
-        // check. Set numer high enough that projected >= current.
-        { userId: 'user-good', _count: { _all: 20 } },
-        { userId: 'user-wedged', _count: { _all: 20 } },
+      // Neither learner may regress (acceptRegressionFor is empty), so give
+      // both 100% on their current version AND on the target: the target's
+      // 12 ids are a superset-compatible carry-over of the current 12.
+      prisma.courseVersion.findUnique.mockImplementation(
+        manifestsByVersion(12, 12),
+      );
+      const allTwelve = Array.from({ length: 12 }, (_, i) => `sec-${i}`);
+      prisma.userCourseProgress.findMany.mockResolvedValue([
+        ...progressFor('user-good', allTwelve),
+        ...progressFor('user-wedged', allTwelve),
       ]);
 
       // The first tx succeeds; the second throws at the tx boundary.
@@ -512,9 +640,15 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
       // logged warning and the learner is still migrated. This test only fails
       // meaningfully under an abort-aware $transaction mock.
       prisma.userCourse.findMany.mockResolvedValue([makeEnrollment()]);
-      prisma.userCourseProgress.groupBy.mockResolvedValue([
-        { userId: 'user-1', _count: { _all: 20 } },
-      ]);
+      prisma.courseVersion.findUnique.mockImplementation(
+        manifestsByVersion(12, 12),
+      );
+      prisma.userCourseProgress.findMany.mockResolvedValue(
+        progressFor(
+          'user-1',
+          Array.from({ length: 12 }, (_, i) => `sec-${i}`),
+        ),
+      );
       prisma.userCourse.findUnique.mockResolvedValue({
         id: 'uc-1',
         courseId: 'course-1',

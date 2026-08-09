@@ -34,6 +34,7 @@ import {
   loadPinnedCurriculumForReport,
   ReportCurriculumTree,
 } from './course-version.manifest';
+import { computeLearnerPercentages, percentageKey } from './learner-percentage';
 
 export type CurriculumResolveResult =
   | { mode: 'live' }
@@ -1298,80 +1299,29 @@ export class CourseVersionService {
       this.prisma.userCourse.count({ where: whereClause }),
     ]);
 
-    // Phase 3: batch-load the two per-user aggregates needed for percentage
-    // and isCompleted. groupBy on UserCourseProgress keeps this to one
-    // round-trip regardless of pageSize (or overfetched N in the
-    // percentage-sort case).
+    // Phase 3: percentages via the shared engine.
     //
-    // The `Section` filter (isArchived: false, isActive: true) is what
-    // keeps the numerator consistent with countCompletionDenominator's
-    // live path. Without it, an unpinned learner's percentage in the
-    // roster would count progress on archived/inactive sections while the
-    // completion gate does not — reproducing the exact "roster shows 92%,
-    // completion says 100%" bug the pre-PR-1 fixes closed.
-    const userIds = rowsRaw.map((r) => r.userId);
-    const [progressCounts, completions, liveSectionCount] = await Promise.all([
-      userIds.length
-        ? this.prisma.userCourseProgress.groupBy({
-            by: ['userId'],
-            where: {
-              courseId,
-              userId: { in: userIds },
-              Section: { isArchived: false, isActive: true },
-            },
-            _count: { _all: true },
-          })
-        : Promise.resolve(
-            [] as Array<{ userId: string; _count: { _all: number } }>,
-          ),
-      userIds.length
-        ? this.prisma.courseCompletion.findMany({
-            where: {
-              courseId,
-              userId: { in: userIds },
-              courseCompletedAt: { not: null },
-            },
-            select: { userId: true },
-          })
-        : Promise.resolve([] as Array<{ userId: string }>),
-      // Live denominator: only queried when the page has any unpinned
-      // learner. Small cost regardless; keeping it unconditional lets
-      // us skip a "does this page need it?" branch and avoids a follow-
-      // up round-trip if the answer flips.
-      this.prisma.section.count({
-        where: {
-          isActive: true,
-          isArchived: false,
-          chapter: {
-            isArchived: false,
-            module: { courseId, isArchived: false },
-          },
-        },
-      }),
-    ]);
-
-    const progressByUser = new Map(
-      progressCounts.map((p) => [p.userId, p._count._all]),
+    // This used to assemble the ratio here: a numerator from a groupBy
+    // filtered to LIVE sections, over a denominator taken from the pinned
+    // version's frozen `sectionCount`. Those two describe different trees,
+    // so a learner who completed all 12 sections of v3 read 92% once one of
+    // them was archived — while the completion gate, deriving both halves
+    // from the manifest, considered them done. computeLearnerPercentages
+    // derives both halves from one view, so that mismatch cannot recur here.
+    // Pins are already on the paginated rows, so pass them through rather
+    // than making the engine re-query userCourse.
+    const percentages = await computeLearnerPercentages(
+      this.prisma,
+      rowsRaw.map((r) => ({
+        userId: r.userId,
+        courseId,
+        enrolledVersionId: r.enrolledVersionId ?? null,
+      })),
     );
-    const completedSet = new Set(completions.map((c) => c.userId));
 
     // Phase 4: build typed rows.
     const rows = rowsRaw.map((r) => {
-      const isCompleted = completedSet.has(r.userId);
-      // Pinned learners: denominator is the version's sectionCount (the
-      // count captured at publish time). Unpinned learners: denominator
-      // is the current live section count. sectionCount can be null on
-      // very old rows that pre-date the column — fall back to live.
-      const denom = r.enrolledVersion?.sectionCount ?? liveSectionCount;
-      const numer = progressByUser.get(r.userId) ?? 0;
-      const percentage = isCompleted
-        ? 100
-        : denom > 0
-          ? Math.min(100, Math.round((numer * 100) / denom) / 1)
-          : 0;
-      // Clamp completers to 100. This is the counterpart to the
-      // completion-freeze in the learner UI: an admin looking at the
-      // roster right after a learner completed should never see 98.7%.
+      const p = percentages.get(percentageKey(r.userId, courseId));
       const userLabel =
         [r.user.firstName, r.user.lastName].filter(Boolean).join(' ') ||
         r.user.email;
@@ -1381,8 +1331,8 @@ export class CourseVersionService {
         email: r.user.email,
         enrolledVersionId: r.enrolledVersionId,
         enrolledVersionNumber: r.enrolledVersion?.versionNumber ?? null,
-        percentage,
-        isCompleted,
+        percentage: p?.percentage ?? 0,
+        isCompleted: p?.isCompleted ?? false,
         isActive: r.isActive,
         isPaid: r.isPaid,
       };
@@ -2032,7 +1982,7 @@ export class CourseVersionService {
     // Preload everything needed for per-learner projection in three
     // batched queries. Fixed cost regardless of userIds.length within
     // the CEILING.
-    const [enrollments, progressCounts, completions] = await Promise.all([
+    const [enrollments, completions] = await Promise.all([
       userIds.length
         ? this.prisma.userCourse.findMany({
             where: { courseId, userId: { in: userIds } },
@@ -2055,22 +2005,6 @@ export class CourseVersionService {
           })
         : Promise.resolve([] as any[]),
       userIds.length
-        ? this.prisma.userCourseProgress.groupBy({
-            by: ['userId'],
-            where: {
-              courseId,
-              userId: { in: userIds },
-              Section: { isArchived: false, isActive: true },
-            },
-            _count: { _all: true },
-          })
-        : Promise.resolve(
-            [] as Array<{
-              userId: string;
-              _count: { _all: number };
-            }>,
-          ),
-      userIds.length
         ? this.prisma.courseCompletion.findMany({
             where: {
               courseId,
@@ -2082,11 +2016,60 @@ export class CourseVersionService {
         : Promise.resolve([] as Array<{ userId: string }>),
     ]);
 
+    // Current percentages come from the shared engine so `currentPercentage`
+    // is scoped exactly like the roster and the completion gate. This is not
+    // cosmetic: an understated current percentage makes
+    // `projectedPct < currentPct` LESS likely to fire, so the default-deny
+    // regression guard silently under-triggers and a migration that really
+    // does regress a learner can slip through.
+    //
+    // Runs after the enrollment fetch so the pins can be passed through
+    // instead of re-queried.
+    const percentages = await computeLearnerPercentages(
+      this.prisma,
+      enrollments.map((e: any) => ({
+        userId: e.userId,
+        courseId,
+        enrolledVersionId: e.enrolledVersionId ?? null,
+      })),
+    );
+
+    // Projected percentage is measured against the TARGET version's section
+    // ids — the curriculum the learner would land on. Loaded once for the
+    // batch (immutable + cached), then intersected with each learner's
+    // progress, so the projection is scoped the same way the current
+    // percentage is rather than dividing by a bare count.
+    const targetManifest = await loadManifestForVersion(
+      this.prisma,
+      params.targetVersionId,
+    );
+    const targetSectionIds = targetManifest
+      ? getSectionIdsFromManifest(targetManifest)
+      : null;
+    const targetSectionIdSet = targetSectionIds
+      ? new Set(targetSectionIds)
+      : null;
+
+    const progressedByUser = new Map<string, Set<string>>();
+    if (userIds.length && targetSectionIdSet) {
+      const rows = await this.prisma.userCourseProgress.findMany({
+        where: {
+          courseId,
+          userId: { in: userIds },
+          sectionId: { in: Array.from(targetSectionIdSet) },
+        },
+        select: { userId: true, sectionId: true },
+        distinct: ['userId', 'sectionId'],
+      });
+      for (const row of rows) {
+        const set = progressedByUser.get(row.userId) ?? new Set<string>();
+        set.add(row.sectionId);
+        progressedByUser.set(row.userId, set);
+      }
+    }
+
     const enrollmentByUserId = new Map(
       enrollments.map((e: any) => [e.userId, e]),
-    );
-    const progressByUser = new Map(
-      progressCounts.map((p) => [p.userId, p._count._all]),
     );
     const certifiedSet = new Set(completions.map((c) => c.userId));
 
@@ -2137,24 +2120,38 @@ export class CourseVersionService {
         return { decision: 'already_on_target_version', userId: uid };
       }
 
-      const fromDenom = e.enrolledVersion?.sectionCount ?? null;
-      const toDenom = target.sectionCount ?? null;
-      const numer = progressByUser.get(uid) ?? 0;
       const isCertified = certifiedSet.has(uid);
+      const current = percentages.get(percentageKey(uid, courseId));
+
+      // Current: from the shared engine (numerator and denominator both from
+      // the learner's own curriculum). Reported denominator mirrors it, so
+      // fromSectionCount and currentPercentage can't describe different trees.
+      const fromDenom = current?.denominator ?? null;
+      const currentPct = current?.percentage ?? 0;
+
+      // Projected: the learner's progress intersected with the TARGET
+      // version's section ids, over that version's section count. Falls back
+      // to the stored sectionCount only when the target manifest is
+      // unresolvable, which also makes the projection unmeasurable — in that
+      // case we report the current percentage rather than inventing a drop.
+      const toDenom = targetSectionIds
+        ? targetSectionIds.length
+        : target.sectionCount ?? null;
+      const done = progressedByUser.get(uid);
+      const projectedNumer = targetSectionIds
+        ? targetSectionIds.reduce((n, id) => (done?.has(id) ? n + 1 : n), 0)
+        : 0;
 
       // Completers clamp to 100 in both current and projected. Matches
       // roster/completion-gate semantics — a certified learner never
       // shows <100 no matter what the raw numerator says.
-      const currentPct = isCertified
-        ? 100
-        : fromDenom && fromDenom > 0
-          ? Math.min(100, Math.round((numer * 100) / fromDenom))
-          : 0;
       const projectedPct = isCertified
         ? 100
-        : toDenom && toDenom > 0
-          ? Math.min(100, Math.round((numer * 100) / toDenom))
-          : 0;
+        : !targetSectionIds
+          ? currentPct
+          : toDenom && toDenom > 0
+            ? Math.min(100, Math.round((projectedNumer * 100) / toDenom))
+            : 0;
 
       const wouldRegress = projectedPct < currentPct;
 

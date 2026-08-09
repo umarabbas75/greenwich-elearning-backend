@@ -14,11 +14,26 @@ async function computeLearnerPercentages(prisma, pairs) {
     const keys = Array.from(unique.values());
     const userIds = Array.from(new Set(keys.map((k) => k.userId)));
     const courseIds = Array.from(new Set(keys.map((k) => k.courseId)));
+    const pinByKey = new Map();
+    const needsPinLookup = [];
+    for (const k of keys) {
+        if (k.enrolledVersionId === undefined) {
+            needsPinLookup.push(k);
+        }
+        else {
+            pinByKey.set((0, exports.percentageKey)(k.userId, k.courseId), k.enrolledVersionId);
+        }
+    }
     const [enrollments, completions] = await Promise.all([
-        prisma.userCourse.findMany({
-            where: { userId: { in: userIds }, courseId: { in: courseIds } },
-            select: { userId: true, courseId: true, enrolledVersionId: true },
-        }),
+        needsPinLookup.length
+            ? prisma.userCourse.findMany({
+                where: {
+                    userId: { in: needsPinLookup.map((k) => k.userId) },
+                    courseId: { in: needsPinLookup.map((k) => k.courseId) },
+                },
+                select: { userId: true, courseId: true, enrolledVersionId: true },
+            })
+            : Promise.resolve([]),
         prisma.courseCompletion.findMany({
             where: {
                 userId: { in: userIds },
@@ -28,7 +43,6 @@ async function computeLearnerPercentages(prisma, pairs) {
             select: { userId: true, courseId: true },
         }),
     ]);
-    const pinByKey = new Map();
     for (const e of enrollments) {
         pinByKey.set((0, exports.percentageKey)(e.userId, e.courseId), e.enrolledVersionId);
     }

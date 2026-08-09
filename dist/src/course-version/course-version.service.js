@@ -15,6 +15,7 @@ const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const course_version_manifest_1 = require("./course-version.manifest");
+const learner_percentage_1 = require("./learner-percentage");
 let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
     constructor(prisma) {
         this.prisma = prisma;
@@ -686,51 +687,13 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 }),
             this.prisma.userCourse.count({ where: whereClause }),
         ]);
-        const userIds = rowsRaw.map((r) => r.userId);
-        const [progressCounts, completions, liveSectionCount] = await Promise.all([
-            userIds.length
-                ? this.prisma.userCourseProgress.groupBy({
-                    by: ['userId'],
-                    where: {
-                        courseId,
-                        userId: { in: userIds },
-                        Section: { isArchived: false, isActive: true },
-                    },
-                    _count: { _all: true },
-                })
-                : Promise.resolve([]),
-            userIds.length
-                ? this.prisma.courseCompletion.findMany({
-                    where: {
-                        courseId,
-                        userId: { in: userIds },
-                        courseCompletedAt: { not: null },
-                    },
-                    select: { userId: true },
-                })
-                : Promise.resolve([]),
-            this.prisma.section.count({
-                where: {
-                    isActive: true,
-                    isArchived: false,
-                    chapter: {
-                        isArchived: false,
-                        module: { courseId, isArchived: false },
-                    },
-                },
-            }),
-        ]);
-        const progressByUser = new Map(progressCounts.map((p) => [p.userId, p._count._all]));
-        const completedSet = new Set(completions.map((c) => c.userId));
+        const percentages = await (0, learner_percentage_1.computeLearnerPercentages)(this.prisma, rowsRaw.map((r) => ({
+            userId: r.userId,
+            courseId,
+            enrolledVersionId: r.enrolledVersionId ?? null,
+        })));
         const rows = rowsRaw.map((r) => {
-            const isCompleted = completedSet.has(r.userId);
-            const denom = r.enrolledVersion?.sectionCount ?? liveSectionCount;
-            const numer = progressByUser.get(r.userId) ?? 0;
-            const percentage = isCompleted
-                ? 100
-                : denom > 0
-                    ? Math.min(100, Math.round((numer * 100) / denom) / 1)
-                    : 0;
+            const p = percentages.get((0, learner_percentage_1.percentageKey)(r.userId, courseId));
             const userLabel = [r.user.firstName, r.user.lastName].filter(Boolean).join(' ') ||
                 r.user.email;
             return {
@@ -739,8 +702,8 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 email: r.user.email,
                 enrolledVersionId: r.enrolledVersionId,
                 enrolledVersionNumber: r.enrolledVersion?.versionNumber ?? null,
-                percentage,
-                isCompleted,
+                percentage: p?.percentage ?? 0,
+                isCompleted: p?.isCompleted ?? false,
                 isActive: r.isActive,
                 isPaid: r.isPaid,
             };
@@ -1084,7 +1047,7 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         if (!target) {
             throw new common_1.NotFoundException(`Target version ${params.targetVersionId} not found for course ${courseId}`);
         }
-        const [enrollments, progressCounts, completions] = await Promise.all([
+        const [enrollments, completions] = await Promise.all([
             userIds.length
                 ? this.prisma.userCourse.findMany({
                     where: { courseId, userId: { in: userIds } },
@@ -1107,17 +1070,6 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 })
                 : Promise.resolve([]),
             userIds.length
-                ? this.prisma.userCourseProgress.groupBy({
-                    by: ['userId'],
-                    where: {
-                        courseId,
-                        userId: { in: userIds },
-                        Section: { isArchived: false, isActive: true },
-                    },
-                    _count: { _all: true },
-                })
-                : Promise.resolve([]),
-            userIds.length
                 ? this.prisma.courseCompletion.findMany({
                     where: {
                         courseId,
@@ -1128,8 +1080,36 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 })
                 : Promise.resolve([]),
         ]);
+        const percentages = await (0, learner_percentage_1.computeLearnerPercentages)(this.prisma, enrollments.map((e) => ({
+            userId: e.userId,
+            courseId,
+            enrolledVersionId: e.enrolledVersionId ?? null,
+        })));
+        const targetManifest = await (0, course_version_manifest_1.loadManifestForVersion)(this.prisma, params.targetVersionId);
+        const targetSectionIds = targetManifest
+            ? (0, course_version_manifest_1.getSectionIdsFromManifest)(targetManifest)
+            : null;
+        const targetSectionIdSet = targetSectionIds
+            ? new Set(targetSectionIds)
+            : null;
+        const progressedByUser = new Map();
+        if (userIds.length && targetSectionIdSet) {
+            const rows = await this.prisma.userCourseProgress.findMany({
+                where: {
+                    courseId,
+                    userId: { in: userIds },
+                    sectionId: { in: Array.from(targetSectionIdSet) },
+                },
+                select: { userId: true, sectionId: true },
+                distinct: ['userId', 'sectionId'],
+            });
+            for (const row of rows) {
+                const set = progressedByUser.get(row.userId) ?? new Set();
+                set.add(row.sectionId);
+                progressedByUser.set(row.userId, set);
+            }
+        }
         const enrollmentByUserId = new Map(enrollments.map((e) => [e.userId, e]));
-        const progressByUser = new Map(progressCounts.map((p) => [p.userId, p._count._all]));
         const certifiedSet = new Set(completions.map((c) => c.userId));
         const projections = userIds.map((uid) => {
             const e = enrollmentByUserId.get(uid);
@@ -1139,20 +1119,24 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             if (e.enrolledVersionId === params.targetVersionId) {
                 return { decision: 'already_on_target_version', userId: uid };
             }
-            const fromDenom = e.enrolledVersion?.sectionCount ?? null;
-            const toDenom = target.sectionCount ?? null;
-            const numer = progressByUser.get(uid) ?? 0;
             const isCertified = certifiedSet.has(uid);
-            const currentPct = isCertified
-                ? 100
-                : fromDenom && fromDenom > 0
-                    ? Math.min(100, Math.round((numer * 100) / fromDenom))
-                    : 0;
+            const current = percentages.get((0, learner_percentage_1.percentageKey)(uid, courseId));
+            const fromDenom = current?.denominator ?? null;
+            const currentPct = current?.percentage ?? 0;
+            const toDenom = targetSectionIds
+                ? targetSectionIds.length
+                : target.sectionCount ?? null;
+            const done = progressedByUser.get(uid);
+            const projectedNumer = targetSectionIds
+                ? targetSectionIds.reduce((n, id) => (done?.has(id) ? n + 1 : n), 0)
+                : 0;
             const projectedPct = isCertified
                 ? 100
-                : toDenom && toDenom > 0
-                    ? Math.min(100, Math.round((numer * 100) / toDenom))
-                    : 0;
+                : !targetSectionIds
+                    ? currentPct
+                    : toDenom && toDenom > 0
+                        ? Math.min(100, Math.round((projectedNumer * 100) / toDenom))
+                        : 0;
             const wouldRegress = projectedPct < currentPct;
             return {
                 decision: 'projected',

@@ -63,7 +63,19 @@ export type LearnerPercentage = {
   isCompleted: boolean;
 };
 
-export type LearnerCourseKey = { userId: string; courseId: string };
+export type LearnerCourseKey = {
+  userId: string;
+  courseId: string;
+  /**
+   * The learner's `UserCourse.enrolledVersionId`, when the caller already has
+   * it. Supplying it skips the engine's enrollment lookup — worth doing from
+   * surfaces that just read those rows (the admin roster paginates
+   * `userCourse` itself, so re-querying would be a redundant round trip).
+   *
+   * `undefined` means "look it up"; `null` means "known to be unpinned".
+   */
+  enrolledVersionId?: string | null;
+};
 
 /** Stable map key. Both ids are uuids, so a separator collision is impossible. */
 export const percentageKey = (userId: string, courseId: string): string =>
@@ -91,11 +103,33 @@ export async function computeLearnerPercentages(
   const userIds = Array.from(new Set(keys.map((k) => k.userId)));
   const courseIds = Array.from(new Set(keys.map((k) => k.courseId)));
 
+  // Only look up pins the caller didn't already supply.
+  const pinByKey = new Map<string, string | null>();
+  const needsPinLookup: LearnerCourseKey[] = [];
+  for (const k of keys) {
+    if (k.enrolledVersionId === undefined) {
+      needsPinLookup.push(k);
+    } else {
+      pinByKey.set(percentageKey(k.userId, k.courseId), k.enrolledVersionId);
+    }
+  }
+
   const [enrollments, completions] = await Promise.all([
-    prisma.userCourse.findMany({
-      where: { userId: { in: userIds }, courseId: { in: courseIds } },
-      select: { userId: true, courseId: true, enrolledVersionId: true },
-    }),
+    needsPinLookup.length
+      ? prisma.userCourse.findMany({
+          where: {
+            userId: { in: needsPinLookup.map((k) => k.userId) },
+            courseId: { in: needsPinLookup.map((k) => k.courseId) },
+          },
+          select: { userId: true, courseId: true, enrolledVersionId: true },
+        })
+      : Promise.resolve(
+          [] as Array<{
+            userId: string;
+            courseId: string;
+            enrolledVersionId: string | null;
+          }>,
+        ),
     prisma.courseCompletion.findMany({
       where: {
         userId: { in: userIds },
@@ -106,7 +140,6 @@ export async function computeLearnerPercentages(
     }),
   ]);
 
-  const pinByKey = new Map<string, string | null>();
   for (const e of enrollments) {
     pinByKey.set(percentageKey(e.userId, e.courseId), e.enrolledVersionId);
   }
