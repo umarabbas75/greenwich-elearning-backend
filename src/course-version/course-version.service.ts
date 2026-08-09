@@ -591,15 +591,20 @@ export class CourseVersionService {
    * single-learner endpoint (row-action from PR 2's roster) and the
    * bulk endpoint (`migrateLearnersToVersionBulk`) share one code path.
    *
-   * Runs in a per-learner interactive transaction so:
-   * - The pin update and the audit row commit atomically (with the CC3
-   *   caveat that audit write remains best-effort even inside the tx).
-   * - A wedged learner (e.g. transient Prisma P2034 write conflict)
-   *   rolls back its OWN transaction only — bulk callers can skip and
-   *   proceed to the next learner rather than tearing down the batch.
+   * Runs in a per-learner interactive transaction so a wedged learner
+   * (e.g. a transient Prisma P2034 write conflict) rolls back its OWN
+   * transaction only — bulk callers skip that learner and proceed rather
+   * than tearing down the whole batch.
+   *
+   * The transaction contains ONLY the pin update. The audit row is written
+   * AFTER it commits, not inside it. Postgres aborts an interactive
+   * transaction on the first failed statement, so an audit insert that
+   * threw would have taken the migration down with it even though
+   * `writeAudit` swallows the error — the opposite of CC3's intent. See the
+   * long note at the audit call below.
    *
    * `{ timeout: 8000, maxWait: 3000 }`:
-   * - timeout: 2 writes + 2 reads per learner. 8s covers a Neon cold
+   * - timeout: 2 reads + 1 write per learner. 8s covers a Neon cold
    *   start plus generous slack. Compare fixes doc §2's wipe-13-tables
    *   tx sized at 15s.
    * - maxWait: how long the caller waits to acquire the tx slot before
