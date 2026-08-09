@@ -3,6 +3,7 @@ import {
   countSectionsInManifest,
   diffManifests,
   diffManifestsTitled,
+  getQuizBearingChapterIdsFromManifest,
   getSectionIdsFromManifest,
   isIdReferencedInManifest,
   parseManifest,
@@ -479,6 +480,85 @@ describe('course-version.manifest', () => {
       const d = diffManifestsTitled(manifestA, manifestB, emptyTitles);
       const added = d.added.find((a) => a.id === 'ch-2');
       expect(added?.title).toBe('(untitled)');
+    });
+  });
+
+  describe('getQuizBearingChapterIdsFromManifest', () => {
+    const mk = (chapters: Array<{ id: string; quizIds: string[] }>) => ({
+      modules: [
+        {
+          sourceId: 'mod-1',
+          order: 0,
+          chapters: chapters.map((c, i) => ({
+            sourceId: c.id,
+            order: i,
+            sectionIds: ['s'],
+            quizIds: c.quizIds,
+          })),
+        },
+      ],
+    });
+
+    it('returns only chapters carrying at least one quiz', () => {
+      const m = mk([
+        { id: 'ch-1', quizIds: ['q1'] },
+        { id: 'ch-2', quizIds: [] },
+        { id: 'ch-3', quizIds: ['q2', 'q3'] },
+      ]);
+      expect(getQuizBearingChapterIdsFromManifest(m)).toEqual(['ch-1', 'ch-3']);
+    });
+
+    it('returns [] when no chapter has a quiz (zero-quiz course)', () => {
+      // IOSH shape. Callers treat [] as "no quiz requirement", which is what
+      // keeps such courses on exactly their previous completion behaviour.
+      const m = mk([
+        { id: 'ch-1', quizIds: [] },
+        { id: 'ch-2', quizIds: [] },
+      ]);
+      expect(getQuizBearingChapterIdsFromManifest(m)).toEqual([]);
+    });
+
+    it('omits a quizless LAST chapter but keeps the earlier ones', () => {
+      // NEBOSH IGC shape: quizzes on all but the final chapter. Completion must
+      // not invent a requirement for the chapter that has no quiz.
+      const m = mk([
+        { id: 'ch-1', quizIds: ['q1'] },
+        { id: 'ch-2', quizIds: ['q2'] },
+        { id: 'ch-last', quizIds: [] },
+      ]);
+      expect(getQuizBearingChapterIdsFromManifest(m)).toEqual(['ch-1', 'ch-2']);
+    });
+
+    it('counts a chapter once regardless of how many questions it holds', () => {
+      // A Quiz row is ONE QUESTION. A 20-question chapter is still a single
+      // quiz-bearing chapter, never 20 requirements.
+      const m = mk([
+        { id: 'ch-1', quizIds: Array.from({ length: 20 }, (_, i) => `q${i}`) },
+      ]);
+      expect(getQuizBearingChapterIdsFromManifest(m)).toEqual(['ch-1']);
+    });
+
+    it('flattens across modules in order', () => {
+      const m = {
+        modules: [
+          {
+            sourceId: 'mod-1',
+            order: 0,
+            chapters: [
+              { sourceId: 'ch-1', order: 0, sectionIds: [], quizIds: ['q1'] },
+            ],
+          },
+          {
+            sourceId: 'mod-2',
+            order: 1,
+            chapters: [
+              { sourceId: 'ch-2', order: 0, sectionIds: [], quizIds: [] },
+              { sourceId: 'ch-3', order: 1, sectionIds: [], quizIds: ['q2'] },
+            ],
+          },
+        ],
+      };
+      expect(getQuizBearingChapterIdsFromManifest(m)).toEqual(['ch-1', 'ch-3']);
     });
   });
 });

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.mapPinnedQuizzesForLearner = exports.mapPinnedSectionsForLearner = exports.loadPinnedCurriculumForReport = exports.loadPinnedChapterQuizzes = exports.sortQuizIdsByLiveOrder = exports.compareQuizDisplayOrder = exports.loadManifestForVersion = exports.resetManifestCache = exports.loadPinnedCurriculum = exports.publishManifestVersion = exports.buildManifestFromLegacySnapshot = exports.buildManifestFromLiveTree = exports.diffManifests = exports.diffManifestsTitled = exports.isIdReferencedInManifest = exports.computeStructuralFingerprint = exports.getQuizIdsFromManifest = exports.getChapterIdsFromManifest = exports.getSectionIdsFromManifest = exports.countSectionsInManifest = exports.parseManifest = void 0;
+exports.mapPinnedQuizzesForLearner = exports.mapPinnedSectionsForLearner = exports.loadPinnedCurriculumForReport = exports.loadPinnedChapterQuizzes = exports.sortQuizIdsByLiveOrder = exports.compareQuizDisplayOrder = exports.loadManifestForVersion = exports.resetManifestCache = exports.loadPinnedCurriculum = exports.publishManifestVersion = exports.buildManifestFromLegacySnapshot = exports.buildManifestFromLiveTree = exports.diffManifests = exports.diffManifestsTitled = exports.isIdReferencedInManifest = exports.computeStructuralFingerprint = exports.getQuizBearingChapterIdsFromManifest = exports.getQuizIdsFromManifest = exports.getChapterIdsFromManifest = exports.getSectionIdsFromManifest = exports.countSectionsInManifest = exports.parseManifest = void 0;
 const client_1 = require("@prisma/client");
 const crypto_1 = require("crypto");
 function parseManifest(raw) {
@@ -30,6 +30,10 @@ function getQuizIdsFromManifest(manifest) {
     return manifest.modules.flatMap((mod) => mod.chapters.flatMap((ch) => ch.quizIds));
 }
 exports.getQuizIdsFromManifest = getQuizIdsFromManifest;
+function getQuizBearingChapterIdsFromManifest(manifest) {
+    return manifest.modules.flatMap((mod) => mod.chapters.filter((ch) => ch.quizIds.length > 0).map((ch) => ch.sourceId));
+}
+exports.getQuizBearingChapterIdsFromManifest = getQuizBearingChapterIdsFromManifest;
 function computeStructuralFingerprint(manifest) {
     const shape = manifest.modules.map((mod) => ({
         m: mod.sourceId,

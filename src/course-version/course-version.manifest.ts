@@ -163,6 +163,27 @@ export function getQuizIdsFromManifest(
   );
 }
 
+/**
+ * Chapters in this manifest that carry at least one quiz, by source id.
+ *
+ * This is the frozen "which chapters must have a passing quiz" set used by the
+ * course-completion gate. Deriving it from the manifest (rather than the live
+ * tree) is what keeps a quiz added AFTER a learner pinned from retroactively
+ * un-completing them — same reasoning as the section denominator.
+ *
+ * A `Quiz` row is a single question, so a chapter's quiz is the SET of its
+ * quizIds; "has a quiz" is `quizIds.length > 0`, never a count of questions.
+ * Courses with no quizzes anywhere yield `[]`, which callers treat as "no quiz
+ * requirement" — keeping zero-quiz courses on exactly today's behaviour.
+ */
+export function getQuizBearingChapterIdsFromManifest(
+  manifest: CourseVersionManifest,
+): string[] {
+  return manifest.modules.flatMap((mod) =>
+    mod.chapters.filter((ch) => ch.quizIds.length > 0).map((ch) => ch.sourceId),
+  );
+}
+
 export function computeStructuralFingerprint(
   manifest: CourseVersionManifest,
 ): string {

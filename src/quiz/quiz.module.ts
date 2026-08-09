@@ -9,9 +9,14 @@ import {
 } from '../strategy';
 
 import { CourseVersionModule } from '../course-version/course-version.module';
+import { CourseCompletionModule } from '../course-completion/course-completion.module';
 
 @Module({
-  imports: [JwtModule.register({}), CourseVersionModule],
+  imports: [
+    JwtModule.register({}),
+    CourseVersionModule,
+    CourseCompletionModule,
+  ],
   providers: [
     QuizService,
     JwtUserStrategy,

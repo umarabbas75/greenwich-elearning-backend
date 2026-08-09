@@ -501,6 +501,7 @@ describe('CourseVersionService', () => {
       ).resolves.toEqual({
         total: 2,
         liveSectionIds: ['s1', 's2'],
+        quizBearingChapterIds: [],
       });
     });
 
@@ -518,6 +519,8 @@ describe('CourseVersionService', () => {
       ).resolves.toEqual({
         total: 2,
         liveSectionIds: ['sec-1', 'sec-2'],
+        // ch-1 carries quizIds: ['quiz-1'] in mockManifest.
+        quizBearingChapterIds: ['ch-1'],
       });
     });
 
@@ -546,6 +549,10 @@ describe('CourseVersionService', () => {
       ).resolves.toEqual({
         total: 3,
         liveSectionIds: ['s1', 's2', 's3'],
+        // Live fallback applies to BOTH halves — a corrupt manifest must not
+        // leave the quiz requirement resolved against a tree the sections
+        // aren't from.
+        quizBearingChapterIds: [],
       });
     });
 
@@ -558,7 +565,72 @@ describe('CourseVersionService', () => {
 
       await expect(
         service.countCompletionDenominator('user-1', 'course-1'),
-      ).resolves.toEqual({ total: 1, liveSectionIds: ['s1'] });
+      ).resolves.toEqual({
+        total: 1,
+        liveSectionIds: ['s1'],
+        quizBearingChapterIds: [],
+      });
+    });
+
+    it('resolves live quiz-bearing chapters when unpinned', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({
+        enrolledVersionId: null,
+      });
+      prisma.section.findMany.mockResolvedValue([{ id: 's1' }]);
+      prisma.chapter.findMany.mockResolvedValue([{ id: 'ch-live-1' }]);
+
+      await expect(
+        service.countCompletionDenominator('user-1', 'course-1'),
+      ).resolves.toEqual({
+        total: 1,
+        liveSectionIds: ['s1'],
+        quizBearingChapterIds: ['ch-live-1'],
+      });
+
+      // Only chapters with a NON-archived quiz count, scoped to the live tree.
+      expect(prisma.chapter.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            isArchived: false,
+            module: { courseId: 'course-1', isArchived: false },
+            quizzes: { some: { isArchived: false } },
+          },
+          select: { id: true },
+        }),
+      );
+    });
+
+    it('returns no quiz requirement for a pinned course with no quizzes', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({
+        enrolledVersionId: 'version-1',
+      });
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        sectionCount: 1,
+        manifest: {
+          modules: [
+            {
+              sourceId: 'mod-1',
+              order: 0,
+              chapters: [
+                {
+                  sourceId: 'ch-1',
+                  order: 0,
+                  sectionIds: ['sec-1'],
+                  quizIds: [],
+                },
+              ],
+            },
+          ],
+        },
+      });
+
+      await expect(
+        service.countCompletionDenominator('user-1', 'course-1'),
+      ).resolves.toEqual({
+        total: 1,
+        liveSectionIds: ['sec-1'],
+        quizBearingChapterIds: [],
+      });
     });
   });
 

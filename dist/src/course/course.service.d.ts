@@ -5,14 +5,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { CourseVersionService } from '../course-version/course-version.service';
+import { CourseCompletionService } from '../course-completion/course-completion.service';
 export declare class CourseService {
     private prisma;
     private config;
     private mail;
     private feedbackService;
     private courseVersionService;
+    private courseCompletion;
     private static readonly completionLogger;
-    constructor(prisma: PrismaService, config: ConfigService, mail: MailService, feedbackService: FeedbackService, courseVersionService: CourseVersionService);
+    constructor(prisma: PrismaService, config: ConfigService, mail: MailService, feedbackService: FeedbackService, courseVersionService: CourseVersionService, courseCompletion: CourseCompletionService);
     private isCourseFrozen;
     private shuffleArray;
     private autoPublishAfterStructureChange;
@@ -113,8 +115,6 @@ export declare class CourseService {
     getAllAssignedCoursesPublic(userId: string): Promise<any>;
     updateUserChapterProgress(userId: string, body: any, userEmail?: string | null): Promise<ResponseDto>;
     private _assertEnrollmentUsable;
-    private _checkContentCompletion;
-    private _sendCompletionEmails;
     getUserChapterProgress(userId: string, courseId: string, chapterId: string): Promise<ResponseDto>;
     getLastSeenSection(userId: string, chapterId: string): Promise<ResponseDto>;
     updateLastSeenSection(userId: string, chapterId: string, sectionId: string, moduleId: string, courseId: string, userEmail?: string | null): Promise<ResponseDto>;

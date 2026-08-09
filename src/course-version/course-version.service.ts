@@ -16,6 +16,7 @@ import {
   diffManifestsTitled,
   DiffTitledResult,
   getChapterIdsFromManifest,
+  getQuizBearingChapterIdsFromManifest,
   getQuizIdsFromManifest,
   getSectionIdsFromManifest,
   isIdReferencedInManifest,
@@ -741,10 +742,19 @@ export class CourseVersionService {
   async countCompletionDenominator(
     userId: string,
     courseId: string,
-  ): Promise<{ total: number; liveSectionIds: string[] }> {
+  ): Promise<{
+    total: number;
+    liveSectionIds: string[];
+    quizBearingChapterIds: string[];
+  }> {
     const liveDenominator = async () => {
-      const liveSectionIds = (
-        await this.prisma.section.findMany({
+      // Sections and quiz-bearing chapters resolve together so the two halves
+      // of the completion predicate can never disagree about which tree they
+      // describe. Quiz filter mirrors resolveChapterDenominator's live branch
+      // (isArchived:false on quizzes) so course completion and the per-chapter
+      // progression gate agree on what "has a quiz" means.
+      const [liveSections, liveQuizChapters] = await Promise.all([
+        this.prisma.section.findMany({
           where: {
             isActive: true,
             isArchived: false,
@@ -754,9 +764,22 @@ export class CourseVersionService {
             },
           },
           select: { id: true },
-        })
-      ).map((s) => s.id);
-      return { total: liveSectionIds.length, liveSectionIds };
+        }),
+        this.prisma.chapter.findMany({
+          where: {
+            isArchived: false,
+            module: { courseId, isArchived: false },
+            quizzes: { some: { isArchived: false } },
+          },
+          select: { id: true },
+        }),
+      ]);
+      const liveSectionIds = liveSections.map((s) => s.id);
+      return {
+        total: liveSectionIds.length,
+        liveSectionIds,
+        quizBearingChapterIds: liveQuizChapters.map((c) => c.id),
+      };
     };
 
     // Read the pin directly (one userCourse read) instead of via
@@ -787,7 +810,11 @@ export class CourseVersionService {
     // Use ids.length (not the stored sectionCount) so total and liveSectionIds
     // are self-consistent by construction — they can't disagree.
     const ids = getSectionIdsFromManifest(manifest);
-    return { total: ids.length, liveSectionIds: ids };
+    return {
+      total: ids.length,
+      liveSectionIds: ids,
+      quizBearingChapterIds: getQuizBearingChapterIdsFromManifest(manifest),
+    };
   }
 
   async countVersionSectionsForCourse(versionId: string): Promise<number> {

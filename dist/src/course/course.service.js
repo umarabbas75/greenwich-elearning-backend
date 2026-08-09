@@ -25,13 +25,15 @@ const mail_service_1 = require("../mail/mail.service");
 const feedback_service_1 = require("../feedback/feedback.service");
 const course_version_service_1 = require("../course-version/course-version.service");
 const course_version_manifest_1 = require("../course-version/course-version.manifest");
+const course_completion_service_1 = require("../course-completion/course-completion.service");
 let CourseService = CourseService_1 = class CourseService {
-    constructor(prisma, config, mail, feedbackService, courseVersionService) {
+    constructor(prisma, config, mail, feedbackService, courseVersionService, courseCompletion) {
         this.prisma = prisma;
         this.config = config;
         this.mail = mail;
         this.feedbackService = feedbackService;
         this.courseVersionService = courseVersionService;
+        this.courseCompletion = courseCompletion;
     }
     async isCourseFrozen(userId, courseId) {
         const completion = await this.prisma.courseCompletion.findUnique({
@@ -3882,7 +3884,7 @@ let CourseService = CourseService_1 = class CourseService {
                         moduleId: body.moduleId,
                     },
                 });
-                await this._checkContentCompletion(userId, body.courseId);
+                await this.courseCompletion.checkContentCompletion(userId, body.courseId);
                 await (0, chapter_progression_1.recordChapterAndModuleCompletionIfNeeded)(this.prisma, userId, body.chapterId, { courseId: body.courseId });
             }
             return {
@@ -3940,83 +3942,6 @@ let CourseService = CourseService_1 = class CourseService {
             }
         }
         return enrollment;
-    }
-    async _checkContentCompletion(userId, courseId) {
-        try {
-            const { total: totalSections, liveSectionIds } = await this.courseVersionService.countCompletionDenominator(userId, courseId);
-            if (totalSections === 0)
-                return;
-            const progressed = await this.prisma.userCourseProgress.findMany({
-                where: { userId, courseId, sectionId: { in: liveSectionIds } },
-                select: { sectionId: true },
-                distinct: ['sectionId'],
-            });
-            if (progressed.length < totalSections)
-                return;
-            const existing = await this.prisma.courseCompletion.findUnique({
-                where: { userId_courseId: { userId, courseId } },
-                select: { courseCompletedAt: true },
-            });
-            if (existing?.courseCompletedAt)
-                return;
-            await this.prisma.courseCompletion.upsert({
-                where: { userId_courseId: { userId, courseId } },
-                create: { userId, courseId, courseCompletedAt: new Date() },
-                update: { courseCompletedAt: new Date() },
-            });
-            await this._sendCompletionEmails(userId, courseId);
-            await this.feedbackService.notifyFeedbackRequiredIfNeeded(userId, courseId);
-        }
-        catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            CourseService_1.completionLogger.warn(`Content-completion check failed for user ${userId}, course ${courseId}: ${message}`);
-        }
-    }
-    async _sendCompletionEmails(userId, courseId) {
-        try {
-            const [user, course] = await Promise.all([
-                this.prisma.user.findUnique({
-                    where: { id: userId },
-                    select: { email: true, firstName: true, deletedAt: true },
-                }),
-                this.prisma.course.findUnique({
-                    where: { id: courseId },
-                    select: { title: true },
-                }),
-            ]);
-            if (!user?.email || user.deletedAt || !course)
-                return;
-            await this.mail.sendCourseCompleted({
-                to: user.email,
-                userId,
-                firstName: user.firstName ?? '',
-                courseTitle: course.title,
-                courseId,
-            });
-            const [form, alreadySubmitted] = await Promise.all([
-                this.prisma.courseFeedbackForm.findFirst({
-                    where: { courseId, isActive: true },
-                    select: { id: true },
-                }),
-                this.prisma.courseFeedbackSubmission.findFirst({
-                    where: { userId, courseId },
-                    select: { id: true },
-                }),
-            ]);
-            if (form && !alreadySubmitted) {
-                await this.mail.sendFeedbackRequest({
-                    to: user.email,
-                    userId,
-                    firstName: user.firstName ?? '',
-                    courseTitle: course.title,
-                    courseId,
-                });
-            }
-        }
-        catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            CourseService_1.completionLogger.warn(`Completion emails failed for user ${userId}, course ${courseId}: ${message}`);
-        }
     }
     async getUserChapterProgress(userId, courseId, chapterId) {
         try {
@@ -4251,6 +4176,7 @@ exports.CourseService = CourseService = CourseService_1 = __decorate([
         config_1.ConfigService,
         mail_service_1.MailService,
         feedback_service_1.FeedbackService,
-        course_version_service_1.CourseVersionService])
+        course_version_service_1.CourseVersionService,
+        course_completion_service_1.CourseCompletionService])
 ], CourseService);
 //# sourceMappingURL=course.service.js.map

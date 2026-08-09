@@ -2,6 +2,7 @@ import { HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CourseVersionService } from '../course-version/course-version.service';
+import { CourseCompletionService } from '../course-completion/course-completion.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -208,6 +209,10 @@ describe('CourseService — course versioning', () => {
           useValue: { notifyFeedbackRequiredIfNeeded: jest.fn() },
         },
         { provide: CourseVersionService, useValue: courseVersionService },
+        {
+          provide: CourseCompletionService,
+          useValue: { checkContentCompletion: jest.fn() },
+        },
       ],
     }).compile();
 

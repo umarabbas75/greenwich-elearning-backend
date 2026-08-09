@@ -406,18 +406,33 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
     }
     async countCompletionDenominator(userId, courseId) {
         const liveDenominator = async () => {
-            const liveSectionIds = (await this.prisma.section.findMany({
-                where: {
-                    isActive: true,
-                    isArchived: false,
-                    chapter: {
+            const [liveSections, liveQuizChapters] = await Promise.all([
+                this.prisma.section.findMany({
+                    where: {
+                        isActive: true,
+                        isArchived: false,
+                        chapter: {
+                            isArchived: false,
+                            module: { courseId, isArchived: false },
+                        },
+                    },
+                    select: { id: true },
+                }),
+                this.prisma.chapter.findMany({
+                    where: {
                         isArchived: false,
                         module: { courseId, isArchived: false },
+                        quizzes: { some: { isArchived: false } },
                     },
-                },
-                select: { id: true },
-            })).map((s) => s.id);
-            return { total: liveSectionIds.length, liveSectionIds };
+                    select: { id: true },
+                }),
+            ]);
+            const liveSectionIds = liveSections.map((s) => s.id);
+            return {
+                total: liveSectionIds.length,
+                liveSectionIds,
+                quizBearingChapterIds: liveQuizChapters.map((c) => c.id),
+            };
         };
         const uc = await this.prisma.userCourse.findUnique({
             where: { userId_courseId: { userId, courseId } },
@@ -432,7 +447,11 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             return liveDenominator();
         }
         const ids = (0, course_version_manifest_1.getSectionIdsFromManifest)(manifest);
-        return { total: ids.length, liveSectionIds: ids };
+        return {
+            total: ids.length,
+            liveSectionIds: ids,
+            quizBearingChapterIds: (0, course_version_manifest_1.getQuizBearingChapterIdsFromManifest)(manifest),
+        };
     }
     async countVersionSectionsForCourse(versionId) {
         const version = await this.prisma.courseVersion.findUnique({

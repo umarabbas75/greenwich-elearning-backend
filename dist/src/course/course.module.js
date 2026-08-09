@@ -15,6 +15,7 @@ const strategy_1 = require("../strategy");
 const mail_module_1 = require("../mail/mail.module");
 const feedback_module_1 = require("../feedback/feedback.module");
 const course_version_module_1 = require("../course-version/course-version.module");
+const course_completion_module_1 = require("../course-completion/course-completion.module");
 let CourseModule = class CourseModule {
 };
 exports.CourseModule = CourseModule;
@@ -25,6 +26,7 @@ exports.CourseModule = CourseModule = __decorate([
             mail_module_1.MailModule,
             feedback_module_1.FeedbackModule,
             course_version_module_1.CourseVersionModule,
+            course_completion_module_1.CourseCompletionModule,
         ],
         providers: [
             course_service_1.CourseService,

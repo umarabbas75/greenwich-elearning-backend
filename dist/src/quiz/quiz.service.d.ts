@@ -2,12 +2,14 @@ import { ConfigService } from '@nestjs/config';
 import { CheckQuiz, QuizDto, ResponseDto, UpdateChapterQuizOrderDto, UpdateQuizDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseVersionService } from '../course-version/course-version.service';
+import { CourseCompletionService } from '../course-completion/course-completion.service';
 export declare class QuizService {
     private prisma;
     private config;
     private courseVersionService;
+    private courseCompletion;
     private static readonly logger;
-    constructor(prisma: PrismaService, config: ConfigService, courseVersionService: CourseVersionService);
+    constructor(prisma: PrismaService, config: ConfigService, courseVersionService: CourseVersionService, courseCompletion: CourseCompletionService);
     private autoPublishAfterQuizChange;
     getQuiz(id: string, role: string): Promise<ResponseDto>;
     getAllQuizzes(role: string): Promise<ResponseDto>;

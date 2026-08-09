@@ -105,6 +105,7 @@ export declare function countSectionsInManifest(manifest: CourseVersionManifest)
 export declare function getSectionIdsFromManifest(manifest: CourseVersionManifest): string[];
 export declare function getChapterIdsFromManifest(manifest: CourseVersionManifest): string[];
 export declare function getQuizIdsFromManifest(manifest: CourseVersionManifest): string[];
+export declare function getQuizBearingChapterIdsFromManifest(manifest: CourseVersionManifest): string[];
 export declare function computeStructuralFingerprint(manifest: CourseVersionManifest): string;
 export declare function isIdReferencedInManifest(manifest: CourseVersionManifest, table: 'section' | 'chapter' | 'module' | 'quiz', sourceId: string): boolean;
 export type DiffEntityType = 'module' | 'chapter' | 'section' | 'quiz';

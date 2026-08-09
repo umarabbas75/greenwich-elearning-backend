@@ -23,11 +23,13 @@ import {
 import {
   assertChapterAccessible,
   enrichQuizProgressReport,
+  getCourseIdForChapter,
   gradeChapterQuizFromStoredAnswers,
   recordChapterAndModuleCompletionIfNeeded,
   resolveChapterQuizIds,
   resolvePassingCriteria,
 } from '../utils/chapter-progression';
+import { CourseCompletionService } from '../course-completion/course-completion.service';
 
 @Injectable()
 export class QuizService {
@@ -37,6 +39,7 @@ export class QuizService {
     private prisma: PrismaService,
     private config: ConfigService,
     private courseVersionService: CourseVersionService,
+    private courseCompletion: CourseCompletionService,
   ) {}
 
   /**
@@ -440,11 +443,40 @@ export class QuizService {
         });
       }
 
-      await recordChapterAndModuleCompletionIfNeeded(
-        this.prisma,
-        userId,
-        chapterId,
-      );
+      // Passing a chapter quiz can be the LAST act that completes a course —
+      // on a course where every chapter carries a quiz, it always is. Course
+      // completion used to be re-evaluated only when a section-progress row
+      // was created, so a learner finishing on a quiz was never stamped
+      // complete. Gated on stickyPassed so failed submissions don't pay for
+      // the check.
+      //
+      // Wrapped defensively: the quiz answers and QuizProgress are ALREADY
+      // committed by this point, so a failure in completion bookkeeping must
+      // not turn a successful submission into a 403 via the outer catch.
+      // checkContentCompletion swallows its own errors, but the courseId
+      // lookup and chapter/module rollup can still throw.
+      try {
+        const courseId = await getCourseIdForChapter(this.prisma, chapterId);
+
+        await recordChapterAndModuleCompletionIfNeeded(
+          this.prisma,
+          userId,
+          chapterId,
+          courseId ? { courseId } : undefined,
+        );
+
+        if (stickyPassed && courseId) {
+          await this.courseCompletion.checkContentCompletion(userId, courseId);
+        }
+      } catch (completionError) {
+        const message =
+          completionError instanceof Error
+            ? completionError.message
+            : String(completionError);
+        QuizService.logger.warn(
+          `Post-quiz completion bookkeeping failed for user ${userId}, chapter ${chapterId}: ${message}`,
+        );
+      }
 
       return {
         message: 'Chapter quiz report saved',

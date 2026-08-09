@@ -142,6 +142,7 @@ export declare class CourseVersionService {
     countCompletionDenominator(userId: string, courseId: string): Promise<{
         total: number;
         liveSectionIds: string[];
+        quizBearingChapterIds: string[];
     }>;
     countVersionSectionsForCourse(versionId: string): Promise<number>;
     buildUserModulesFromVersion(tree: PinnedCurriculumTree, progressByChapter: Map<string, number>, progressByModule: Map<string, number>): {

@@ -18,11 +18,13 @@ const prisma_service_1 = require("../prisma/prisma.service");
 const course_version_service_1 = require("../course-version/course-version.service");
 const course_version_manifest_1 = require("../course-version/course-version.manifest");
 const chapter_progression_1 = require("../utils/chapter-progression");
+const course_completion_service_1 = require("../course-completion/course-completion.service");
 let QuizService = QuizService_1 = class QuizService {
-    constructor(prisma, config, courseVersionService) {
+    constructor(prisma, config, courseVersionService, courseCompletion) {
         this.prisma = prisma;
         this.config = config;
         this.courseVersionService = courseVersionService;
+        this.courseCompletion = courseCompletion;
     }
     async autoPublishAfterQuizChange(courseId, adminId, changeNotes) {
         try {
@@ -297,7 +299,19 @@ let QuizService = QuizService_1 = class QuizService {
                     },
                 });
             }
-            await (0, chapter_progression_1.recordChapterAndModuleCompletionIfNeeded)(this.prisma, userId, chapterId);
+            try {
+                const courseId = await (0, chapter_progression_1.getCourseIdForChapter)(this.prisma, chapterId);
+                await (0, chapter_progression_1.recordChapterAndModuleCompletionIfNeeded)(this.prisma, userId, chapterId, courseId ? { courseId } : undefined);
+                if (stickyPassed && courseId) {
+                    await this.courseCompletion.checkContentCompletion(userId, courseId);
+                }
+            }
+            catch (completionError) {
+                const message = completionError instanceof Error
+                    ? completionError.message
+                    : String(completionError);
+                QuizService_1.logger.warn(`Post-quiz completion bookkeeping failed for user ${userId}, chapter ${chapterId}: ${message}`);
+            }
             return {
                 message: 'Chapter quiz report saved',
                 statusCode: 200,
@@ -864,6 +878,7 @@ exports.QuizService = QuizService = QuizService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         config_1.ConfigService,
-        course_version_service_1.CourseVersionService])
+        course_version_service_1.CourseVersionService,
+        course_completion_service_1.CourseCompletionService])
 ], QuizService);
 //# sourceMappingURL=quiz.service.js.map
