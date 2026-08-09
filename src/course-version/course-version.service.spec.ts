@@ -517,13 +517,42 @@ describe('CourseVersionService', () => {
         manifest: mockManifest,
       });
 
+      // The manifest lists ch-1 as quiz-bearing; confirm it still has a live
+      // quiz row before making it a completion requirement.
+      prisma.chapter.findMany.mockResolvedValue([{ id: 'ch-1' }]);
+
       await expect(
         service.countCompletionDenominator('user-1', 'course-1'),
       ).resolves.toEqual({
         total: 2,
         liveSectionIds: ['sec-1', 'sec-2'],
-        // ch-1 carries quizIds: ['quiz-1'] in mockManifest.
         quizBearingChapterIds: ['ch-1'],
+      });
+    });
+
+    it('drops a pinned quiz-bearing chapter whose quizzes were all archived', async () => {
+      // REGRESSION: manifest quizIds are frozen at publish and never
+      // re-filtered. If the chapter's only quiz is later archived, the learner
+      // can no longer submit it (resolveChapterQuizIds drops archived rows) —
+      // so requiring it would strand them at "sections done, never completed"
+      // with no error. Membership comes from the manifest; the requirement is
+      // confirmed against live rows.
+      prisma.userCourse.findUnique.mockResolvedValue({
+        enrolledVersionId: 'version-1',
+      });
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        sectionCount: 2,
+        manifest: mockManifest,
+      });
+      // No chapter still has a non-archived quiz.
+      prisma.chapter.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.countCompletionDenominator('user-1', 'course-1'),
+      ).resolves.toEqual({
+        total: 2,
+        liveSectionIds: ['sec-1', 'sec-2'],
+        quizBearingChapterIds: [],
       });
     });
 

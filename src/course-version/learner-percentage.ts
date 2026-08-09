@@ -100,7 +100,9 @@ export async function computeLearnerPercentages(
   for (const p of pairs) unique.set(percentageKey(p.userId, p.courseId), p);
   const keys = Array.from(unique.values());
 
-  const userIds = Array.from(new Set(keys.map((k) => k.userId)));
+  // Courses are still deduped for the live-section query, which is genuinely
+  // per-course (not per-pair) — every learner unpinned on the same course
+  // shares one live curriculum.
   const courseIds = Array.from(new Set(keys.map((k) => k.courseId)));
 
   // Only look up pins the caller didn't already supply.
@@ -117,9 +119,17 @@ export async function computeLearnerPercentages(
   const [enrollments, completions] = await Promise.all([
     needsPinLookup.length
       ? prisma.userCourse.findMany({
+          // OR of per-pair AND, not `userId IN (...) AND courseId IN (...)`.
+          // The latter is a CROSS PRODUCT: asking for (A,C1) and (B,C2) would
+          // also match (A,C2) and (B,C1), fetching enrollments nobody asked
+          // for and then loading their manifests too. Requested pairs still
+          // computed correctly either way (everything is keyed per-pair), but
+          // the cost grew as users × courses instead of pairs.
           where: {
-            userId: { in: needsPinLookup.map((k) => k.userId) },
-            courseId: { in: needsPinLookup.map((k) => k.courseId) },
+            OR: needsPinLookup.map((k) => ({
+              userId: k.userId,
+              courseId: k.courseId,
+            })),
           },
           select: { userId: true, courseId: true, enrolledVersionId: true },
         })
@@ -132,8 +142,7 @@ export async function computeLearnerPercentages(
         ),
     prisma.courseCompletion.findMany({
       where: {
-        userId: { in: userIds },
-        courseId: { in: courseIds },
+        OR: keys.map((k) => ({ userId: k.userId, courseId: k.courseId })),
         courseCompletedAt: { not: null },
       },
       select: { userId: true, courseId: true },
@@ -220,8 +229,7 @@ export async function computeLearnerPercentages(
   const progressRows = allSectionIds.size
     ? await prisma.userCourseProgress.findMany({
         where: {
-          userId: { in: userIds },
-          courseId: { in: courseIds },
+          OR: keys.map((k) => ({ userId: k.userId, courseId: k.courseId })),
           sectionId: { in: Array.from(allSectionIds) },
         },
         select: { userId: true, courseId: true, sectionId: true },

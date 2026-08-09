@@ -38,7 +38,10 @@ describe('CourseCompletionService.checkContentCompletion', () => {
       quizProgress: { count: jest.fn().mockResolvedValue(0) },
       courseCompletion: {
         findUnique: jest.fn().mockResolvedValue(null),
-        upsert: jest.fn().mockResolvedValue({}),
+        // Conditional-write path: no row yet -> create; row exists with a null
+        // courseCompletedAt -> updateMany claims it (count 1 = this caller won).
+        create: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       user: {
         findUnique: jest.fn().mockResolvedValue({
@@ -90,7 +93,7 @@ describe('CourseCompletionService.checkContentCompletion', () => {
 
     await service.checkContentCompletion('user-1', 'course-1');
 
-    expect(prisma.courseCompletion.upsert).toHaveBeenCalled();
+    expect(prisma.courseCompletion.create).toHaveBeenCalled();
     expect(mail.sendCourseCompleted).toHaveBeenCalled();
     expect(feedbackService.notifyFeedbackRequiredIfNeeded).toHaveBeenCalledWith(
       'user-1',
@@ -111,7 +114,8 @@ describe('CourseCompletionService.checkContentCompletion', () => {
 
     await service.checkContentCompletion('user-1', 'course-1');
 
-    expect(prisma.courseCompletion.upsert).not.toHaveBeenCalled();
+    expect(prisma.courseCompletion.create).not.toHaveBeenCalled();
+    expect(prisma.courseCompletion.updateMany).not.toHaveBeenCalled();
     expect(mail.sendCourseCompleted).not.toHaveBeenCalled();
     expect(
       feedbackService.notifyFeedbackRequiredIfNeeded,
@@ -131,7 +135,7 @@ describe('CourseCompletionService.checkContentCompletion', () => {
     await service.checkContentCompletion('user-1', 'course-1');
 
     expect(prisma.quizProgress.count).not.toHaveBeenCalled();
-    expect(prisma.courseCompletion.upsert).toHaveBeenCalled();
+    expect(prisma.courseCompletion.create).toHaveBeenCalled();
   });
 
   it('stamps when the last chapter has no quiz but all quiz chapters passed', async () => {
@@ -147,7 +151,7 @@ describe('CourseCompletionService.checkContentCompletion', () => {
 
     await service.checkContentCompletion('user-1', 'course-1');
 
-    expect(prisma.courseCompletion.upsert).toHaveBeenCalled();
+    expect(prisma.courseCompletion.create).toHaveBeenCalled();
   });
 
   it('short-circuits on incomplete sections before querying quizzes', async () => {
@@ -161,7 +165,8 @@ describe('CourseCompletionService.checkContentCompletion', () => {
     await service.checkContentCompletion('user-1', 'course-1');
 
     expect(prisma.quizProgress.count).not.toHaveBeenCalled();
-    expect(prisma.courseCompletion.upsert).not.toHaveBeenCalled();
+    expect(prisma.courseCompletion.create).not.toHaveBeenCalled();
+    expect(prisma.courseCompletion.updateMany).not.toHaveBeenCalled();
   });
 
   it('only counts PASSING quiz progress rows', async () => {
@@ -195,7 +200,70 @@ describe('CourseCompletionService.checkContentCompletion', () => {
 
     await service.checkContentCompletion('user-1', 'course-1');
 
-    expect(prisma.courseCompletion.upsert).not.toHaveBeenCalled();
+    expect(prisma.courseCompletion.create).not.toHaveBeenCalled();
+    expect(prisma.courseCompletion.updateMany).not.toHaveBeenCalled();
+    expect(mail.sendCourseCompleted).not.toHaveBeenCalled();
+  });
+
+  it('does not double-send when a concurrent caller already claimed completion', async () => {
+    // REGRESSION: A0 added a SECOND concurrent caller (the quiz-pass path), so
+    // a learner's final section-complete and final quiz submission can race.
+    // Read-then-write let both pass the guard and both email. The conditional
+    // updateMany means only the racer whose write matched (count 1) proceeds.
+    courseVersionService.countCompletionDenominator.mockResolvedValue(
+      denominator(['s1'], []),
+    );
+    prisma.userCourseProgress.findMany.mockResolvedValue(allProgressed(['s1']));
+    // Row exists with courseCompletedAt still null (the other racer has not
+    // committed yet at read time)...
+    prisma.courseCompletion.findUnique.mockResolvedValue({
+      id: 'cc-1',
+      courseCompletedAt: null,
+    });
+    // ...but by write time the other racer won, so nothing matches.
+    prisma.courseCompletion.updateMany.mockResolvedValue({ count: 0 });
+
+    await service.checkContentCompletion('user-1', 'course-1');
+
+    expect(prisma.courseCompletion.updateMany).toHaveBeenCalled();
+    expect(mail.sendCourseCompleted).not.toHaveBeenCalled();
+    expect(
+      feedbackService.notifyFeedbackRequiredIfNeeded,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('sends emails when it wins the conditional write', async () => {
+    courseVersionService.countCompletionDenominator.mockResolvedValue(
+      denominator(['s1'], []),
+    );
+    prisma.userCourseProgress.findMany.mockResolvedValue(allProgressed(['s1']));
+    prisma.courseCompletion.findUnique.mockResolvedValue({
+      id: 'cc-1',
+      courseCompletedAt: null,
+    });
+    prisma.courseCompletion.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.checkContentCompletion('user-1', 'course-1');
+
+    expect(mail.sendCourseCompleted).toHaveBeenCalled();
+  });
+
+  it('does not double-send when losing a create race on the unique key', async () => {
+    // Neither racer sees a row; both attempt create. The (userId, courseId)
+    // unique constraint rejects the loser, which must not email.
+    courseVersionService.countCompletionDenominator.mockResolvedValue(
+      denominator(['s1'], []),
+    );
+    prisma.userCourseProgress.findMany.mockResolvedValue(allProgressed(['s1']));
+    prisma.courseCompletion.findUnique.mockResolvedValue(null);
+    prisma.courseCompletion.create.mockRejectedValue(
+      new Error(
+        'Unique constraint failed on the fields: (`userId`,`courseId`)',
+      ),
+    );
+
+    await service.checkContentCompletion('user-1', 'course-1');
+
     expect(mail.sendCourseCompleted).not.toHaveBeenCalled();
   });
 
@@ -208,7 +276,8 @@ describe('CourseCompletionService.checkContentCompletion', () => {
 
     expect(prisma.userCourseProgress.findMany).not.toHaveBeenCalled();
     expect(prisma.quizProgress.count).not.toHaveBeenCalled();
-    expect(prisma.courseCompletion.upsert).not.toHaveBeenCalled();
+    expect(prisma.courseCompletion.create).not.toHaveBeenCalled();
+    expect(prisma.courseCompletion.updateMany).not.toHaveBeenCalled();
   });
 
   it('preserves assessment fields — upsert touches only courseCompletedAt', async () => {
@@ -219,9 +288,8 @@ describe('CourseCompletionService.checkContentCompletion', () => {
 
     await service.checkContentCompletion('user-1', 'course-1');
 
-    const arg = prisma.courseCompletion.upsert.mock.calls[0][0];
-    expect(Object.keys(arg.update)).toEqual(['courseCompletedAt']);
-    expect(Object.keys(arg.create).sort()).toEqual(
+    const arg = prisma.courseCompletion.create.mock.calls[0][0];
+    expect(Object.keys(arg.data).sort()).toEqual(
       ['courseCompletedAt', 'courseId', 'userId'].sort(),
     );
   });
@@ -239,7 +307,7 @@ describe('CourseCompletionService.checkContentCompletion', () => {
 
     await service.checkContentCompletion('user-1', 'course-1');
 
-    expect(prisma.courseCompletion.upsert).toHaveBeenCalled();
+    expect(prisma.courseCompletion.create).toHaveBeenCalled();
     expect(mail.sendCourseCompleted).not.toHaveBeenCalled();
   });
 
@@ -255,7 +323,8 @@ describe('CourseCompletionService.checkContentCompletion', () => {
     await expect(
       service.checkContentCompletion('user-1', 'course-1'),
     ).resolves.toBeUndefined();
-    expect(prisma.courseCompletion.upsert).not.toHaveBeenCalled();
+    expect(prisma.courseCompletion.create).not.toHaveBeenCalled();
+    expect(prisma.courseCompletion.updateMany).not.toHaveBeenCalled();
   });
 
   it('sends the feedback request only when a form exists and none submitted', async () => {

@@ -118,6 +118,59 @@ describe('learner-percentage contract', () => {
     expect(row.denominator).toBe(1);
   });
 
+  it('queries only the requested pairs, not the user x course cross product', async () => {
+    // REGRESSION: the pin lookup used `userId IN (...) AND courseId IN (...)`,
+    // which matches every combination. Asking for (A,C1) and (B,C2) also
+    // fetched (A,C2) and (B,C1) — and then loaded THEIR manifests too. Output
+    // stayed correct (everything is keyed per-pair) but cost grew as
+    // users x courses instead of pairs.
+    prisma.userCourse.findMany.mockResolvedValue([]);
+
+    await run([
+      { userId: 'A', courseId: 'C1' },
+      { userId: 'B', courseId: 'C2' },
+    ]);
+
+    const where = prisma.userCourse.findMany.mock.calls[0][0].where;
+    expect(where.OR).toEqual([
+      { userId: 'A', courseId: 'C1' },
+      { userId: 'B', courseId: 'C2' },
+    ]);
+    // The cross-product shape must be gone.
+    expect(where.userId).toBeUndefined();
+    expect(where.courseId).toBeUndefined();
+  });
+
+  it('does not credit one learner with another learner-course pair progress', async () => {
+    // The behavioural consequence of the same bug: with a cross-product WHERE,
+    // an unrequested (A,C2) enrollment could pull its manifest into the batch.
+    // Percentages must reflect ONLY the requested pairs.
+    prisma.userCourse.findMany.mockResolvedValue([
+      { userId: 'A', courseId: 'C1', enrolledVersionId: 'vA' },
+      { userId: 'B', courseId: 'C2', enrolledVersionId: 'vB' },
+    ]);
+    prisma.courseVersion.findUnique.mockImplementation(({ where }: any) =>
+      Promise.resolve({
+        manifest: manifestWith(
+          where.id === 'vA' ? ['a1', 'a2'] : ['b1', 'b2', 'b3', 'b4'],
+        ),
+      }),
+    );
+    prisma.userCourseProgress.findMany.mockResolvedValue([
+      { userId: 'A', courseId: 'C1', sectionId: 'a1' },
+      { userId: 'B', courseId: 'C2', sectionId: 'b1' },
+    ]);
+
+    const res = await run([
+      { userId: 'A', courseId: 'C1' },
+      { userId: 'B', courseId: 'C2' },
+    ]);
+
+    expect(res.size).toBe(2);
+    expect(res.get(percentageKey('A', 'C1'))!.percentage).toBe(50); // 1/2
+    expect(res.get(percentageKey('B', 'C2'))!.percentage).toBe(25); // 1/4
+  });
+
   it('reports denominatorSource so callers can log scope drift', async () => {
     prisma.courseVersion.findUnique.mockResolvedValue({
       manifest: manifestWith(['s1']),

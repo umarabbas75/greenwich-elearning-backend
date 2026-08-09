@@ -456,10 +456,25 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             return liveDenominator();
         }
         const ids = (0, course_version_manifest_1.getSectionIdsFromManifest)(manifest);
+        const manifestQuizChapterIds = (0, course_version_manifest_1.getQuizBearingChapterIdsFromManifest)(manifest);
+        if (manifestQuizChapterIds.length === 0) {
+            return {
+                total: ids.length,
+                liveSectionIds: ids,
+                quizBearingChapterIds: [],
+            };
+        }
+        const stillHasLiveQuiz = await this.prisma.chapter.findMany({
+            where: {
+                id: { in: manifestQuizChapterIds },
+                quizzes: { some: { isArchived: false } },
+            },
+            select: { id: true },
+        });
         return {
             total: ids.length,
             liveSectionIds: ids,
-            quizBearingChapterIds: (0, course_version_manifest_1.getQuizBearingChapterIdsFromManifest)(manifest),
+            quizBearingChapterIds: stillHasLiveQuiz.map((c) => c.id),
         };
     }
     async countVersionSectionsForCourse(versionId) {

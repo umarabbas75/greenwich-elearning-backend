@@ -831,10 +831,37 @@ export class CourseVersionService {
     // Use ids.length (not the stored sectionCount) so total and liveSectionIds
     // are self-consistent by construction — they can't disagree.
     const ids = getSectionIdsFromManifest(manifest);
+
+    // Chapter membership comes from the manifest (so a quiz ADDED after the
+    // learner pinned cannot retroactively un-complete them), but the
+    // requirement is confirmed against live quiz rows.
+    //
+    // Without that second step an archived quiz strands the learner forever:
+    // the manifest still lists the chapter as quiz-bearing, while
+    // resolveChapterQuizIds — which gates submission — drops archived/deleted
+    // quizzes, so no passing QuizProgress can ever be created. The learner
+    // finishes every section and is silently never stamped complete. Requiring
+    // a quiz the learner cannot take is not a requirement, it is a deadlock.
+    const manifestQuizChapterIds =
+      getQuizBearingChapterIdsFromManifest(manifest);
+    if (manifestQuizChapterIds.length === 0) {
+      return {
+        total: ids.length,
+        liveSectionIds: ids,
+        quizBearingChapterIds: [],
+      };
+    }
+    const stillHasLiveQuiz = await this.prisma.chapter.findMany({
+      where: {
+        id: { in: manifestQuizChapterIds },
+        quizzes: { some: { isArchived: false } },
+      },
+      select: { id: true },
+    });
     return {
       total: ids.length,
       liveSectionIds: ids,
-      quizBearingChapterIds: getQuizBearingChapterIdsFromManifest(manifest),
+      quizBearingChapterIds: stillHasLiveQuiz.map((c) => c.id),
     };
   }
 

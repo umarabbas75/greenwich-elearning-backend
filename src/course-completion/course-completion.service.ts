@@ -96,19 +96,46 @@ export class CourseCompletionService {
         if (passedCount < quizBearingChapterIds.length) return;
       }
 
-      // 100% of content done — mark complete (idempotent: don't overwrite an
-      // existing courseCompletedAt). Preserve any assessment fields already set.
+      // 100% of content done — stamp it, exactly once.
+      //
+      // Read-then-write is not enough here: A0 added a SECOND concurrent
+      // caller (the quiz-pass path), so a learner's final section-complete and
+      // their final quiz submission can land together. Both would read
+      // courseCompletedAt: null, both would write, and both would send the
+      // congratulations email and feedback request — and the second write
+      // would move courseCompletedAt, shifting the post-completion expiry
+      // window that getAllAssignedCourses derives from it.
+      //
+      // updateMany with `courseCompletedAt: null` in the WHERE is a
+      // conditional write: exactly one racer can match, and its count tells us
+      // who won. Emails are sent only by that winner.
       const existing = await this.prisma.courseCompletion.findUnique({
         where: { userId_courseId: { userId, courseId } },
-        select: { courseCompletedAt: true },
+        select: { id: true, courseCompletedAt: true },
       });
       if (existing?.courseCompletedAt) return; // already recorded
 
-      await this.prisma.courseCompletion.upsert({
-        where: { userId_courseId: { userId, courseId } },
-        create: { userId, courseId, courseCompletedAt: new Date() },
-        update: { courseCompletedAt: new Date() },
-      });
+      let justCompleted: boolean;
+      if (existing) {
+        const claimed = await this.prisma.courseCompletion.updateMany({
+          where: { userId, courseId, courseCompletedAt: null },
+          data: { courseCompletedAt: new Date() },
+        });
+        justCompleted = claimed.count === 1;
+      } else {
+        // No row yet. The unique constraint on (userId, courseId) makes the
+        // loser of a create race fail rather than double-send.
+        try {
+          await this.prisma.courseCompletion.create({
+            data: { userId, courseId, courseCompletedAt: new Date() },
+          });
+          justCompleted = true;
+        } catch {
+          // Lost the race — the winner sends the emails.
+          justCompleted = false;
+        }
+      }
+      if (!justCompleted) return;
 
       // Course was JUST completed (first time) — send the milestone emails.
       await this.sendCompletionEmails(userId, courseId);

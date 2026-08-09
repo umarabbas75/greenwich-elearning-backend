@@ -12,7 +12,6 @@ async function computeLearnerPercentages(prisma, pairs) {
     for (const p of pairs)
         unique.set((0, exports.percentageKey)(p.userId, p.courseId), p);
     const keys = Array.from(unique.values());
-    const userIds = Array.from(new Set(keys.map((k) => k.userId)));
     const courseIds = Array.from(new Set(keys.map((k) => k.courseId)));
     const pinByKey = new Map();
     const needsPinLookup = [];
@@ -28,16 +27,17 @@ async function computeLearnerPercentages(prisma, pairs) {
         needsPinLookup.length
             ? prisma.userCourse.findMany({
                 where: {
-                    userId: { in: needsPinLookup.map((k) => k.userId) },
-                    courseId: { in: needsPinLookup.map((k) => k.courseId) },
+                    OR: needsPinLookup.map((k) => ({
+                        userId: k.userId,
+                        courseId: k.courseId,
+                    })),
                 },
                 select: { userId: true, courseId: true, enrolledVersionId: true },
             })
             : Promise.resolve([]),
         prisma.courseCompletion.findMany({
             where: {
-                userId: { in: userIds },
-                courseId: { in: courseIds },
+                OR: keys.map((k) => ({ userId: k.userId, courseId: k.courseId })),
                 courseCompletedAt: { not: null },
             },
             select: { userId: true, courseId: true },
@@ -101,8 +101,7 @@ async function computeLearnerPercentages(prisma, pairs) {
     const progressRows = allSectionIds.size
         ? await prisma.userCourseProgress.findMany({
             where: {
-                userId: { in: userIds },
-                courseId: { in: courseIds },
+                OR: keys.map((k) => ({ userId: k.userId, courseId: k.courseId })),
                 sectionId: { in: Array.from(allSectionIds) },
             },
             select: { userId: true, courseId: true, sectionId: true },

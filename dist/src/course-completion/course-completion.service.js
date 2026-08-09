@@ -48,15 +48,31 @@ let CourseCompletionService = CourseCompletionService_1 = class CourseCompletion
             }
             const existing = await this.prisma.courseCompletion.findUnique({
                 where: { userId_courseId: { userId, courseId } },
-                select: { courseCompletedAt: true },
+                select: { id: true, courseCompletedAt: true },
             });
             if (existing?.courseCompletedAt)
                 return;
-            await this.prisma.courseCompletion.upsert({
-                where: { userId_courseId: { userId, courseId } },
-                create: { userId, courseId, courseCompletedAt: new Date() },
-                update: { courseCompletedAt: new Date() },
-            });
+            let justCompleted;
+            if (existing) {
+                const claimed = await this.prisma.courseCompletion.updateMany({
+                    where: { userId, courseId, courseCompletedAt: null },
+                    data: { courseCompletedAt: new Date() },
+                });
+                justCompleted = claimed.count === 1;
+            }
+            else {
+                try {
+                    await this.prisma.courseCompletion.create({
+                        data: { userId, courseId, courseCompletedAt: new Date() },
+                    });
+                    justCompleted = true;
+                }
+                catch {
+                    justCompleted = false;
+                }
+            }
+            if (!justCompleted)
+                return;
             await this.sendCompletionEmails(userId, courseId);
             await this.feedbackService.notifyFeedbackRequiredIfNeeded(userId, courseId);
         }
