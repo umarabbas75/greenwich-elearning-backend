@@ -146,6 +146,11 @@ function toPercentage(numerator, denominator, isCompleted) {
         return 100;
     if (denominator <= 0)
         return 0;
-    return Math.min(100, Math.round((numerator * 100) / denominator));
+    const raw = (numerator * 100) / denominator;
+    if (numerator >= denominator)
+        return 100;
+    if (numerator > 0 && raw < 1)
+        return 1;
+    return Math.min(99, Math.round(raw));
 }
 //# sourceMappingURL=learner-percentage.js.map

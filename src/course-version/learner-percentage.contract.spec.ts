@@ -137,6 +137,74 @@ describe('learner-percentage contract', () => {
     expect(unpinned.denominatorSource).toBe('live');
   });
 
+  it('property: a learner who finished their manifest reads exactly 100, unclamped', async () => {
+    // A6's invariant, stated as a property rather than an example.
+    //
+    // For ANY manifest shape and ANY set of sections archived after publish,
+    // a learner who completed their pinned curriculum computes exactly 100 —
+    // arithmetically, without the isCompleted freeze doing the work. This is
+    // what makes the freeze non-load-bearing for correctly-scoped learners,
+    // and it is the property the roster violated (92% for a finished learner).
+    const shapes = [1, 2, 3, 5, 7, 12, 13, 20, 31, 32, 50, 116];
+
+    for (const size of shapes) {
+      resetManifestCache();
+      const sectionIds = Array.from({ length: size }, (_, i) => `s-${i}`);
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: manifestWith(sectionIds),
+      });
+      // Learner completed every section in their manifest. Some of those
+      // Section rows may since have been archived — irrelevant, because the
+      // denominator comes from the same manifest the numerator is matched
+      // against. NOT certified, so no freeze is available to mask an error.
+      prisma.courseCompletion.findMany.mockResolvedValue([]);
+      prisma.userCourseProgress.findMany.mockResolvedValue(
+        sectionIds.map((sectionId) => ({
+          userId: 'u1',
+          courseId: 'c1',
+          sectionId,
+        })),
+      );
+
+      const row = (
+        await run([{ userId: 'u1', courseId: 'c1', enrolledVersionId: 'v' }])
+      ).get(percentageKey('u1', 'c1'))!;
+
+      expect(row.isCompleted).toBe(false);
+      expect(row.numerator).toBe(size);
+      expect(row.denominator).toBe(size);
+      expect(row.percentage).toBe(100);
+    }
+  });
+
+  it('property: partial completion never rounds up to a false 100', async () => {
+    // The dual guard. A learner one section short must not read 100 at any
+    // curriculum size — that would let the FE's `done >= sections` gate
+    // unlock the next chapter early.
+    for (const size of [2, 3, 7, 12, 50, 116, 201]) {
+      resetManifestCache();
+      const sectionIds = Array.from({ length: size }, (_, i) => `s-${i}`);
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: manifestWith(sectionIds),
+      });
+      prisma.courseCompletion.findMany.mockResolvedValue([]);
+      prisma.userCourseProgress.findMany.mockResolvedValue(
+        sectionIds.slice(0, size - 1).map((sectionId) => ({
+          userId: 'u1',
+          courseId: 'c1',
+          sectionId,
+        })),
+      );
+
+      const row = (
+        await run([{ userId: 'u1', courseId: 'c1', enrolledVersionId: 'v' }])
+      ).get(percentageKey('u1', 'c1'))!;
+
+      expect(row.numerator).toBe(size - 1);
+      expect(row.percentage).toBeLessThan(100);
+    }
+  });
+
   it('an empty curriculum reads 0, never NaN', async () => {
     prisma.courseVersion.findUnique.mockResolvedValue({
       manifest: manifestWith([]),

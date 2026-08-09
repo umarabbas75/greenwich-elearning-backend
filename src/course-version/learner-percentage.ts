@@ -294,5 +294,18 @@ function toPercentage(
 ): number {
   if (isCompleted) return 100;
   if (denominator <= 0) return 0;
-  return Math.min(100, Math.round((numerator * 100) / denominator));
+
+  const raw = (numerator * 100) / denominator;
+
+  // 100 must mean "finished", never "rounded up to finished". On a 201-section
+  // curriculum 200/201 = 99.5%, and Math.round would report that as 100 — a
+  // learner one section short reading as complete. The FE's `done >= sections`
+  // gate gives that real teeth: it unlocks the next chapter. Floor anything
+  // short of the full count to 99, and reserve an exact 100 for numerator ===
+  // denominator. The same argument applies at the bottom: a learner with one
+  // section done on a huge course should read 1, not 0.
+  if (numerator >= denominator) return 100;
+  // Math.round(99.5) is 100, so cap BEFORE rounding, not after.
+  if (numerator > 0 && raw < 1) return 1;
+  return Math.min(99, Math.round(raw));
 }

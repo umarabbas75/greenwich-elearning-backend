@@ -52,7 +52,15 @@ The spec calls this out and recommends a warning (`data.note`) rather than block
 > not include this row — new enrollments will not see it until you publish a
 > new version.
 
-Also: emit `RESTORE_ENTITY` audit with `metadata: { entityType, priorIsArchived, parentWasArchived, orderIndexResolution: 'appended', publishedInLatest: boolean }` so we can reconstruct what happened later.
+Also: emit `RESTORE_ENTITY` audit with `metadata: { entityType, priorIsArchived, parentWasArchived, publishedInLatest: boolean, title }` so we can reconstruct what happened later.
+
+> **Correction (post-implementation).** This originally specified
+> `orderIndexResolution: 'appended'`. Restore does **not** touch `orderIndex` —
+> the row keeps whatever value it had when archived, so a collision resolves
+> wherever the existing sort tiebreaker puts it. The field was dropped from the
+> audit metadata rather than shipped as a claim the code does not honour. If
+> append-to-end is still wanted (decision 1b), it needs implementing first; the
+> audit field follows the behaviour, not the other way round.
 
 **FE decision needed:** confirm 1a rejection message and the 1c note wording,
 or counter-propose.
@@ -502,7 +510,7 @@ require another round of this doc.
 
 | Action | Emitted by | Metadata |
 |---|---|---|
-| `RESTORE_ENTITY` | §1 restore endpoint | `{ entityType, priorIsArchived, parentWasArchived, orderIndexResolution: 'appended', publishedInLatest }` |
+| `RESTORE_ENTITY` | §1 restore endpoint | `{ entityType, priorIsArchived, parentWasArchived, publishedInLatest, title }` |
 | `BULK_MIGRATE_LEARNER_VERSION` | §5, best-effort per migrated learner (see plan doc CC3) | `{ fromVersionId, fromVersionNumber, toVersionId, toVersionNumber, wouldRegress, forced }` |
 | `RECONCILE_VERSION` | §7 if reconcile mutates (CLI-only) | `{ versionId, changesApplied }` |
 
