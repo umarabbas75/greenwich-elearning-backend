@@ -889,7 +889,14 @@ export async function loadPinnedCurriculum(
  */
 // Bounded by entry count. Each entry holds every section/quiz id in a course, so
 // keep the cap modest to bound memory (a handful of large courses, not 512).
-const MANIFEST_CACHE_MAX = 64;
+//
+// Sized for 64 when the only readers were learner-facing paths touching one or
+// two versions per request. The batched percentage engine
+// (computeLearnerPercentages) and the admin roster span every DISTINCT version
+// on a page — a course with a long publish history plus learners spread across
+// it blew past 64 and thrashed. 256 still bounds memory to a few large courses'
+// worth of ids while keeping those pages on cache hits.
+const MANIFEST_CACHE_MAX = 256;
 const manifestCache = new Map<string, CourseVersionManifest>();
 
 function getCachedManifest(

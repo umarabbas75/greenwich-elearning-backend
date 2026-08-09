@@ -483,7 +483,7 @@ async function loadPinnedCurriculum(prisma, versionId) {
     };
 }
 exports.loadPinnedCurriculum = loadPinnedCurriculum;
-const MANIFEST_CACHE_MAX = 64;
+const MANIFEST_CACHE_MAX = 256;
 const manifestCache = new Map();
 function getCachedManifest(versionId) {
     const cached = manifestCache.get(versionId);
