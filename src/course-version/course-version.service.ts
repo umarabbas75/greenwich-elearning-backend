@@ -1417,13 +1417,13 @@ export class CourseVersionService {
         return { enrolledVersion: { versionNumber: 'asc' } };
       case 'enrolledVersionNumber:desc':
         return { enrolledVersion: { versionNumber: 'desc' } };
-      // isCompleted is derived (join to CourseCompletion) — can't
-      // orderBy it directly. Fall back to createdAt for now; PR 5 or a
-      // schema change can materialise `isCompleted` on UserCourse if
-      // this becomes a common admin sort.
-      case 'isCompleted:asc':
-      case 'isCompleted:desc':
-        return { createdAt: sort === 'isCompleted:desc' ? 'desc' : 'asc' };
+      // isCompleted is derived (a join to CourseCompletion), so it cannot be
+      // ordered on directly. This used to map to createdAt, which is worse
+      // than not supporting it: the admin asks to sort by completion, gets a
+      // plausible-looking order that is actually enrollment date, and has no
+      // way to tell. Falls through to the documented default instead. If this
+      // becomes a common admin sort, materialise the flag on UserCourse
+      // rather than substituting an unrelated column.
       default:
         return { user: { email: 'asc' } };
     }

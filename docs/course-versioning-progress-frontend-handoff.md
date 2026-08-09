@@ -123,7 +123,7 @@ This is a greenfield build; nothing is half-wired.
 POST /courses/module/:id/restore
 POST /courses/chapter/:id/restore
 POST /courses/section/:id/restore
-POST /quiz/:id/restore
+POST /quizzes/:id/restore     ← note the plural: QuizController is @Controller('quizzes')
 GET  /courses/:courseId/archived?page=&pageSize=&entityType=&search=&sort=
 ```
 - Restore does **not** cascade in either direction. Restoring a child under an archived
@@ -147,8 +147,19 @@ Row: `{ userId, userLabel, email, enrolledVersionId, enrolledVersionNumber, perc
 
 - Derive "is on latest?" as `row.enrolledVersionId === data.latestPublishedVersionId` —
   a top-level field, so a publish landing mid-page can't produce inconsistent rows.
-- `sort`: `percentage:desc|asc`, `email:asc|desc`, `versionNumber:asc|desc`. Unknown
-  values fall back to `email:asc` rather than erroring.
+- `sort`: `percentage:desc|asc`, `email:asc|desc`, `enrolledVersionNumber:asc|desc`.
+  Unknown values fall back to `email:asc` rather than erroring.
+  **There is no `isCompleted` sort — do not offer one.** It previously mapped to
+  `createdAt`, which is worse than unsupported: the admin gets a plausible order
+  that is actually enrollment date. Removed 2026-08-09; it now falls through to
+  the default like any other unknown key.
+- `versionFilter` takes a **version UUID**, not a keyword. Populate the control
+  from `GET /courses/:courseId/versions`; resolve an "on latest / behind" toggle
+  to `latestPublishedVersionId` client-side.
+- ⚠️ **`sort=percentage:*` overfetches.** Percentage is computed, not a column, so
+  that branch loads every matching row and paginates in memory. Bounded by
+  enrollments-on-one-course (largest today ~2k) and fine at current scale — but
+  prefer `email:asc` as the screen default and let admins opt into percentage sort.
 - Soft-deleted users are excluded; there is no opt-in flag in the MVP.
 
 ### Version tree + diff (PR 3)
@@ -172,6 +183,12 @@ cascades its descendants into `moved[]`.
 GET /courses/versions/coverage
 GET /courses/:courseId/versions/drift
 ```
+
+> **Fixed 2026-08-09 (FE review).** `/versions/drift` was declared *below* the
+> generic `/:versionId` route, so NestJS matched `drift` as a versionId and the
+> endpoint 404'd — it shipped dead. Now registered above it, with a controller
+> spec that asserts the ordering (verified to fail if reintroduced). Same hazard
+> that had already been fixed for `/diff` and missed here.
 Drift returns `{ hasDrift, changeCount: { added, removed, moved, renamed },
 latestPublishedVersionId, latestPublishedVersionNumber, latestPublishedAt,
 liveFingerprint, publishedFingerprint }`. `changeCount` is what you want for an

@@ -136,6 +136,24 @@ export declare class CourseVersionController {
             toVersionNumber: number;
         } & import("./course-version.manifest").DiffTitledResult;
     }>;
+    getDrift(courseId: string): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            hasDrift: boolean;
+            changeCount: {
+                added: number;
+                removed: number;
+                moved: number;
+                renamed: number;
+            };
+            latestPublishedVersionId: string;
+            latestPublishedVersionNumber: number;
+            latestPublishedAt: Date;
+            liveFingerprint: string;
+            publishedFingerprint: string;
+        };
+    }>;
     getVersionTree(courseId: string, versionId: string): Promise<{
         message: string;
         statusCode: number;
@@ -185,24 +203,6 @@ export declare class CourseVersionController {
                 courseId: string;
                 courseTitle: string;
             }[];
-        };
-    }>;
-    getDrift(courseId: string): Promise<{
-        message: string;
-        statusCode: number;
-        data: {
-            hasDrift: boolean;
-            changeCount: {
-                added: number;
-                removed: number;
-                moved: number;
-                renamed: number;
-            };
-            latestPublishedVersionId: string;
-            latestPublishedVersionNumber: number;
-            latestPublishedAt: Date;
-            liveFingerprint: string;
-            publishedFingerprint: string;
         };
     }>;
     bulkMigrate(admin: User, courseId: string, body: BulkMigrateEnrollmentDto): Promise<{

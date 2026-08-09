@@ -125,6 +125,22 @@ export class CourseVersionController {
     return this.courseVersionService.diffVersionsTitled(courseId, from, to);
   }
 
+  /**
+   * PR 4 — Drift. Registered HERE, above the generic `/:versionId` route,
+   * for the same reason `/diff` is: NestJS matches in declaration order, so
+   * a literal segment declared after `:versionId` is swallowed by it and
+   * 404s. This was originally declared below and was dead on arrival —
+   * caught by the FE team reading the controller rather than the handoff.
+   *
+   * Any future literal `/:courseId/versions/<word>` route belongs above the
+   * `:versionId` route too.
+   */
+  @UseGuards(AuthGuard('jwt'))
+  @Get(':courseId/versions/drift')
+  getDrift(@Param('courseId') courseId: string) {
+    return this.courseVersionService.getDrift(courseId);
+  }
+
   @UseGuards(AuthGuard('jwt'))
   @Get(':courseId/versions/:versionId')
   getVersionTree(
@@ -149,11 +165,8 @@ export class CourseVersionController {
     return this.courseVersionService.getCoverage();
   }
 
-  @UseGuards(AuthGuard('jwt'))
-  @Get(':courseId/versions/drift')
-  getDrift(@Param('courseId') courseId: string) {
-    return this.courseVersionService.getDrift(courseId);
-  }
+  // Drift lives above the `:courseId/versions/:versionId` route — see the
+  // note there. Declaring it here left it unreachable.
 
   // ────────────────────────────────────────────────────────────────────
   // PR 5 — Bulk migration

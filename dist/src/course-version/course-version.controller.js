@@ -54,14 +54,14 @@ let CourseVersionController = class CourseVersionController {
     diffVersions(courseId, from, to) {
         return this.courseVersionService.diffVersionsTitled(courseId, from, to);
     }
+    getDrift(courseId) {
+        return this.courseVersionService.getDrift(courseId);
+    }
     getVersionTree(courseId, versionId) {
         return this.courseVersionService.getVersionTree(courseId, versionId);
     }
     getCoverage() {
         return this.courseVersionService.getCoverage();
-    }
-    getDrift(courseId) {
-        return this.courseVersionService.getDrift(courseId);
     }
     bulkMigrate(admin, courseId, body) {
         return this.courseVersionService.migrateLearnersToVersionBulk(admin.id, courseId, {
@@ -143,6 +143,14 @@ __decorate([
 ], CourseVersionController.prototype, "diffVersions", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Get)(':courseId/versions/drift'),
+    __param(0, (0, common_1.Param)('courseId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", void 0)
+], CourseVersionController.prototype, "getDrift", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Get)(':courseId/versions/:versionId'),
     __param(0, (0, common_1.Param)('courseId')),
     __param(1, (0, common_1.Param)('versionId')),
@@ -157,14 +165,6 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
 ], CourseVersionController.prototype, "getCoverage", null);
-__decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
-    (0, common_1.Get)(':courseId/versions/drift'),
-    __param(0, (0, common_1.Param)('courseId')),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
-    __metadata("design:returntype", void 0)
-], CourseVersionController.prototype, "getDrift", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)(':courseId/enrollments/migrate-version-bulk'),

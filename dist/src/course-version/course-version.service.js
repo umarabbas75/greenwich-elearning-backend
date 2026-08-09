@@ -758,9 +758,6 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 return { enrolledVersion: { versionNumber: 'asc' } };
             case 'enrolledVersionNumber:desc':
                 return { enrolledVersion: { versionNumber: 'desc' } };
-            case 'isCompleted:asc':
-            case 'isCompleted:desc':
-                return { createdAt: sort === 'isCompleted:desc' ? 'desc' : 'asc' };
             default:
                 return { user: { email: 'asc' } };
         }
