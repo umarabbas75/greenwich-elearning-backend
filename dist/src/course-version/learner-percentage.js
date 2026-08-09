@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.computeLearnerPercentage = exports.computeLearnerPercentages = exports.percentageKey = void 0;
+const client_1 = require("@prisma/client");
 const course_version_manifest_1 = require("./course-version.manifest");
 const percentageKey = (userId, courseId) => `${userId}::${courseId}`;
 exports.percentageKey = percentageKey;
@@ -61,27 +62,21 @@ async function computeLearnerPercentages(prisma, pairs) {
     });
     const liveSectionIdsByCourse = new Map();
     if (needsLive) {
-        const liveSections = await prisma.section.findMany({
-            where: {
-                isActive: true,
-                isArchived: false,
-                chapter: {
-                    isArchived: false,
-                    module: { courseId: { in: courseIds }, isArchived: false },
-                },
-            },
-            select: {
-                id: true,
-                chapter: { select: { module: { select: { courseId: true } } } },
-            },
-        });
+        const liveSections = await prisma.$queryRaw `
+      SELECT s."id", m."courseId"
+        FROM "sections" s
+        JOIN "chapters" c ON c."id" = s."chapterId"
+        JOIN "modules"  m ON m."id" = c."moduleId"
+       WHERE s."isActive" = true
+         AND s."isArchived" = false
+         AND c."isArchived" = false
+         AND m."isArchived" = false
+         AND m."courseId" IN (${client_1.Prisma.join(courseIds)})
+    `;
         for (const s of liveSections) {
-            const courseId = s.chapter?.module?.courseId;
-            if (!courseId)
-                continue;
-            const bucket = liveSectionIdsByCourse.get(courseId) ?? [];
+            const bucket = liveSectionIdsByCourse.get(s.courseId) ?? [];
             bucket.push(s.id);
-            liveSectionIdsByCourse.set(courseId, bucket);
+            liveSectionIdsByCourse.set(s.courseId, bucket);
         }
     }
     const sectionIdsByKey = new Map();

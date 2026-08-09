@@ -61,7 +61,7 @@ describe('CourseVersionService.getRoster (PR 2)', () => {
     prisma.courseVersion.findUnique.mockResolvedValue(null);
     prisma.userCourseProgress.findMany.mockResolvedValue([]);
     prisma.courseCompletion.findMany.mockResolvedValue([]);
-    prisma.section.findMany.mockResolvedValue([]);
+    prisma.$queryRaw.mockResolvedValue([]);
   });
 
   /** Manifest for a pinned version with N sections (sec-0..sec-N-1). */
@@ -83,11 +83,9 @@ describe('CourseVersionService.getRoster (PR 2)', () => {
   });
 
   /** Live sections for an unpinned learner's course. */
+  // Live sections now arrive from a single raw join as flat { id, courseId }.
   const liveSections = (n: number, courseId = 'course-1') =>
-    Array.from({ length: n }, (_, i) => ({
-      id: `live-${i}`,
-      chapter: { module: { courseId } },
-    }));
+    Array.from({ length: n }, (_, i) => ({ id: `live-${i}`, courseId }));
 
   /** Progress rows for a learner over the given section ids. */
   const progressFor = (
@@ -243,11 +241,11 @@ describe('CourseVersionService.getRoster (PR 2)', () => {
       progressFor('user-1', ['sec-0', 'sec-1', 'sec-2', 'sec-3', 'sec-4']),
     );
     // Live sections MUST NOT be consulted for a resolvable pinned learner.
-    prisma.section.findMany.mockResolvedValue(liveSections(10));
+    prisma.$queryRaw.mockResolvedValue(liveSections(10));
 
     const result = await service.getRoster('course-1', {});
     expect(result.data.rows[0].percentage).toBe(25);
-    expect(prisma.section.findMany).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('pinned learner reads 100 when a section was archived after they pinned', async () => {
@@ -283,7 +281,7 @@ describe('CourseVersionService.getRoster (PR 2)', () => {
     ]);
     prisma.userCourse.count.mockResolvedValue(1);
     // 8 live sections, 4 completed => 50%.
-    prisma.section.findMany.mockResolvedValue(liveSections(8));
+    prisma.$queryRaw.mockResolvedValue(liveSections(8));
     prisma.userCourseProgress.findMany.mockResolvedValue(
       progressFor('user-1', ['live-0', 'live-1', 'live-2', 'live-3']),
     );

@@ -106,9 +106,7 @@ describe('learner-percentage contract', () => {
     prisma.userCourse.findMany.mockResolvedValue([
       { userId: 'u1', courseId: 'c1', enrolledVersionId: null },
     ]);
-    prisma.section.findMany.mockResolvedValue([
-      { id: 's1', chapter: { module: { courseId: 'c1' } } },
-    ]);
+    prisma.$queryRaw.mockResolvedValue([{ id: 's1', courseId: 'c1' }]);
 
     const row = (await run([{ userId: 'u1', courseId: 'c1' }])).get(
       percentageKey('u1', 'c1'),
@@ -181,9 +179,7 @@ describe('learner-percentage contract', () => {
     ).get(percentageKey('u1', 'c1'))!;
     expect(pinned.denominatorSource).toBe('manifest');
 
-    prisma.section.findMany.mockResolvedValue([
-      { id: 's1', chapter: { module: { courseId: 'c2' } } },
-    ]);
+    prisma.$queryRaw.mockResolvedValue([{ id: 's1', courseId: 'c2' }]);
     const unpinned = (
       await run([{ userId: 'u1', courseId: 'c2', enrolledVersionId: null }])
     ).get(percentageKey('u1', 'c2'))!;

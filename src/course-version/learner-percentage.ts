@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   getSectionIdsFromManifest,
@@ -183,26 +184,31 @@ export async function computeLearnerPercentages(
   });
   const liveSectionIdsByCourse = new Map<string, string[]>();
   if (needsLive) {
-    const liveSections = await prisma.section.findMany({
-      where: {
-        isActive: true,
-        isArchived: false,
-        chapter: {
-          isArchived: false,
-          module: { courseId: { in: courseIds }, isArchived: false },
-        },
-      },
-      select: {
-        id: true,
-        chapter: { select: { module: { select: { courseId: true } } } },
-      },
-    });
+    // One round trip, not three.
+    //
+    // A nested `select: { chapter: { select: { module: ... } } }` reads as a
+    // join but Prisma resolves relation selects as SEPARATE queries — this was
+    // measurably issuing three (sections, then chapters, then modules). The
+    // filters live in the WHERE either way, so grouping per course only needs
+    // the courseId travelling back with each row, which a raw join gives us in
+    // a single query. Filters mirror countCompletionDenominator's live branch.
+    const liveSections = await prisma.$queryRaw<
+      Array<{ id: string; courseId: string }>
+    >`
+      SELECT s."id", m."courseId"
+        FROM "sections" s
+        JOIN "chapters" c ON c."id" = s."chapterId"
+        JOIN "modules"  m ON m."id" = c."moduleId"
+       WHERE s."isActive" = true
+         AND s."isArchived" = false
+         AND c."isArchived" = false
+         AND m."isArchived" = false
+         AND m."courseId" IN (${Prisma.join(courseIds)})
+    `;
     for (const s of liveSections) {
-      const courseId = s.chapter?.module?.courseId;
-      if (!courseId) continue;
-      const bucket = liveSectionIdsByCourse.get(courseId) ?? [];
+      const bucket = liveSectionIdsByCourse.get(s.courseId) ?? [];
       bucket.push(s.id);
-      liveSectionIdsByCourse.set(courseId, bucket);
+      liveSectionIdsByCourse.set(s.courseId, bucket);
     }
   }
 

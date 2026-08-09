@@ -26,10 +26,8 @@ describe('computeLearnerPercentages', () => {
     ],
   });
 
-  const liveSection = (id: string, courseId: string) => ({
-    id,
-    chapter: { module: { courseId } },
-  });
+  // Live sections now arrive from a single raw join as flat { id, courseId }.
+  const liveSection = (id: string, courseId: string) => ({ id, courseId });
 
   beforeEach(() => {
     resetManifestCache();
@@ -76,14 +74,14 @@ describe('computeLearnerPercentages', () => {
       denominatorSource: 'manifest',
     });
     // The live-section query is never issued for a resolvable pinned learner.
-    expect(prisma.section.findMany).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('uses the live tree for an unpinned learner', async () => {
     prisma.userCourse.findMany.mockResolvedValue([
       { userId: 'u1', courseId: 'c1', enrolledVersionId: null },
     ]);
-    prisma.section.findMany.mockResolvedValue([
+    prisma.$queryRaw.mockResolvedValue([
       liveSection('s1', 'c1'),
       liveSection('s2', 'c1'),
       liveSection('s3', 'c1'),
@@ -135,7 +133,7 @@ describe('computeLearnerPercentages', () => {
       { userId: 'u1', courseId: 'c1', enrolledVersionId: 'gone' },
     ]);
     prisma.courseVersion.findUnique.mockResolvedValue(null);
-    prisma.section.findMany.mockResolvedValue([liveSection('s1', 'c1')]);
+    prisma.$queryRaw.mockResolvedValue([liveSection('s1', 'c1')]);
     prisma.userCourseProgress.findMany.mockResolvedValue([
       { userId: 'u1', courseId: 'c1', sectionId: 's1' },
     ]);
@@ -156,7 +154,7 @@ describe('computeLearnerPercentages', () => {
     prisma.courseCompletion.findMany.mockResolvedValue([
       { userId: 'u1', courseId: 'c1' },
     ]);
-    prisma.section.findMany.mockResolvedValue([
+    prisma.$queryRaw.mockResolvedValue([
       liveSection('s1', 'c1'),
       liveSection('s2', 'c1'),
     ]);
@@ -234,7 +232,7 @@ describe('computeLearnerPercentages', () => {
       { userId: 'u1', courseId: 'c1', enrolledVersionId: null },
       { userId: 'u1', courseId: 'c2', enrolledVersionId: null },
     ]);
-    prisma.section.findMany.mockResolvedValue([
+    prisma.$queryRaw.mockResolvedValue([
       liveSection('a1', 'c1'),
       liveSection('a2', 'c1'),
       liveSection('b1', 'c2'),
@@ -274,7 +272,7 @@ describe('computeLearnerPercentages', () => {
     prisma.userCourse.findMany.mockResolvedValue([
       { userId: 'u1', courseId: 'c1', enrolledVersionId: null },
     ]);
-    prisma.section.findMany.mockResolvedValue([liveSection('s1', 'c1')]);
+    prisma.$queryRaw.mockResolvedValue([liveSection('s1', 'c1')]);
 
     const row = await computeLearnerPercentage(
       prisma as unknown as PrismaService,
