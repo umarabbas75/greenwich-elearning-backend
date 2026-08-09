@@ -2,6 +2,7 @@ import { HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CourseVersionService } from '../course-version/course-version.service';
+import { makeAbortAwareTransactionMock } from '../test-utils/prisma-transaction-mock';
 import { CourseCompletionService } from '../course-completion/course-completion.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { MailService } from '../mail/mail.service';
@@ -172,7 +173,7 @@ describe('CourseService — course versioning', () => {
         update: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
       },
-      $transaction: jest.fn(async (cb) => cb(prisma)),
+      $transaction: undefined as any,
     };
 
     courseVersionService = {
@@ -197,6 +198,8 @@ describe('CourseService — course versioning', () => {
         versionId: 'version-2',
       }),
     };
+
+    prisma.$transaction = makeAbortAwareTransactionMock(prisma);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -234,9 +237,14 @@ describe('CourseService — course versioning', () => {
 
       await service.toggleCourseStatus('user-1', 'course-1', true);
 
+      // Pins inside the transaction, so it receives the tx client rather than
+      // the outer prisma. Asserted structurally: the abort-aware $transaction
+      // mock hands the callback a wrapped client (that wrapper is what lets a
+      // failed statement poison the tx), so identity-comparing it to `prisma`
+      // would test the mock rather than the behaviour.
       expect(courseVersionService.pinEnrollmentToLatest).toHaveBeenCalledWith(
         'uc-1',
-        prisma,
+        expect.objectContaining({ userCourse: expect.any(Object) }),
       );
     });
 

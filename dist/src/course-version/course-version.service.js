@@ -336,7 +336,7 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         };
     }
     async _migrateOneLearner(params) {
-        await this.prisma.$transaction(async (tx) => {
+        const audit = await this.prisma.$transaction(async (tx) => {
             const uc = await tx.userCourse.findUnique({
                 where: { id: params.userCourseId },
                 select: {
@@ -362,23 +362,31 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 where: { id: params.userCourseId },
                 data: { enrolledVersionId: target.id },
             });
-            await this.writeAudit({
-                adminId: params.adminId,
-                action: params.auditAction,
-                targetType: 'UserCourse',
-                targetId: params.userCourseId,
+            return {
                 courseId: uc.courseId,
                 userId: uc.userId,
-                metadata: {
-                    fromVersionId: uc.enrolledVersionId,
-                    fromVersionNumber: uc.enrolledVersion?.versionNumber ?? null,
-                    toVersionId: target.id,
-                    toVersionNumber: target.versionNumber,
-                    wouldRegress: params.auditFlags.wouldRegress,
-                    forced: params.auditFlags.forced,
-                },
-            }, tx);
+                fromVersionId: uc.enrolledVersionId,
+                fromVersionNumber: uc.enrolledVersion?.versionNumber ?? null,
+                toVersionId: target.id,
+                toVersionNumber: target.versionNumber,
+            };
         }, { timeout: 8000, maxWait: 3000 });
+        await this.writeAudit({
+            adminId: params.adminId,
+            action: params.auditAction,
+            targetType: 'UserCourse',
+            targetId: params.userCourseId,
+            courseId: audit.courseId,
+            userId: audit.userId,
+            metadata: {
+                fromVersionId: audit.fromVersionId,
+                fromVersionNumber: audit.fromVersionNumber,
+                toVersionId: audit.toVersionId,
+                toVersionNumber: audit.toVersionNumber,
+                wouldRegress: params.auditFlags.wouldRegress,
+                forced: params.auditFlags.forced,
+            },
+        });
     }
     async writeAudit(entry, tx) {
         const client = tx ?? this.prisma;

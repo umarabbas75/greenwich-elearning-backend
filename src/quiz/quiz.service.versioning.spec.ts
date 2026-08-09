@@ -2,6 +2,7 @@ import { HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CourseVersionService } from '../course-version/course-version.service';
+import { makeAbortAwareTransactionMock } from '../test-utils/prisma-transaction-mock';
 import { CourseCompletionService } from '../course-completion/course-completion.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QuizService } from './quiz.service';
@@ -43,9 +44,7 @@ describe('QuizService — course versioning', () => {
         create: jest.fn(),
         update: jest.fn(),
       },
-      $transaction: jest.fn((arg) =>
-        Array.isArray(arg) ? Promise.all(arg) : arg({}),
-      ),
+      $transaction: undefined as any,
     };
 
     courseVersionService = {
@@ -70,6 +69,8 @@ describe('QuizService — course versioning', () => {
         versionId: 'version-2',
       }),
     };
+
+    prisma.$transaction = makeAbortAwareTransactionMock(prisma);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

@@ -612,7 +612,9 @@ export class CourseVersionService {
     auditAction: 'MIGRATE_LEARNER_VERSION' | 'BULK_MIGRATE_LEARNER_VERSION';
     auditFlags: { wouldRegress: boolean; forced: boolean };
   }): Promise<void> {
-    await this.prisma.$transaction(
+    // The transaction contains ONLY the pin update. The audit row is written
+    // after commit — see the CC3 note below for why it must not share the tx.
+    const audit = await this.prisma.$transaction(
       async (tx) => {
         const uc = await tx.userCourse.findUnique({
           where: { id: params.userCourseId },
@@ -643,35 +645,52 @@ export class CourseVersionService {
           data: { enrolledVersionId: target.id },
         });
 
-        // Per-learner audit. `writeAudit(entry, tx)` uses the tx client so
-        // the row lives in the same transaction as the UserCourse update,
-        // but the write itself stays best-effort — a failure logs a
-        // warning and returns without rolling back the migration (CC3).
-        // The migration is the useful side effect; audit drift is a
-        // lesser bad than a rolled-back migration that leaves the admin
-        // with no signal about what actually moved.
-        await this.writeAudit(
-          {
-            adminId: params.adminId,
-            action: params.auditAction,
-            targetType: 'UserCourse',
-            targetId: params.userCourseId,
-            courseId: uc.courseId,
-            userId: uc.userId,
-            metadata: {
-              fromVersionId: uc.enrolledVersionId,
-              fromVersionNumber: uc.enrolledVersion?.versionNumber ?? null,
-              toVersionId: target.id,
-              toVersionNumber: target.versionNumber,
-              wouldRegress: params.auditFlags.wouldRegress,
-              forced: params.auditFlags.forced,
-            },
-          },
-          tx,
-        );
+        return {
+          courseId: uc.courseId,
+          userId: uc.userId,
+          fromVersionId: uc.enrolledVersionId,
+          fromVersionNumber: uc.enrolledVersion?.versionNumber ?? null,
+          toVersionId: target.id,
+          toVersionNumber: target.versionNumber,
+        };
       },
       { timeout: 8000, maxWait: 3000 },
     );
+
+    // Per-learner audit, AFTER the tx commits.
+    //
+    // This used to run inside the transaction with `writeAudit(entry, tx)`, on
+    // the reasoning that the audit row and the pin should commit atomically
+    // while the audit write stayed best-effort (CC3). On Postgres that
+    // combination is not achievable: once any statement inside an interactive
+    // transaction errors, the transaction is aborted and every subsequent
+    // statement — including COMMIT — fails. writeAudit swallowing the error
+    // cannot un-abort it, so an audit-insert failure silently ROLLED BACK the
+    // migration. That is the exact opposite of CC3's intent ("a rolled-back
+    // migration with no admin signal is strictly worse than a missing audit
+    // row"), and it surfaced to the caller as a generic tx error naming the
+    // abort rather than the audit.
+    //
+    // Writing after commit delivers what CC3 actually asks for: the migration
+    // is durable, and a failed audit degrades to a logged warning. The trade is
+    // a crash between commit and this write losing the audit row — strictly
+    // better than losing the migration.
+    await this.writeAudit({
+      adminId: params.adminId,
+      action: params.auditAction,
+      targetType: 'UserCourse',
+      targetId: params.userCourseId,
+      courseId: audit.courseId,
+      userId: audit.userId,
+      metadata: {
+        fromVersionId: audit.fromVersionId,
+        fromVersionNumber: audit.fromVersionNumber,
+        toVersionId: audit.toVersionId,
+        toVersionNumber: audit.toVersionNumber,
+        wouldRegress: params.auditFlags.wouldRegress,
+        forced: params.auditFlags.forced,
+      },
+    });
   }
 
   /**
@@ -681,19 +700,20 @@ export class CourseVersionService {
    * pool), but any error is swallowed and logged.
    *
    * Optional `tx` parameter: when provided, both the actor-email lookup and
-   * the `adminAuditLog.create` run on that transaction client. This lets a
-   * caller emit an audit row *inside* an interactive transaction — required
-   * by PR 5's `_migrateOneLearner` so a caller cannot observe a migrated
-   * UserCourse with no corresponding audit row (or vice versa on rollback).
+   * the `adminAuditLog.create` run on that transaction client.
    *
-   * Important atomicity note: the audit write stays **best-effort even
-   * inside a tx**. On failure we log a structured warning and return —
-   * we do NOT rethrow. Rationale: the caller's business side effect (the
-   * migration, archive, etc.) is more valuable than a guaranteed audit row.
-   * Losing an audit row is a lesser bad than rolling back a bulk migration
-   * that leaves the admin with no idea which learners actually moved. See
-   * CC3 in `docs/course-versioning-admin-features-plan.md` for the FE-vs-BE
-   * agreement on this.
+   * ⚠️ Passing `tx` is NOT a way to get "atomic but best-effort" auditing —
+   * on Postgres no such thing exists. A failed statement inside an interactive
+   * transaction aborts it, and every later statement including COMMIT then
+   * fails. Because this method swallows its error, the caller sees the audit
+   * "succeed" and then loses its own writes when the tx rolls back — silently.
+   *
+   * So only pass `tx` when you genuinely want the audit row to be part of that
+   * transaction AND are willing to lose the transaction if the audit fails.
+   * When the business side effect matters more than the audit row (migrations,
+   * archives — i.e. CC3's rationale in
+   * `docs/course-versioning-admin-features-plan.md`), call this AFTER the
+   * transaction commits, as `_migrateOneLearner` does.
    */
   async writeAudit(
     entry: {

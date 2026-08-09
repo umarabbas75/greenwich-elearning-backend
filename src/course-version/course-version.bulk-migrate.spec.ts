@@ -2,6 +2,7 @@ import { HttpException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseVersionService } from './course-version.service';
+import { makeAbortAwareTransactionMock } from '../test-utils/prisma-transaction-mock';
 
 /**
  * PR 5 tests — bulk migration.
@@ -63,14 +64,14 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
       adminAuditLog: {
         create: jest.fn().mockResolvedValue({ id: 'audit-1' }),
       },
-      // Transaction mock resolves to the outer prisma — writeAudit(tx)
-      // runs against the same jest.fn spies, and the per-learner
-      // isolation is asserted separately via error throws.
-      // Transaction mock ignores the timeout/maxWait opts object; the
-      // per-learner isolation behaviour is asserted via error throws
-      // in the "wedged learner" test below.
-      $transaction: jest.fn(async (cb) => cb(prisma)),
+      // Reproduces real Postgres abort semantics rather than a pass-through:
+      // a failed statement poisons the tx and commit rolls back. A
+      // pass-through mock cannot catch the class of bug where a swallowed
+      // error inside a tx silently discards the surrounding writes.
+      $transaction: undefined as any,
     };
+
+    prisma.$transaction = makeAbortAwareTransactionMock(prisma);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -88,7 +89,7 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
     prisma.user.findUnique.mockResolvedValue({ email: 'admin@example.com' });
     prisma.adminAuditLog.create.mockResolvedValue({ id: 'audit-1' });
     prisma.userCourse.update.mockResolvedValue({});
-    prisma.$transaction.mockImplementation(async (cb: any) => cb(prisma));
+    prisma.$transaction = makeAbortAwareTransactionMock(prisma);
   });
 
   // ─── Guardrails ─────────────────────────────────────────────────────
@@ -339,14 +340,9 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
         { userId: 'user-wedged', _count: { _all: 20 } },
       ]);
 
-      // The first tx succeeds; the second throws.
-      let call = 0;
-      prisma.$transaction.mockImplementation(async (cb: any) => {
-        call++;
-        if (call === 2) {
-          throw new Error('P2034: Transaction failed due to a write conflict');
-        }
-        return cb(prisma);
+      // The first tx succeeds; the second throws at the tx boundary.
+      prisma.$transaction = makeAbortAwareTransactionMock(prisma, {
+        failOnCall: 2,
       });
       prisma.userCourse.findUnique.mockResolvedValue({
         id: 'uc-good',
@@ -503,6 +499,54 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
         'BULK_MIGRATE_LEARNER_VERSION',
         'BULK_MIGRATE_LEARNER_VERSION',
       ]);
+    });
+
+    it('keeps the migration when the audit write fails', async () => {
+      // REGRESSION: the audit used to be written inside the migration tx via
+      // writeAudit(entry, tx). On Postgres a failed statement aborts the tx and
+      // commit then fails, so writeAudit swallowing the error did NOT save the
+      // migration — it silently rolled it back and surfaced as a generic
+      // "transaction aborted" migration_failed skip.
+      //
+      // The audit now runs after commit, so an audit failure degrades to a
+      // logged warning and the learner is still migrated. This test only fails
+      // meaningfully under an abort-aware $transaction mock.
+      prisma.userCourse.findMany.mockResolvedValue([makeEnrollment()]);
+      prisma.userCourseProgress.groupBy.mockResolvedValue([
+        { userId: 'user-1', _count: { _all: 20 } },
+      ]);
+      prisma.userCourse.findUnique.mockResolvedValue({
+        id: 'uc-1',
+        courseId: 'course-1',
+        userId: 'user-1',
+        enrolledVersionId: 'ver-old',
+        enrolledVersion: { versionNumber: 3 },
+      });
+      prisma.adminAuditLog.create.mockRejectedValue(
+        new Error('audit insert exploded'),
+      );
+
+      const result = await service.migrateLearnersToVersionBulk(
+        'admin-1',
+        'course-1',
+        {
+          userIds: ['user-1'],
+          targetVersionId: 'ver-target',
+          dryRun: false,
+        },
+      );
+
+      if (result.data.dryRun !== false)
+        throw new Error('expected real-run response');
+      // The pin was updated and the learner counts as migrated.
+      expect(prisma.userCourse.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'uc-1' },
+          data: { enrolledVersionId: 'ver-target' },
+        }),
+      );
+      expect(result.data.migrated).toEqual(['user-1']);
+      expect(result.data.skipped).toEqual([]);
     });
   });
 });

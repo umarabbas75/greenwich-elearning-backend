@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseVersionService } from './course-version.service';
+import { makeAbortAwareTransactionMock } from '../test-utils/prisma-transaction-mock';
 import * as manifestModule from './course-version.manifest';
 
 jest.mock('./course-version.manifest', () => ({
@@ -155,10 +156,12 @@ describe('CourseVersionService', () => {
       course: {
         findUnique: jest.fn(),
       },
-      $transaction: jest.fn((cb) => cb(prisma)),
+      $transaction: undefined as any,
       // Non-blocking advisory lock inside publishNewVersion's tx — grant it.
       $queryRaw: jest.fn().mockResolvedValue([{ locked: true }]),
     };
+
+    prisma.$transaction = makeAbortAwareTransactionMock(prisma);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
