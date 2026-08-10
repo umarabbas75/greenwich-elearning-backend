@@ -10,6 +10,8 @@ exports.CourseVersionModule = void 0;
 const common_1 = require("@nestjs/common");
 const course_version_service_1 = require("./course-version.service");
 const course_version_controller_1 = require("./course-version.controller");
+const learner_snapshot_controller_1 = require("./learner-snapshot.controller");
+const learner_snapshot_service_1 = require("./learner-snapshot.service");
 const prisma_module_1 = require("../prisma/prisma.module");
 let CourseVersionModule = class CourseVersionModule {
 };
@@ -17,9 +19,9 @@ exports.CourseVersionModule = CourseVersionModule;
 exports.CourseVersionModule = CourseVersionModule = __decorate([
     (0, common_1.Module)({
         imports: [prisma_module_1.PrismaModule],
-        providers: [course_version_service_1.CourseVersionService],
-        controllers: [course_version_controller_1.CourseVersionController],
-        exports: [course_version_service_1.CourseVersionService],
+        providers: [course_version_service_1.CourseVersionService, learner_snapshot_service_1.LearnerSnapshotService],
+        controllers: [course_version_controller_1.CourseVersionController, learner_snapshot_controller_1.LearnerSnapshotController],
+        exports: [course_version_service_1.CourseVersionService, learner_snapshot_service_1.LearnerSnapshotService],
     })
 ], CourseVersionModule);
 //# sourceMappingURL=course-version.module.js.map
