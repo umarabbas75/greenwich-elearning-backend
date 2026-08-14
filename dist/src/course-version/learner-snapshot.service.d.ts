@@ -112,6 +112,57 @@ export declare class LearnerSnapshotService {
             }[];
         };
     }>;
+    getLearnerCourseDetail(userId: string, courseId: string): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            courseId: string;
+            courseTitle: string;
+            curriculumSource: string;
+            pinnedVersion: {
+                versionId: string;
+                versionNumber: number;
+                status: import(".prisma/client").$Enums.CourseVersionStatus;
+            };
+            answersAreLatestAttemptOnly: boolean;
+            modules: {
+                moduleId: string;
+                title: string;
+                completedAt: Date;
+                chaptersTotal: number;
+                chaptersCompleted: number;
+                chapters: {
+                    chapterId: any;
+                    title: any;
+                    completedAt: Date;
+                    sectionsTotal: any;
+                    sectionsCompleted: any;
+                    timeSpentSeconds: any;
+                    sections: any;
+                    quiz: {
+                        totalQuestions: number;
+                        answered: number;
+                        correct: number;
+                        attempts: number;
+                        score: number;
+                        passingCriteria: number;
+                        isPassed: boolean;
+                        questions: {
+                            quizId: string;
+                            question: string;
+                            options: string[];
+                            correctAnswer: string;
+                            givenAnswer: string;
+                            isCorrect: boolean;
+                            answeredAt: Date;
+                        }[];
+                    };
+                }[];
+            }[];
+        };
+    }>;
+    private buildTreeFromManifest;
+    private buildLiveTree;
     private buildQuizGates;
     private buildAuditTrail;
     private buildAssessments;

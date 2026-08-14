@@ -37,4 +37,20 @@ export class LearnerSnapshotController {
       auditLimit: auditLimit ? parseInt(auditLimit, 10) : undefined,
     });
   }
+
+  /**
+   * Drill-down: the full curriculum tree for one course as this learner sees
+   * it, with per-lesson state and their actual quiz answers.
+   *
+   * Declared after the two-segment route above; both are literal-tailed under
+   * distinct shapes, so there is nothing to shadow.
+   */
+  @UseGuards(AuthGuard('jwt'))
+  @Get(':userId/courses/:courseId/detail')
+  getLearnerCourseDetail(
+    @Param('userId') userId: string,
+    @Param('courseId') courseId: string,
+  ) {
+    return this.snapshotService.getLearnerCourseDetail(userId, courseId);
+  }
 }

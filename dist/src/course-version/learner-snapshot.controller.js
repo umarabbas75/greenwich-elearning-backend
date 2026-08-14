@@ -27,6 +27,9 @@ let LearnerSnapshotController = class LearnerSnapshotController {
             auditLimit: auditLimit ? parseInt(auditLimit, 10) : undefined,
         });
     }
+    getLearnerCourseDetail(userId, courseId) {
+        return this.snapshotService.getLearnerCourseDetail(userId, courseId);
+    }
 };
 exports.LearnerSnapshotController = LearnerSnapshotController;
 __decorate([
@@ -40,6 +43,15 @@ __decorate([
     __metadata("design:paramtypes", [String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], LearnerSnapshotController.prototype, "getLearnerVersioning", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Get)(':userId/courses/:courseId/detail'),
+    __param(0, (0, common_1.Param)('userId')),
+    __param(1, (0, common_1.Param)('courseId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], LearnerSnapshotController.prototype, "getLearnerCourseDetail", null);
 exports.LearnerSnapshotController = LearnerSnapshotController = __decorate([
     (0, common_1.Controller)('admin/learners'),
     __metadata("design:paramtypes", [learner_snapshot_service_1.LearnerSnapshotService])

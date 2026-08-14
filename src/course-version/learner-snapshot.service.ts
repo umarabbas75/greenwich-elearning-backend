@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { resolvePassingCriteria } from '../utils/chapter-progression';
 import {
+  CourseVersionManifest,
   getQuizBearingChapterIdsFromManifest,
   loadManifestForVersion,
 } from './course-version.manifest';
@@ -260,6 +262,364 @@ export class LearnerSnapshotService {
         ...(assessments ? { assessments } : {}),
       },
     };
+  }
+
+  /**
+   * The full curriculum tree for ONE course, as this learner sees it, with
+   * their state on every lesson and their actual quiz answers.
+   *
+   * The snapshot above says "11/11 quizzes passed"; this says which questions
+   * they were asked, what they picked, and what was correct. Nothing in the
+   * app exposed that for an admin before — the only endpoint returning
+   * `QuizAnswer` rows (`GET /quizzes/user/getQuizAnswers/:chapterId`) is
+   * scoped to the caller's own token, so support could not see a learner's
+   * answers at all.
+   *
+   * Structure comes from the learner's PINNED version where they have one, so
+   * this shows the curriculum they actually studied rather than today's live
+   * tree.
+   */
+  async getLearnerCourseDetail(userId: string, courseId: string) {
+    const enrollment = await this.prisma.userCourse.findUnique({
+      where: { userId_courseId: { userId, courseId } },
+      include: {
+        course: { select: { id: true, title: true } },
+        enrolledVersion: {
+          select: { id: true, versionNumber: true, status: true, manifest: true },
+        },
+      },
+    });
+    if (!enrollment) {
+      throw new NotFoundException(
+        `User ${userId} is not enrolled in course ${courseId}`,
+      );
+    }
+
+    const manifest = enrollment.enrolledVersionId
+      ? await loadManifestForVersion(this.prisma, enrollment.enrolledVersionId)
+      : null;
+
+    const structure = manifest
+      ? await this.buildTreeFromManifest(courseId, manifest)
+      : await this.buildLiveTree(courseId);
+
+    const chapterIds = structure.flatMap((m) =>
+      m.chapters.map((c: any) => c.chapterId),
+    );
+    const sectionIds = structure.flatMap((m) =>
+      m.chapters.flatMap((c: any) => c.sections.map((s: any) => s.sectionId)),
+    );
+    const quizIds = structure.flatMap((m) =>
+      m.chapters.flatMap((c: any) => c.quizIds),
+    );
+
+    const [
+      progressRows,
+      timeRows,
+      lastSeenRows,
+      chapterCompletions,
+      moduleCompletions,
+      quizProgressRows,
+      quizzes,
+      quizAnswers,
+    ] = await Promise.all([
+      this.prisma.userCourseProgress.findMany({
+        where: { userId, courseId },
+        select: { sectionId: true, createdAt: true },
+      }),
+      this.prisma.sectionTimeSpent.findMany({
+        where: { userId, sectionId: { in: sectionIds } },
+        select: {
+          sectionId: true,
+          totalSeconds: true,
+          totalAttempts: true,
+          firstAttemptAt: true,
+          lastAttemptAt: true,
+        },
+      }),
+      this.prisma.lastSeenSection.findMany({
+        where: { userId, chapterId: { in: chapterIds } },
+        select: { chapterId: true, sectionId: true, updatedAt: true },
+      }),
+      this.prisma.userChapterCompletion.findMany({
+        where: { userId, chapterId: { in: chapterIds } },
+        select: { chapterId: true, completedAt: true },
+      }),
+      this.prisma.userModuleCompletion.findMany({
+        where: { userId, courseId },
+        select: { moduleId: true, completedAt: true },
+      }),
+      this.prisma.quizProgress.findMany({
+        where: { userId, chapterId: { in: chapterIds } },
+      }),
+      this.prisma.quiz.findMany({
+        where: { id: { in: quizIds } },
+        select: {
+          id: true,
+          question: true,
+          options: true,
+          answer: true,
+          chapterId: true,
+          orderIndex: true,
+        },
+      }),
+      this.prisma.quizAnswer.findMany({
+        where: { userId, quizId: { in: quizIds } },
+        select: {
+          quizId: true,
+          answer: true,
+          isAnswerCorrect: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
+
+    const completedAtBySection = new Map(
+      progressRows.map((p) => [p.sectionId, p.createdAt]),
+    );
+    const timeBySection = new Map(timeRows.map((t) => [t.sectionId, t]));
+    const lastSeenByChapter = new Map(
+      lastSeenRows.map((l) => [l.chapterId, l]),
+    );
+    const chapterCompletedAt = new Map(
+      chapterCompletions.map((c) => [c.chapterId, c.completedAt]),
+    );
+    const moduleCompletedAt = new Map(
+      moduleCompletions.map((m) => [m.moduleId, m.completedAt]),
+    );
+    const quizProgressByChapter = new Map(
+      quizProgressRows.map((q) => [q.chapterId, q]),
+    );
+    const answerByQuiz = new Map(quizAnswers.map((a) => [a.quizId, a]));
+    const quizzesByChapter = new Map<string, typeof quizzes>();
+    for (const quiz of quizzes) {
+      if (!quiz.chapterId) continue;
+      const list = quizzesByChapter.get(quiz.chapterId) ?? [];
+      list.push(quiz);
+      quizzesByChapter.set(quiz.chapterId, list);
+    }
+
+    const modules = structure.map((mod) => {
+      const chapters = mod.chapters.map((chapter: any) => {
+        const sections = chapter.sections.map((section: any) => {
+          const completedAt = completedAtBySection.get(section.sectionId) ?? null;
+          const time = timeBySection.get(section.sectionId);
+          const isLastSeen =
+            lastSeenByChapter.get(chapter.chapterId)?.sectionId ===
+            section.sectionId;
+          return {
+            sectionId: section.sectionId,
+            title: section.title,
+            type: section.type,
+            orderIndex: section.orderIndex,
+            // A UserCourseProgress row IS the completion record; there is no
+            // separate flag. `opened` is only knowable for the one section per
+            // chapter that LastSeenSection points at (it is unique per chapter).
+            status: completedAt ? 'completed' : isLastSeen ? 'opened' : 'not_opened',
+            completedAt,
+            isLastSeen,
+            timeSpentSeconds: time?.totalSeconds ?? 0,
+            attempts: time?.totalAttempts ?? 0,
+            firstAttemptAt: time?.firstAttemptAt ?? null,
+            lastAttemptAt: time?.lastAttemptAt ?? null,
+          };
+        });
+
+        const chapterQuizzes = (quizzesByChapter.get(chapter.chapterId) ?? [])
+          .slice()
+          .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0))
+          .map((quiz) => {
+            const given = answerByQuiz.get(quiz.id);
+            return {
+              quizId: quiz.id,
+              question: quiz.question,
+              // Plain option strings — there are no option ids. The learner's
+              // answer and the correct answer are both option TEXT, so the UI
+              // highlights by string equality.
+              options: quiz.options,
+              correctAnswer: quiz.answer,
+              givenAnswer: given?.answer ?? null,
+              isCorrect: given?.isAnswerCorrect ?? null,
+              answeredAt: given?.updatedAt ?? null,
+            };
+          });
+
+        const quizProgress = quizProgressByChapter.get(chapter.chapterId);
+        const sectionsCompleted = sections.filter(
+          (s: any) => s.status === 'completed',
+        ).length;
+
+        return {
+          chapterId: chapter.chapterId,
+          title: chapter.title,
+          completedAt: chapterCompletedAt.get(chapter.chapterId) ?? null,
+          sectionsTotal: sections.length,
+          sectionsCompleted,
+          timeSpentSeconds: sections.reduce(
+            (sum: number, s: any) => sum + s.timeSpentSeconds,
+            0,
+          ),
+          sections,
+          quiz: chapterQuizzes.length
+            ? {
+                totalQuestions: chapterQuizzes.length,
+                answered: chapterQuizzes.filter((q) => q.givenAnswer != null)
+                  .length,
+                correct: chapterQuizzes.filter((q) => q.isCorrect === true)
+                  .length,
+                attempts: quizProgress?.totalAttempts ?? 0,
+                score: quizProgress?.score ?? null,
+                // Stored criteria is 0 on older rows; the grader falls back to
+                // the same default, so resolve it rather than showing "0%".
+                passingCriteria: resolvePassingCriteria(
+                  quizProgress?.passingCriteria,
+                ),
+                isPassed: quizProgress?.isPassed ?? false,
+                questions: chapterQuizzes,
+              }
+            : null,
+        };
+      });
+
+      return {
+        moduleId: mod.moduleId,
+        title: mod.title,
+        completedAt: moduleCompletedAt.get(mod.moduleId) ?? null,
+        chaptersTotal: chapters.length,
+        chaptersCompleted: chapters.filter((c: any) => c.completedAt).length,
+        chapters,
+      };
+    });
+
+    return {
+      message: 'Learner course detail retrieved',
+      statusCode: 200,
+      data: {
+        courseId,
+        courseTitle: enrollment.course?.title ?? '(unknown course)',
+        curriculumSource: manifest ? 'pinned' : 'live',
+        pinnedVersion: enrollment.enrolledVersion
+          ? {
+              versionId: enrollment.enrolledVersion.id,
+              versionNumber: enrollment.enrolledVersion.versionNumber,
+              status: enrollment.enrolledVersion.status,
+            }
+          : null,
+        /**
+         * Retaking a chapter quiz deletes the learner's previous answers, and
+         * answering again overwrites in place — so what follows is the LATEST
+         * attempt only. There is no answer history to show.
+         */
+        answersAreLatestAttemptOnly: true,
+        modules,
+      },
+    };
+  }
+
+  /** Curriculum as the learner's pinned version froze it. */
+  private async buildTreeFromManifest(
+    courseId: string,
+    manifest: CourseVersionManifest,
+  ) {
+    const moduleIds = manifest.modules.map((m) => m.sourceId);
+    const chapterIds = manifest.modules.flatMap((m) =>
+      m.chapters.map((c) => c.sourceId),
+    );
+    const sectionIds = manifest.modules.flatMap((m) =>
+      m.chapters.flatMap((c) => c.sectionIds),
+    );
+
+    const [modules, chapters, sections] = await Promise.all([
+      this.prisma.module.findMany({
+        where: { id: { in: moduleIds } },
+        select: { id: true, title: true },
+      }),
+      this.prisma.chapter.findMany({
+        where: { id: { in: chapterIds } },
+        select: { id: true, title: true },
+      }),
+      this.prisma.section.findMany({
+        where: { id: { in: sectionIds } },
+        select: { id: true, title: true, type: true, orderIndex: true },
+      }),
+    ]);
+
+    const moduleById = new Map(modules.map((m) => [m.id, m]));
+    const chapterById = new Map(chapters.map((c) => [c.id, c]));
+    const sectionById = new Map(sections.map((s) => [s.id, s]));
+
+    // Manifest order is the source of truth — Module and Chapter have no
+    // orderIndex column, so the frozen order is the only ordering there is.
+    return manifest.modules
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((mod) => ({
+        moduleId: mod.sourceId,
+        title: moduleById.get(mod.sourceId)?.title ?? '(removed unit)',
+        chapters: mod.chapters
+          .slice()
+          .sort((a, b) => a.order - b.order)
+          .map((chapter) => ({
+            chapterId: chapter.sourceId,
+            title: chapterById.get(chapter.sourceId)?.title ?? '(removed chapter)',
+            quizIds: chapter.quizIds,
+            sections: chapter.sectionIds.map((sectionId) => {
+              const section = sectionById.get(sectionId);
+              return {
+                sectionId,
+                title: section?.title ?? '(removed lesson)',
+                type: section?.type ?? null,
+                orderIndex: section?.orderIndex ?? null,
+              };
+            }),
+          })),
+      }));
+  }
+
+  /** Curriculum as it stands now, for learners with no pinned version. */
+  private async buildLiveTree(courseId: string) {
+    const modules = await this.prisma.module.findMany({
+      where: { courseId, isArchived: false },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        chapters: {
+          where: { isArchived: false },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            title: true,
+            quizzes: {
+              where: { isArchived: false },
+              select: { id: true },
+              orderBy: { orderIndex: 'asc' },
+            },
+            sections: {
+              where: { isArchived: false, isActive: true },
+              orderBy: { orderIndex: 'asc' },
+              select: { id: true, title: true, type: true, orderIndex: true },
+            },
+          },
+        },
+      },
+    });
+
+    return modules.map((mod) => ({
+      moduleId: mod.id,
+      title: mod.title,
+      chapters: mod.chapters.map((chapter) => ({
+        chapterId: chapter.id,
+        title: chapter.title,
+        quizIds: chapter.quizzes.map((q) => q.id),
+        sections: chapter.sections.map((section) => ({
+          sectionId: section.id,
+          title: section.title,
+          type: section.type,
+          orderIndex: section.orderIndex,
+        })),
+      })),
+    }));
   }
 
   /**
