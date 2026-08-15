@@ -1772,7 +1772,19 @@ let CourseService = CourseService_1 = class CourseService {
                     _count: {
                         select: {
                             modules: { where: { isArchived: false } },
+                            users: true,
                         },
+                    },
+                    courseVersions: {
+                        where: { status: 'PUBLISHED', isLatest: true },
+                        select: {
+                            id: true,
+                            versionNumber: true,
+                            publishedAt: true,
+                            sectionCount: true,
+                            changeNotes: true,
+                        },
+                        take: 1,
                     },
                 },
                 orderBy: {
@@ -1782,10 +1794,31 @@ let CourseService = CourseService_1 = class CourseService {
             if (!(courses.length > 0)) {
                 throw new Error('No Courses found');
             }
-            const data = courses.map((course) => ({
-                ...course,
-                status: course.isActive ? 'active' : 'inactive',
-            }));
+            const activeEnrollments = await this.prisma.userCourse.groupBy({
+                by: ['courseId'],
+                where: { isActive: true },
+                _count: { _all: true },
+            });
+            const activeByCourse = new Map(activeEnrollments.map((row) => [row.courseId, row._count._all]));
+            const data = courses.map((course) => {
+                const { courseVersions, ...rest } = course;
+                const latest = courseVersions?.[0] ?? null;
+                return {
+                    ...rest,
+                    status: course.isActive ? 'active' : 'inactive',
+                    latestVersion: latest
+                        ? {
+                            versionId: latest.id,
+                            versionNumber: latest.versionNumber,
+                            publishedAt: latest.publishedAt,
+                            sectionCount: latest.sectionCount,
+                            changeNotes: latest.changeNotes,
+                        }
+                        : null,
+                    enrollmentCount: course._count?.users ?? 0,
+                    activeEnrollmentCount: activeByCourse.get(course.id) ?? 0,
+                };
+            });
             return {
                 message: 'Successfully fetched all Courses with form information',
                 statusCode: 200,
