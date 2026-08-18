@@ -424,7 +424,15 @@ export class AssignmentService {
         throw new Error('You are not enrolled in this course');
       }
 
-      // Check if student already submitted to this assignment
+      const files = resolveSubmissionFiles(input);
+
+      if (!files?.length) {
+        throw new Error('At least one submission file is required');
+      }
+
+      validateFiles(files, { min: 1, label: 'submission file' });
+      await this.assertSubmissionFileUrlsAreUnique(files, studentId);
+
       const existingSubmission =
         await this.prisma.assignmentSubmission.findFirst({
           where: {
@@ -434,17 +442,58 @@ export class AssignmentService {
         });
 
       if (existingSubmission) {
-        throw new Error('You have already submitted to this assignment');
+        if (
+          existingSubmission.status !== AssignmentSubmissionStatus.returned
+        ) {
+          throw new Error('You have already submitted to this assignment');
+        }
+        if (!assignment.allowResubmissions) {
+          throw new Error('Resubmissions are not allowed for this assignment');
+        }
+
+        const resubmitted = await this.prisma.$transaction(async (tx) => {
+          await tx.assignmentSubmissionAttachment.deleteMany({
+            where: { submissionId: existingSubmission.id },
+          });
+
+          return tx.assignmentSubmission.update({
+            where: { id: existingSubmission.id },
+            data: {
+              assignedToAdminId: assignment.assignedToAdminId,
+              ...legacySubmissionFieldsFromFiles(files),
+              status: AssignmentSubmissionStatus.submitted,
+              submittedAt: new Date(),
+              gradedAt: null,
+              score: null,
+              reviewedByAdminId: null,
+              attachments: {
+                create: files.map((file, index) => ({
+                  fileUrl: file.fileUrl,
+                  fileName: file.fileName ?? null,
+                  fileType: file.fileType,
+                  sortOrder: index,
+                })),
+              },
+            },
+            include: submissionAttachmentsInclude,
+          });
+        });
+
+        await this.notifyAssignmentSubmitted({
+          submissionId: resubmitted.id,
+          assignmentId: assignment.id,
+          assignmentTitle: assignment.title,
+          assignedToAdminId: assignment.assignedToAdminId,
+          studentId,
+          submittedAt: resubmitted.submittedAt,
+        });
+
+        return {
+          message: 'Assignment resubmitted successfully',
+          statusCode: 200,
+          data: formatSubmission(resubmitted),
+        };
       }
-
-      const files = resolveSubmissionFiles(input);
-
-      if (!files?.length) {
-        throw new Error('At least one submission file is required');
-      }
-
-      validateFiles(files, { min: 1, label: 'submission file' });
-      await this.assertSubmissionFileUrlsAreUnique(files, studentId);
 
       const created = await this.prisma.assignmentSubmission.create({
         data: {
@@ -471,6 +520,7 @@ export class AssignmentService {
         assignmentTitle: assignment.title,
         assignedToAdminId: assignment.assignedToAdminId,
         studentId,
+        submittedAt: created.submittedAt,
       });
 
       return {
@@ -1279,13 +1329,22 @@ export class AssignmentService {
     });
   }
 
-  /** Notify the assigned-to admin (reviewer) that a submission is ready to review. */
+  /**
+   * Notify the assigned-to admin (reviewer) that a submission is ready to review.
+   *
+   * `submittedAt` is embedded in `dedupeKey` so that a resubmit — which reuses
+   * the same `submissionId` on the returned-row update path — still produces a
+   * fresh bell row + email for the reviewer instead of being collapsed by the
+   * `(userId, dedupeKey)` partial unique index. Without it, only the first
+   * submission on a given row would ever notify the reviewer.
+   */
   private async notifyAssignmentSubmitted(args: {
     submissionId: string;
     assignmentId: string;
     assignmentTitle: string;
     assignedToAdminId: string;
     studentId: string;
+    submittedAt: Date;
   }): Promise<void> {
     await this.safeNotify('assignment-submitted', async () => {
       const student = await this.prisma.user.findUnique({
@@ -1310,7 +1369,7 @@ export class AssignmentService {
           studentName,
         },
         groupKey: `assignment-submitted:${args.assignmentId}`,
-        dedupeKey: `assignment-submitted:${args.submissionId}`,
+        dedupeKey: `assignment-submitted:${args.submissionId}:${args.submittedAt.getTime()}`,
         referenceId: args.submissionId,
         commenterId: args.studentId,
         email: {

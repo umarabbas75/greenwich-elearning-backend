@@ -6,7 +6,7 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { Course, Module, Chapter, Section, Prisma, Role } from '@prisma/client';
+import { Course, Module, Chapter, Section, Prisma, Role, NotificationType } from '@prisma/client';
 import {
   // AssignCourseDto,
   CourseDto,
@@ -41,7 +41,9 @@ import {
 import { assertNoInlineBase64 } from '../utils/reject-inline-base64';
 import { promoteFormPhotoToUserIfMissing } from '../utils/promote-form-photo-to-user';
 import { promoteFormAddressToUserIfMissing } from '../utils/promote-form-address-to-user';
+import { assertValidAdvisorReviewMetadata, evaluateRegistrationAccess, getAdvisorComments, getAdvisorRegistrationStatus, isV2BookingMetadata } from '../utils/advisor-review-metadata';
 import { MailService } from '../mail/mail.service';
+import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
 import { FeedbackService } from '../feedback/feedback.service';
 import { CourseVersionService } from '../course-version/course-version.service';
 import {
@@ -49,6 +51,7 @@ import {
   isIdReferencedInManifest,
 } from '../course-version/course-version.manifest';
 import { CourseCompletionService } from '../course-completion/course-completion.service';
+import { NotificationService } from '../notifications/notification.service';
 import {
   computeLearnerPercentages,
   percentageKey,
@@ -64,6 +67,7 @@ export class CourseService {
     private feedbackService: FeedbackService,
     private courseVersionService: CourseVersionService,
     private courseCompletion: CourseCompletionService,
+    private notifications: NotificationService,
   ) {}
 
   /** True iff the learner has been certified-complete on this course. */
@@ -619,7 +623,283 @@ export class CourseService {
       );
     }
 
+    try {
+      await this.notifyRegistrationSubmittedIfV2({
+        learnerUserId: userId,
+        courseId,
+        formId,
+        courseFormId,
+        metadata,
+      });
+    } catch (notifyErr) {
+      const msg =
+        notifyErr instanceof Error ? notifyErr.message : String(notifyErr);
+      CourseService.completionLogger.warn(
+        `Registration submit notify failed for user ${userId}: ${msg}`,
+      );
+    }
+
     return completion;
+  }
+
+  /**
+   * Admin-only advisor review of a v2 registration form.
+   * Overwrites `metadata` only — completion flags and side effects stay untouched.
+   */
+  async updateFormMetadata(
+    _adminId: string,
+    adminRole: Role,
+    learnerUserId: string,
+    courseId: string,
+    formId: string,
+    courseFormId: string,
+    metaData: Record<string, unknown>,
+  ): Promise<{
+    success: true;
+    form: {
+      id: string;
+      userId: string;
+      courseId: string;
+      formId: string;
+      courseFormId: string;
+      isComplete: boolean;
+      completedAt: Date | null;
+      metadata: Prisma.JsonValue;
+    };
+  }> {
+    if (adminRole !== Role.admin) {
+      throw new ForbiddenException({
+        detail: 'Only admins can review registration forms',
+      });
+    }
+
+    if (formId !== 'registration-form') {
+      throw new BadRequestException({
+        detail: 'Advisor review is only supported for registration-form',
+      });
+    }
+
+    assertValidAdvisorReviewMetadata(metaData);
+
+    const courseForm = await this.prisma.courseForm.findUnique({
+      where: { id: courseFormId },
+    });
+    if (!courseForm) {
+      throw new BadRequestException({
+        detail:
+          'Invalid courseFormId: that course form assignment was not found',
+      });
+    }
+    if (courseForm.courseId !== courseId || courseForm.formId !== formId) {
+      throw new BadRequestException({
+        detail: 'courseFormId does not match the given courseId and formId',
+      });
+    }
+
+    const existing = await this.prisma.userFormCompletion.findUnique({
+      where: {
+        userId_courseId_formId: {
+          userId: learnerUserId,
+          courseId,
+          formId,
+        },
+      },
+    });
+    if (!existing) {
+      throw new BadRequestException({
+        detail: 'No registration form submission was found for this user',
+      });
+    }
+    if (existing.courseFormId !== courseFormId) {
+      throw new BadRequestException({
+        detail:
+          'courseFormId does not match this user\'s registration form submission',
+      });
+    }
+
+    const updated = await this.prisma.userFormCompletion.update({
+      where: { id: existing.id },
+      data: {
+        metadata: metaData as Prisma.InputJsonValue,
+      },
+    });
+
+    try {
+      await this.notifyRegistrationReviewed({
+        learnerUserId,
+        courseId,
+        metadata: metaData,
+      });
+    } catch (notifyErr) {
+      const msg =
+        notifyErr instanceof Error ? notifyErr.message : String(notifyErr);
+      CourseService.completionLogger.warn(
+        `Registration review notify failed for user ${learnerUserId}: ${msg}`,
+      );
+    }
+
+    return {
+      success: true,
+      form: {
+        id: updated.id,
+        userId: updated.userId,
+        courseId: updated.courseId,
+        formId: updated.formId,
+        courseFormId: updated.courseFormId,
+        isComplete: updated.isComplete,
+        completedAt: updated.completedAt,
+        metadata: updated.metadata,
+      },
+    };
+  }
+
+  private async notifyRegistrationSubmittedIfV2(args: {
+    learnerUserId: string;
+    courseId: string;
+    formId: string;
+    courseFormId: string;
+    metadata: Record<string, unknown> | undefined;
+  }): Promise<void> {
+    if (args.formId !== 'registration-form' || !isV2BookingMetadata(args.metadata)) {
+      return;
+    }
+
+    const [learner, course, admins] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: args.learnerUserId },
+        select: { id: true, email: true, firstName: true, lastName: true },
+      }),
+      this.prisma.course.findUnique({
+        where: { id: args.courseId },
+        select: { title: true },
+      }),
+      this.prisma.user.findMany({
+        where: { role: Role.admin, deletedAt: null },
+        select: { id: true },
+      }),
+    ]);
+    if (!learner || !course) {
+      return;
+    }
+
+    const studentName =
+      `${learner.firstName ?? ''} ${learner.lastName ?? ''}`.trim() ||
+      'A learner';
+    const adminIds = admins.map((a) => a.id);
+
+    if (adminIds.length > 0) {
+      await this.notifications.createNotificationForMany({
+        userIds: adminIds,
+        emailCcAddresses: [ADMIN_EMAIL],
+        type: NotificationType.REGISTRATION_SUBMITTED,
+        message: `${studentName} submitted a registration form for ${course.title}`,
+        payload: {
+          userId: learner.id,
+          courseId: args.courseId,
+          courseTitle: course.title,
+          formId: args.formId,
+          courseFormId: args.courseFormId,
+          studentFirstName: learner.firstName,
+          studentLastName: learner.lastName,
+        },
+        groupKey: `registration-submitted:${args.courseId}`,
+        dedupeKeyFor: (adminId) =>
+          `registration-submitted:${args.courseFormId}:${learner.id}:${adminId}`,
+        referenceId: args.courseId,
+        commenterId: learner.id,
+        email: {
+          excludeUserId: learner.id,
+          build: (recipient) => ({
+            kind: 'REGISTRATION_SUBMITTED',
+            to: recipient.email,
+            userId: recipient.id,
+            recipientFirstName: recipient.firstName,
+            studentName,
+            courseTitle: course.title,
+            learnerUserId: learner.id,
+            courseId: args.courseId,
+            courseFormId: args.courseFormId,
+          }),
+        },
+      });
+    } else {
+      await this.mail.sendNotificationEmail({
+        kind: 'REGISTRATION_SUBMITTED',
+        to: ADMIN_EMAIL,
+        userId: null,
+        recipientFirstName: 'there',
+        studentName,
+        courseTitle: course.title,
+        learnerUserId: learner.id,
+        courseId: args.courseId,
+        courseFormId: args.courseFormId,
+      });
+    }
+
+    if (learner.email) {
+      await this.mail.sendRegistrationReceived({
+        to: learner.email,
+        userId: learner.id,
+        firstName: learner.firstName,
+        courseTitle: course.title,
+        courseId: args.courseId,
+      });
+    }
+  }
+
+  private async notifyRegistrationReviewed(args: {
+    learnerUserId: string;
+    courseId: string;
+    metadata: Record<string, unknown>;
+  }): Promise<void> {
+    const status = getAdvisorRegistrationStatus(args.metadata);
+    if (!status) {
+      return;
+    }
+    const comments = getAdvisorComments(args.metadata);
+
+    const [learner, course] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: args.learnerUserId },
+        select: { id: true, firstName: true },
+      }),
+      this.prisma.course.findUnique({
+        where: { id: args.courseId },
+        select: { title: true },
+      }),
+    ]);
+    if (!learner || !course) {
+      return;
+    }
+
+    await this.notifications.createNotification({
+      userId: learner.id,
+      type: NotificationType.REGISTRATION_REVIEWED,
+      message: `Your registration for ${course.title} is ${status}`,
+      payload: {
+        courseId: args.courseId,
+        courseTitle: course.title,
+        registrationStatus: status,
+        comments,
+      },
+      groupKey: `registration-reviewed:${args.courseId}`,
+      dedupeKey: `registration-reviewed:${args.courseId}:${learner.id}:${status}:${
+        comments ?? ''
+      }`,
+      referenceId: args.courseId,
+      email: {
+        build: (recipient) => ({
+          kind: 'REGISTRATION_REVIEWED',
+          to: recipient.email,
+          userId: recipient.id,
+          recipientFirstName: recipient.firstName,
+          courseTitle: course.title,
+          courseId: args.courseId,
+          registrationStatus: status,
+          comments,
+        }),
+      },
+    });
   }
 
   /** Which requirement forms exist for the course and whether the current user completed them. */
@@ -2162,7 +2442,7 @@ export class CourseService {
       }
 
       // Now get all required data in parallel
-      const [forms, policies, policyCompletions, policyItemCompletions] =
+      const [forms, policies, policyCompletions, policyItemCompletions, registrationForm] =
         await Promise.all([
           // Get required forms and their completions
           this.prisma.courseForm.findMany({
@@ -2173,7 +2453,7 @@ export class CourseService {
             include: {
               userFormCompletions: {
                 where: { userId },
-                select: { isComplete: true },
+                select: { isComplete: true, metadata: true },
               },
             },
           }),
@@ -2212,6 +2492,16 @@ export class CourseService {
               },
             },
             select: { itemId: true },
+          }),
+
+          this.prisma.courseForm.findFirst({
+            where: { courseId, formId: 'registration-form' },
+            include: {
+              userFormCompletions: {
+                where: { userId },
+                select: { isComplete: true, metadata: true },
+              },
+            },
           }),
         ]);
 
@@ -2275,15 +2565,39 @@ export class CourseService {
       }));
 
       // Determine access
-      const canAccessContent =
+      const requirementsMet =
         completedForms === totalRequiredForms &&
         completedPolicyItems === totalRequiredPolicyItems;
+      const registrationGate = evaluateRegistrationAccess([
+        {
+          formId: 'registration-form',
+          metadata: registrationForm?.userFormCompletions[0]?.metadata,
+        },
+      ]);
+      const canAccessContent = requirementsMet && !registrationGate.blocked;
+      const registrationBlocksContent =
+        requirementsMet && registrationGate.blocked;
 
       return {
-        message: 'Course access status retrieved',
+        message: registrationBlocksContent
+          ? registrationGate.message
+          : 'Course access status retrieved',
         statusCode: 200,
         data: {
           canAccessContent,
+          ...(registrationBlocksContent
+            ? {
+                reason: registrationGate.reason,
+                registrationStatus: registrationGate.registrationStatus,
+                registrationComments: registrationGate.comments,
+                message: registrationGate.message,
+              }
+            : registrationGate.registrationStatus
+              ? {
+                  registrationStatus: registrationGate.registrationStatus,
+                  registrationComments: registrationGate.comments,
+                }
+              : {}),
           formStatus: {
             completedForms,
             totalForms: totalRequiredForms,
@@ -5165,7 +5479,7 @@ export class CourseService {
                 include: {
                   userFormCompletions: {
                     where: { userId },
-                    select: { isComplete: true },
+                    select: { isComplete: true, metadata: true },
                   },
                 },
               },
@@ -5320,6 +5634,7 @@ export class CourseService {
               isRequired: form.isRequired,
               isComplete:
                 form.userFormCompletions?.some((uc) => uc.isComplete) || false,
+              metadata: form.userFormCompletions?.[0]?.metadata ?? null,
             })) || [],
         };
 
@@ -5388,10 +5703,16 @@ export class CourseService {
 
         // Updated access control logic
         const canAccessPolicies = formsCompleted;
+        const registrationGate = evaluateRegistrationAccess(
+          formStatus.forms.map((form) => ({
+            formId: form.formId,
+            metadata: form.metadata,
+          })),
+        );
         const canAccessContent =
           formsCompleted &&
-          // allRequiredPoliciesCompleted &&
-          allRequiredItemsCompleted;
+          allRequiredItemsCompleted &&
+          !registrationGate.blocked;
 
         // Post-completion access window: once completed, access lasts
         // validityDays (default 365) from courseCompletedAt. Computed live;
@@ -5466,6 +5787,21 @@ export class CourseService {
           },
           canAccessPolicies,
           canAccessContent,
+          ...(registrationGate.blocked &&
+          formsCompleted &&
+          allRequiredItemsCompleted
+            ? {
+                reason: registrationGate.reason,
+                registrationStatus: registrationGate.registrationStatus,
+                registrationComments: registrationGate.comments,
+                message: registrationGate.message,
+              }
+            : registrationGate.registrationStatus
+              ? {
+                  registrationStatus: registrationGate.registrationStatus,
+                  registrationComments: registrationGate.comments,
+                }
+              : {}),
           latestLastSeenSection: latestLastSeenSection
             ? {
                 id: latestLastSeenSection.id,

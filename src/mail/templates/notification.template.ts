@@ -1,11 +1,13 @@
 import { NotificationEmail } from '../mail.types';
 import {
   adminAssignmentSubmissions,
+  advisorRegistrationReview,
   assessmentGrade,
   forumThread,
   studentAssignmentDetail,
   studentCourseDetail,
   studentCoursesList,
+  studentRegistrationFormView,
 } from '../mail-paths';
 import { BRAND, escapeHtml, layout, RenderedEmail } from './mail-layout';
 
@@ -256,6 +258,72 @@ export function renderNotificationEmail(
           mail.recipientFirstName || 'there'
         },\n\nYour assessment "${mail.assessmentTitle}" has been graded.${
           mail.passed == null ? '' : mail.passed ? ' You passed!' : ''
+        }\n\nView it: ${url}\n\nKind regards,\nThe ${BRAND.name} Team`,
+      };
+    }
+
+    case 'REGISTRATION_SUBMITTED': {
+      const name = escapeHtml(mail.recipientFirstName || 'there');
+      const student = escapeHtml(mail.studentName);
+      const title = escapeHtml(mail.courseTitle);
+      const url = advisorRegistrationReview({
+        userId: mail.learnerUserId,
+        courseId: mail.courseId,
+        courseFormId: mail.courseFormId,
+      });
+      const body = `<p>Dear ${name},</p>
+        <p style="margin-top:12px;">${student} has submitted a learner registration form for <strong>${title}</strong>. Please review it when you have a moment.</p>`;
+      return {
+        subject: `Registration submitted: ${mail.courseTitle}`,
+        html: layout({
+          heading: 'Registration form submitted',
+          bodyHtml: body,
+          ctaLabel: 'Review registration',
+          ctaUrl: url,
+        }),
+        text: `Dear ${
+          mail.recipientFirstName || 'there'
+        },\n\n${mail.studentName} has submitted a learner registration form for "${
+          mail.courseTitle
+        }".\n\nReview it: ${url}\n\nKind regards,\nThe ${BRAND.name} Team`,
+      };
+    }
+
+    case 'REGISTRATION_REVIEWED': {
+      const name = escapeHtml(mail.recipientFirstName || 'there');
+      const title = escapeHtml(mail.courseTitle);
+      const url = studentRegistrationFormView(mail.courseId);
+      const statusCopy =
+        mail.registrationStatus === 'Approved'
+          ? 'has been approved'
+          : mail.registrationStatus === 'Rejected'
+            ? 'was not approved'
+            : 'is still pending advisor review';
+      const heading =
+        mail.registrationStatus === 'Approved'
+          ? 'Your registration has been approved'
+          : mail.registrationStatus === 'Rejected'
+            ? 'Your registration was not approved'
+            : 'Your registration is still pending';
+      const commentsLine = mail.comments
+        ? `<p style="margin-top:8px;padding:12px 16px;background:#f4f5f7;border-radius:8px;">${escapeHtml(
+            mail.comments,
+          )}</p>`
+        : '';
+      const body = `<p>Dear ${name},</p>
+        <p style="margin-top:12px;">Your registration for <strong>${title}</strong> ${statusCopy}.</p>${commentsLine}`;
+      return {
+        subject: `Registration update: ${mail.courseTitle}`,
+        html: layout({
+          heading,
+          bodyHtml: body,
+          ctaLabel: 'View registration',
+          ctaUrl: url,
+        }),
+        text: `Dear ${
+          mail.recipientFirstName || 'there'
+        },\n\nYour registration for "${mail.courseTitle}" ${statusCopy}.${
+          mail.comments ? `\n\nComments: ${mail.comments}` : ''
         }\n\nView it: ${url}\n\nKind regards,\nThe ${BRAND.name} Team`,
       };
     }

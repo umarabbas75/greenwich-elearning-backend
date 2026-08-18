@@ -16,6 +16,7 @@ import {
   CourseDto,
   GetUpdateLastSeen,
   MarkFormCompleteDto,
+  UpdateFormMetadataDto,
   ModuleDto,
   ParamsDto,
   ParamsDto1,
@@ -45,6 +46,24 @@ export class CourseController {
       body.formId,
       body.metaData,
       body.courseFormId,
+    );
+  }
+
+  /** Learning-advisor review of a v2 registration form. Updates metadata only. */
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/updateFormMetadata')
+  updateFormMetadata(
+    @GetUser() user: User,
+    @Body() body: UpdateFormMetadataDto,
+  ): Promise<any> {
+    return this.appService.updateFormMetadata(
+      user.id,
+      user.role,
+      body.userId,
+      body.courseId,
+      body.formId,
+      body.courseFormId,
+      body.metaData,
     );
   }
 

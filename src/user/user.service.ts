@@ -93,6 +93,7 @@ export class UserService {
             formId: form.formId,
             formName: form.formName,
             isRequired: form.isRequired,
+            courseFormId: form.id,
             isComplete: form.userFormCompletions[0]?.isComplete || false,
             completedAt: form.userFormCompletions[0]?.completedAt || null,
             metadata: form.userFormCompletions[0]?.metadata || null,

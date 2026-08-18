@@ -6,6 +6,7 @@ import { makeAbortAwareTransactionMock } from '../test-utils/prisma-transaction-
 import { CourseCompletionService } from '../course-completion/course-completion.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { MailService } from '../mail/mail.service';
+import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseService } from './course.service';
 
@@ -215,6 +216,13 @@ describe('CourseService — course versioning', () => {
         {
           provide: CourseCompletionService,
           useValue: { checkContentCompletion: jest.fn() },
+        },
+        {
+          provide: NotificationService,
+          useValue: {
+            createNotification: jest.fn(),
+            createNotificationForMany: jest.fn(),
+          },
         },
       ],
     }).compile();

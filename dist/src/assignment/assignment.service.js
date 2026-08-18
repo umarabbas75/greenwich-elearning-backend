@@ -232,6 +232,12 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
             if (!enrollment) {
                 throw new Error('You are not enrolled in this course');
             }
+            const files = resolveSubmissionFiles(input);
+            if (!files?.length) {
+                throw new Error('At least one submission file is required');
+            }
+            validateFiles(files, { min: 1, label: 'submission file' });
+            await this.assertSubmissionFileUrlsAreUnique(files, studentId);
             const existingSubmission = await this.prisma.assignmentSubmission.findFirst({
                 where: {
                     assignmentId: input.assignmentId,
@@ -239,14 +245,52 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
                 },
             });
             if (existingSubmission) {
-                throw new Error('You have already submitted to this assignment');
+                if (existingSubmission.status !== client_1.AssignmentSubmissionStatus.returned) {
+                    throw new Error('You have already submitted to this assignment');
+                }
+                if (!assignment.allowResubmissions) {
+                    throw new Error('Resubmissions are not allowed for this assignment');
+                }
+                const resubmitted = await this.prisma.$transaction(async (tx) => {
+                    await tx.assignmentSubmissionAttachment.deleteMany({
+                        where: { submissionId: existingSubmission.id },
+                    });
+                    return tx.assignmentSubmission.update({
+                        where: { id: existingSubmission.id },
+                        data: {
+                            assignedToAdminId: assignment.assignedToAdminId,
+                            ...legacySubmissionFieldsFromFiles(files),
+                            status: client_1.AssignmentSubmissionStatus.submitted,
+                            submittedAt: new Date(),
+                            gradedAt: null,
+                            score: null,
+                            reviewedByAdminId: null,
+                            attachments: {
+                                create: files.map((file, index) => ({
+                                    fileUrl: file.fileUrl,
+                                    fileName: file.fileName ?? null,
+                                    fileType: file.fileType,
+                                    sortOrder: index,
+                                })),
+                            },
+                        },
+                        include: submissionAttachmentsInclude,
+                    });
+                });
+                await this.notifyAssignmentSubmitted({
+                    submissionId: resubmitted.id,
+                    assignmentId: assignment.id,
+                    assignmentTitle: assignment.title,
+                    assignedToAdminId: assignment.assignedToAdminId,
+                    studentId,
+                    submittedAt: resubmitted.submittedAt,
+                });
+                return {
+                    message: 'Assignment resubmitted successfully',
+                    statusCode: 200,
+                    data: formatSubmission(resubmitted),
+                };
             }
-            const files = resolveSubmissionFiles(input);
-            if (!files?.length) {
-                throw new Error('At least one submission file is required');
-            }
-            validateFiles(files, { min: 1, label: 'submission file' });
-            await this.assertSubmissionFileUrlsAreUnique(files, studentId);
             const created = await this.prisma.assignmentSubmission.create({
                 data: {
                     assignmentId: input.assignmentId,
@@ -271,6 +315,7 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
                 assignmentTitle: assignment.title,
                 assignedToAdminId: assignment.assignedToAdminId,
                 studentId,
+                submittedAt: created.submittedAt,
             });
             return {
                 message: 'Assignment submitted successfully',
@@ -881,7 +926,7 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
                     studentName,
                 },
                 groupKey: `assignment-submitted:${args.assignmentId}`,
-                dedupeKey: `assignment-submitted:${args.submissionId}`,
+                dedupeKey: `assignment-submitted:${args.submissionId}:${args.submittedAt.getTime()}`,
                 referenceId: args.submissionId,
                 commenterId: args.studentId,
                 email: {

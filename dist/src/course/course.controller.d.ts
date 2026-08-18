@@ -1,10 +1,11 @@
 import { CourseService } from './course.service';
-import { AssignCourseDto, CourseDto, GetUpdateLastSeen, MarkFormCompleteDto, ModuleDto, ParamsDto, ParamsDto1, ResponseDto, ResetUserCourseProgressDto, UpdateCourseDto, UpdateSectionOrderDto, SetCourseActiveDto } from '../dto';
+import { AssignCourseDto, CourseDto, GetUpdateLastSeen, MarkFormCompleteDto, UpdateFormMetadataDto, ModuleDto, ParamsDto, ParamsDto1, ResponseDto, ResetUserCourseProgressDto, UpdateCourseDto, UpdateSectionOrderDto, SetCourseActiveDto } from '../dto';
 import { User } from '@prisma/client';
 export declare class CourseController {
     private readonly appService;
     constructor(appService: CourseService);
     markFormComplete(user: User, body: MarkFormCompleteDto): Promise<any>;
+    updateFormMetadata(user: User, body: UpdateFormMetadataDto): Promise<any>;
     markPolicyItemAsComplete(user: User, body: any): Promise<any>;
     getAllPublicCourses(): Promise<ResponseDto>;
     getCourseDetailPublic(params: any): Promise<any>;

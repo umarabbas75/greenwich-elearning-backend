@@ -5,6 +5,7 @@ import { CourseVersionService } from '../course-version/course-version.service';
 import { CourseCompletionService } from '../course-completion/course-completion.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { MailService } from '../mail/mail.service';
+import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseService } from './course.service';
 
@@ -100,6 +101,13 @@ describe('CourseService — restore + archive inventory (PR 1)', () => {
         {
           provide: CourseCompletionService,
           useValue: { checkContentCompletion: jest.fn() },
+        },
+        {
+          provide: NotificationService,
+          useValue: {
+            createNotification: jest.fn(),
+            createNotificationForMany: jest.fn(),
+          },
         },
       ],
     }).compile();

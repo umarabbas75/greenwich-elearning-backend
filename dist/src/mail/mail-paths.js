@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.appHome = exports.adminContactInbox = exports.adminAssignmentSubmissions = exports.studentAssignmentDetail = exports.adminFeedback = exports.assessmentGrade = exports.forumThread = exports.studentCourseFeedback = exports.studentCourseDetail = exports.studentCoursesList = void 0;
+exports.appHome = exports.studentRegistrationFormView = exports.studentCourseFormPage = exports.advisorRegistrationReview = exports.adminContactInbox = exports.adminAssignmentSubmissions = exports.studentAssignmentDetail = exports.adminFeedback = exports.assessmentGrade = exports.forumThread = exports.studentCourseFeedback = exports.studentCourseDetail = exports.studentCoursesList = void 0;
 const mail_layout_1 = require("./templates/mail-layout");
 function studentCoursesList() {
     return `${mail_layout_1.BRAND.website}/studentCourses`;
@@ -38,6 +38,28 @@ function adminContactInbox() {
     return `${mail_layout_1.BRAND.website}/contact-us`;
 }
 exports.adminContactInbox = adminContactInbox;
+function advisorRegistrationReview(args) {
+    const params = new URLSearchParams({
+        viewOnly: '1',
+        courseId: args.courseId,
+        formId: 'registration-form',
+        courseFormId: args.courseFormId,
+    });
+    return `${mail_layout_1.BRAND.website}/user/${encodeURIComponent(args.userId)}/forms/course-booking-form/advisor-review?${params.toString()}`;
+}
+exports.advisorRegistrationReview = advisorRegistrationReview;
+function studentCourseFormPage(courseId) {
+    return `${mail_layout_1.BRAND.website}/studentCourses/${encodeURIComponent(courseId)}/course-form-page`;
+}
+exports.studentCourseFormPage = studentCourseFormPage;
+function studentRegistrationFormView(courseId) {
+    const params = new URLSearchParams({
+        viewOnly: '1',
+        courseId,
+    });
+    return `${mail_layout_1.BRAND.website}/studentCourses/${encodeURIComponent(courseId)}/course-form-page/forms/course-booking-form?${params.toString()}`;
+}
+exports.studentRegistrationFormView = studentRegistrationFormView;
 function appHome() {
     return mail_layout_1.BRAND.website;
 }

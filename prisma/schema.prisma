@@ -925,6 +925,8 @@ enum NotificationType {
   ASSIGNMENT_CREATED // admin created a new assignment for a course
   ASSIGNMENT_SUBMITTED // student submitted to an assignment; recipient is the assigned reviewer
   ASSIGNMENT_GRADED // admin reviewed/graded a submission; recipient is the student
+  REGISTRATION_SUBMITTED // learner submitted a v2 registration form; recipients are admins
+  REGISTRATION_REVIEWED // advisor saved a registration review; recipient is the learner
 }
 
 enum QuestionType {
@@ -1245,6 +1247,9 @@ enum EmailType {
   NOTIFICATION_ASSIGNMENT_CREATED
   NOTIFICATION_ASSIGNMENT_SUBMITTED
   NOTIFICATION_ASSIGNMENT_GRADED
+  NOTIFICATION_REGISTRATION_SUBMITTED
+  NOTIFICATION_REGISTRATION_REVIEWED
+  REGISTRATION_RECEIVED // learner confirmation that a v2 registration form was received
 }
 
 enum EmailStatus {

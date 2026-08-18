@@ -342,6 +342,30 @@ export class MarkFormCompleteDto {
   @IsObject()
   metaData?: Record<string, unknown>;
 }
+
+/** Body for `POST /courses/updateFormMetadata` (admin advisor review of a v2 registration form). */
+export class UpdateFormMetadataDto {
+  @IsString()
+  @IsNotEmpty()
+  courseId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  formId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  courseFormId: string;
+
+  /** Learner whose stored submission is being reviewed. Required to identify the row. */
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsObject()
+  metaData: Record<string, unknown>;
+}
+
 export class AssignCourseDto {
   @IsString()
   @IsNotEmpty()

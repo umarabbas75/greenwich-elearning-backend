@@ -7,4 +7,11 @@ export declare function adminFeedback(): string;
 export declare function studentAssignmentDetail(assignmentId: string): string;
 export declare function adminAssignmentSubmissions(assignmentId: string): string;
 export declare function adminContactInbox(): string;
+export declare function advisorRegistrationReview(args: {
+    userId: string;
+    courseId: string;
+    courseFormId: string;
+}): string;
+export declare function studentCourseFormPage(courseId: string): string;
+export declare function studentRegistrationFormView(courseId: string): string;
 export declare function appHome(): string;

@@ -123,7 +123,37 @@ export type NotificationEmail =
       score?: number | null;
       maxPoints?: number | null;
       feedback?: string | null;
+    }
+  | {
+      kind: 'REGISTRATION_SUBMITTED';
+      to: string;
+      userId?: string | null;
+      recipientFirstName: string;
+      studentName: string;
+      courseTitle: string;
+      learnerUserId: string;
+      courseId: string;
+      courseFormId: string;
+    }
+  | {
+      kind: 'REGISTRATION_REVIEWED';
+      to: string;
+      userId?: string | null;
+      recipientFirstName: string;
+      courseTitle: string;
+      courseId: string;
+      registrationStatus: 'Approved' | 'Pending' | 'Rejected';
+      comments?: string | null;
     };
+
+/** Learner confirmation that a v2 registration form was received (not an in-app type). */
+export interface RegistrationReceivedMail {
+  to: string;
+  userId?: string | null;
+  firstName: string;
+  courseTitle: string;
+  courseId: string;
+}
 
 /** Data for the welcome email sent on self-registration. */
 export interface WelcomeMail {

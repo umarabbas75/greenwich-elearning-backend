@@ -11,6 +11,7 @@ import { MailModule } from '../mail/mail.module';
 import { FeedbackModule } from '../feedback/feedback.module';
 import { CourseVersionModule } from '../course-version/course-version.module';
 import { CourseCompletionModule } from '../course-completion/course-completion.module';
+import { NotificationModule } from '../notifications/notification.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { CourseCompletionModule } from '../course-completion/course-completion.m
     FeedbackModule,
     CourseVersionModule,
     CourseCompletionModule,
+    NotificationModule,
   ],
   providers: [
     CourseService,

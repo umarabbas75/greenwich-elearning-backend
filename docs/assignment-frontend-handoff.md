@@ -209,11 +209,20 @@ Submit up to 5 files. One submission per student per assignment.
   FE builds). Legacy `fileUrl/fileName/fileType` also still work.
 - Extra fields like `courseId` / `assignedToAdminId` in the body are
   **ignored** — the server derives both from the assignment.
+- If the student already has a submission:
+  - status **`returned`** and the assignment has `allowResubmissions: true` →
+    the existing row is updated in place (files replaced, status reset to
+    `submitted`, score/gradedAt cleared). Previous tutor feedback is kept.
+    Same endpoint, no second row.
+  - any other status, or `allowResubmissions: false` → `403` with
+    `"You have already submitted to this assignment"` /
+    `"Resubmissions are not allowed for this assignment"`.
 - Triggers an **`ASSIGNMENT_SUBMITTED`** notification + email to the
-  assigned-to admin. See §5.
+  assigned-to admin (including on resubmit). See §5.
 
-**Response data:** the created `AssignmentSubmission` (with
-`submissionAttachments`).
+**Response data:** the created or updated `AssignmentSubmission` (with
+`submissionAttachments`). Message is `"Assignment submitted successfully"`
+or `"Assignment resubmitted successfully"`.
 
 ### 3.4 `GET /assignments/available` *(student)*
 
@@ -428,7 +437,7 @@ If those routes don't match what the FE actually exposes, either:
 | Event | Dedupe key | Effect |
 | ----- | ---------- | ------ |
 | `ASSIGNMENT_CREATED` | `assignment-created:<assignmentId>:<userId>` | Idempotent — recreating the same assignment doesn't double-notify |
-| `ASSIGNMENT_SUBMITTED` | `assignment-submitted:<submissionId>` | One bell row per submission to the admin |
+| `ASSIGNMENT_SUBMITTED` | `assignment-submitted:<submissionId>:<submittedAtMs>` | One bell row per submission attempt. Resubmits (which reuse the row) still notify the reviewer because `submittedAt` is reset on each attempt. |
 | `ASSIGNMENT_GRADED` | `assignment-graded:<submissionId>:<status>:<score>:<feedbackLen>` | Distinct review actions create new rows; accidental duplicates collapse |
 
 ### 5.5 Failure semantics

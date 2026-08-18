@@ -14,11 +14,13 @@ import {
   MailSendResult,
   NotificationEmail,
   PasswordResetMail,
+  RegistrationReceivedMail,
   WelcomeMail,
 } from './mail.types';
 import { renderEngagementReminder } from './templates/engagement-reminder.template';
 import { renderPasswordReset } from './templates/password-reset.template';
 import { renderNotificationEmail } from './templates/notification.template';
+import { renderRegistrationReceived } from './templates/registration-received.template';
 import { renderWelcome } from './templates/welcome.template';
 import { renderContactMessage } from './templates/contact-message.template';
 import {
@@ -40,6 +42,8 @@ const NOTIFICATION_EMAIL_TYPE: Record<NotificationEmail['kind'], EmailType> = {
   ASSIGNMENT_CREATED: EmailType.NOTIFICATION_ASSIGNMENT_CREATED,
   ASSIGNMENT_SUBMITTED: EmailType.NOTIFICATION_ASSIGNMENT_SUBMITTED,
   ASSIGNMENT_GRADED: EmailType.NOTIFICATION_ASSIGNMENT_GRADED,
+  REGISTRATION_SUBMITTED: EmailType.NOTIFICATION_REGISTRATION_SUBMITTED,
+  REGISTRATION_REVIEWED: EmailType.NOTIFICATION_REGISTRATION_REVIEWED,
 };
 
 /** Audit context recorded to EmailLog alongside each send. */
@@ -125,6 +129,22 @@ export class MailService {
       renderNotificationEmail(mail),
       `notification:${mail.kind}`,
       { type: NOTIFICATION_EMAIL_TYPE[mail.kind], userId: mail.userId ?? null },
+    );
+  }
+
+  /** Learner confirmation that a v2 registration form was received. */
+  async sendRegistrationReceived(
+    mail: RegistrationReceivedMail,
+  ): Promise<MailSendResult> {
+    return this.send(
+      mail.to,
+      renderRegistrationReceived(mail),
+      'registration received',
+      {
+        type: EmailType.REGISTRATION_RECEIVED,
+        userId: mail.userId ?? null,
+        metadata: { courseTitle: mail.courseTitle, courseId: mail.courseId },
+      },
     );
   }
 

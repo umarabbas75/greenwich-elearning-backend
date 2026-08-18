@@ -42,6 +42,38 @@ export function adminContactInbox(): string {
   return `${BRAND.website}/contact-us`;
 }
 
+export function advisorRegistrationReview(args: {
+  userId: string;
+  courseId: string;
+  courseFormId: string;
+}): string {
+  const params = new URLSearchParams({
+    viewOnly: '1',
+    courseId: args.courseId,
+    formId: 'registration-form',
+    courseFormId: args.courseFormId,
+  });
+  return `${BRAND.website}/user/${encodeURIComponent(
+    args.userId,
+  )}/forms/course-booking-form/advisor-review?${params.toString()}`;
+}
+
+export function studentCourseFormPage(courseId: string): string {
+  return `${BRAND.website}/studentCourses/${encodeURIComponent(
+    courseId,
+  )}/course-form-page`;
+}
+
+export function studentRegistrationFormView(courseId: string): string {
+  const params = new URLSearchParams({
+    viewOnly: '1',
+    courseId,
+  });
+  return `${BRAND.website}/studentCourses/${encodeURIComponent(
+    courseId,
+  )}/course-form-page/forms/course-booking-form?${params.toString()}`;
+}
+
 export function appHome(): string {
   return BRAND.website;
 }

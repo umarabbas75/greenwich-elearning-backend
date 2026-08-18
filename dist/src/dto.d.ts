@@ -120,6 +120,13 @@ export declare class MarkFormCompleteDto {
     courseFormId: string;
     metaData?: Record<string, unknown>;
 }
+export declare class UpdateFormMetadataDto {
+    courseId: string;
+    formId: string;
+    courseFormId: string;
+    userId: string;
+    metaData: Record<string, unknown>;
+}
 export declare class AssignCourseDto {
     userId: string;
     courseId: string;

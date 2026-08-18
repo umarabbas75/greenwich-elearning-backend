@@ -19,6 +19,7 @@ const prisma_service_1 = require("../prisma/prisma.service");
 const engagement_reminder_template_1 = require("./templates/engagement-reminder.template");
 const password_reset_template_1 = require("./templates/password-reset.template");
 const notification_template_1 = require("./templates/notification.template");
+const registration_received_template_1 = require("./templates/registration-received.template");
 const welcome_template_1 = require("./templates/welcome.template");
 const contact_message_template_1 = require("./templates/contact-message.template");
 const course_feedback_template_1 = require("./templates/course-feedback.template");
@@ -30,6 +31,8 @@ const NOTIFICATION_EMAIL_TYPE = {
     ASSIGNMENT_CREATED: client_1.EmailType.NOTIFICATION_ASSIGNMENT_CREATED,
     ASSIGNMENT_SUBMITTED: client_1.EmailType.NOTIFICATION_ASSIGNMENT_SUBMITTED,
     ASSIGNMENT_GRADED: client_1.EmailType.NOTIFICATION_ASSIGNMENT_GRADED,
+    REGISTRATION_SUBMITTED: client_1.EmailType.NOTIFICATION_REGISTRATION_SUBMITTED,
+    REGISTRATION_REVIEWED: client_1.EmailType.NOTIFICATION_REGISTRATION_REVIEWED,
 };
 const DEFAULT_FROM = 'Greenwich Training & Consulting <noreply@greenwichtc-elearning.com>';
 let MailService = MailService_1 = class MailService {
@@ -65,6 +68,13 @@ let MailService = MailService_1 = class MailService {
     }
     async sendNotificationEmail(mail) {
         return this.send(mail.to, (0, notification_template_1.renderNotificationEmail)(mail), `notification:${mail.kind}`, { type: NOTIFICATION_EMAIL_TYPE[mail.kind], userId: mail.userId ?? null });
+    }
+    async sendRegistrationReceived(mail) {
+        return this.send(mail.to, (0, registration_received_template_1.renderRegistrationReceived)(mail), 'registration received', {
+            type: client_1.EmailType.REGISTRATION_RECEIVED,
+            userId: mail.userId ?? null,
+            metadata: { courseTitle: mail.courseTitle, courseId: mail.courseId },
+        });
     }
     async sendWelcome(mail) {
         return this.send(mail.to, (0, welcome_template_1.renderWelcome)(mail), 'welcome', {

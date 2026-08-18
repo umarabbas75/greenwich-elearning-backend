@@ -25,6 +25,9 @@ let CourseController = class CourseController {
     markFormComplete(user, body) {
         return this.appService.markFormComplete(user.id, user.role, body.courseId, body.formId, body.metaData, body.courseFormId);
     }
+    updateFormMetadata(user, body) {
+        return this.appService.updateFormMetadata(user.id, user.role, body.userId, body.courseId, body.formId, body.courseFormId, body.metaData);
+    }
     markPolicyItemAsComplete(user, body) {
         return this.appService.markPolicyItemAsComplete({
             userId: user?.id,
@@ -242,6 +245,15 @@ __decorate([
     __metadata("design:paramtypes", [Object, dto_1.MarkFormCompleteDto]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "markFormComplete", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Post)('/updateFormMetadata'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, dto_1.UpdateFormMetadataDto]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "updateFormMetadata", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Post)('/markPolicyComplete'),

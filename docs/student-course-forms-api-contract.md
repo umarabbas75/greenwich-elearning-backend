@@ -9,6 +9,7 @@ The HTTP API is served under the global prefix **`/api/v1`** (see `src/main.ts`)
 | Action | Method | Path | Notes |
 |--------|--------|------|--------|
 | Mark form complete | `POST` | `/courses/markFormComplete` | Primary completion event; see payload below. |
+| Advisor review (v2) | `POST` | `/courses/updateFormMetadata` | Admin-only; overwrites `metaData` without changing completion. |
 | Form status (optional) | `GET` | `/courses/:courseId/forms/status` | Server truth for which forms are complete for the current user. |
 
 ## `POST /courses/markFormComplete`
@@ -75,3 +76,21 @@ Dashboard labels and URL segments for forms are centralised in the Next.js app:
 - Params `courseId`, `formId`, `courseFormId` are read from the query string (with route fallback for `courseId` where implemented). If any are missing, the UI blocks submit and shows an “Incomplete link” alert.
 - After success, the client invalidates and refetches `['get-all-assigned-courses', userId]` then redirects: uses `returnUrl` query param only if it is a same-origin relative path; otherwise `/studentCourses`.
 - **Course booking form** uploads the learner photo to Cloudinary first, then sends `metaData` including the image URL and `bookingFormVersion` (document reference string).
+
+## `POST /courses/updateFormMetadata`
+
+Admin JWT required (`role === admin`). Updates stored `user_form_completions.metadata` for a v2 registration form. Does **not** change `isComplete` / `completedAt`.
+
+**Request body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `courseId` | string | yes | Course the form belongs to. |
+| `formId` | string | yes | Must be `registration-form`. |
+| `courseFormId` | string | yes | `course_forms.id` for this assignment. |
+| `userId` | string | yes | Learner whose submission is being reviewed. |
+| `metaData` | object | yes | Full merged metadata bag (learner fields + advisor review). |
+
+`userId` is required because `courseFormId` identifies the course–form assignment, not a single learner's row.
+
+See `docs/registration-form-v2-backend-handoff.md` for the v2 `metaData` shape and advisor validation rules.
