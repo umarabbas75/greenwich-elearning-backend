@@ -791,6 +791,12 @@ enum AssignmentFileType {
   docx
 }
 
+/// How an assignment is marked. Status remains approved/rejected either way.
+enum AssignmentGradingMode {
+  numeric
+  pass_fail
+}
+
 /// Lifecycle state of a submission
 enum AssignmentSubmissionStatus {
   submitted // Student uploaded, pending review
@@ -820,6 +826,7 @@ model Assignment {
   instructions       String?
   courseId           String // Required - assignment must belong to a course
   dueAt              DateTime?
+  gradingMode        AssignmentGradingMode @default(numeric)
   maxPoints          Int?
   allowResubmissions Boolean   @default(true)
   maxAttempts        Int?

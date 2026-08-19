@@ -1,4 +1,4 @@
-import { AssignmentSubmissionStatus, AssignmentFileType } from '@prisma/client';
+import { AssignmentSubmissionStatus, AssignmentFileType, AssignmentGradingMode } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { ResponseDto } from '../dto';
@@ -19,7 +19,7 @@ interface ReviewSubmissionInput {
     submissionId: string;
     status?: AssignmentSubmissionStatus;
     feedback?: string;
-    score?: number;
+    score?: number | null;
 }
 export declare class AssignmentService {
     private prisma;
@@ -39,10 +39,12 @@ export declare class AssignmentService {
         courseId: string;
         assignedToAdminId: string;
         dueAt?: string;
-        maxPoints?: number;
+        gradingMode?: AssignmentGradingMode | string;
+        maxPoints?: number | null;
         allowResubmissions?: boolean;
         maxAttempts?: number;
         assignmentFiles?: FileInput[];
+        assignmentAttachments?: FileInput[];
         assignmentFileUrl?: string;
         assignmentFileName?: string;
         assignmentFileType?: AssignmentFileType;
@@ -54,10 +56,12 @@ export declare class AssignmentService {
         description?: string;
         instructions?: string;
         dueAt?: string;
-        maxPoints?: number;
+        gradingMode?: AssignmentGradingMode | string;
+        maxPoints?: number | null;
         allowResubmissions?: boolean;
         maxAttempts?: number;
         assignmentFiles?: FileInput[];
+        assignmentAttachments?: FileInput[];
         assignmentFileUrl?: string;
         assignmentFileName?: string;
         assignmentFileType?: AssignmentFileType;

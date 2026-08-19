@@ -58,7 +58,8 @@ interface Assignment {
   assignedToAdminId: string;
   createdByAdminId: string;
   dueAt: string | null;          // ISO timestamp
-  maxPoints: number | null;
+  gradingMode: 'numeric' | 'pass_fail'; // default numeric
+  maxPoints: number | null;      // required when numeric; always null when pass_fail
   allowResubmissions: boolean;
   maxAttempts: number | null;
   isActive: boolean;
@@ -106,6 +107,9 @@ interface AssignmentSubmission {
   fileUrl: string;
   fileName: string | null;
   fileType: AssignmentFileType;
+
+  /** Present on list/review payloads so the FE can render Pass/Fail vs score. */
+  assignment?: Pick<Assignment, 'id' | 'title' | 'gradingMode' | 'maxPoints'>;
 }
 ```
 
@@ -153,6 +157,7 @@ Create an assignment with up to 5 files attached.
   "courseId": "uuid",
   "assignedToAdminId": "uuid-admin-who-reviews",
   "dueAt": "2026-06-30T23:59:59.000Z",
+  "gradingMode": "numeric",
   "maxPoints": 100,
   "allowResubmissions": true,
   "maxAttempts": 1,
@@ -166,6 +171,12 @@ Create an assignment with up to 5 files attached.
 - `assignmentFiles` is optional; omit if no files.
 - The legacy single-file fields (`assignmentFileUrl/Name/Type`) are still
   accepted as a fallback. If both are sent, `assignmentFiles` wins.
+- `gradingMode` is `'numeric'` (default) or `'pass_fail'`. One course can mix
+  scored mocks and pass/fail practicals; this is per assignment, not per course.
+- `numeric`: `maxPoints` defaults to `100` if omitted. Status on review is still
+  `approved` / `rejected`; `score` is required for those statuses.
+- `pass_fail`: server forces `maxPoints: null`. Pass = `approved`, fail =
+  `rejected`. Do **not** send `score` on review.
 - Triggers an **`ASSIGNMENT_CREATED`** notification + email to every active
   student enrolled in the course (creator excluded). See §5.
 
@@ -188,6 +199,9 @@ Edit an assignment. **Files are replaced as a whole array.**
 - Send `assignmentFiles` → replaces all files.
 - Send `assignmentFiles: []` → removes all files.
 - **Omit** `assignmentFiles` → files are not touched (only other fields update).
+- `gradingMode` / `maxPoints` follow the same rules as create. Switching to
+  `pass_fail` clears `maxPoints`. Switching to `numeric` without `maxPoints`
+  keeps the existing value, or defaults to `100` if the assignment was pass/fail.
 - No notifications fire on update (intentional — avoids spam on minor edits).
 
 ### 3.3 `POST /assignments/submit` *(student)*
@@ -237,6 +251,7 @@ Returns the student's assignments with submission summary inlined.
       "courseId": "…",
       "course": { "title": "Intro to X" },
       "dueAt": "2026-06-30T23:59:59.000Z",
+      "gradingMode": "numeric",
       "maxPoints": 100,
       "allowResubmissions": true,
       "maxAttempts": 1,
@@ -325,11 +340,14 @@ Grade or update a submission.
 ```
 
 - All fields except `submissionId` are optional. Fields you omit keep their
-  previous value.
+  previous value (except `score` on pass/fail — see below).
 - `status` is one of: `submitted | in_review | approved | rejected | returned`.
 - `gradedAt` is set automatically when status is `approved` or `rejected`.
-- `score` is **not** validated against `maxPoints` server-side. The FE should
-  enforce that range in the UI.
+- **Numeric assignments:** `score` is required when `status` is `approved` or
+  `rejected`. It is **not** validated against `maxPoints` server-side.
+- **Pass/fail assignments:** do **not** send `score`. A body that includes
+  `score` is rejected. Pass = `approved`, fail = `rejected`; stored `score` is
+  cleared to `null`.
 - Triggers an **`ASSIGNMENT_GRADED`** notification + email to the student on
   **any** review call (including a status change to `in_review`). See §5.
 
@@ -405,6 +423,7 @@ payload: {
   submissionStatus: AssignmentSubmissionStatus;
   score: number | null;
   maxPoints: number | null;
+  gradingMode?: 'numeric' | 'pass_fail';
   feedback: string | null;
 }
 ```
@@ -528,3 +547,4 @@ This applies, in order:
 - `20260612120000_assignment_attachments` — admin attachments table
 - `20260612130000_assignment_submission_attachments` — submission attachments table
 - `20260613150000_assignment_notification_email_types` — new enum values
+- `20260820120000_assignment_grading_mode` — `Assignment.gradingMode` (`numeric` | `pass_fail`)

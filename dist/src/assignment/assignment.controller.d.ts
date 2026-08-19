@@ -30,7 +30,7 @@ export declare class AssignmentController {
         submissionId: string;
         status?: AssignmentSubmissionStatus;
         feedback?: string;
-        score?: number;
+        score?: number | null;
     }): Promise<ResponseDto>;
     createAssignment(user: User, body: {
         title: string;
@@ -39,7 +39,8 @@ export declare class AssignmentController {
         courseId: string;
         assignedToAdminId: string;
         dueAt?: string;
-        maxPoints?: number;
+        gradingMode?: 'numeric' | 'pass_fail';
+        maxPoints?: number | null;
         allowResubmissions?: boolean;
         maxAttempts?: number;
         assignmentFiles?: Array<{
@@ -66,7 +67,8 @@ export declare class AssignmentController {
         description?: string;
         instructions?: string;
         dueAt?: string;
-        maxPoints?: number;
+        gradingMode?: 'numeric' | 'pass_fail';
+        maxPoints?: number | null;
         allowResubmissions?: boolean;
         maxAttempts?: number;
         assignmentFiles?: Array<{

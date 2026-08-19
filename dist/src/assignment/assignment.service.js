@@ -20,8 +20,19 @@ const MAX_FILES = 5;
 const assignmentAttachmentsInclude = {
     attachments: { orderBy: { sortOrder: 'asc' } },
 };
+const nestedAssignmentSelect = {
+    assignment: {
+        select: {
+            id: true,
+            title: true,
+            gradingMode: true,
+            maxPoints: true,
+        },
+    },
+};
 const submissionAttachmentsInclude = {
     attachments: { orderBy: { sortOrder: 'asc' } },
+    ...nestedAssignmentSelect,
 };
 function resolveFiles(filesArray, legacy) {
     if (filesArray !== undefined) {
@@ -88,6 +99,43 @@ function resolveAssignmentFilesForUpdate(body) {
 }
 function validateAssignmentFiles(files) {
     validateFiles(files, { label: 'assignment file' });
+}
+function parseGradingMode(value) {
+    if (value === undefined || value === null || value === '') {
+        return undefined;
+    }
+    if (value === client_1.AssignmentGradingMode.numeric ||
+        value === client_1.AssignmentGradingMode.pass_fail) {
+        return value;
+    }
+    throw new Error("gradingMode must be 'numeric' or 'pass_fail'");
+}
+function resolveGradingFields(input, existing) {
+    const gradingMode = parseGradingMode(input.gradingMode) ??
+        existing?.gradingMode ??
+        client_1.AssignmentGradingMode.numeric;
+    if (gradingMode === client_1.AssignmentGradingMode.pass_fail) {
+        return { gradingMode, maxPoints: null };
+    }
+    if (typeof input.maxPoints === 'number') {
+        if (!Number.isFinite(input.maxPoints) || input.maxPoints <= 0) {
+            throw new Error('maxPoints must be a positive number for numeric assignments');
+        }
+        return { gradingMode, maxPoints: input.maxPoints };
+    }
+    if (input.maxPoints === null) {
+        throw new Error('maxPoints is required for numeric assignments');
+    }
+    if (existing) {
+        if (existing.maxPoints != null) {
+            return { gradingMode, maxPoints: existing.maxPoints };
+        }
+        if (existing.gradingMode === client_1.AssignmentGradingMode.pass_fail) {
+            return { gradingMode, maxPoints: 100 };
+        }
+        return { gradingMode, maxPoints: existing.maxPoints };
+    }
+    return { gradingMode, maxPoints: 100 };
 }
 function legacyAssignmentFieldsFromFiles(files) {
     const first = files[0];
@@ -378,19 +426,44 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
         try {
             const submission = await this.prisma.assignmentSubmission.findUnique({
                 where: { id: body.submissionId },
+                include: {
+                    assignment: {
+                        select: { gradingMode: true, maxPoints: true },
+                    },
+                },
             });
             if (!submission)
                 throw new Error('Submission not found');
+            const gradingMode = submission.assignment.gradingMode;
+            const nextStatus = body.status ?? client_1.AssignmentSubmissionStatus.in_review;
+            const scoreProvided = body.score !== undefined;
+            const isFinalDecision = nextStatus === client_1.AssignmentSubmissionStatus.approved ||
+                nextStatus === client_1.AssignmentSubmissionStatus.rejected;
+            let nextScore;
+            if (gradingMode === client_1.AssignmentGradingMode.pass_fail) {
+                if (scoreProvided) {
+                    throw new Error('Do not send score for pass/fail assignments. Pass is approved; fail is rejected.');
+                }
+                nextScore = null;
+            }
+            else if (isFinalDecision) {
+                if (typeof body.score !== 'number') {
+                    throw new Error('score is required when approving or rejecting a numeric assignment');
+                }
+                nextScore = body.score;
+            }
+            else {
+                nextScore =
+                    typeof body.score === 'number' ? body.score : submission.score;
+            }
             const updated = await this.prisma.assignmentSubmission.update({
                 where: { id: body.submissionId },
                 data: {
                     reviewedByAdminId: reviewerAdminId,
-                    status: body.status ?? client_1.AssignmentSubmissionStatus.in_review,
+                    status: nextStatus,
                     feedback: body.feedback ?? submission.feedback,
-                    score: typeof body.score === 'number' ? body.score : submission.score,
-                    gradedAt: body.status && ['approved', 'rejected'].includes(body.status)
-                        ? new Date()
-                        : submission.gradedAt,
+                    score: nextScore,
+                    gradedAt: isFinalDecision ? new Date() : submission.gradedAt,
                 },
                 include: submissionAttachmentsInclude,
             });
@@ -435,6 +508,7 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
                 validateAssignmentFiles(files);
             }
             const legacyFields = legacyAssignmentFieldsFromFiles(files ?? []);
+            const grading = resolveGradingFields(body);
             const assignment = await this.prisma.assignment.create({
                 data: {
                     title: body.title,
@@ -443,7 +517,8 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
                     courseId: body.courseId,
                     assignedToAdminId: body.assignedToAdminId,
                     dueAt: body.dueAt ? new Date(body.dueAt) : null,
-                    maxPoints: body.maxPoints,
+                    gradingMode: grading.gradingMode,
+                    maxPoints: grading.maxPoints,
                     allowResubmissions: body.allowResubmissions ?? true,
                     maxAttempts: body.maxAttempts,
                     createdByAdminId: adminId,
@@ -566,6 +641,10 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
             if (fileUpdate.shouldUpdate) {
                 validateAssignmentFiles(fileUpdate.files ?? []);
             }
+            const grading = resolveGradingFields(body, {
+                gradingMode: assignment.gradingMode,
+                maxPoints: assignment.maxPoints,
+            });
             const updated = await this.prisma.$transaction(async (tx) => {
                 if (fileUpdate.shouldUpdate) {
                     await tx.assignmentAttachment.deleteMany({
@@ -582,7 +661,8 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
                         description: body.description,
                         instructions: body.instructions,
                         dueAt: body.dueAt ? new Date(body.dueAt) : body.dueAt,
-                        maxPoints: body.maxPoints,
+                        gradingMode: grading.gradingMode,
+                        maxPoints: grading.maxPoints,
                         allowResubmissions: body.allowResubmissions,
                         maxAttempts: body.maxAttempts,
                         isActive: body.isActive,
@@ -948,7 +1028,7 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
         await this.safeNotify('assignment-graded', async () => {
             const assignment = await this.prisma.assignment.findUnique({
                 where: { id: args.assignmentId },
-                select: { title: true, maxPoints: true },
+                select: { title: true, maxPoints: true, gradingMode: true },
             });
             if (!assignment)
                 return;
@@ -965,6 +1045,7 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
                     submissionStatus: args.submissionStatus,
                     score: args.score,
                     maxPoints: assignment.maxPoints,
+                    gradingMode: assignment.gradingMode,
                     feedback: args.feedback,
                 },
                 dedupeKey,
@@ -982,6 +1063,7 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
                         submissionStatus: args.submissionStatus,
                         score: args.score,
                         maxPoints: assignment.maxPoints,
+                        gradingMode: assignment.gradingMode,
                         feedback: args.feedback,
                     }),
                 },

@@ -82,6 +82,7 @@ export type NotificationEmail = {
     submissionStatus: 'submitted' | 'in_review' | 'approved' | 'rejected' | 'returned';
     score?: number | null;
     maxPoints?: number | null;
+    gradingMode?: 'numeric' | 'pass_fail';
     feedback?: string | null;
 } | {
     kind: 'REGISTRATION_SUBMITTED';

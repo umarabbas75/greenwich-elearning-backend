@@ -191,11 +191,27 @@ export function renderNotificationEmail(
       const title = escapeHtml(mail.assignmentTitle);
       const url = studentAssignmentDetail(mail.assignmentId);
       const copy = SUBMISSION_STATUS_COPY[mail.submissionStatus];
-      const scoreLine =
-        typeof mail.score === 'number'
+      const passFailResult =
+        mail.gradingMode === 'pass_fail' &&
+        (mail.submissionStatus === 'approved' ||
+          mail.submissionStatus === 'rejected')
+          ? mail.submissionStatus === 'approved'
+            ? 'Passed'
+            : 'Did not pass'
+          : null;
+      const resultHtml = passFailResult
+        ? `<p style="margin-top:8px;">Result: <strong>${passFailResult}</strong></p>`
+        : typeof mail.score === 'number'
           ? `<p style="margin-top:8px;">Score: <strong>${mail.score}${
               typeof mail.maxPoints === 'number' ? ` / ${mail.maxPoints}` : ''
             }</strong></p>`
+          : '';
+      const resultText = passFailResult
+        ? `\nResult: ${passFailResult}`
+        : typeof mail.score === 'number'
+          ? `\nScore: ${mail.score}${
+              typeof mail.maxPoints === 'number' ? ` / ${mail.maxPoints}` : ''
+            }`
           : '';
       const feedbackLine = mail.feedback
         ? `<p style="margin-top:8px;padding:12px 16px;background:#f4f5f7;border-radius:8px;font-style:italic;">"${escapeHtml(
@@ -203,7 +219,7 @@ export function renderNotificationEmail(
           )}"</p>`
         : '';
       const body = `<p>Dear ${name},</p>
-        <p style="margin-top:12px;">Your submission for <strong>${title}</strong> ${copy.sentence}.</p>${scoreLine}${feedbackLine}`;
+        <p style="margin-top:12px;">Your submission for <strong>${title}</strong> ${copy.sentence}.</p>${resultHtml}${feedbackLine}`;
       return {
         subject: `Update on your submission: ${mail.assignmentTitle}`,
         html: layout({
@@ -214,13 +230,7 @@ export function renderNotificationEmail(
         }),
         text: `Dear ${
           mail.recipientFirstName || 'there'
-        },\n\nYour submission for "${mail.assignmentTitle}" ${copy.sentence}.${
-          typeof mail.score === 'number'
-            ? `\nScore: ${mail.score}${
-                typeof mail.maxPoints === 'number' ? ` / ${mail.maxPoints}` : ''
-              }`
-            : ''
-        }${
+        },\n\nYour submission for "${mail.assignmentTitle}" ${copy.sentence}.${resultText}${
           mail.feedback ? `\nFeedback: ${mail.feedback}` : ''
         }\n\nView it: ${url}\n\nKind regards,\nThe ${BRAND.name} Team`,
       };

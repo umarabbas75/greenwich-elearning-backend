@@ -122,6 +122,7 @@ export type NotificationEmail =
         | 'returned';
       score?: number | null;
       maxPoints?: number | null;
+      gradingMode?: 'numeric' | 'pass_fail';
       feedback?: string | null;
     }
   | {
