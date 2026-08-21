@@ -136,6 +136,43 @@ describe('AssignmentService gradingMode', () => {
       },
     };
 
+    it('accepts a string score when approving a numeric assignment', async () => {
+      prisma.assignmentSubmission.findUnique.mockResolvedValue(
+        numericSubmission,
+      );
+      prisma.assignmentSubmission.update.mockResolvedValue({
+        ...numericSubmission,
+        status: AssignmentSubmissionStatus.approved,
+        score: 87,
+        attachments: [],
+        assignment: {
+          id: 'asg-1',
+          title: 'Mock',
+          gradingMode: AssignmentGradingMode.numeric,
+          maxPoints: 100,
+        },
+      });
+      prisma.assignment.findUnique.mockResolvedValue({
+        title: 'Mock',
+        maxPoints: 100,
+        gradingMode: AssignmentGradingMode.numeric,
+      });
+
+      await service.reviewSubmission('admin-1', {
+        submissionId: 'sub-1',
+        status: AssignmentSubmissionStatus.approved,
+        score: '87',
+      });
+
+      expect(prisma.assignmentSubmission.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            score: 87,
+          }),
+        }),
+      );
+    });
+
     it('requires score when approving a numeric assignment', async () => {
       prisma.assignmentSubmission.findUnique.mockResolvedValue(numericSubmission);
 
@@ -147,6 +184,44 @@ describe('AssignmentService gradingMode', () => {
       ).rejects.toBeInstanceOf(HttpException);
 
       expect(prisma.assignmentSubmission.update).not.toHaveBeenCalled();
+    });
+
+    it('ignores score: null on pass_fail review', async () => {
+      prisma.assignmentSubmission.findUnique.mockResolvedValue(
+        passFailSubmission,
+      );
+      prisma.assignmentSubmission.update.mockResolvedValue({
+        ...passFailSubmission,
+        status: AssignmentSubmissionStatus.approved,
+        score: null,
+        attachments: [],
+        assignment: {
+          id: 'asg-1',
+          title: 'Practical',
+          gradingMode: AssignmentGradingMode.pass_fail,
+          maxPoints: null,
+        },
+      });
+      prisma.assignment.findUnique.mockResolvedValue({
+        title: 'Practical',
+        maxPoints: null,
+        gradingMode: AssignmentGradingMode.pass_fail,
+      });
+
+      await service.reviewSubmission('admin-1', {
+        submissionId: 'sub-1',
+        status: AssignmentSubmissionStatus.approved,
+        score: null,
+      });
+
+      expect(prisma.assignmentSubmission.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: AssignmentSubmissionStatus.approved,
+            score: null,
+          }),
+        }),
+      );
     });
 
     it('rejects score on pass_fail review', async () => {

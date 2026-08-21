@@ -167,10 +167,30 @@ function parseGradingMode(
   throw new Error("gradingMode must be 'numeric' or 'pass_fail'");
 }
 
+/** Treat omitted / null / '' as unset; coerce numeric strings from form JSON. */
+function coerceOptionalNumber(
+  value: unknown,
+  field: string,
+): number | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  throw new Error(`${field} must be a number`);
+}
+
 function resolveGradingFields(
   input: {
     gradingMode?: AssignmentGradingMode | string;
-    maxPoints?: number | null;
+    maxPoints?: number | null | string;
   },
   existing?: {
     gradingMode: AssignmentGradingMode;
@@ -189,13 +209,14 @@ function resolveGradingFields(
     return { gradingMode, maxPoints: null };
   }
 
-  if (typeof input.maxPoints === 'number') {
-    if (!Number.isFinite(input.maxPoints) || input.maxPoints <= 0) {
+  const maxPointsInput = coerceOptionalNumber(input.maxPoints, 'maxPoints');
+  if (typeof maxPointsInput === 'number') {
+    if (maxPointsInput <= 0) {
       throw new Error(
         'maxPoints must be a positive number for numeric assignments',
       );
     }
-    return { gradingMode, maxPoints: input.maxPoints };
+    return { gradingMode, maxPoints: maxPointsInput };
   }
 
   if (input.maxPoints === null) {
@@ -399,7 +420,7 @@ interface ReviewSubmissionInput {
   submissionId: string;
   status?: AssignmentSubmissionStatus;
   feedback?: string;
-  score?: number | null;
+  score?: number | null | string;
 }
 
 @Injectable()
@@ -686,29 +707,28 @@ export class AssignmentService {
 
       const gradingMode = submission.assignment.gradingMode;
       const nextStatus = body.status ?? AssignmentSubmissionStatus.in_review;
-      const scoreProvided = body.score !== undefined;
+      const score = coerceOptionalNumber(body.score, 'score');
       const isFinalDecision =
         nextStatus === AssignmentSubmissionStatus.approved ||
         nextStatus === AssignmentSubmissionStatus.rejected;
 
       let nextScore: number | null;
       if (gradingMode === AssignmentGradingMode.pass_fail) {
-        if (scoreProvided) {
+        if (typeof score === 'number') {
           throw new Error(
             'Do not send score for pass/fail assignments. Pass is approved; fail is rejected.',
           );
         }
         nextScore = null;
       } else if (isFinalDecision) {
-        if (typeof body.score !== 'number') {
+        if (typeof score !== 'number') {
           throw new Error(
             'score is required when approving or rejecting a numeric assignment',
           );
         }
-        nextScore = body.score;
+        nextScore = score;
       } else {
-        nextScore =
-          typeof body.score === 'number' ? body.score : submission.score;
+        nextScore = typeof score === 'number' ? score : submission.score;
       }
 
       const updated = await this.prisma.assignmentSubmission.update({
@@ -760,7 +780,7 @@ export class AssignmentService {
       assignedToAdminId: string; // Admin who will review submissions
       dueAt?: string;
       gradingMode?: AssignmentGradingMode | string;
-      maxPoints?: number | null;
+      maxPoints?: number | null | string;
       allowResubmissions?: boolean;
       maxAttempts?: number;
       assignmentFiles?: FileInput[];
@@ -951,7 +971,7 @@ export class AssignmentService {
       instructions?: string;
       dueAt?: string;
       gradingMode?: AssignmentGradingMode | string;
-      maxPoints?: number | null;
+      maxPoints?: number | null | string;
       allowResubmissions?: boolean;
       maxAttempts?: number;
       assignmentFiles?: FileInput[];

@@ -80,7 +80,7 @@ export class AssignmentController {
       submissionId: string;
       status?: AssignmentSubmissionStatus;
       feedback?: string;
-      score?: number | null;
+      score?: number | null | string;
     },
   ): Promise<ResponseDto> {
     return this.assignmentService.reviewSubmission(user.id, body);
@@ -100,7 +100,7 @@ export class AssignmentController {
       assignedToAdminId: string; // Admin who will review submissions
       dueAt?: string; // ISO date string
       gradingMode?: 'numeric' | 'pass_fail';
-      maxPoints?: number | null;
+      maxPoints?: number | null | string;
       allowResubmissions?: boolean;
       maxAttempts?: number;
       assignmentFiles?: Array<{
@@ -152,7 +152,7 @@ export class AssignmentController {
       instructions?: string;
       dueAt?: string;
       gradingMode?: 'numeric' | 'pass_fail';
-      maxPoints?: number | null;
+      maxPoints?: number | null | string;
       allowResubmissions?: boolean;
       maxAttempts?: number;
       assignmentFiles?: Array<{

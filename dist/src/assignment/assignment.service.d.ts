@@ -19,7 +19,7 @@ interface ReviewSubmissionInput {
     submissionId: string;
     status?: AssignmentSubmissionStatus;
     feedback?: string;
-    score?: number | null;
+    score?: number | null | string;
 }
 export declare class AssignmentService {
     private prisma;
@@ -40,7 +40,7 @@ export declare class AssignmentService {
         assignedToAdminId: string;
         dueAt?: string;
         gradingMode?: AssignmentGradingMode | string;
-        maxPoints?: number | null;
+        maxPoints?: number | null | string;
         allowResubmissions?: boolean;
         maxAttempts?: number;
         assignmentFiles?: FileInput[];
@@ -57,7 +57,7 @@ export declare class AssignmentService {
         instructions?: string;
         dueAt?: string;
         gradingMode?: AssignmentGradingMode | string;
-        maxPoints?: number | null;
+        maxPoints?: number | null | string;
         allowResubmissions?: boolean;
         maxAttempts?: number;
         assignmentFiles?: FileInput[];
