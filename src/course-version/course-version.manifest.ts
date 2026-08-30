@@ -937,6 +937,9 @@ export async function loadManifestForVersion(
   prisma: Db,
   versionId: string,
 ): Promise<CourseVersionManifest | null> {
+  if (!versionId) {
+    return null;
+  }
   const cached = getCachedManifest(versionId);
   if (cached) {
     return cached;

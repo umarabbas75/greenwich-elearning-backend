@@ -1982,10 +1982,22 @@ export class CourseVersionService {
         };
   }> {
     const CEILING = 500;
+    if (
+      typeof params.targetVersionId !== 'string' ||
+      !params.targetVersionId.trim()
+    ) {
+      throw new HttpException(
+        {
+          status: 400,
+          error: 'targetVersionId is required',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
     // Dedupe up front so a duplicate userId isn't attempted twice (which
     // would produce a duplicate audit row + a spurious
     // already_on_target_version on the second pass).
-    const userIds = Array.from(new Set(params.userIds));
+    const userIds = Array.from(new Set(params.userIds ?? []));
     if (userIds.length > CEILING) {
       throw new HttpException(
         {

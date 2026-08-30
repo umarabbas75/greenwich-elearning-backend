@@ -181,7 +181,12 @@ export declare enum SectionType {
     MATCH_AND_LEARN = "MATCH_AND_LEARN",
     VISUAL_ACTIVITY = "VISUAL_ACTIVITY",
     ORDERING = "ORDERING",
-    MATCHING = "MATCHING"
+    MATCHING = "MATCHING",
+    FLASHCARDS = "FLASHCARDS"
+}
+export declare enum FlashcardLayout {
+    GRID = "grid",
+    SINGLE = "single"
 }
 export declare class CreateSectionDto {
     title: string;
@@ -267,6 +272,24 @@ export declare class CreateMatchingSectionDto extends CreateSectionDto {
 export declare class UpdateMatchingSectionDto extends UpdateSectionDto {
     questionText?: string;
     pairs?: MatchingPairDto[];
+}
+export declare class FlashcardFaceDto {
+    text?: string;
+    imageUrl?: string;
+}
+export declare class FlashcardDto {
+    id: string;
+    front: FlashcardFaceDto;
+    back: FlashcardFaceDto;
+}
+export declare class CreateFlashcardsSectionDto extends CreateSectionDto {
+    type: SectionType.FLASHCARDS;
+    layout?: FlashcardLayout;
+    cards: FlashcardDto[];
+}
+export declare class UpdateFlashcardsSectionDto extends UpdateSectionDto {
+    layout?: FlashcardLayout;
+    cards?: FlashcardDto[];
 }
 export declare class SectionOrderItemDto {
     id: string;

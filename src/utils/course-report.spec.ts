@@ -304,6 +304,34 @@ describe('course-report', () => {
 
       expect(chapterWithAttempts.totalAttempts).toBe(5);
 
+      const flashcardsActivity = buildChapterActivityMaps({
+        progressRows: [],
+        lastSeenRows: [],
+        quizAnswerRows: [],
+        quizProgressRows: [],
+        timeSpentRows: [
+          { sectionId: 'sec-fc', totalSeconds: 40, totalAttempts: 7 },
+        ],
+      });
+      const flashcardsChapter = buildChapterReportRow({
+        id: 'ch-fc',
+        title: 'Key terms',
+        sectionMetas: [
+          {
+            id: 'sec-fc',
+            title: 'Flashcards',
+            orderIndex: 1,
+            type: 'FLASHCARDS',
+          },
+        ],
+        quizzesTotal: 0,
+        activity: flashcardsActivity,
+        chapterCompletedAt: null,
+        isFrozen: false,
+      });
+      expect(flashcardsChapter.sections[0].totalAttempts).toBeNull();
+      expect(flashcardsChapter.totalAttempts).toBe(0);
+
       const otherChapter = buildChapterReportRow({
         id: 'ch-2',
         title: 'Element 2',

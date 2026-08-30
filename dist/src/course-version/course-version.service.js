@@ -1044,7 +1044,14 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
     }
     async migrateLearnersToVersionBulk(adminId, courseId, params) {
         const CEILING = 500;
-        const userIds = Array.from(new Set(params.userIds));
+        if (typeof params.targetVersionId !== 'string' ||
+            !params.targetVersionId.trim()) {
+            throw new common_1.HttpException({
+                status: 400,
+                error: 'targetVersionId is required',
+            }, common_1.HttpStatus.BAD_REQUEST);
+        }
+        const userIds = Array.from(new Set(params.userIds ?? []));
         if (userIds.length > CEILING) {
             throw new common_1.HttpException({
                 status: 400,

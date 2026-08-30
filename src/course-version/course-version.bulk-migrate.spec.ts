@@ -163,6 +163,23 @@ describe('CourseVersionService.migrateLearnersToVersionBulk (PR 5)', () => {
     }
   });
 
+  it('throws 400 when targetVersionId is missing', async () => {
+    try {
+      await service.migrateLearnersToVersionBulk('admin-1', 'course-1', {
+        userIds: ['user-1'],
+        targetVersionId: undefined as any,
+        dryRun: true,
+      });
+      throw new Error('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(HttpException);
+      const res = (e as HttpException).getResponse() as any;
+      expect(res.status).toBe(400);
+      expect(res.error).toBe('targetVersionId is required');
+    }
+    expect(prisma.courseVersion.findFirst).not.toHaveBeenCalled();
+  });
+
   it('throws 404 when targetVersionId does not belong to the course', async () => {
     prisma.courseVersion.findFirst.mockResolvedValueOnce(null);
     await expect(

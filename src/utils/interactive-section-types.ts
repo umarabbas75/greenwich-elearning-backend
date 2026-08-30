@@ -1,5 +1,6 @@
 import { SectionType } from '@prisma/client';
 
+/** Types with a Check/verify step. FLASHCARDS is flip-to-reveal only — not included. */
 const INTERACTIVE_SECTION_TYPES = new Set<SectionType>([
   SectionType.MATCH_AND_LEARN,
   SectionType.VISUAL_ACTIVITY,

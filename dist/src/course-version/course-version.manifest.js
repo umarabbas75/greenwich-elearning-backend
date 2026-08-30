@@ -507,6 +507,9 @@ function resetManifestCache() {
 }
 exports.resetManifestCache = resetManifestCache;
 async function loadManifestForVersion(prisma, versionId) {
+    if (!versionId) {
+        return null;
+    }
     const cached = getCachedManifest(versionId);
     if (cached) {
         return cached;

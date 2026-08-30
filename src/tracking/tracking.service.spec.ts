@@ -83,6 +83,20 @@ describe('TrackingService.recordSectionAttempt', () => {
     ).rejects.toBeInstanceOf(HttpException);
   });
 
+  it('returns 400 for FLASHCARDS sections', async () => {
+    prisma.section.findUnique.mockResolvedValue({
+      id: 'sec-1',
+      type: SectionType.FLASHCARDS,
+      chapterId: 'ch-1',
+      moduleId: 'mod-1',
+      chapter: { moduleId: 'mod-1', module: { courseId: 'course-1' } },
+    });
+
+    await expect(
+      service.recordSectionAttempt('user-1', 'sec-1', true),
+    ).rejects.toBeInstanceOf(HttpException);
+  });
+
   it('returns 403 when user is not enrolled', async () => {
     prisma.section.findUnique.mockResolvedValue({
       id: 'sec-1',

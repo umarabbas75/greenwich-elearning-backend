@@ -18,11 +18,13 @@ import {
   CreateVisualActivitySectionDto,
   CreateOrderingSectionDto,
   CreateMatchingSectionDto,
+  CreateFlashcardsSectionDto,
   UpdateSectionDto,
   UpdateMatchAndLearnSectionDto,
   UpdateVisualActivitySectionDto,
   UpdateOrderingSectionDto,
   UpdateMatchingSectionDto,
+  UpdateFlashcardsSectionDto,
   UpdateSectionOrderDto,
   SectionType,
 } from '../dto';
@@ -39,6 +41,7 @@ import {
   SectionReportMeta,
 } from '../utils/course-report';
 import { assertNoInlineBase64 } from '../utils/reject-inline-base64';
+import { buildFlashcardsConfig, FlashcardsConfig } from '../utils/flashcards-section';
 import { promoteFormPhotoToUserIfMissing } from '../utils/promote-form-photo-to-user';
 import { promoteFormAddressToUserIfMissing } from '../utils/promote-form-address-to-user';
 import { assertValidAdvisorReviewMetadata, evaluateRegistrationAccess, getAdvisorComments, getAdvisorRegistrationStatus, isV2BookingMetadata } from '../utils/advisor-review-metadata';
@@ -2218,7 +2221,8 @@ export class CourseService {
       | CreateMatchAndLearnSectionDto
       | CreateVisualActivitySectionDto
       | CreateOrderingSectionDto
-      | CreateMatchingSectionDto,
+      | CreateMatchingSectionDto
+      | CreateFlashcardsSectionDto,
     adminId?: string,
   ): Promise<ResponseDto> {
     try {
@@ -2292,6 +2296,15 @@ export class CourseService {
         data.type = SectionType.MATCHING as any;
         data.questionText = mat.questionText ?? null;
         data.config = { pairs: mat.pairs } as unknown as Prisma.InputJsonValue;
+      }
+
+      if (body.type === SectionType.FLASHCARDS) {
+        const fc = body as CreateFlashcardsSectionDto;
+        data.type = SectionType.FLASHCARDS as any;
+        data.config = buildFlashcardsConfig(
+          fc.cards,
+          fc.layout,
+        ) as unknown as Prisma.InputJsonValue;
       }
 
       const section: Section = await this.prisma.section.create({
@@ -3678,6 +3691,7 @@ export class CourseService {
       | UpdateVisualActivitySectionDto
       | UpdateOrderingSectionDto
       | UpdateMatchingSectionDto
+      | UpdateFlashcardsSectionDto
       | any,
   ): Promise<ResponseDto> {
     try {
@@ -3820,6 +3834,22 @@ export class CourseService {
           updateData.config = {
             pairs: mat.pairs,
           } as unknown as Prisma.InputJsonValue;
+        }
+      }
+
+      if (
+        sectionType === SectionType.FLASHCARDS ||
+        body.type === SectionType.FLASHCARDS
+      ) {
+        const fc = body as UpdateFlashcardsSectionDto;
+        if (fc.cards !== undefined || fc.layout !== undefined) {
+          const existingCfg = isSectionExist.config as FlashcardsConfig | null;
+          const cards = fc.cards ?? existingCfg?.cards;
+          const layout = fc.layout ?? existingCfg?.layout ?? 'grid';
+          updateData.config = buildFlashcardsConfig(
+            cards,
+            layout,
+          ) as unknown as Prisma.InputJsonValue;
         }
       }
 

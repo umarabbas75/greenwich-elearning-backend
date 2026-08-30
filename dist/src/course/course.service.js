@@ -19,6 +19,7 @@ const prisma_service_1 = require("../prisma/prisma.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
 const course_report_1 = require("../utils/course-report");
 const reject_inline_base64_1 = require("../utils/reject-inline-base64");
+const flashcards_section_1 = require("../utils/flashcards-section");
 const promote_form_photo_to_user_1 = require("../utils/promote-form-photo-to-user");
 const promote_form_address_to_user_1 = require("../utils/promote-form-address-to-user");
 const advisor_review_metadata_1 = require("../utils/advisor-review-metadata");
@@ -1633,6 +1634,11 @@ let CourseService = CourseService_1 = class CourseService {
                 data.questionText = mat.questionText ?? null;
                 data.config = { pairs: mat.pairs };
             }
+            if (body.type === dto_1.SectionType.FLASHCARDS) {
+                const fc = body;
+                data.type = dto_1.SectionType.FLASHCARDS;
+                data.config = (0, flashcards_section_1.buildFlashcardsConfig)(fc.cards, fc.layout);
+            }
             const section = await this.prisma.section.create({
                 data,
             });
@@ -2809,6 +2815,16 @@ let CourseService = CourseService_1 = class CourseService {
                     updateData.config = {
                         pairs: mat.pairs,
                     };
+                }
+            }
+            if (sectionType === dto_1.SectionType.FLASHCARDS ||
+                body.type === dto_1.SectionType.FLASHCARDS) {
+                const fc = body;
+                if (fc.cards !== undefined || fc.layout !== undefined) {
+                    const existingCfg = isSectionExist.config;
+                    const cards = fc.cards ?? existingCfg?.cards;
+                    const layout = fc.layout ?? existingCfg?.layout ?? 'grid';
+                    updateData.config = (0, flashcards_section_1.buildFlashcardsConfig)(cards, layout);
                 }
             }
             if (Object.keys(updateData).length === 0) {

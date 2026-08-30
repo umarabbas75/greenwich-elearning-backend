@@ -27,7 +27,7 @@ Chapter quizzes already expose `quiz.attempts` on the course report. This featur
 
 - **Submit** (mark section complete) does **not** add a separate attempt if Check / auto-verify already counted the successful try.
 - **Reset** does not increment; the next Check / fill cycle does.
-- **`DEFAULT`** sections: FE never calls this endpoint; report shows `—`.
+- **`DEFAULT`** and **`FLASHCARDS`** sections: FE never calls this endpoint; report shows `—`.
 - **After completion:** FE stops logging if `isCompleted === true` (count frozen at first pass).
 
 **Body field `isCorrect`:** `true` when the verification passed, `false` when wrong. Stored for optional analytics; report only needs `totalAttempts` (count all tries, correct or not).
@@ -62,7 +62,7 @@ Content-Type: application/json
 
 - User from JWT — **never** accept `userId` in body.
 - Resolve `sectionId` → chapter → module → course; reject if section missing or user not enrolled.
-- **Only increment** for interactive section types listed above; return `400` for `DEFAULT` (or no-op with `totalAttempts: 0` — pick one and document).
+- **Only increment** for interactive section types listed above; return `400` for `DEFAULT` and `FLASHCARDS`.
 
 **Idempotency:** Not required for v1. FE debounces rapid double-clicks with a short in-flight guard. Server should use atomic `UPDATE … SET totalAttempts = totalAttempts + 1`.
 

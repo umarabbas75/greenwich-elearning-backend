@@ -6,6 +6,7 @@ import {
   getQuizBearingChapterIdsFromManifest,
   getSectionIdsFromManifest,
   isIdReferencedInManifest,
+  loadManifestForVersion,
   parseManifest,
 } from './course-version.manifest';
 
@@ -54,6 +55,17 @@ describe('course-version.manifest', () => {
     expect(parseManifest(manifestA)).toEqual(manifestA);
     expect(parseManifest(null)).toBeNull();
     expect(parseManifest({})).toBeNull();
+  });
+
+  it('loadManifestForVersion returns null without querying when versionId is missing', async () => {
+    const prisma = {
+      courseVersion: { findUnique: jest.fn() },
+    };
+    await expect(
+      loadManifestForVersion(prisma as any, undefined as any),
+    ).resolves.toBeNull();
+    await expect(loadManifestForVersion(prisma as any, '')).resolves.toBeNull();
+    expect(prisma.courseVersion.findUnique).not.toHaveBeenCalled();
   });
 
   it('counts sections and extracts ids', () => {

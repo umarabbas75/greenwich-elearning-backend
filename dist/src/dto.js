@@ -9,8 +9,8 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AddAssessmentQuestionDto = exports.UpdateAssessmentDto = exports.CreateAssessmentDto = exports.AssessmentAutoConfigDto = exports.AutoConfigDifficultyDto = exports.AutoConfigCategoryDto = exports.UpdateQuestionDto = exports.CreateQuestionDto = exports.UpdateQuestionCategoryDto = exports.CreateQuestionCategoryDto = exports.UpdateChapterQuizOrderDto = exports.QuizOrderItemDto = exports.UpdateSectionOrderDto = exports.SectionOrderItemDto = exports.UpdateMatchingSectionDto = exports.CreateMatchingSectionDto = exports.MatchingPairDto = exports.UpdateOrderingSectionDto = exports.CreateOrderingSectionDto = exports.OrderingItemDto = exports.UpdateVisualActivitySectionDto = exports.CreateVisualActivitySectionDto = exports.VisualActivityOptionDto = exports.UpdateMatchAndLearnSectionDto = exports.UpdateSectionDto = exports.CreateMatchAndLearnSectionDto = exports.MatchAndLearnItemDto = exports.CreateSectionDto = exports.SectionType = exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.UpdateFormMetadataDto = exports.MarkFormCompleteDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.SetCourseActiveDto = exports.CourseDto = exports.ForceChangePasswordDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
-exports.SectionAttemptDto = exports.TrackingHeartbeatDto = exports.ResetPasswordDto = exports.VerifyOtpDto = exports.ForgotPasswordResendDto = exports.ForgotPasswordRequestDto = exports.ResetUserCourseProgressDto = exports.SetCertificateDto = exports.GradeAttemptDto = exports.QuestionScoreDto = exports.SubmitAttemptDto = exports.AnswerItemDto = exports.StartAttemptDto = exports.ReorderAssessmentQuestionsDto = exports.ReorderQuestionItemDto = void 0;
+exports.AutoConfigCategoryDto = exports.UpdateQuestionDto = exports.CreateQuestionDto = exports.UpdateQuestionCategoryDto = exports.CreateQuestionCategoryDto = exports.UpdateChapterQuizOrderDto = exports.QuizOrderItemDto = exports.UpdateSectionOrderDto = exports.SectionOrderItemDto = exports.UpdateFlashcardsSectionDto = exports.CreateFlashcardsSectionDto = exports.FlashcardDto = exports.FlashcardFaceDto = exports.UpdateMatchingSectionDto = exports.CreateMatchingSectionDto = exports.MatchingPairDto = exports.UpdateOrderingSectionDto = exports.CreateOrderingSectionDto = exports.OrderingItemDto = exports.UpdateVisualActivitySectionDto = exports.CreateVisualActivitySectionDto = exports.VisualActivityOptionDto = exports.UpdateMatchAndLearnSectionDto = exports.UpdateSectionDto = exports.CreateMatchAndLearnSectionDto = exports.MatchAndLearnItemDto = exports.CreateSectionDto = exports.FlashcardLayout = exports.SectionType = exports.UpdateLastSeen = exports.GetUpdateLastSeen = exports.CheckQuiz = exports.ParamsDto1 = exports.ParamsDto = exports.ModuleDto = exports.AssignCourseDto = exports.UpdateFormMetadataDto = exports.MarkFormCompleteDto = exports.UpdateCourseProgress = exports.UpdateCourseDto = exports.AssignQuizDto = exports.UpdateQuizDto = exports.QuizDto = exports.SetCourseActiveDto = exports.CourseDto = exports.ForceChangePasswordDto = exports.LoginDto = exports.ChangePasswordDto = exports.BodyUpdateDto = exports.BodyDto = void 0;
+exports.SectionAttemptDto = exports.TrackingHeartbeatDto = exports.ResetPasswordDto = exports.VerifyOtpDto = exports.ForgotPasswordResendDto = exports.ForgotPasswordRequestDto = exports.ResetUserCourseProgressDto = exports.SetCertificateDto = exports.GradeAttemptDto = exports.QuestionScoreDto = exports.SubmitAttemptDto = exports.AnswerItemDto = exports.StartAttemptDto = exports.ReorderAssessmentQuestionsDto = exports.ReorderQuestionItemDto = exports.AddAssessmentQuestionDto = exports.UpdateAssessmentDto = exports.CreateAssessmentDto = exports.AssessmentAutoConfigDto = exports.AutoConfigDifficultyDto = void 0;
 const client_1 = require("@prisma/client");
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
@@ -545,7 +545,13 @@ var SectionType;
     SectionType["VISUAL_ACTIVITY"] = "VISUAL_ACTIVITY";
     SectionType["ORDERING"] = "ORDERING";
     SectionType["MATCHING"] = "MATCHING";
+    SectionType["FLASHCARDS"] = "FLASHCARDS";
 })(SectionType || (exports.SectionType = SectionType = {}));
+var FlashcardLayout;
+(function (FlashcardLayout) {
+    FlashcardLayout["GRID"] = "grid";
+    FlashcardLayout["SINGLE"] = "single";
+})(FlashcardLayout || (exports.FlashcardLayout = FlashcardLayout = {}));
 class CreateSectionDto {
     constructor() {
         this.type = SectionType.DEFAULT;
@@ -897,6 +903,72 @@ __decorate([
     (0, class_validator_1.ArrayMinSize)(2),
     __metadata("design:type", Array)
 ], UpdateMatchingSectionDto.prototype, "pairs", void 0);
+class FlashcardFaceDto {
+}
+exports.FlashcardFaceDto = FlashcardFaceDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], FlashcardFaceDto.prototype, "text", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], FlashcardFaceDto.prototype, "imageUrl", void 0);
+class FlashcardDto {
+}
+exports.FlashcardDto = FlashcardDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], FlashcardDto.prototype, "id", void 0);
+__decorate([
+    (0, class_validator_1.ValidateNested)(),
+    (0, class_transformer_1.Type)(() => FlashcardFaceDto),
+    __metadata("design:type", FlashcardFaceDto)
+], FlashcardDto.prototype, "front", void 0);
+__decorate([
+    (0, class_validator_1.ValidateNested)(),
+    (0, class_transformer_1.Type)(() => FlashcardFaceDto),
+    __metadata("design:type", FlashcardFaceDto)
+], FlashcardDto.prototype, "back", void 0);
+class CreateFlashcardsSectionDto extends CreateSectionDto {
+}
+exports.CreateFlashcardsSectionDto = CreateFlashcardsSectionDto;
+__decorate([
+    (0, class_validator_1.IsEnum)(SectionType),
+    __metadata("design:type", String)
+], CreateFlashcardsSectionDto.prototype, "type", void 0);
+__decorate([
+    (0, class_validator_1.IsEnum)(FlashcardLayout),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], CreateFlashcardsSectionDto.prototype, "layout", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => FlashcardDto),
+    (0, class_validator_1.ArrayMinSize)(1, { message: 'At least 1 flashcard is required' }),
+    __metadata("design:type", Array)
+], CreateFlashcardsSectionDto.prototype, "cards", void 0);
+class UpdateFlashcardsSectionDto extends UpdateSectionDto {
+}
+exports.UpdateFlashcardsSectionDto = UpdateFlashcardsSectionDto;
+__decorate([
+    (0, class_validator_1.IsEnum)(FlashcardLayout),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], UpdateFlashcardsSectionDto.prototype, "layout", void 0);
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => FlashcardDto),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.ArrayMinSize)(1, { message: 'At least 1 flashcard is required' }),
+    __metadata("design:type", Array)
+], UpdateFlashcardsSectionDto.prototype, "cards", void 0);
 class SectionOrderItemDto {
 }
 exports.SectionOrderItemDto = SectionOrderItemDto;

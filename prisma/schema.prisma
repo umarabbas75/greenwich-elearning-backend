@@ -431,10 +431,11 @@ model Section {
   // JSON storage for flexible data
   items            Json?  // MATCH_AND_LEARN + ORDERING (orderable rows)
   options          Json?  // VISUAL_ACTIVITY (array of option objects)
-  config           Json?  // ORDERING: { correctOrder }; MATCHING: { pairs }
+  config           Json?  // ORDERING: { correctOrder }; MATCHING: { pairs }; FLASHCARDS: { layout, cards }
 
   // ORDERING — orderable items in `items` JSON; correct sequence in `config.correctOrder`
   // MATCHING — `config.pairs` as [{ id, left, right }]; optional `questionText`
+  // FLASHCARDS — `config` as { layout: "grid"|"single", cards: [{ id, front, back }] }
   
   LastSeenSection    LastSeenSection[]
   UserCourseProgress UserCourseProgress[]
@@ -815,6 +816,7 @@ enum SectionType {
   ORDERING
   MATCHING
   EMBED
+  FLASHCARDS
   @@map("section_type")
 }
 

@@ -187,7 +187,7 @@ Type: `LearnerChapterSection` in `src/lib/course/sortSectionsByOrderIndex.ts:2-2
 | Key (section, nested under chapter)                     | Meaning                                                                                                                                      |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `status`, `openedAt`, `completedAt`, `timeSpentSeconds` | —                                                                                                                                            |
-| `totalAttempts`                                         | `number` for interactive types (`MATCH_AND_LEARN`, `VISUAL_ACTIVITY`, `ORDERING`, `MATCHING`); `null` for `DEFAULT` (reading/video) sections |
+| `totalAttempts`                                         | `number` for interactive types (`MATCH_AND_LEARN`, `VISUAL_ACTIVITY`, `ORDERING`, `MATCHING`); `null` for `DEFAULT` and `FLASHCARDS` (no Check/verify) |
 
 All the report-level helpers (`getChapterQuizSummary`, `chapterHasQuiz`,
 `getReportChapterStatus`, `getReportModuleStatus`, `formatQuizGradeForReport`,
@@ -346,6 +346,9 @@ Two different completion mechanics depending on section `type`:
   `MATCHING`): the learner must **Check**/auto-verify their answer at least
   once. Every check calls `useSectionAttemptLogger` (see § 7) and, on success,
   flips the section to completed via the same mutation as `DEFAULT`.
+
+- **`FLASHCARDS`**: require every card flipped at least once, then the same
+  mark-complete mutation. Do **not** call `useSectionAttemptLogger`.
 
 Both paths converge on one mutation:
 

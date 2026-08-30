@@ -481,6 +481,12 @@ export enum SectionType {
   VISUAL_ACTIVITY = 'VISUAL_ACTIVITY',
   ORDERING = 'ORDERING',
   MATCHING = 'MATCHING',
+  FLASHCARDS = 'FLASHCARDS',
+}
+
+export enum FlashcardLayout {
+  GRID = 'grid',
+  SINGLE = 'single',
 }
 
 export class CreateSectionDto {
@@ -759,6 +765,58 @@ export class UpdateMatchingSectionDto extends UpdateSectionDto {
   @IsOptional()
   @ArrayMinSize(2)
   pairs?: MatchingPairDto[];
+}
+
+export class FlashcardFaceDto {
+  @IsString()
+  @IsOptional()
+  text?: string;
+
+  @IsString()
+  @IsOptional()
+  imageUrl?: string;
+}
+
+export class FlashcardDto {
+  @IsString()
+  @IsNotEmpty()
+  id: string;
+
+  @ValidateNested()
+  @Type(() => FlashcardFaceDto)
+  front: FlashcardFaceDto;
+
+  @ValidateNested()
+  @Type(() => FlashcardFaceDto)
+  back: FlashcardFaceDto;
+}
+
+export class CreateFlashcardsSectionDto extends CreateSectionDto {
+  @IsEnum(SectionType)
+  type: SectionType.FLASHCARDS;
+
+  @IsEnum(FlashcardLayout)
+  @IsOptional()
+  layout?: FlashcardLayout;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FlashcardDto)
+  @ArrayMinSize(1, { message: 'At least 1 flashcard is required' })
+  cards: FlashcardDto[];
+}
+
+export class UpdateFlashcardsSectionDto extends UpdateSectionDto {
+  @IsEnum(FlashcardLayout)
+  @IsOptional()
+  layout?: FlashcardLayout;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FlashcardDto)
+  @IsOptional()
+  @ArrayMinSize(1, { message: 'At least 1 flashcard is required' })
+  cards?: FlashcardDto[];
 }
 
 // Bulk update orderIndex DTO
