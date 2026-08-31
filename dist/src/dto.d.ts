@@ -87,6 +87,10 @@ export declare class AssignQuizDto {
     chapterId: string;
     quizId: string;
 }
+export declare class BulkAssignQuizDto {
+    chapterId: string;
+    quizIds: string[];
+}
 export declare class UpdateCourseDto {
     title?: string;
     pdfFile?: string;

@@ -70,32 +70,87 @@ let QuizService = QuizService_1 = class QuizService {
             });
         }
     }
-    async getAllQuizzes(role) {
+    async getAllQuizzes(role, query) {
         try {
-            let quizzes = [];
-            if (role == 'admin') {
-                quizzes = await this.prisma.quiz.findMany({
-                    orderBy: {
-                        createdAt: 'desc',
-                    },
+            const paginate = query?.page !== undefined || query?.limit !== undefined;
+            const page = Math.max(1, query?.page ?? 1);
+            const limit = Math.min(Math.max(query?.limit ?? 50, 1), 100);
+            const conditions = [];
+            if (query?.search) {
+                conditions.push({
+                    question: { contains: query.search, mode: 'insensitive' },
                 });
             }
-            else if (role == 'user') {
-                quizzes = await this.prisma.quiz.findMany({
-                    orderBy: {
-                        createdAt: 'desc',
-                    },
+            if (query?.assigned === true) {
+                conditions.push({ chapterId: { not: null } });
+            }
+            else if (query?.assigned === false) {
+                conditions.push({ chapterId: null });
+            }
+            if (query?.courseId) {
+                const chaptersInCourse = await this.prisma.chapter.findMany({
+                    where: { module: { courseId: query.courseId } },
+                    select: { id: true },
+                });
+                conditions.push({
+                    chapterId: { in: chaptersInCourse.map((c) => c.id) },
+                });
+            }
+            if (!query?.includeArchived) {
+                conditions.push({ isArchived: false });
+            }
+            const where = conditions.length
+                ? { AND: conditions }
+                : {};
+            const chapterInclude = {
+                chapter: {
                     select: {
                         id: true,
-                        question: true,
-                        options: true,
+                        title: true,
+                        module: {
+                            select: {
+                                id: true,
+                                title: true,
+                                courseId: true,
+                                course: { select: { id: true, title: true } },
+                            },
+                        },
                     },
-                });
+                },
+            };
+            let quizzes = [];
+            let total;
+            if (role == 'admin') {
+                [quizzes, total] = await Promise.all([
+                    this.prisma.quiz.findMany({
+                        where,
+                        orderBy: { createdAt: 'desc' },
+                        include: chapterInclude,
+                        ...(paginate ? { skip: (page - 1) * limit, take: limit } : {}),
+                    }),
+                    this.prisma.quiz.count({ where }),
+                ]);
+            }
+            else if (role == 'user') {
+                [quizzes, total] = await Promise.all([
+                    this.prisma.quiz.findMany({
+                        where,
+                        orderBy: { createdAt: 'desc' },
+                        select: {
+                            id: true,
+                            question: true,
+                            options: true,
+                        },
+                        ...(paginate ? { skip: (page - 1) * limit, take: limit } : {}),
+                    }),
+                    this.prisma.quiz.count({ where }),
+                ]);
             }
             return {
                 message: 'Successfully fetch all Quizzes info',
                 statusCode: 200,
                 data: quizzes,
+                total,
             };
         }
         catch (error) {
@@ -456,6 +511,60 @@ let QuizService = QuizService_1 = class QuizService {
                     : 'Successfully assign quiz to chapter',
                 statusCode: 200,
                 data: {},
+                publishedVersion: publishedVersion ?? undefined,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async bulkAssignQuiz(chapterId, quizIds, adminId) {
+        try {
+            const uniqueIds = Array.from(new Set(quizIds));
+            if (uniqueIds.length === 0) {
+                throw new Error('No quizzes provided');
+            }
+            const chapter = await this.prisma.chapter.findUnique({
+                where: { id: chapterId },
+                include: { module: { select: { courseId: true } } },
+            });
+            if (!chapter) {
+                throw new Error('chapter not exist');
+            }
+            const existing = await this.prisma.quiz.findMany({
+                where: { id: { in: uniqueIds } },
+                select: { id: true },
+            });
+            const existingIds = new Set(existing.map((q) => q.id));
+            const missing = uniqueIds.filter((id) => !existingIds.has(id));
+            if (missing.length > 0) {
+                throw new Error(`Quiz(zes) not found: ${missing.join(', ')}`);
+            }
+            const maxOrder = await this.prisma.quiz.aggregate({
+                where: {
+                    chapterId,
+                    isArchived: false,
+                    id: { notIn: uniqueIds },
+                },
+                _max: { orderIndex: true },
+            });
+            let nextOrder = (maxOrder._max.orderIndex ?? -1) + 1;
+            await this.prisma.$transaction(uniqueIds.map((quizId) => this.prisma.quiz.update({
+                where: { id: quizId },
+                data: { chapterId, isArchived: false, orderIndex: nextOrder++ },
+            })));
+            const publishedVersion = await this.autoPublishAfterQuizChange(chapter.module.courseId, adminId, `Assigned ${uniqueIds.length} quiz(zes) to chapter "${chapter.title}"`);
+            return {
+                message: publishedVersion
+                    ? `Successfully assigned ${uniqueIds.length} quiz(zes) to chapter (published v${publishedVersion.versionNumber})`
+                    : `Successfully assigned ${uniqueIds.length} quiz(zes) to chapter`,
+                statusCode: 200,
+                data: { chapterId, quizIds: uniqueIds },
                 publishedVersion: publishedVersion ?? undefined,
             };
         }

@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Query,
   UseGuards,
   Put,
   Patch,
@@ -12,6 +13,7 @@ import {
 import { QuizService } from './quiz.service';
 import {
   AssignQuizDto,
+  BulkAssignQuizDto,
   CheckQuiz,
   ParamsDto,
   QuizDto,
@@ -36,8 +38,29 @@ export class QuizController {
   }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/')
-  getAllQuizzes(@GetUser() user: User): Promise<ResponseDto> {
-    return this.appService.getAllQuizzes(user.role);
+  getAllQuizzes(
+    @GetUser() user: User,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    // Named to match the frontend's useServerTable, which always sends
+    // `pageSize` (see EnrollmentsTable/ArchivedItemsTable for the convention).
+    @Query('pageSize') pageSize?: string,
+    @Query('courseId') courseId?: string,
+    @Query('assigned') assigned?: string,
+    @Query('includeArchived') includeArchived?: string,
+  ): Promise<ResponseDto> {
+    // page/pageSize are opt-in: omitting both preserves the old "return every
+    // quiz" behaviour so existing callers (e.g. AssignQuizModal, which needs
+    // the full bank to build its options list) keep working unchanged.
+    return this.appService.getAllQuizzes(user.role, {
+      search,
+      page: page ? Number(page) : undefined,
+      limit: pageSize ? Number(pageSize) : undefined,
+      courseId,
+      assigned:
+        assigned === 'true' ? true : assigned === 'false' ? false : undefined,
+      includeArchived: includeArchived === 'true',
+    });
   }
 
   @UseGuards(AuthGuard('cJwt'))
@@ -144,6 +167,23 @@ export class QuizController {
     @Param() params: AssignQuizDto,
   ): Promise<ResponseDto> {
     return this.appService.assignQuiz(params.quizId, params.chapterId, user.id);
+  }
+
+  // Bulk variant of assignQuiz: assigns N quizzes to one chapter in a single
+  // transaction and a single course-version publish, instead of the admin
+  // (or the frontend, looping) hitting assignQuiz N times — which would
+  // otherwise publish N course versions for one logical action.
+  @UseGuards(AuthGuard('jwt'))
+  @Put('/assignQuiz/bulk')
+  bulkAssignQuiz(
+    @GetUser() user: User,
+    @Body() body: BulkAssignQuizDto,
+  ): Promise<ResponseDto> {
+    return this.appService.bulkAssignQuiz(
+      body.chapterId,
+      body.quizIds,
+      user.id,
+    );
   }
 
   @UseGuards(AuthGuard('jwt'))

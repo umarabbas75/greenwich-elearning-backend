@@ -253,6 +253,16 @@ export class AssignQuizDto {
   @IsNotEmpty()
   quizId: string;
 }
+export class BulkAssignQuizDto {
+  @IsString()
+  @IsNotEmpty()
+  chapterId: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  quizIds: string[];
+}
 export class UpdateCourseDto {
   @IsOptional()
   @IsString()

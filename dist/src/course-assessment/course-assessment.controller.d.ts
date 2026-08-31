@@ -338,14 +338,14 @@ export declare class CourseAssessmentController {
         statusCode: number;
         data: ({
             user: {
-                id: string;
                 firstName: string;
                 lastName: string;
                 email: string;
+                id: string;
             };
             assessment: {
-                id: string;
                 title: string;
+                id: string;
             };
         } & {
             id: string;
@@ -373,10 +373,10 @@ export declare class CourseAssessmentController {
         statusCode: number;
         data: {
             user: {
-                id: string;
                 firstName: string;
                 lastName: string;
                 email: string;
+                id: string;
             };
             questionSnapshots: {
                 id: string;
@@ -537,13 +537,13 @@ export declare class CourseAssessmentController {
         statusCode: number;
         data: {
             assessment: {
-                maxAttempts: number;
-                id: string;
                 title: string;
                 description: string;
+                id: string;
                 mode: import(".prisma/client").$Enums.AssessmentMode;
                 passingPercentage: number;
                 timeLimitMinutes: number;
+                maxAttempts: number;
             };
             isEligible: boolean;
             remainingAttempts: number;
@@ -558,15 +558,15 @@ export declare class CourseAssessmentController {
                     remainingSeconds: number;
                     graceSeconds: number;
                 };
-                id: string;
                 status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
+                id: string;
                 isPassed: boolean;
-                submittedAt: Date;
                 snapshotTimeLimitMin: number;
                 totalMarks: number;
                 marksObtained: number;
                 percentage: number;
                 startedAt: Date;
+                submittedAt: Date;
                 finalizedAt: Date;
             }[];
         }[];
@@ -651,8 +651,8 @@ export declare class CourseAssessmentController {
             bestAttempt: {
                 id: string;
                 isPassed: boolean;
-                submittedAt: Date;
                 percentage: number;
+                submittedAt: Date;
                 finalizedAt: Date;
             };
         } & {

@@ -12,7 +12,14 @@ export declare class QuizService {
     constructor(prisma: PrismaService, config: ConfigService, courseVersionService: CourseVersionService, courseCompletion: CourseCompletionService);
     private autoPublishAfterQuizChange;
     getQuiz(id: string, role: string): Promise<ResponseDto>;
-    getAllQuizzes(role: string): Promise<ResponseDto>;
+    getAllQuizzes(role: string, query?: {
+        search?: string;
+        page?: number;
+        limit?: number;
+        courseId?: string;
+        assigned?: boolean;
+        includeArchived?: boolean;
+    }): Promise<ResponseDto>;
     getAllAssignQuizzes(chapterId: string, role: string, userId: string, userEmail?: string | null): Promise<ResponseDto>;
     getChapterQuizzesReport(chapterId: string, userId: string): Promise<ResponseDto>;
     getAllQuizReport(): Promise<ResponseDto>;
@@ -21,6 +28,7 @@ export declare class QuizService {
     createQuiz(body: QuizDto): Promise<ResponseDto>;
     reorderChapterQuizzes(body: UpdateChapterQuizOrderDto): Promise<ResponseDto>;
     assignQuiz(quizId: string, chapterId: string, adminId?: string): Promise<ResponseDto>;
+    bulkAssignQuiz(chapterId: string, quizIds: string[], adminId?: string): Promise<ResponseDto>;
     unAssignQuiz(quizId: string, chapterId: string, adminId?: string): Promise<ResponseDto>;
     updateQuiz(id: string, body: UpdateQuizDto): Promise<ResponseDto>;
     deleteQuiz(id: string, adminId?: string): Promise<ResponseDto>;

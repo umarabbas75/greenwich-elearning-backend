@@ -28,7 +28,11 @@ describe('QuizService — course versioning', () => {
 
   beforeEach(async () => {
     prisma = {
-      chapter: { findUnique: jest.fn(), update: jest.fn() },
+      chapter: {
+        findUnique: jest.fn(),
+        update: jest.fn(),
+        findMany: jest.fn(),
+      },
       userCourse: { findUnique: jest.fn() },
       user: { findUnique: jest.fn() },
       quiz: {
@@ -37,6 +41,7 @@ describe('QuizService — course versioning', () => {
         update: jest.fn(),
         delete: jest.fn(),
         aggregate: jest.fn(),
+        count: jest.fn(),
       },
       quizAnswer: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -153,6 +158,137 @@ describe('QuizService — course versioning', () => {
 
       expect(result.data[0].id).toBe('quiz-live');
       expect(courseVersionService.resolveCurriculumTree).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getAllQuizzes', () => {
+    it('returns every quiz unpaginated when no page/limit is given', async () => {
+      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-1' }]);
+      prisma.quiz.count.mockResolvedValue(1);
+
+      const result = await service.getAllQuizzes('admin');
+
+      expect(prisma.quiz.findMany).toHaveBeenCalledWith(
+        expect.not.objectContaining({ skip: expect.anything() }),
+      );
+      expect(result.data).toEqual([{ id: 'quiz-1' }]);
+      expect(result.total).toBe(1);
+    });
+
+    it('applies skip/take once page or limit is passed', async () => {
+      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-2' }]);
+      prisma.quiz.count.mockResolvedValue(25);
+
+      const result = await service.getAllQuizzes('admin', {
+        page: 2,
+        limit: 10,
+      });
+
+      expect(prisma.quiz.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 10, take: 10 }),
+      );
+      expect(result.total).toBe(25);
+    });
+
+    it('filters by search text case-insensitively', async () => {
+      prisma.quiz.findMany.mockResolvedValue([]);
+      prisma.quiz.count.mockResolvedValue(0);
+
+      await service.getAllQuizzes('admin', { search: 'photosynthesis' });
+
+      expect(prisma.quiz.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              { question: { contains: 'photosynthesis', mode: 'insensitive' } },
+              { isArchived: false },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('filters to only assigned or only unassigned quizzes', async () => {
+      prisma.quiz.findMany.mockResolvedValue([]);
+      prisma.quiz.count.mockResolvedValue(0);
+
+      await service.getAllQuizzes('admin', { assigned: false });
+
+      expect(prisma.quiz.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { AND: [{ chapterId: null }, { isArchived: false }] },
+        }),
+      );
+    });
+
+    it('filters by courseId via the chapters under that course', async () => {
+      prisma.quiz.findMany.mockResolvedValue([]);
+      prisma.quiz.count.mockResolvedValue(0);
+      prisma.chapter.findMany.mockResolvedValue([
+        { id: 'ch-1' },
+        { id: 'ch-2' },
+      ]);
+
+      await service.getAllQuizzes('admin', { courseId: 'course-1' });
+
+      expect(prisma.chapter.findMany).toHaveBeenCalledWith({
+        where: { module: { courseId: 'course-1' } },
+        select: { id: true },
+      });
+      expect(prisma.quiz.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              { chapterId: { in: ['ch-1', 'ch-2'] } },
+              { isArchived: false },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('hides archived quizzes by default, paginated or not — only includeArchived shows them', async () => {
+      prisma.quiz.findMany.mockResolvedValue([]);
+      prisma.quiz.count.mockResolvedValue(0);
+
+      await service.getAllQuizzes('admin', { page: 1 });
+      expect(prisma.quiz.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ where: { AND: [{ isArchived: false }] } }),
+      );
+
+      // The legacy unpaginated call (e.g. the assign-to-chapter dropdown) must
+      // never be able to offer an archived/soft-deleted quiz as an option.
+      await service.getAllQuizzes('admin');
+      expect(prisma.quiz.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ where: { AND: [{ isArchived: false }] } }),
+      );
+
+      await service.getAllQuizzes('admin', { includeArchived: true });
+      expect(prisma.quiz.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ where: {} }),
+      );
+    });
+
+    it('defaults the page size to 50', async () => {
+      prisma.quiz.findMany.mockResolvedValue([]);
+      prisma.quiz.count.mockResolvedValue(0);
+
+      await service.getAllQuizzes('admin', { page: 1 });
+
+      expect(prisma.quiz.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 50 }),
+      );
+    });
+
+    it('clamps limit to the [1, 100] range', async () => {
+      prisma.quiz.findMany.mockResolvedValue([]);
+      prisma.quiz.count.mockResolvedValue(0);
+
+      await service.getAllQuizzes('admin', { limit: 500 });
+
+      expect(prisma.quiz.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 100 }),
+      );
     });
   });
 
@@ -382,6 +518,109 @@ describe('QuizService — course versioning', () => {
         versionNumber: 2,
         versionId: 'version-2',
       });
+    });
+  });
+
+  describe('bulkAssignQuiz', () => {
+    it('assigns every quiz with sequential orderIndex and publishes once', async () => {
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        title: 'Element 2',
+        module: { courseId: 'course-1' },
+      });
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-a' },
+        { id: 'quiz-b' },
+        { id: 'quiz-c' },
+      ]);
+      prisma.quiz.aggregate.mockResolvedValue({ _max: { orderIndex: 4 } });
+      prisma.quiz.update.mockResolvedValue({});
+
+      const result = await service.bulkAssignQuiz(
+        'ch-1',
+        ['quiz-a', 'quiz-b', 'quiz-c'],
+        'admin-1',
+      );
+
+      expect(prisma.quiz.update).toHaveBeenNthCalledWith(1, {
+        where: { id: 'quiz-a' },
+        data: { chapterId: 'ch-1', isArchived: false, orderIndex: 5 },
+      });
+      expect(prisma.quiz.update).toHaveBeenNthCalledWith(2, {
+        where: { id: 'quiz-b' },
+        data: { chapterId: 'ch-1', isArchived: false, orderIndex: 6 },
+      });
+      expect(prisma.quiz.update).toHaveBeenNthCalledWith(3, {
+        where: { id: 'quiz-c' },
+        data: { chapterId: 'ch-1', isArchived: false, orderIndex: 7 },
+      });
+      // One publish for the whole batch, not one per quiz.
+      expect(
+        courseVersionService.autoPublishAfterStructuralChange,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        courseVersionService.autoPublishAfterStructuralChange,
+      ).toHaveBeenCalledWith(
+        'course-1',
+        'admin-1',
+        'Assigned 3 quiz(zes) to chapter "Element 2"',
+      );
+      expect(result.statusCode).toBe(200);
+      expect(result.data).toEqual({
+        chapterId: 'ch-1',
+        quizIds: ['quiz-a', 'quiz-b', 'quiz-c'],
+      });
+    });
+
+    it('dedupes repeated quiz ids in the payload', async () => {
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        title: 'Element 2',
+        module: { courseId: 'course-1' },
+      });
+      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-a' }]);
+      prisma.quiz.aggregate.mockResolvedValue({ _max: { orderIndex: null } });
+      prisma.quiz.update.mockResolvedValue({});
+
+      await service.bulkAssignQuiz('ch-1', ['quiz-a', 'quiz-a'], 'admin-1');
+
+      expect(prisma.quiz.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws when the chapter does not exist', async () => {
+      prisma.chapter.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.bulkAssignQuiz('missing-ch', ['quiz-a'], 'admin-1'),
+      ).rejects.toThrow(HttpException);
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
+    });
+
+    it('throws naming any quiz id that does not exist, without partially assigning', async () => {
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        title: 'Element 2',
+        module: { courseId: 'course-1' },
+      });
+      // Only quiz-a is real; quiz-ghost is not.
+      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-a' }]);
+
+      let caught: any;
+      try {
+        await service.bulkAssignQuiz(
+          'ch-1',
+          ['quiz-a', 'quiz-ghost'],
+          'admin-1',
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(HttpException);
+      expect(caught.getResponse().error).toMatch(/quiz-ghost/);
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
+      expect(
+        courseVersionService.autoPublishAfterStructuralChange,
+      ).not.toHaveBeenCalled();
     });
   });
 
