@@ -394,6 +394,34 @@ describe('CourseService — restore + archive inventory (PR 1)', () => {
         data: { isArchived: false, archivedAt: null },
       });
     });
+
+    it('rejects restore on an IMPORTED_SCORM course', async () => {
+      prisma.section.findUnique.mockResolvedValue({
+        id: 'sec-archived',
+        chapterId: 'ch-1',
+        isArchived: true,
+        title: 'SCORM',
+        chapter: {
+          id: 'ch-1',
+          isArchived: false,
+          title: 'Ch',
+          module: {
+            id: 'mod-1',
+            isArchived: false,
+            title: 'Mod',
+            courseId: 'course-1',
+          },
+        },
+      });
+      prisma.course.findUnique.mockResolvedValue({
+        deliveryMode: 'IMPORTED_SCORM',
+      });
+
+      await expect(
+        service.restoreSection('sec-archived', 'admin-1'),
+      ).rejects.toBeInstanceOf(HttpException);
+      expect(prisma.section.update).not.toHaveBeenCalled();
+    });
   });
 
   // ─── getArchivedInventory ──────────────────────────────────────────────

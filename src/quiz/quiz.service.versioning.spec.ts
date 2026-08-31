@@ -31,6 +31,9 @@ describe('QuizService — course versioning', () => {
       chapter: { findUnique: jest.fn(), update: jest.fn() },
       userCourse: { findUnique: jest.fn() },
       user: { findUnique: jest.fn() },
+      course: {
+        findUnique: jest.fn().mockResolvedValue({ deliveryMode: 'NATIVE' }),
+      },
       quiz: {
         findUnique: jest.fn(),
         findMany: jest.fn(),
@@ -382,6 +385,22 @@ describe('QuizService — course versioning', () => {
         versionNumber: 2,
         versionId: 'version-2',
       });
+    });
+
+    it('rejects assign on an IMPORTED_SCORM course', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        module: { courseId: 'course-1' },
+      });
+      prisma.course.findUnique.mockResolvedValue({
+        deliveryMode: 'IMPORTED_SCORM',
+      });
+
+      await expect(
+        service.assignQuiz('quiz-1', 'ch-1', 'admin-1'),
+      ).rejects.toBeInstanceOf(HttpException);
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
     });
   });
 

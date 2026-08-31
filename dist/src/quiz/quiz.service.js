@@ -19,6 +19,7 @@ const course_version_service_1 = require("../course-version/course-version.servi
 const course_version_manifest_1 = require("../course-version/course-version.manifest");
 const chapter_progression_1 = require("../utils/chapter-progression");
 const course_completion_service_1 = require("../course-completion/course-completion.service");
+const assert_imported_course_tree_locked_1 = require("../utils/assert-imported-course-tree-locked");
 let QuizService = QuizService_1 = class QuizService {
     constructor(prisma, config, courseVersionService, courseCompletion) {
         this.prisma = prisma;
@@ -436,6 +437,9 @@ let QuizService = QuizService_1 = class QuizService {
             if (!chapter) {
                 throw new Error('chapter not exist');
             }
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, {
+                courseId: chapter.module.courseId,
+            });
             const maxOrder = await this.prisma.quiz.aggregate({
                 where: {
                     chapterId,
@@ -698,6 +702,11 @@ let QuizService = QuizService_1 = class QuizService {
         });
         if (!quiz) {
             throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Quiz not found' }, common_1.HttpStatus.NOT_FOUND);
+        }
+        if (quiz.chapter?.module?.courseId) {
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, {
+                courseId: quiz.chapter.module.courseId,
+            });
         }
         if (!quiz.isArchived) {
             throw new common_1.HttpException({

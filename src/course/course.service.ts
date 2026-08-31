@@ -6,7 +6,7 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { Course, Module, Chapter, Section, Prisma, Role, NotificationType } from '@prisma/client';
+import { Course, Module, Chapter, Section, Prisma, Role, NotificationType, CourseDeliveryMode, SectionType as PrismaSectionType } from '@prisma/client';
 import {
   // AssignCourseDto,
   CourseDto,
@@ -34,6 +34,8 @@ import {
   assertChapterAccessible,
   recordChapterAndModuleCompletionIfNeeded,
 } from '../utils/chapter-progression';
+import { assertEnrollmentUsable } from '../utils/assert-enrollment-usable';
+import { assertImportedCourseTreeLocked } from '../utils/assert-imported-course-tree-locked';
 import {
   applyModuleRollup,
   buildChapterActivityMaps,
@@ -2144,6 +2146,7 @@ export class CourseService {
   }
   async createModule(body: ModuleDto, adminId?: string): Promise<ResponseDto> {
     try {
+      await assertImportedCourseTreeLocked(this.prisma, { courseId: body.id });
       const module: Module = await this.prisma.module.create({
         data: {
           title: body.title,
@@ -2180,6 +2183,7 @@ export class CourseService {
   }
   async createChapter(body: ModuleDto, adminId?: string): Promise<ResponseDto> {
     try {
+      await assertImportedCourseTreeLocked(this.prisma, { moduleId: body.id });
       const courseId = await this.resolveCourseIdFromModuleId(body.id);
       const chapter: Chapter = await this.prisma.chapter.create({
         data: {
@@ -2226,6 +2230,9 @@ export class CourseService {
     adminId?: string,
   ): Promise<ResponseDto> {
     try {
+      await assertImportedCourseTreeLocked(this.prisma, {
+        chapterId: body.chapterId || (body as any).id,
+      });
       assertNoInlineBase64(body.description);
       assertNoInlineBase64(body.shortDescription, 'shortDescription');
       const data: any = {
@@ -2922,6 +2929,37 @@ export class CourseService {
       if (!existing) {
         throw new Error('Course not found');
       }
+      if (isActive && existing.deliveryMode === CourseDeliveryMode.IMPORTED_SCORM) {
+        const live = await this.prisma.section.findMany({
+          where: {
+            type: PrismaSectionType.SCORM,
+            isArchived: false,
+            chapter: {
+              isArchived: false,
+              module: { courseId, isArchived: false },
+            },
+          },
+          select: { id: true },
+        });
+        if (live.length !== 1) {
+          throw new Error(
+            'Imported SCORM course cannot be published without exactly one live SCORM section on a READY package',
+          );
+        }
+        const ready = await this.prisma.scormPackage.findFirst({
+          where: {
+            courseId,
+            status: 'READY',
+            sectionId: live[0].id,
+          },
+          select: { id: true },
+        });
+        if (!ready) {
+          throw new Error(
+            'Imported SCORM course cannot be published without exactly one live SCORM section on a READY package',
+          );
+        }
+      }
       const course = await this.prisma.course.update({
         where: { id: courseId },
         data: { isActive },
@@ -3602,6 +3640,7 @@ export class CourseService {
 
   async updateModule(id: string, body: UpdateCourseDto): Promise<ResponseDto> {
     try {
+      await assertImportedCourseTreeLocked(this.prisma, { moduleId: id });
       const isModuleExist: Module = await this.prisma.module.findUnique({
         where: { id: id },
       });
@@ -3644,6 +3683,7 @@ export class CourseService {
 
   async updateChapter(id: string, body: UpdateCourseDto): Promise<ResponseDto> {
     try {
+      await assertImportedCourseTreeLocked(this.prisma, { chapterId: id });
       const isChapterExist: Chapter = await this.prisma.chapter.findUnique({
         where: { id: id },
       });
@@ -3695,6 +3735,7 @@ export class CourseService {
       | any,
   ): Promise<ResponseDto> {
     try {
+      await assertImportedCourseTreeLocked(this.prisma, { sectionId: id });
       const isSectionExist: Section = await this.prisma.section.findUnique({
         where: { id: id },
       });
@@ -3886,6 +3927,9 @@ export class CourseService {
 
   async updateSectionOrder(body: UpdateSectionOrderDto): Promise<ResponseDto> {
     try {
+      await assertImportedCourseTreeLocked(this.prisma, {
+        chapterId: body.chapterId,
+      });
       // Verify all sections belong to the provided chapterId
       const sectionIds = body.sections.map((s) => s.id);
       const sections = await this.prisma.section.findMany({
@@ -3938,6 +3982,11 @@ export class CourseService {
       if (!course) {
         throw new Error('Course not found');
       }
+      if (course.deliveryMode === CourseDeliveryMode.IMPORTED_SCORM) {
+        throw new Error(
+          'Imported SCORM courses cannot be deleted in v1. Deactivate the course instead.',
+        );
+      }
 
       await this.prisma.course.delete({
         where: { id },
@@ -3986,6 +4035,9 @@ export class CourseService {
       if (!mod) {
         throw new Error('Module not found');
       }
+      await assertImportedCourseTreeLocked(this.prisma, {
+        courseId: mod.courseId,
+      });
 
       const references =
         await this.courseVersionService.getReferencingVersionsWithEnrollments(
@@ -4091,6 +4143,7 @@ export class CourseService {
       }
 
       const courseId = await this.resolveCourseIdFromModuleId(chapter.moduleId);
+      await assertImportedCourseTreeLocked(this.prisma, { courseId });
 
       const references =
         await this.courseVersionService.getReferencingVersionsWithEnrollments(
@@ -4225,6 +4278,7 @@ export class CourseService {
       const courseId = await this.resolveCourseIdFromChapterId(
         section.chapterId,
       );
+      await assertImportedCourseTreeLocked(this.prisma, { courseId });
 
       // Already archived: hard-delete only when no version manifest still references it.
       if (section.isArchived) {
@@ -4377,6 +4431,7 @@ export class CourseService {
         HttpStatus.NOT_FOUND,
       );
     }
+    await assertImportedCourseTreeLocked(this.prisma, { courseId: mod.courseId });
     if (!mod.isArchived) {
       throw new HttpException(
         {
@@ -4461,6 +4516,9 @@ export class CourseService {
         HttpStatus.NOT_FOUND,
       );
     }
+    await assertImportedCourseTreeLocked(this.prisma, {
+      courseId: chapter.module.courseId,
+    });
     if (!chapter.isArchived) {
       throw new HttpException(
         {
@@ -4573,6 +4631,9 @@ export class CourseService {
         HttpStatus.NOT_FOUND,
       );
     }
+    await assertImportedCourseTreeLocked(this.prisma, {
+      courseId: section.chapter.module.courseId,
+    });
     if (!section.isArchived) {
       throw new HttpException(
         {
@@ -5236,6 +5297,16 @@ export class CourseService {
       });
       if (!course) {
         throw new Error('Course not found');
+      }
+      if (course.deliveryMode === CourseDeliveryMode.IMPORTED_SCORM) {
+        throw new HttpException(
+          {
+            status: HttpStatus.CONFLICT,
+            error:
+              'Cannot unassign an imported SCORM course in v1. Cloud registrations are only removed by GDPR purge.',
+          },
+          HttpStatus.CONFLICT,
+        );
       }
 
       // Check if the user-course relation exists
@@ -5943,10 +6014,26 @@ export class CourseService {
       // per user, forever.
       const course = await this.prisma.course.findUnique({
         where: { id: body.courseId },
-        select: { id: true },
+        select: { id: true, deliveryMode: true },
       });
       if (!course) {
         throw new Error('Course not found');
+      }
+      if (course.deliveryMode === CourseDeliveryMode.IMPORTED_SCORM) {
+        throw new ForbiddenException(
+          'Imported SCORM courses cannot be completed via native section progress. Finish the package in the SCORM player.',
+        );
+      }
+      if (body.sectionId) {
+        const section = await this.prisma.section.findUnique({
+          where: { id: body.sectionId },
+          select: { type: true },
+        });
+        if (section?.type === PrismaSectionType.SCORM) {
+          throw new ForbiddenException(
+            'SCORM sections cannot be marked complete via native section progress.',
+          );
+        }
       }
 
       // Existence check for the user. `assertChapterAccessible` above
@@ -6039,47 +6126,7 @@ export class CourseService {
     courseId: string,
     userRole: Role,
   ): Promise<any> {
-    const isLearner = userRole === Role.user;
-    const enrollment = await this.prisma.userCourse.findFirst({
-      where: isLearner
-        ? { userId, courseId, isActive: true }
-        : { userId, courseId },
-    });
-    if (!enrollment) {
-      throw new ForbiddenException({
-        detail:
-          'You are not assigned to this course, or the enrolment is inactive',
-      });
-    }
-
-    // Expiry only applies to learners and only once the course is completed.
-    if (isLearner) {
-      const [completion, course] = await Promise.all([
-        this.prisma.courseCompletion.findUnique({
-          where: { userId_courseId: { userId, courseId } },
-          select: { courseCompletedAt: true },
-        }),
-        this.prisma.course.findUnique({
-          where: { id: courseId },
-          select: { validityDays: true },
-        }),
-      ]);
-
-      if (completion?.courseCompletedAt) {
-        const validityDays = course?.validityDays ?? 365;
-        const expiresAt = new Date(completion.courseCompletedAt);
-        expiresAt.setDate(expiresAt.getDate() + validityDays);
-        if (new Date() > expiresAt) {
-          throw new ForbiddenException({
-            detail: `Your access to this course expired on ${
-              expiresAt.toISOString().split('T')[0]
-            }. Please contact your administrator to renew access.`,
-          });
-        }
-      }
-    }
-
-    return enrollment;
+    return assertEnrollmentUsable(this.prisma, userId, courseId, userRole);
   }
 
   async getUserChapterProgress(
@@ -6370,7 +6417,7 @@ export class CourseService {
         }),
         this.prisma.course.findUnique({
           where: { id: courseId },
-          select: { id: true },
+          select: { id: true, deliveryMode: true },
         }),
       ]);
       if (!user || user.deletedAt) {
@@ -6378,6 +6425,16 @@ export class CourseService {
       }
       if (!course) {
         throw new BadRequestException('Course not found');
+      }
+      if (course.deliveryMode === CourseDeliveryMode.IMPORTED_SCORM) {
+        throw new HttpException(
+          {
+            status: HttpStatus.CONFLICT,
+            error:
+              'Cannot reset progress on an imported SCORM course in v1. Cloud registrations are only removed by GDPR purge.',
+          },
+          HttpStatus.CONFLICT,
+        );
       }
 
       // Uses the shared wipeUserCourseState helper so this admin reset and the

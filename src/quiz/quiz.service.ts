@@ -30,6 +30,7 @@ import {
   resolvePassingCriteria,
 } from '../utils/chapter-progression';
 import { CourseCompletionService } from '../course-completion/course-completion.service';
+import { assertImportedCourseTreeLocked } from '../utils/assert-imported-course-tree-locked';
 
 @Injectable()
 export class QuizService {
@@ -652,6 +653,9 @@ export class QuizService {
       if (!chapter) {
         throw new Error('chapter not exist');
       }
+      await assertImportedCourseTreeLocked(this.prisma, {
+        courseId: chapter.module.courseId,
+      });
 
       const maxOrder = await this.prisma.quiz.aggregate({
         where: {
@@ -1026,6 +1030,11 @@ export class QuizService {
         { status: HttpStatus.NOT_FOUND, error: 'Quiz not found' },
         HttpStatus.NOT_FOUND,
       );
+    }
+    if (quiz.chapter?.module?.courseId) {
+      await assertImportedCourseTreeLocked(this.prisma, {
+        courseId: quiz.chapter.module.courseId,
+      });
     }
     if (!quiz.isArchived) {
       throw new HttpException(

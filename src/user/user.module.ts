@@ -8,8 +8,9 @@ import {
   JwtUserStrategy,
 } from 'src/strategy';
 import { MailModule } from '../mail/mail.module';
+import { ScormCloudModule } from '../scorm-cloud/scorm-cloud.module';
 @Module({
-  imports: [JwtModule.register({}), MailModule],
+  imports: [JwtModule.register({}), MailModule, ScormCloudModule],
   providers: [
     UserService,
     JwtUserStrategy,

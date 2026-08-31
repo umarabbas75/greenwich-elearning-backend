@@ -16,6 +16,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { CourseVersionService } from '../course-version/course-version.service';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
+import { assertImportedCourseTreeLocked } from '../utils/assert-imported-course-tree-locked';
 import {
   AddAssessmentQuestionDto,
   CreateAssessmentDto,
@@ -385,6 +386,9 @@ export class CourseAssessmentService {
         where: { id: body.courseId },
       });
       if (!course) throw new Error('Course not found');
+      await assertImportedCourseTreeLocked(this.prisma, {
+        courseId: body.courseId,
+      });
 
       if (body.mode === AssessmentMode.AUTOMATIC && !body.autoConfig)
         throw new Error('autoConfig is required for AUTOMATIC mode');

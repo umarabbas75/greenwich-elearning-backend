@@ -28,6 +28,14 @@
     {
       "path": "/api/v1/internal/cron/engagement-reminders",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/v1/internal/cron/scorm-import-jobs",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/v1/internal/cron/scorm-reconcile",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

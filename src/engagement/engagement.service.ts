@@ -178,6 +178,11 @@ export class EngagementService {
         FROM "assignment_submissions" s
         JOIN "assignments" a ON a."id" = s."assignmentId"
        GROUP BY s."studentId", a."courseId"
+      UNION ALL
+      SELECT sr."userId", sr."courseId", MAX(COALESCE(sr."lastPostbackAt", sr."firstLaunchAt")) AS last_at
+        FROM "scorm_registrations" sr
+       WHERE sr."firstLaunchAt" IS NOT NULL OR sr."lastPostbackAt" IS NOT NULL
+       GROUP BY sr."userId", sr."courseId"
     ),
     activity_rollup AS (
       SELECT "userId", "courseId", MAX(last_at) AS last_at
