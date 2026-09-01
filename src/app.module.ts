@@ -15,6 +15,7 @@ import { EngagementModule } from './engagement/engagement.module';
 import { TrackingModule } from './tracking/tracking.module';
 import { CourseVersionModule } from './course-version/course-version.module';
 import { AdminDashboardModule } from './admin-dashboard/admin-dashboard.module';
+import { CertificateModule } from './certificate/certificate.module';
 
 import { HealthModule } from './health/health.module';
 
@@ -37,6 +38,7 @@ import { HealthModule } from './health/health.module';
     TrackingModule,
     AdminDashboardModule,
     CourseVersionModule,
+    CertificateModule,
   ],
 })
 export class AppModule {}

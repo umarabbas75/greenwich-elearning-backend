@@ -24,6 +24,7 @@ const engagement_module_1 = require("./engagement/engagement.module");
 const tracking_module_1 = require("./tracking/tracking.module");
 const course_version_module_1 = require("./course-version/course-version.module");
 const admin_dashboard_module_1 = require("./admin-dashboard/admin-dashboard.module");
+const certificate_module_1 = require("./certificate/certificate.module");
 const health_module_1 = require("./health/health.module");
 let AppModule = class AppModule {
 };
@@ -48,6 +49,7 @@ exports.AppModule = AppModule = __decorate([
             tracking_module_1.TrackingModule,
             admin_dashboard_module_1.AdminDashboardModule,
             course_version_module_1.CourseVersionModule,
+            certificate_module_1.CertificateModule,
         ],
     })
 ], AppModule);

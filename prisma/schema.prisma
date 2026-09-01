@@ -122,6 +122,8 @@ model Course {
   // completedAt + validityDays has passed, the learner is locked out.
   // Defaults to 365 (one year) when the admin doesn't specify it.
   validityDays         Int                    @default(365)
+  /// Whether this course auto-generates certificates, uses manual admin upload, or none.
+  certificateIssueMode CertificateIssueMode   @default(NONE)
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
   syllabusOverview     String
@@ -153,6 +155,22 @@ model Course {
   courseVersions       CourseVersion[]
 
   @@map("courses")
+}
+
+/// How certificates are issued for a course.
+enum CertificateIssueMode {
+  /// Platform auto-generates a PDF when the learner meets all requirements.
+  AUTO
+  /// Admin uploads an external certificate URL per learner (NEBOSH, etc.).
+  MANUAL
+  /// This course does not offer a certificate.
+  NONE
+}
+
+/// Provenance of a stored certificate file/URL.
+enum CertificateSource {
+  AUTO
+  MANUAL
 }
 
 model UserCourse {
@@ -1150,6 +1168,12 @@ model CourseCompletion {
   isPassed           Boolean            @default(false)
   bestAttemptId      String?            @unique
   certificateUrl     String?
+  /// Short public verification code (e.g. GTC-A1B2C3D4).
+  certificateId      String?            @unique
+  certificateIssuedAt DateTime?
+  certificateSource  CertificateSource?
+  /// Admin who uploaded a manual certificate URL, when applicable.
+  certificateIssuedByAdminId String?
   courseCompletedAt  DateTime?
   assessmentPassedAt DateTime?
   createdAt          DateTime           @default(now())
@@ -1243,6 +1267,7 @@ enum EmailType {
   WELCOME // sent when a user self-registers
   CONTACT_MESSAGE // a "contact us" message, emailed to the admin
   COURSE_COMPLETED // congratulations when a user completes a course
+  CERTIFICATE_ISSUED // certificate PDF ready — download link emailed
   FEEDBACK_REQUEST // ask a user to fill the course feedback form
   FEEDBACK_REMINDER // periodic nudge for pending required feedback
   FEEDBACK_OUTSTANDING // one-off backfill: completed course, feedback not submitted

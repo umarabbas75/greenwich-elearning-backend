@@ -13,12 +13,13 @@ const prisma_module_1 = require("../prisma/prisma.module");
 const mail_module_1 = require("../mail/mail.module");
 const feedback_module_1 = require("../feedback/feedback.module");
 const course_version_module_1 = require("../course-version/course-version.module");
+const certificate_module_1 = require("../certificate/certificate.module");
 let CourseCompletionModule = class CourseCompletionModule {
 };
 exports.CourseCompletionModule = CourseCompletionModule;
 exports.CourseCompletionModule = CourseCompletionModule = __decorate([
     (0, common_1.Module)({
-        imports: [prisma_module_1.PrismaModule, mail_module_1.MailModule, feedback_module_1.FeedbackModule, course_version_module_1.CourseVersionModule],
+        imports: [prisma_module_1.PrismaModule, mail_module_1.MailModule, feedback_module_1.FeedbackModule, course_version_module_1.CourseVersionModule, certificate_module_1.CertificateModule],
         providers: [course_completion_service_1.CourseCompletionService],
         exports: [course_completion_service_1.CourseCompletionService],
     })

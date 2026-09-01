@@ -94,8 +94,8 @@ let CourseAssessmentController = class CourseAssessmentController {
     finalizeGrade(user, id) {
         return this.service.finalizeGrade(user.id, id);
     }
-    setCertificate(attemptId, userId, courseId, body) {
-        return this.service.setCertificate(userId, courseId, body);
+    setCertificate(admin, attemptId, userId, courseId, body) {
+        return this.service.setCertificate(admin.id, userId, courseId, body);
     }
     getActiveAssessmentForStudent(user, courseId) {
         return this.service.getActiveAssessmentForStudent(user.id, courseId);
@@ -314,12 +314,13 @@ __decorate([
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('admin/attempts/:attemptId/certificate'),
-    __param(0, (0, common_1.Param)('attemptId')),
-    __param(1, (0, common_1.Query)('userId')),
-    __param(2, (0, common_1.Query)('courseId')),
-    __param(3, (0, common_1.Body)()),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)('attemptId')),
+    __param(2, (0, common_1.Query)('userId')),
+    __param(3, (0, common_1.Query)('courseId')),
+    __param(4, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, String, dto_1.SetCertificateDto]),
+    __metadata("design:paramtypes", [Object, String, String, String, dto_1.SetCertificateDto]),
     __metadata("design:returntype", void 0)
 ], CourseAssessmentController.prototype, "setCertificate", null);
 __decorate([

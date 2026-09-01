@@ -16,12 +16,14 @@ const prisma_service_1 = require("../prisma/prisma.service");
 const mail_service_1 = require("../mail/mail.service");
 const feedback_service_1 = require("../feedback/feedback.service");
 const course_version_service_1 = require("../course-version/course-version.service");
+const certificate_service_1 = require("../certificate/certificate.service");
 let CourseCompletionService = CourseCompletionService_1 = class CourseCompletionService {
-    constructor(prisma, mail, feedbackService, courseVersionService) {
+    constructor(prisma, mail, feedbackService, courseVersionService, certificateService) {
         this.prisma = prisma;
         this.mail = mail;
         this.feedbackService = feedbackService;
         this.courseVersionService = courseVersionService;
+        this.certificateService = certificateService;
     }
     async checkContentCompletion(userId, courseId) {
         try {
@@ -75,6 +77,7 @@ let CourseCompletionService = CourseCompletionService_1 = class CourseCompletion
                 return;
             await this.sendCompletionEmails(userId, courseId);
             await this.feedbackService.notifyFeedbackRequiredIfNeeded(userId, courseId);
+            await this.certificateService.tryIssueCertificate(userId, courseId);
         }
         catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -135,6 +138,7 @@ exports.CourseCompletionService = CourseCompletionService = CourseCompletionServ
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         mail_service_1.MailService,
         feedback_service_1.FeedbackService,
-        course_version_service_1.CourseVersionService])
+        course_version_service_1.CourseVersionService,
+        certificate_service_1.CertificateService])
 ], CourseCompletionService);
 //# sourceMappingURL=course-completion.service.js.map

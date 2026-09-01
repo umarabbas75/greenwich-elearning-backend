@@ -182,6 +182,18 @@ export interface CourseCompletedMail {
   courseId?: string;
 }
 
+/** Certificate ready — includes download link and verification URL. */
+export interface CertificateIssuedMail {
+  to: string;
+  userId?: string | null;
+  firstName: string;
+  courseTitle: string;
+  courseId?: string;
+  certificateUrl: string;
+  certificateId: string;
+  verifyUrl: string;
+}
+
 /** Asks a user to fill the course feedback form (sent after completion). */
 export interface FeedbackRequestMail {
   to: string;

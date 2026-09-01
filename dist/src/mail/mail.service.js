@@ -22,6 +22,7 @@ const notification_template_1 = require("./templates/notification.template");
 const registration_received_template_1 = require("./templates/registration-received.template");
 const welcome_template_1 = require("./templates/welcome.template");
 const contact_message_template_1 = require("./templates/contact-message.template");
+const certificate_template_1 = require("./templates/certificate.template");
 const course_feedback_template_1 = require("./templates/course-feedback.template");
 const NOTIFICATION_EMAIL_TYPE = {
     FORUM_THREAD: client_1.EmailType.NOTIFICATION_FORUM_THREAD,
@@ -94,6 +95,17 @@ let MailService = MailService_1 = class MailService {
             type: client_1.EmailType.COURSE_COMPLETED,
             userId: mail.userId ?? null,
             metadata: { courseTitle: mail.courseTitle },
+        });
+    }
+    async sendCertificateIssued(mail) {
+        return this.send(mail.to, (0, certificate_template_1.renderCertificateIssued)(mail), 'certificate issued', {
+            type: client_1.EmailType.CERTIFICATE_ISSUED,
+            userId: mail.userId ?? null,
+            metadata: {
+                courseTitle: mail.courseTitle,
+                courseId: mail.courseId,
+                certificateId: mail.certificateId,
+            },
         });
     }
     async sendFeedbackRequest(mail) {

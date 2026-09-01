@@ -225,12 +225,13 @@ export class CourseAssessmentController {
   @UseGuards(AuthGuard('jwt'))
   @Post('admin/attempts/:attemptId/certificate')
   setCertificate(
+    @GetUser() admin: User,
     @Param('attemptId') attemptId: string,
     @Query('userId') userId: string,
     @Query('courseId') courseId: string,
     @Body() body: SetCertificateDto,
   ) {
-    return this.service.setCertificate(userId, courseId, body);
+    return this.service.setCertificate(admin.id, userId, courseId, body);
   }
 
   // ──────────────────────────────────────────────────────────────────────────

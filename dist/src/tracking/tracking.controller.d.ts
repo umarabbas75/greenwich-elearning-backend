@@ -28,9 +28,9 @@ export declare class TrackingController {
             os: string;
             deviceType: "mobile" | "tablet" | "desktop";
             id: string;
+            createdAt: Date;
             ipAddress: string;
             userAgent: string;
-            createdAt: Date;
         }[];
     }>;
     getMyLoginHistory(user: User, limit?: string): Promise<{
@@ -42,9 +42,9 @@ export declare class TrackingController {
             os: string;
             deviceType: "mobile" | "tablet" | "desktop";
             id: string;
+            createdAt: Date;
             ipAddress: string;
             userAgent: string;
-            createdAt: Date;
         }[];
     }>;
     getUserCourseTimeSpent(userId: string, courseId: string): Promise<{
@@ -71,8 +71,8 @@ export declare class TrackingController {
             perSection: {
                 title: string;
                 chapterId: string;
-                sectionId: string;
                 moduleId: string;
+                sectionId: string;
                 totalSeconds: number;
             }[];
         };

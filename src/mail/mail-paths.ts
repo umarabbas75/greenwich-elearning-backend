@@ -10,6 +10,12 @@ export function studentCourseDetail(courseId: string): string {
   return `${BRAND.website}/studentCourses/${encodeURIComponent(courseId)}`;
 }
 
+export function certificateVerify(certificateId: string): string {
+  return `${BRAND.website}/certificates/verify/${encodeURIComponent(
+    certificateId,
+  )}`;
+}
+
 export function studentCourseFeedback(courseId: string): string {
   return `${BRAND.website}/studentCourses/${encodeURIComponent(
     courseId,

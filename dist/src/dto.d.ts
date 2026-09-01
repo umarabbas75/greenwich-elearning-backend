@@ -1,4 +1,4 @@
-import { Role, QuestionType, QuestionDifficulty, AssessmentMode } from '@prisma/client';
+import { Role, QuestionType, QuestionDifficulty, AssessmentMode, CertificateIssueMode } from '@prisma/client';
 export declare class BodyDto {
     firstName: string;
     lastName: string;
@@ -69,6 +69,7 @@ export declare class CourseDto {
     };
     policies?: Array<any>;
     validityDays?: number;
+    certificateIssueMode?: CertificateIssueMode;
 }
 export declare class SetCourseActiveDto {
     isActive: boolean;
@@ -112,6 +113,7 @@ export declare class UpdateCourseDto {
     };
     policies?: Array<any>;
     validityDays?: number;
+    certificateIssueMode?: CertificateIssueMode;
 }
 export declare class UpdateCourseProgress {
     courseId: string;

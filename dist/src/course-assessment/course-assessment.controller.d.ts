@@ -338,14 +338,14 @@ export declare class CourseAssessmentController {
         statusCode: number;
         data: ({
             user: {
+                id: string;
                 firstName: string;
                 lastName: string;
                 email: string;
-                id: string;
             };
             assessment: {
-                title: string;
                 id: string;
+                title: string;
             };
         } & {
             id: string;
@@ -373,10 +373,10 @@ export declare class CourseAssessmentController {
         statusCode: number;
         data: {
             user: {
+                id: string;
                 firstName: string;
                 lastName: string;
                 email: string;
-                id: string;
             };
             questionSnapshots: {
                 id: string;
@@ -516,34 +516,19 @@ export declare class CourseAssessmentController {
             updatedAt: Date;
         };
     }>;
-    setCertificate(attemptId: string, userId: string, courseId: string, body: SetCertificateDto): Promise<{
-        message: string;
-        statusCode: number;
-        data: {
-            id: string;
-            userId: string;
-            courseId: string;
-            isPassed: boolean;
-            bestAttemptId: string;
-            certificateUrl: string;
-            courseCompletedAt: Date;
-            assessmentPassedAt: Date;
-            createdAt: Date;
-            updatedAt: Date;
-        };
-    }>;
+    setCertificate(admin: User, attemptId: string, userId: string, courseId: string, body: SetCertificateDto): Promise<import("../dto").ResponseDto>;
     getActiveAssessmentForStudent(user: User, courseId: string): Promise<{
         message: string;
         statusCode: number;
         data: {
             assessment: {
+                maxAttempts: number;
+                id: string;
                 title: string;
                 description: string;
-                id: string;
                 mode: import(".prisma/client").$Enums.AssessmentMode;
                 passingPercentage: number;
                 timeLimitMinutes: number;
-                maxAttempts: number;
             };
             isEligible: boolean;
             remainingAttempts: number;
@@ -558,15 +543,15 @@ export declare class CourseAssessmentController {
                     remainingSeconds: number;
                     graceSeconds: number;
                 };
-                status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
                 id: string;
+                status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
                 isPassed: boolean;
+                submittedAt: Date;
                 snapshotTimeLimitMin: number;
                 totalMarks: number;
                 marksObtained: number;
                 percentage: number;
                 startedAt: Date;
-                submittedAt: Date;
                 finalizedAt: Date;
             }[];
         }[];
@@ -648,24 +633,32 @@ export declare class CourseAssessmentController {
         message: string;
         statusCode: number;
         data: {
+            certificateIssueMode: import(".prisma/client").$Enums.CertificateIssueMode;
+            requiresAssessmentPass: boolean;
             bestAttempt: {
                 id: string;
                 isPassed: boolean;
-                percentage: number;
                 submittedAt: Date;
+                percentage: number;
                 finalizedAt: Date;
             };
-        } & {
             id: string;
             userId: string;
             courseId: string;
             isPassed: boolean;
             bestAttemptId: string;
             certificateUrl: string;
+            certificateId: string;
+            certificateIssuedAt: Date;
+            certificateSource: import(".prisma/client").$Enums.CertificateSource;
+            certificateIssuedByAdminId: string;
             courseCompletedAt: Date;
             assessmentPassedAt: Date;
             createdAt: Date;
             updatedAt: Date;
+        } | {
+            certificateIssueMode: import(".prisma/client").$Enums.CertificateIssueMode;
+            requiresAssessmentPass: boolean;
         };
     }>;
 }

@@ -11,12 +11,13 @@ const common_1 = require("@nestjs/common");
 const feedback_service_1 = require("./feedback.service");
 const mail_module_1 = require("../mail/mail.module");
 const notification_module_1 = require("../notifications/notification.module");
+const certificate_module_1 = require("../certificate/certificate.module");
 let FeedbackModule = class FeedbackModule {
 };
 exports.FeedbackModule = FeedbackModule;
 exports.FeedbackModule = FeedbackModule = __decorate([
     (0, common_1.Module)({
-        imports: [mail_module_1.MailModule, notification_module_1.NotificationModule],
+        imports: [mail_module_1.MailModule, notification_module_1.NotificationModule, certificate_module_1.CertificateModule],
         providers: [feedback_service_1.FeedbackService],
         exports: [feedback_service_1.FeedbackService],
     })

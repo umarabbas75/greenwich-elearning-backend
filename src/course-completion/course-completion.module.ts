@@ -4,6 +4,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { MailModule } from '../mail/mail.module';
 import { FeedbackModule } from '../feedback/feedback.module';
 import { CourseVersionModule } from '../course-version/course-version.module';
+import { CertificateModule } from '../certificate/certificate.module';
 
 /**
  * Leaf module owning course-completion evaluation. Imported by BOTH
@@ -22,7 +23,7 @@ import { CourseVersionModule } from '../course-version/course-version.module';
  * transitively via the two importers.
  */
 @Module({
-  imports: [PrismaModule, MailModule, FeedbackModule, CourseVersionModule],
+  imports: [PrismaModule, MailModule, FeedbackModule, CourseVersionModule, CertificateModule],
   providers: [CourseCompletionService],
   exports: [CourseCompletionService],
 })

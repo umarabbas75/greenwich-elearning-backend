@@ -2,13 +2,15 @@ import { AssessmentAttemptStatus, Prisma, QuestionDifficulty, QuestionType } fro
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { CourseVersionService } from '../course-version/course-version.service';
+import { CertificateService } from '../certificate/certificate.service';
 import { AddAssessmentQuestionDto, CreateAssessmentDto, CreateQuestionCategoryDto, CreateQuestionDto, GradeAttemptDto, ReorderAssessmentQuestionsDto, SetCertificateDto, StartAttemptDto, SubmitAttemptDto, UpdateAssessmentDto, UpdateQuestionCategoryDto, UpdateQuestionDto } from '../dto';
 export declare class CourseAssessmentService {
     private prisma;
     private notificationService;
     private courseVersionService;
+    private certificateService;
     private static readonly ASSESSMENT_TIMER_GRACE_SECONDS;
-    constructor(prisma: PrismaService, notificationService: NotificationService, courseVersionService: CourseVersionService);
+    constructor(prisma: PrismaService, notificationService: NotificationService, courseVersionService: CourseVersionService, certificateService: CertificateService);
     private throwMapped;
     private throwQuestionCategoryError;
     createCategory(adminId: string, body: CreateQuestionCategoryDto): Promise<{
@@ -349,13 +351,13 @@ export declare class CourseAssessmentService {
         statusCode: number;
         data: {
             assessment: {
+                maxAttempts: number;
+                id: string;
                 title: string;
                 description: string;
-                id: string;
                 mode: import(".prisma/client").$Enums.AssessmentMode;
                 passingPercentage: number;
                 timeLimitMinutes: number;
-                maxAttempts: number;
             };
             isEligible: boolean;
             remainingAttempts: number;
@@ -370,15 +372,15 @@ export declare class CourseAssessmentService {
                     remainingSeconds: number;
                     graceSeconds: number;
                 };
-                status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
                 id: string;
+                status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
                 isPassed: boolean;
+                submittedAt: Date;
                 snapshotTimeLimitMin: number;
                 totalMarks: number;
                 marksObtained: number;
                 percentage: number;
                 startedAt: Date;
-                submittedAt: Date;
                 finalizedAt: Date;
             }[];
         }[];
@@ -460,24 +462,32 @@ export declare class CourseAssessmentService {
         message: string;
         statusCode: number;
         data: {
+            certificateIssueMode: import(".prisma/client").$Enums.CertificateIssueMode;
+            requiresAssessmentPass: boolean;
             bestAttempt: {
                 id: string;
                 isPassed: boolean;
-                percentage: number;
                 submittedAt: Date;
+                percentage: number;
                 finalizedAt: Date;
             };
-        } & {
             id: string;
             userId: string;
             courseId: string;
             isPassed: boolean;
             bestAttemptId: string;
             certificateUrl: string;
+            certificateId: string;
+            certificateIssuedAt: Date;
+            certificateSource: import(".prisma/client").$Enums.CertificateSource;
+            certificateIssuedByAdminId: string;
             courseCompletedAt: Date;
             assessmentPassedAt: Date;
             createdAt: Date;
             updatedAt: Date;
+        } | {
+            certificateIssueMode: import(".prisma/client").$Enums.CertificateIssueMode;
+            requiresAssessmentPass: boolean;
         };
     }>;
     getAdminAttempts(courseId: string, filters: {
@@ -488,14 +498,14 @@ export declare class CourseAssessmentService {
         statusCode: number;
         data: ({
             user: {
+                id: string;
                 firstName: string;
                 lastName: string;
                 email: string;
-                id: string;
             };
             assessment: {
-                title: string;
                 id: string;
+                title: string;
             };
         } & {
             id: string;
@@ -523,10 +533,10 @@ export declare class CourseAssessmentService {
         statusCode: number;
         data: {
             user: {
+                id: string;
                 firstName: string;
                 lastName: string;
                 email: string;
-                id: string;
             };
             questionSnapshots: {
                 id: string;
@@ -666,22 +676,7 @@ export declare class CourseAssessmentService {
             updatedAt: Date;
         };
     }>;
-    setCertificate(userId: string, courseId: string, body: SetCertificateDto): Promise<{
-        message: string;
-        statusCode: number;
-        data: {
-            id: string;
-            userId: string;
-            courseId: string;
-            isPassed: boolean;
-            bestAttemptId: string;
-            certificateUrl: string;
-            courseCompletedAt: Date;
-            assessmentPassedAt: Date;
-            createdAt: Date;
-            updatedAt: Date;
-        };
-    }>;
+    setCertificate(adminId: string, userId: string, courseId: string, body: SetCertificateDto): Promise<import("../dto").ResponseDto>;
     private _assertNotExpired;
     private _isCourseContentCompleted;
     private _buildQuestionList;

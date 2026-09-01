@@ -244,6 +244,11 @@ __decorate([
     (0, class_validator_1.Min)(1),
     __metadata("design:type", Number)
 ], CourseDto.prototype, "validityDays", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsEnum)(client_1.CertificateIssueMode),
+    __metadata("design:type", String)
+], CourseDto.prototype, "certificateIssueMode", void 0);
 class SetCourseActiveDto {
 }
 exports.SetCourseActiveDto = SetCourseActiveDto;
@@ -377,6 +382,11 @@ __decorate([
     (0, class_validator_1.Min)(1),
     __metadata("design:type", Number)
 ], UpdateCourseDto.prototype, "validityDays", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsEnum)(client_1.CertificateIssueMode),
+    __metadata("design:type", String)
+], UpdateCourseDto.prototype, "certificateIssueMode", void 0);
 class UpdateCourseProgress {
 }
 exports.UpdateCourseProgress = UpdateCourseProgress;

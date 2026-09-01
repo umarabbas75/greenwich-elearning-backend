@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { CourseVersionService } from '../course-version/course-version.service';
+import { CertificateService } from '../certificate/certificate.service';
 
 /**
  * Owns the course-completion predicate and the side effects that fire the first
@@ -36,6 +37,7 @@ export class CourseCompletionService {
     private mail: MailService,
     private feedbackService: FeedbackService,
     private courseVersionService: CourseVersionService,
+    private certificateService: CertificateService,
   ) {}
 
   /**
@@ -143,6 +145,7 @@ export class CourseCompletionService {
         userId,
         courseId,
       );
+      await this.certificateService.tryIssueCertificate(userId, courseId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       CourseCompletionService.logger.warn(

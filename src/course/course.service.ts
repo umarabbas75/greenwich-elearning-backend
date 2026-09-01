@@ -2093,6 +2093,9 @@ export class CourseService {
             ...(body.validityDays != null
               ? { validityDays: body.validityDays }
               : {}),
+            ...(body.certificateIssueMode != null
+              ? { certificateIssueMode: body.certificateIssueMode }
+              : {}),
           },
         });
 
