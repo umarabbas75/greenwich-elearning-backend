@@ -182,6 +182,31 @@ export interface CourseCompletedMail {
   courseId?: string;
 }
 
+/** Certificate ready — includes download link and verification URL. */
+export interface CertificateIssuedMail {
+  to: string;
+  userId?: string | null;
+  firstName: string;
+  courseTitle: string;
+  courseId?: string;
+  certificateUrl: string;
+  certificateId: string;
+  verifyUrl: string;
+}
+
+/** Notifies the admin when a certificate is auto-generated for a learner. */
+export interface CertificateIssuedAdminMail {
+  to: string;
+  userId?: string | null;
+  studentName: string;
+  studentEmail: string;
+  courseTitle: string;
+  courseId?: string;
+  certificateId: string;
+  certificateUrl: string;
+  verifyUrl: string;
+}
+
 /** Asks a user to fill the course feedback form (sent after completion). */
 export interface FeedbackRequestMail {
   to: string;

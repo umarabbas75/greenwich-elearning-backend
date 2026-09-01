@@ -17,6 +17,7 @@ import { CourseVersionModule } from './course-version/course-version.module';
 import { AdminDashboardModule } from './admin-dashboard/admin-dashboard.module';
 import { ScormCloudModule } from './scorm-cloud/scorm-cloud.module';
 import { ScormModule } from './scorm/scorm.module';
+import { CertificateModule } from './certificate/certificate.module';
 
 import { HealthModule } from './health/health.module';
 
@@ -41,6 +42,7 @@ import { HealthModule } from './health/health.module';
     CourseVersionModule,
     ScormCloudModule,
     ScormModule,
+    CertificateModule,
   ],
 })
 export class AppModule {}

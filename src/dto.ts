@@ -3,6 +3,7 @@ import {
   QuestionType,
   QuestionDifficulty,
   AssessmentMode,
+  CertificateIssueMode,
 } from '@prisma/client';
 import {
   IsEmail,
@@ -212,6 +213,10 @@ export class CourseDto {
   @IsInt()
   @Min(1)
   validityDays?: number;
+
+  @IsOptional()
+  @IsEnum(CertificateIssueMode)
+  certificateIssueMode?: CertificateIssueMode;
 }
 
 export class SetCourseActiveDto {
@@ -252,6 +257,16 @@ export class AssignQuizDto {
   @IsString()
   @IsNotEmpty()
   quizId: string;
+}
+export class BulkAssignQuizDto {
+  @IsString()
+  @IsNotEmpty()
+  chapterId: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  quizIds: string[];
 }
 export class UpdateCourseDto {
   @IsOptional()
@@ -311,6 +326,10 @@ export class UpdateCourseDto {
   @IsInt()
   @Min(1)
   validityDays?: number;
+
+  @IsOptional()
+  @IsEnum(CertificateIssueMode)
+  certificateIssueMode?: CertificateIssueMode;
 }
 export class UpdateCourseProgress {
   @IsString()

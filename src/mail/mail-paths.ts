@@ -10,6 +10,12 @@ export function studentCourseDetail(courseId: string): string {
   return `${BRAND.website}/studentCourses/${encodeURIComponent(courseId)}`;
 }
 
+export function certificateVerify(certificateId: string): string {
+  return `${BRAND.website}/certificates/verify/${encodeURIComponent(
+    certificateId,
+  )}`;
+}
+
 export function studentCourseFeedback(courseId: string): string {
   return `${BRAND.website}/studentCourses/${encodeURIComponent(
     courseId,
@@ -40,6 +46,10 @@ export function adminAssignmentSubmissions(assignmentId: string): string {
 
 export function adminContactInbox(): string {
   return `${BRAND.website}/contact-us`;
+}
+
+export function adminIssuedCertificates(): string {
+  return `${BRAND.website}/admin/certificates`;
 }
 
 export function advisorRegistrationReview(args: {

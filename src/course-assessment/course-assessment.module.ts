@@ -8,6 +8,7 @@ import {
 import { PrismaModule } from '../prisma/prisma.module';
 import { NotificationModule } from '../notifications/notification.module';
 import { CourseVersionModule } from '../course-version/course-version.module';
+import { CertificateModule } from '../certificate/certificate.module';
 import { CourseAssessmentController } from './course-assessment.controller';
 import { CourseAssessmentService } from './course-assessment.service';
 
@@ -17,6 +18,7 @@ import { CourseAssessmentService } from './course-assessment.service';
     PrismaModule,
     NotificationModule,
     CourseVersionModule,
+    CertificateModule,
   ],
   providers: [
     CourseAssessmentService,

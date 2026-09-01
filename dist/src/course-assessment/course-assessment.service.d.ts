@@ -2,13 +2,15 @@ import { AssessmentAttemptStatus, Prisma, QuestionDifficulty, QuestionType } fro
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { CourseVersionService } from '../course-version/course-version.service';
+import { CertificateService } from '../certificate/certificate.service';
 import { AddAssessmentQuestionDto, CreateAssessmentDto, CreateQuestionCategoryDto, CreateQuestionDto, GradeAttemptDto, ReorderAssessmentQuestionsDto, SetCertificateDto, StartAttemptDto, SubmitAttemptDto, UpdateAssessmentDto, UpdateQuestionCategoryDto, UpdateQuestionDto } from '../dto';
 export declare class CourseAssessmentService {
     private prisma;
     private notificationService;
     private courseVersionService;
+    private certificateService;
     private static readonly ASSESSMENT_TIMER_GRACE_SECONDS;
-    constructor(prisma: PrismaService, notificationService: NotificationService, courseVersionService: CourseVersionService);
+    constructor(prisma: PrismaService, notificationService: NotificationService, courseVersionService: CourseVersionService, certificateService: CertificateService);
     private throwMapped;
     private throwQuestionCategoryError;
     createCategory(adminId: string, body: CreateQuestionCategoryDto): Promise<{
@@ -460,6 +462,8 @@ export declare class CourseAssessmentService {
         message: string;
         statusCode: number;
         data: {
+            certificateIssueMode: import(".prisma/client").$Enums.CertificateIssueMode;
+            requiresAssessmentPass: boolean;
             bestAttempt: {
                 id: string;
                 isPassed: boolean;
@@ -467,17 +471,23 @@ export declare class CourseAssessmentService {
                 percentage: number;
                 finalizedAt: Date;
             };
-        } & {
             id: string;
             userId: string;
             courseId: string;
             isPassed: boolean;
             bestAttemptId: string;
             certificateUrl: string;
+            certificateId: string;
+            certificateIssuedAt: Date;
+            certificateSource: import(".prisma/client").$Enums.CertificateSource;
+            certificateIssuedByAdminId: string;
             courseCompletedAt: Date;
             assessmentPassedAt: Date;
             createdAt: Date;
             updatedAt: Date;
+        } | {
+            certificateIssueMode: import(".prisma/client").$Enums.CertificateIssueMode;
+            requiresAssessmentPass: boolean;
         };
     }>;
     getAdminAttempts(courseId: string, filters: {
@@ -666,22 +676,7 @@ export declare class CourseAssessmentService {
             updatedAt: Date;
         };
     }>;
-    setCertificate(userId: string, courseId: string, body: SetCertificateDto): Promise<{
-        message: string;
-        statusCode: number;
-        data: {
-            id: string;
-            userId: string;
-            courseId: string;
-            isPassed: boolean;
-            bestAttemptId: string;
-            certificateUrl: string;
-            courseCompletedAt: Date;
-            assessmentPassedAt: Date;
-            createdAt: Date;
-            updatedAt: Date;
-        };
-    }>;
+    setCertificate(adminId: string, userId: string, courseId: string, body: SetCertificateDto): Promise<import("../dto").ResponseDto>;
     private _assertNotExpired;
     private _isCourseContentCompleted;
     private _buildQuestionList;

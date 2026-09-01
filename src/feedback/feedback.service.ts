@@ -15,6 +15,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationService } from '../notifications/notification.service';
+import { CertificateService } from '../certificate/certificate.service';
 import { ResponseDto } from '../dto';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
 import {
@@ -50,6 +51,7 @@ export class FeedbackService {
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
     private readonly notifications: NotificationService,
+    private readonly certificateService: CertificateService,
   ) {}
 
   // ── Student: submit ─────────────────────────────────────────────────────
@@ -149,6 +151,8 @@ export class FeedbackService {
           `Feedback emails failed for user ${studentId}, course ${courseId}: ${m}`,
         );
       }
+
+      await this.certificateService.tryIssueCertificate(studentId, courseId);
 
       return {
         message: 'Course feedback submitted successfully',

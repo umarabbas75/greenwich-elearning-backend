@@ -130,6 +130,27 @@ export interface CourseCompletedMail {
     courseTitle: string;
     courseId?: string;
 }
+export interface CertificateIssuedMail {
+    to: string;
+    userId?: string | null;
+    firstName: string;
+    courseTitle: string;
+    courseId?: string;
+    certificateUrl: string;
+    certificateId: string;
+    verifyUrl: string;
+}
+export interface CertificateIssuedAdminMail {
+    to: string;
+    userId?: string | null;
+    studentName: string;
+    studentEmail: string;
+    courseTitle: string;
+    courseId?: string;
+    certificateId: string;
+    certificateUrl: string;
+    verifyUrl: string;
+}
 export interface FeedbackRequestMail {
     to: string;
     userId?: string | null;

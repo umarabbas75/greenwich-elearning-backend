@@ -16,13 +16,15 @@ const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const mail_service_1 = require("../mail/mail.service");
 const notification_service_1 = require("../notifications/notification.service");
+const certificate_service_1 = require("../certificate/certificate.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
 const feedback_constants_1 = require("./feedback.constants");
 let FeedbackService = FeedbackService_1 = class FeedbackService {
-    constructor(prisma, mail, notifications) {
+    constructor(prisma, mail, notifications, certificateService) {
         this.prisma = prisma;
         this.mail = mail;
         this.notifications = notifications;
+        this.certificateService = certificateService;
     }
     async submitCourseFeedback(studentId, courseId, input) {
         try {
@@ -102,6 +104,7 @@ let FeedbackService = FeedbackService_1 = class FeedbackService {
                 const m = mailErr instanceof Error ? mailErr.message : String(mailErr);
                 FeedbackService_1.logger.warn(`Feedback emails failed for user ${studentId}, course ${courseId}: ${m}`);
             }
+            await this.certificateService.tryIssueCertificate(studentId, courseId);
             return {
                 message: 'Course feedback submitted successfully',
                 statusCode: 200,
@@ -500,6 +503,7 @@ exports.FeedbackService = FeedbackService = FeedbackService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         mail_service_1.MailService,
-        notification_service_1.NotificationService])
+        notification_service_1.NotificationService,
+        certificate_service_1.CertificateService])
 ], FeedbackService);
 //# sourceMappingURL=feedback.service.js.map

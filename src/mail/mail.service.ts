@@ -5,6 +5,8 @@ import { Resend } from 'resend';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ContactMessageMail,
+  CertificateIssuedAdminMail,
+  CertificateIssuedMail,
   CourseCompletedMail,
   EngagementReminderMail,
   FeedbackReceivedAdminMail,
@@ -23,6 +25,7 @@ import { renderNotificationEmail } from './templates/notification.template';
 import { renderRegistrationReceived } from './templates/registration-received.template';
 import { renderWelcome } from './templates/welcome.template';
 import { renderContactMessage } from './templates/contact-message.template';
+import { renderCertificateIssued, renderCertificateIssuedAdmin } from './templates/certificate.template';
 import {
   renderCourseCompleted,
   renderFeedbackReceived,
@@ -174,6 +177,47 @@ export class MailService {
       userId: mail.userId ?? null,
       metadata: { courseTitle: mail.courseTitle },
     });
+  }
+
+  /** Certificate PDF ready — download link emailed to the learner. */
+  async sendCertificateIssued(
+    mail: CertificateIssuedMail,
+  ): Promise<MailSendResult> {
+    return this.send(
+      mail.to,
+      renderCertificateIssued(mail),
+      'certificate issued',
+      {
+        type: EmailType.CERTIFICATE_ISSUED,
+        userId: mail.userId ?? null,
+        metadata: {
+          courseTitle: mail.courseTitle,
+          courseId: mail.courseId,
+          certificateId: mail.certificateId,
+        },
+      },
+    );
+  }
+
+  /** Notifies the admin when a certificate is auto-generated for a learner. */
+  async sendCertificateIssuedAdmin(
+    mail: CertificateIssuedAdminMail,
+  ): Promise<MailSendResult> {
+    return this.send(
+      mail.to,
+      renderCertificateIssuedAdmin(mail),
+      'certificate issued (admin)',
+      {
+        type: EmailType.CERTIFICATE_ISSUED_ADMIN,
+        userId: mail.userId ?? null,
+        metadata: {
+          courseTitle: mail.courseTitle,
+          courseId: mail.courseId,
+          certificateId: mail.certificateId,
+          studentEmail: mail.studentEmail,
+        },
+      },
+    );
   }
 
   /** Asks the user to provide course feedback (after completion). */

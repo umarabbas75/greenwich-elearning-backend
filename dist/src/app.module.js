@@ -26,6 +26,7 @@ const course_version_module_1 = require("./course-version/course-version.module"
 const admin_dashboard_module_1 = require("./admin-dashboard/admin-dashboard.module");
 const scorm_cloud_module_1 = require("./scorm-cloud/scorm-cloud.module");
 const scorm_module_1 = require("./scorm/scorm.module");
+const certificate_module_1 = require("./certificate/certificate.module");
 const health_module_1 = require("./health/health.module");
 let AppModule = class AppModule {
 };
@@ -52,6 +53,7 @@ exports.AppModule = AppModule = __decorate([
             course_version_module_1.CourseVersionModule,
             scorm_cloud_module_1.ScormCloudModule,
             scorm_module_1.ScormModule,
+            certificate_module_1.CertificateModule,
         ],
     })
 ], AppModule);

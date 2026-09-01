@@ -15,6 +15,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { CourseVersionService } from '../course-version/course-version.service';
+import { CertificateService } from '../certificate/certificate.service';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
 import { assertImportedCourseTreeLocked } from '../utils/assert-imported-course-tree-locked';
 import {
@@ -41,6 +42,7 @@ export class CourseAssessmentService {
     private prisma: PrismaService,
     private notificationService: NotificationService,
     private courseVersionService: CourseVersionService,
+    private certificateService: CertificateService,
   ) {}
 
   /**
@@ -1027,6 +1029,10 @@ export class CourseAssessmentService {
             attemptId,
             percentage!,
           );
+          await this.certificateService.tryIssueCertificate(
+            userId,
+            assessmentRecord.courseId,
+          );
         }
       }
 
@@ -1129,24 +1135,42 @@ export class CourseAssessmentService {
 
   async getStudentCompletion(userId: string, courseId: string) {
     try {
-      const completion = await this.prisma.courseCompletion.findUnique({
-        where: { userId_courseId: { userId, courseId } },
-        include: {
-          bestAttempt: {
-            select: {
-              id: true,
-              percentage: true,
-              isPassed: true,
-              finalizedAt: true,
-              submittedAt: true,
+      const [completion, course, requiresAssessmentPass] = await Promise.all([
+        this.prisma.courseCompletion.findUnique({
+          where: { userId_courseId: { userId, courseId } },
+          include: {
+            bestAttempt: {
+              select: {
+                id: true,
+                percentage: true,
+                isPassed: true,
+                finalizedAt: true,
+                submittedAt: true,
+              },
             },
           },
-        },
-      });
+        }),
+        this.prisma.course.findUnique({
+          where: { id: courseId },
+          select: { certificateIssueMode: true },
+        }),
+        this.certificateService.courseRequiresAssessmentPass(courseId),
+      ]);
       return {
         message: 'Completion fetched',
         statusCode: 200,
-        data: completion ?? null,
+        data: completion
+          ? {
+              ...completion,
+              certificateIssueMode: course?.certificateIssueMode ?? 'NONE',
+              requiresAssessmentPass,
+            }
+          : course
+            ? {
+                certificateIssueMode: course.certificateIssueMode,
+                requiresAssessmentPass,
+              }
+            : null,
       };
     } catch (error) {
       this.throwMapped(error, 'Failed to fetch completion');
@@ -1343,12 +1367,16 @@ export class CourseAssessmentService {
       ]);
 
       // Upsert CourseCompletion
-      if (attempt.assessment) {
+      if (attempt.assessment && isPassed) {
         await this._upsertCourseCompletion(
           attempt.userId,
           attempt.assessment.courseId,
           attemptId,
           percentage,
+        );
+        await this.certificateService.tryIssueCertificate(
+          attempt.userId,
+          attempt.assessment.courseId,
         );
       }
 
@@ -1403,20 +1431,18 @@ export class CourseAssessmentService {
   }
 
   async setCertificate(
+    adminId: string,
     userId: string,
     courseId: string,
     body: SetCertificateDto,
   ) {
     try {
-      const completion = await this.prisma.courseCompletion.update({
-        where: { userId_courseId: { userId, courseId } },
-        data: { certificateUrl: body.certificateUrl },
-      });
-      return {
-        message: 'Certificate URL saved',
-        statusCode: 200,
-        data: completion,
-      };
+      return this.certificateService.recordManualCertificate(
+        userId,
+        courseId,
+        body.certificateUrl,
+        adminId,
+      );
     } catch (error) {
       this.throwMapped(error, 'Failed to set certificate');
     }

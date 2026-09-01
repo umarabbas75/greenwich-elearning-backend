@@ -1482,6 +1482,9 @@ let CourseService = CourseService_1 = class CourseService {
                         ...(body.validityDays != null
                             ? { validityDays: body.validityDays }
                             : {}),
+                        ...(body.certificateIssueMode != null
+                            ? { certificateIssueMode: body.certificateIssueMode }
+                            : {}),
                     },
                 });
                 if (body.courseForms && body.courseForms.length > 0) {

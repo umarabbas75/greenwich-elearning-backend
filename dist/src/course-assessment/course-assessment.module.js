@@ -13,6 +13,7 @@ const strategy_1 = require("../strategy");
 const prisma_module_1 = require("../prisma/prisma.module");
 const notification_module_1 = require("../notifications/notification.module");
 const course_version_module_1 = require("../course-version/course-version.module");
+const certificate_module_1 = require("../certificate/certificate.module");
 const course_assessment_controller_1 = require("./course-assessment.controller");
 const course_assessment_service_1 = require("./course-assessment.service");
 let CourseAssessmentModule = class CourseAssessmentModule {
@@ -25,6 +26,7 @@ exports.CourseAssessmentModule = CourseAssessmentModule = __decorate([
             prisma_module_1.PrismaModule,
             notification_module_1.NotificationModule,
             course_version_module_1.CourseVersionModule,
+            certificate_module_1.CertificateModule,
         ],
         providers: [
             course_assessment_service_1.CourseAssessmentService,

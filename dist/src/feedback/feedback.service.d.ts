@@ -1,6 +1,7 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationService } from '../notifications/notification.service';
+import { CertificateService } from '../certificate/certificate.service';
 import { ResponseDto } from '../dto';
 export interface SubmitCourseFeedbackInput {
     formVersion?: string;
@@ -18,8 +19,9 @@ export declare class FeedbackService {
     private readonly prisma;
     private readonly mail;
     private readonly notifications;
+    private readonly certificateService;
     private static readonly logger;
-    constructor(prisma: PrismaService, mail: MailService, notifications: NotificationService);
+    constructor(prisma: PrismaService, mail: MailService, notifications: NotificationService, certificateService: CertificateService);
     submitCourseFeedback(studentId: string, courseId: string, input: SubmitCourseFeedbackInput): Promise<ResponseDto>;
     getCourseFeedbackStatus(studentId: string, courseId: string): Promise<ResponseDto>;
     getPendingFeedbackForUser(userId: string): Promise<ResponseDto>;

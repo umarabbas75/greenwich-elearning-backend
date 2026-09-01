@@ -25,8 +25,15 @@ let QuizController = class QuizController {
     getQuiz(params, user) {
         return this.appService.getQuiz(params.id, user.role);
     }
-    getAllQuizzes(user) {
-        return this.appService.getAllQuizzes(user.role);
+    getAllQuizzes(user, search, page, pageSize, courseId, assigned, includeArchived) {
+        return this.appService.getAllQuizzes(user.role, {
+            search,
+            page: page ? Number(page) : undefined,
+            limit: pageSize ? Number(pageSize) : undefined,
+            courseId,
+            assigned: assigned === 'true' ? true : assigned === 'false' ? false : undefined,
+            includeArchived: includeArchived === 'true',
+        });
     }
     getAllAssignQuizzes(params, user) {
         return this.appService.getAllAssignQuizzes(params.id, user.role, user.id, user.email);
@@ -61,6 +68,9 @@ let QuizController = class QuizController {
     assignQuiz(user, params) {
         return this.appService.assignQuiz(params.quizId, params.chapterId, user.id);
     }
+    bulkAssignQuiz(user, body) {
+        return this.appService.bulkAssignQuiz(body.chapterId, body.quizIds, user.id);
+    }
     unAssignQuiz(user, body) {
         return this.appService.unAssignQuiz(body.quizId, body.chapterId, user.id);
     }
@@ -85,8 +95,14 @@ __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/'),
     __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Query)('search')),
+    __param(2, (0, common_1.Query)('page')),
+    __param(3, (0, common_1.Query)('pageSize')),
+    __param(4, (0, common_1.Query)('courseId')),
+    __param(5, (0, common_1.Query)('assigned')),
+    __param(6, (0, common_1.Query)('includeArchived')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, String, String, String, String, String, String]),
     __metadata("design:returntype", Promise)
 ], QuizController.prototype, "getAllQuizzes", null);
 __decorate([
@@ -185,6 +201,15 @@ __decorate([
     __metadata("design:paramtypes", [Object, dto_1.AssignQuizDto]),
     __metadata("design:returntype", Promise)
 ], QuizController.prototype, "assignQuiz", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Put)('/assignQuiz/bulk'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, dto_1.BulkAssignQuizDto]),
+    __metadata("design:returntype", Promise)
+], QuizController.prototype, "bulkAssignQuiz", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Put)('/user/unAssignQuiz'),

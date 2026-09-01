@@ -397,7 +397,9 @@ let AdminDashboardService = class AdminDashboardService {
                     user: {
                         select: { id: true, firstName: true, lastName: true, email: true },
                     },
-                    course: { select: { id: true, title: true } },
+                    course: {
+                        select: { id: true, title: true, certificateIssueMode: true },
+                    },
                 },
                 ...(params.cursor ? { cursor: { id: params.cursor }, skip: 1 } : {}),
             });
@@ -415,6 +417,10 @@ let AdminDashboardService = class AdminDashboardService {
                     assessmentPassed: r.isPassed,
                     assessmentPassedAt: r.assessmentPassedAt,
                     certificateUrl: r.certificateUrl,
+                    certificateId: r.certificateId,
+                    certificateIssuedAt: r.certificateIssuedAt,
+                    certificateSource: r.certificateSource,
+                    certificateIssueMode: r.course?.certificateIssueMode ?? null,
                 })),
                 nextCursor: hasMore ? data[data.length - 1].id : null,
             };

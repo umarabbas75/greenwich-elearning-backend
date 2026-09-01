@@ -16,13 +16,15 @@ const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const notification_service_1 = require("../notifications/notification.service");
 const course_version_service_1 = require("../course-version/course-version.service");
+const certificate_service_1 = require("../certificate/certificate.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
 const assert_imported_course_tree_locked_1 = require("../utils/assert-imported-course-tree-locked");
 let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessmentService {
-    constructor(prisma, notificationService, courseVersionService) {
+    constructor(prisma, notificationService, courseVersionService, certificateService) {
         this.prisma = prisma;
         this.notificationService = notificationService;
         this.courseVersionService = courseVersionService;
+        this.certificateService = certificateService;
     }
     throwMapped(error, fallback) {
         if (error instanceof common_1.HttpException)
@@ -786,6 +788,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                 });
                 if (assessmentRecord) {
                     await this._upsertCourseCompletion(userId, assessmentRecord.courseId, attemptId, percentage);
+                    await this.certificateService.tryIssueCertificate(userId, assessmentRecord.courseId);
                 }
             }
             const [assessment, student] = await Promise.all([
@@ -882,24 +885,42 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
     }
     async getStudentCompletion(userId, courseId) {
         try {
-            const completion = await this.prisma.courseCompletion.findUnique({
-                where: { userId_courseId: { userId, courseId } },
-                include: {
-                    bestAttempt: {
-                        select: {
-                            id: true,
-                            percentage: true,
-                            isPassed: true,
-                            finalizedAt: true,
-                            submittedAt: true,
+            const [completion, course, requiresAssessmentPass] = await Promise.all([
+                this.prisma.courseCompletion.findUnique({
+                    where: { userId_courseId: { userId, courseId } },
+                    include: {
+                        bestAttempt: {
+                            select: {
+                                id: true,
+                                percentage: true,
+                                isPassed: true,
+                                finalizedAt: true,
+                                submittedAt: true,
+                            },
                         },
                     },
-                },
-            });
+                }),
+                this.prisma.course.findUnique({
+                    where: { id: courseId },
+                    select: { certificateIssueMode: true },
+                }),
+                this.certificateService.courseRequiresAssessmentPass(courseId),
+            ]);
             return {
                 message: 'Completion fetched',
                 statusCode: 200,
-                data: completion ?? null,
+                data: completion
+                    ? {
+                        ...completion,
+                        certificateIssueMode: course?.certificateIssueMode ?? 'NONE',
+                        requiresAssessmentPass,
+                    }
+                    : course
+                        ? {
+                            certificateIssueMode: course.certificateIssueMode,
+                            requiresAssessmentPass,
+                        }
+                        : null,
             };
         }
         catch (error) {
@@ -1053,8 +1074,9 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                     },
                 }),
             ]);
-            if (attempt.assessment) {
+            if (attempt.assessment && isPassed) {
                 await this._upsertCourseCompletion(attempt.userId, attempt.assessment.courseId, attemptId, percentage);
+                await this.certificateService.tryIssueCertificate(attempt.userId, attempt.assessment.courseId);
             }
             await this.notificationService.createNotification({
                 userId: attempt.userId,
@@ -1099,17 +1121,9 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             this.throwMapped(error, 'Failed to finalize grade');
         }
     }
-    async setCertificate(userId, courseId, body) {
+    async setCertificate(adminId, userId, courseId, body) {
         try {
-            const completion = await this.prisma.courseCompletion.update({
-                where: { userId_courseId: { userId, courseId } },
-                data: { certificateUrl: body.certificateUrl },
-            });
-            return {
-                message: 'Certificate URL saved',
-                statusCode: 200,
-                data: completion,
-            };
+            return this.certificateService.recordManualCertificate(userId, courseId, body.certificateUrl, adminId);
         }
         catch (error) {
             this.throwMapped(error, 'Failed to set certificate');
@@ -1352,6 +1366,7 @@ exports.CourseAssessmentService = CourseAssessmentService = CourseAssessmentServ
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         notification_service_1.NotificationService,
-        course_version_service_1.CourseVersionService])
+        course_version_service_1.CourseVersionService,
+        certificate_service_1.CertificateService])
 ], CourseAssessmentService);
 //# sourceMappingURL=course-assessment.service.js.map

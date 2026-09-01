@@ -1,11 +1,11 @@
 import { QuizService } from './quiz.service';
-import { AssignQuizDto, CheckQuiz, ParamsDto, QuizDto, ResponseDto, UpdateChapterQuizOrderDto, UpdateQuizDto } from '../dto';
+import { AssignQuizDto, BulkAssignQuizDto, CheckQuiz, ParamsDto, QuizDto, ResponseDto, UpdateChapterQuizOrderDto, UpdateQuizDto } from '../dto';
 import { User } from '@prisma/client';
 export declare class QuizController {
     private readonly appService;
     constructor(appService: QuizService);
     getQuiz(params: ParamsDto, user: User): Promise<ResponseDto>;
-    getAllQuizzes(user: User): Promise<ResponseDto>;
+    getAllQuizzes(user: User, search?: string, page?: string, pageSize?: string, courseId?: string, assigned?: string, includeArchived?: string): Promise<ResponseDto>;
     getAllAssignQuizzes(params: ParamsDto, user: User): Promise<ResponseDto>;
     reorderChapterQuizzes(body: UpdateChapterQuizOrderDto): Promise<ResponseDto>;
     getChapterQuizzesReport(params: any, user: User): Promise<ResponseDto>;
@@ -17,6 +17,7 @@ export declare class QuizController {
     deleteQuiz(user: User, params: ParamsDto): Promise<ResponseDto>;
     restoreQuiz(user: User, params: ParamsDto): Promise<ResponseDto>;
     assignQuiz(user: User, params: AssignQuizDto): Promise<ResponseDto>;
+    bulkAssignQuiz(user: User, body: BulkAssignQuizDto): Promise<ResponseDto>;
     unAssignQuiz(user: User, body: any): Promise<ResponseDto>;
     checkQuiz(body: CheckQuiz, user: User): Promise<ResponseDto>;
     getUserQuizAnswers(params: ParamsDto, user: User): Promise<ResponseDto>;
