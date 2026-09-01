@@ -5,6 +5,7 @@ import { Resend } from 'resend';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ContactMessageMail,
+  CertificateIssuedAdminMail,
   CertificateIssuedMail,
   CourseCompletedMail,
   EngagementReminderMail,
@@ -24,7 +25,7 @@ import { renderNotificationEmail } from './templates/notification.template';
 import { renderRegistrationReceived } from './templates/registration-received.template';
 import { renderWelcome } from './templates/welcome.template';
 import { renderContactMessage } from './templates/contact-message.template';
-import { renderCertificateIssued } from './templates/certificate.template';
+import { renderCertificateIssued, renderCertificateIssuedAdmin } from './templates/certificate.template';
 import {
   renderCourseCompleted,
   renderFeedbackReceived,
@@ -193,6 +194,27 @@ export class MailService {
           courseTitle: mail.courseTitle,
           courseId: mail.courseId,
           certificateId: mail.certificateId,
+        },
+      },
+    );
+  }
+
+  /** Notifies the admin when a certificate is auto-generated for a learner. */
+  async sendCertificateIssuedAdmin(
+    mail: CertificateIssuedAdminMail,
+  ): Promise<MailSendResult> {
+    return this.send(
+      mail.to,
+      renderCertificateIssuedAdmin(mail),
+      'certificate issued (admin)',
+      {
+        type: EmailType.CERTIFICATE_ISSUED_ADMIN,
+        userId: mail.userId ?? null,
+        metadata: {
+          courseTitle: mail.courseTitle,
+          courseId: mail.courseId,
+          certificateId: mail.certificateId,
+          studentEmail: mail.studentEmail,
         },
       },
     );

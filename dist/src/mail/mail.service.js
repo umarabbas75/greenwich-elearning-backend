@@ -108,6 +108,18 @@ let MailService = MailService_1 = class MailService {
             },
         });
     }
+    async sendCertificateIssuedAdmin(mail) {
+        return this.send(mail.to, (0, certificate_template_1.renderCertificateIssuedAdmin)(mail), 'certificate issued (admin)', {
+            type: client_1.EmailType.CERTIFICATE_ISSUED_ADMIN,
+            userId: mail.userId ?? null,
+            metadata: {
+                courseTitle: mail.courseTitle,
+                courseId: mail.courseId,
+                certificateId: mail.certificateId,
+                studentEmail: mail.studentEmail,
+            },
+        });
+    }
     async sendFeedbackRequest(mail) {
         return this.send(mail.to, (0, course_feedback_template_1.renderFeedbackRequest)(mail), 'feedback request', {
             type: client_1.EmailType.FEEDBACK_REQUEST,

@@ -17,6 +17,7 @@ const config_1 = require("@nestjs/config");
 const crypto_1 = require("crypto");
 const prisma_service_1 = require("../prisma/prisma.service");
 const mail_service_1 = require("../mail/mail.service");
+const mail_layout_1 = require("../mail/templates/mail-layout");
 const certificate_pdf_1 = require("./certificate-pdf");
 const certificate_cloudinary_1 = require("./certificate-cloudinary");
 let CertificateService = CertificateService_1 = class CertificateService {
@@ -471,6 +472,16 @@ let CertificateService = CertificateService_1 = class CertificateService {
                 verifyUrl,
             });
         }
+        await this.mail.sendCertificateIssuedAdmin({
+            to: mail_layout_1.ADMIN_EMAIL,
+            studentName: learnerName,
+            studentEmail: user.email ?? 'unknown',
+            courseTitle: course.title,
+            courseId,
+            certificateId,
+            certificateUrl,
+            verifyUrl,
+        });
     }
     canUseCloudinary() {
         const cloudName = this.config.get('CLOUDINARY_CLOUD_NAME');

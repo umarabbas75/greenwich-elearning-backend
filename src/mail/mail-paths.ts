@@ -48,6 +48,10 @@ export function adminContactInbox(): string {
   return `${BRAND.website}/contact-us`;
 }
 
+export function adminIssuedCertificates(): string {
+  return `${BRAND.website}/admin/certificates`;
+}
+
 export function advisorRegistrationReview(args: {
   userId: string;
   courseId: string;

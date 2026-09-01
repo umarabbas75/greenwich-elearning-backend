@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
 import { ResponseDto } from '../dto';
 import { renderCertificatePdf } from './certificate-pdf';
 import {
@@ -638,6 +639,17 @@ export class CertificateService {
         verifyUrl,
       });
     }
+
+    await this.mail.sendCertificateIssuedAdmin({
+      to: ADMIN_EMAIL,
+      studentName: learnerName,
+      studentEmail: user.email ?? 'unknown',
+      courseTitle: course.title,
+      courseId,
+      certificateId,
+      certificateUrl,
+      verifyUrl,
+    });
   }
 
   private canUseCloudinary(): boolean {

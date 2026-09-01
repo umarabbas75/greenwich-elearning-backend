@@ -140,6 +140,17 @@ export interface CertificateIssuedMail {
     certificateId: string;
     verifyUrl: string;
 }
+export interface CertificateIssuedAdminMail {
+    to: string;
+    userId?: string | null;
+    studentName: string;
+    studentEmail: string;
+    courseTitle: string;
+    courseId?: string;
+    certificateId: string;
+    certificateUrl: string;
+    verifyUrl: string;
+}
 export interface FeedbackRequestMail {
     to: string;
     userId?: string | null;

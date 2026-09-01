@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.appHome = exports.studentRegistrationFormView = exports.studentCourseFormPage = exports.advisorRegistrationReview = exports.adminContactInbox = exports.adminAssignmentSubmissions = exports.studentAssignmentDetail = exports.adminFeedback = exports.assessmentGrade = exports.forumThread = exports.studentCourseFeedback = exports.certificateVerify = exports.studentCourseDetail = exports.studentCoursesList = void 0;
+exports.appHome = exports.studentRegistrationFormView = exports.studentCourseFormPage = exports.advisorRegistrationReview = exports.adminIssuedCertificates = exports.adminContactInbox = exports.adminAssignmentSubmissions = exports.studentAssignmentDetail = exports.adminFeedback = exports.assessmentGrade = exports.forumThread = exports.studentCourseFeedback = exports.certificateVerify = exports.studentCourseDetail = exports.studentCoursesList = void 0;
 const mail_layout_1 = require("./templates/mail-layout");
 function studentCoursesList() {
     return `${mail_layout_1.BRAND.website}/studentCourses`;
@@ -42,6 +42,10 @@ function adminContactInbox() {
     return `${mail_layout_1.BRAND.website}/contact-us`;
 }
 exports.adminContactInbox = adminContactInbox;
+function adminIssuedCertificates() {
+    return `${mail_layout_1.BRAND.website}/admin/certificates`;
+}
+exports.adminIssuedCertificates = adminIssuedCertificates;
 function advisorRegistrationReview(args) {
     const params = new URLSearchParams({
         viewOnly: '1',

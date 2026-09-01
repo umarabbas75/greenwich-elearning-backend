@@ -194,6 +194,19 @@ export interface CertificateIssuedMail {
   verifyUrl: string;
 }
 
+/** Notifies the admin when a certificate is auto-generated for a learner. */
+export interface CertificateIssuedAdminMail {
+  to: string;
+  userId?: string | null;
+  studentName: string;
+  studentEmail: string;
+  courseTitle: string;
+  courseId?: string;
+  certificateId: string;
+  certificateUrl: string;
+  verifyUrl: string;
+}
+
 /** Asks a user to fill the course feedback form (sent after completion). */
 export interface FeedbackRequestMail {
   to: string;

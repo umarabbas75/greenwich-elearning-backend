@@ -1268,6 +1268,7 @@ enum EmailType {
   CONTACT_MESSAGE // a "contact us" message, emailed to the admin
   COURSE_COMPLETED // congratulations when a user completes a course
   CERTIFICATE_ISSUED // certificate PDF ready — download link emailed
+  CERTIFICATE_ISSUED_ADMIN // notify admin when a certificate is auto-issued
   FEEDBACK_REQUEST // ask a user to fill the course feedback form
   FEEDBACK_REMINDER // periodic nudge for pending required feedback
   FEEDBACK_OUTSTANDING // one-off backfill: completed course, feedback not submitted
