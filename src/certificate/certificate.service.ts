@@ -51,7 +51,7 @@ export class CertificateService {
       const mode = await this.getCourseIssueMode(courseId);
       if (mode !== CertificateIssueMode.AUTO) return;
 
-      const eligible = await this.isEligibleForCertificate(userId, courseId);
+      const eligible = await this.isEligibleForAutoIssue(userId, courseId);
       if (!eligible) return;
 
       const existing = await this.prisma.courseCompletion.findUnique({
@@ -412,7 +412,8 @@ export class CertificateService {
     }
   }
 
-  private async isEligibleForCertificate(
+  /** Content/assessment gates for auto-issue at completion (feedback not required). */
+  private async isEligibleForAutoIssue(
     userId: string,
     courseId: string,
   ): Promise<boolean> {
@@ -436,6 +437,18 @@ export class CertificateService {
         return false;
       }
     } else if (!completion?.courseCompletedAt) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /** Auto-issue plus feedback when required (on-demand download fallback). */
+  private async isEligibleForCertificate(
+    userId: string,
+    courseId: string,
+  ): Promise<boolean> {
+    if (!(await this.isEligibleForAutoIssue(userId, courseId))) {
       return false;
     }
 

@@ -139,13 +139,15 @@ export class CourseCompletionService {
       }
       if (!justCompleted) return;
 
-      // Course was JUST completed (first time) — send the milestone emails.
+      // Milestone side effects for first-time completion. Certificate auto-issue
+      // runs in the same pass as the completion email so learners are notified
+      // when their cert is ready — not only when they open it in the UI.
       await this.sendCompletionEmails(userId, courseId);
+      await this.certificateService.tryIssueCertificate(userId, courseId);
       await this.feedbackService.notifyFeedbackRequiredIfNeeded(
         userId,
         courseId,
       );
-      await this.certificateService.tryIssueCertificate(userId, courseId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       CourseCompletionService.logger.warn(

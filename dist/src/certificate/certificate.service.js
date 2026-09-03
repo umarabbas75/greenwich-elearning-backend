@@ -32,7 +32,7 @@ let CertificateService = CertificateService_1 = class CertificateService {
             const mode = await this.getCourseIssueMode(courseId);
             if (mode !== client_1.CertificateIssueMode.AUTO)
                 return;
-            const eligible = await this.isEligibleForCertificate(userId, courseId);
+            const eligible = await this.isEligibleForAutoIssue(userId, courseId);
             if (!eligible)
                 return;
             const existing = await this.prisma.courseCompletion.findUnique({
@@ -299,7 +299,7 @@ let CertificateService = CertificateService_1 = class CertificateService {
             throw new common_1.ForbiddenException('Course feedback is required before accessing the certificate.');
         }
     }
-    async isEligibleForCertificate(userId, courseId) {
+    async isEligibleForAutoIssue(userId, courseId) {
         const mode = await this.getCourseIssueMode(courseId);
         if (mode !== client_1.CertificateIssueMode.AUTO)
             return false;
@@ -318,6 +318,12 @@ let CertificateService = CertificateService_1 = class CertificateService {
             }
         }
         else if (!completion?.courseCompletedAt) {
+            return false;
+        }
+        return true;
+    }
+    async isEligibleForCertificate(userId, courseId) {
+        if (!(await this.isEligibleForAutoIssue(userId, courseId))) {
             return false;
         }
         const requiredForm = await this.prisma.courseFeedbackForm.findFirst({

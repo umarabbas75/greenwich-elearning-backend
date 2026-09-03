@@ -76,8 +76,8 @@ let CourseCompletionService = CourseCompletionService_1 = class CourseCompletion
             if (!justCompleted)
                 return;
             await this.sendCompletionEmails(userId, courseId);
-            await this.feedbackService.notifyFeedbackRequiredIfNeeded(userId, courseId);
             await this.certificateService.tryIssueCertificate(userId, courseId);
+            await this.feedbackService.notifyFeedbackRequiredIfNeeded(userId, courseId);
         }
         catch (error) {
             const message = error instanceof Error ? error.message : String(error);

@@ -4,6 +4,7 @@ import { MailService } from '../mail/mail.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { CourseVersionService } from '../course-version/course-version.service';
 import { CourseCompletionService } from './course-completion.service';
+import { CertificateService } from '../certificate/certificate.service';
 
 /**
  * Completion stamping had ZERO test coverage before this file — which is how
@@ -17,6 +18,7 @@ describe('CourseCompletionService.checkContentCompletion', () => {
   let mail: Record<string, any>;
   let feedbackService: Record<string, any>;
   let courseVersionService: Record<string, any>;
+  let certificateService: Record<string, any>;
 
   /** Denominator helper: N sections, and the given quiz-bearing chapters. */
   const denominator = (
@@ -65,6 +67,9 @@ describe('CourseCompletionService.checkContentCompletion', () => {
     feedbackService = {
       notifyFeedbackRequiredIfNeeded: jest.fn().mockResolvedValue(undefined),
     };
+    certificateService = {
+      tryIssueCertificate: jest.fn().mockResolvedValue(undefined),
+    };
     courseVersionService = {
       countCompletionDenominator: jest.fn(),
     };
@@ -76,6 +81,7 @@ describe('CourseCompletionService.checkContentCompletion', () => {
         { provide: MailService, useValue: mail },
         { provide: FeedbackService, useValue: feedbackService },
         { provide: CourseVersionService, useValue: courseVersionService },
+        { provide: CertificateService, useValue: certificateService },
       ],
     }).compile();
 
@@ -96,6 +102,10 @@ describe('CourseCompletionService.checkContentCompletion', () => {
     expect(prisma.courseCompletion.create).toHaveBeenCalled();
     expect(mail.sendCourseCompleted).toHaveBeenCalled();
     expect(feedbackService.notifyFeedbackRequiredIfNeeded).toHaveBeenCalledWith(
+      'user-1',
+      'course-1',
+    );
+    expect(certificateService.tryIssueCertificate).toHaveBeenCalledWith(
       'user-1',
       'course-1',
     );
@@ -246,9 +256,13 @@ describe('CourseCompletionService.checkContentCompletion', () => {
     await service.checkContentCompletion('user-1', 'course-1');
 
     expect(mail.sendCourseCompleted).toHaveBeenCalled();
+    expect(certificateService.tryIssueCertificate).toHaveBeenCalledWith(
+      'user-1',
+      'course-1',
+    );
   });
 
-  it('does not double-send when losing a create race on the unique key', async () => {
+  it('does not auto-issue when losing the conditional write', async () => {
     // Neither racer sees a row; both attempt create. The (userId, courseId)
     // unique constraint rejects the loser, which must not email.
     courseVersionService.countCompletionDenominator.mockResolvedValue(

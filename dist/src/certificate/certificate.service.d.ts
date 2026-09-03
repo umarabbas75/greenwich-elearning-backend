@@ -38,6 +38,7 @@ export declare class CertificateService {
     recordManualCertificate(userId: string, courseId: string, certificateUrl: string, adminId: string): Promise<ResponseDto>;
     private getCourseIssueMode;
     private assertFeedbackSubmittedForCertificate;
+    private isEligibleForAutoIssue;
     private isEligibleForCertificate;
     courseRequiresAssessmentPass(courseId: string): Promise<boolean>;
     buildStudentCertificatePdf(userId: string, courseId: string): Promise<{
