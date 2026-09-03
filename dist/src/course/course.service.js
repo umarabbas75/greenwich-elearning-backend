@@ -328,7 +328,7 @@ let CourseService = CourseService_1 = class CourseService {
                 detail: 'courseFormId does not match the given courseId and formId',
             });
         }
-        await this._assertEnrollmentUsable(userId, courseId, userRole);
+        await (0, assert_enrollment_usable_1.assertEnrollmentUsable)(this.prisma, userId, courseId, userRole);
         const existing = await this.prisma.userFormCompletion.findUnique({
             where: {
                 userId_courseId_formId: { userId, courseId, formId },
@@ -601,7 +601,7 @@ let CourseService = CourseService_1 = class CourseService {
         });
     }
     async getStudentCourseFormsStatus(userId, userRole, courseId) {
-        await this._assertEnrollmentUsable(userId, courseId, userRole);
+        await (0, assert_enrollment_usable_1.assertEnrollmentUsable)(this.prisma, userId, courseId, userRole);
         const forms = await this.prisma.courseForm.findMany({
             where: { courseId },
             orderBy: { createdAt: 'asc' },
@@ -2968,13 +2968,12 @@ let CourseService = CourseService_1 = class CourseService {
         try {
             const mod = await this.prisma.module.findUnique({
                 where: { id },
+                include: { course: { select: { deliveryMode: true } } },
             });
             if (!mod) {
                 throw new Error('Module not found');
             }
-            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, {
-                courseId: mod.courseId,
-            });
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: mod.courseId }, { deliveryMode: mod.course?.deliveryMode });
             const references = await this.courseVersionService.getReferencingVersionsWithEnrollments('module', id, mod.courseId);
             const referenced = references.versions.length > 0;
             if (referenced) {
@@ -3039,12 +3038,20 @@ let CourseService = CourseService_1 = class CourseService {
         try {
             const chapter = await this.prisma.chapter.findUnique({
                 where: { id },
+                include: {
+                    module: {
+                        select: {
+                            courseId: true,
+                            course: { select: { deliveryMode: true } },
+                        },
+                    },
+                },
             });
             if (!chapter) {
                 throw new Error('Chapter not found');
             }
-            const courseId = await this.resolveCourseIdFromModuleId(chapter.moduleId);
-            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId });
+            const courseId = chapter.module.courseId;
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId }, { deliveryMode: chapter.module.course?.deliveryMode });
             const references = await this.courseVersionService.getReferencingVersionsWithEnrollments('chapter', id, courseId);
             const referenced = references.versions.length > 0;
             if (referenced) {
@@ -3109,12 +3116,24 @@ let CourseService = CourseService_1 = class CourseService {
         try {
             const section = await this.prisma.section.findUnique({
                 where: { id },
+                include: {
+                    chapter: {
+                        select: {
+                            module: {
+                                select: {
+                                    courseId: true,
+                                    course: { select: { deliveryMode: true } },
+                                },
+                            },
+                        },
+                    },
+                },
             });
             if (!section) {
                 throw new Error('Section not found');
             }
-            const courseId = await this.resolveCourseIdFromChapterId(section.chapterId);
-            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId });
+            const courseId = section.chapter.module.courseId;
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId }, { deliveryMode: section.chapter.module.course?.deliveryMode });
             if (section.isArchived) {
                 const stillReferenced = await this.courseVersionService.isReferencedByAnyVersion('section', id, courseId);
                 if (stillReferenced) {
@@ -3194,12 +3213,18 @@ let CourseService = CourseService_1 = class CourseService {
     async restoreModule(id, adminId) {
         const mod = await this.prisma.module.findUnique({
             where: { id },
-            select: { id: true, courseId: true, isArchived: true, title: true },
+            select: {
+                id: true,
+                courseId: true,
+                isArchived: true,
+                title: true,
+                course: { select: { deliveryMode: true } },
+            },
         });
         if (!mod) {
             throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Module not found' }, common_1.HttpStatus.NOT_FOUND);
         }
-        await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: mod.courseId });
+        await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: mod.courseId }, { deliveryMode: mod.course?.deliveryMode });
         if (!mod.isArchived) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.CONFLICT,
@@ -3258,6 +3283,7 @@ let CourseService = CourseService_1 = class CourseService {
                         isArchived: true,
                         title: true,
                         courseId: true,
+                        course: { select: { deliveryMode: true } },
                     },
                 },
             },
@@ -3265,9 +3291,7 @@ let CourseService = CourseService_1 = class CourseService {
         if (!chapter) {
             throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Chapter not found' }, common_1.HttpStatus.NOT_FOUND);
         }
-        await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, {
-            courseId: chapter.module.courseId,
-        });
+        await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: chapter.module.courseId }, { deliveryMode: chapter.module.course?.deliveryMode });
         if (!chapter.isArchived) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.CONFLICT,
@@ -3352,6 +3376,7 @@ let CourseService = CourseService_1 = class CourseService {
                                 isArchived: true,
                                 title: true,
                                 courseId: true,
+                                course: { select: { deliveryMode: true } },
                             },
                         },
                     },
@@ -3361,9 +3386,7 @@ let CourseService = CourseService_1 = class CourseService {
         if (!section) {
             throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Section not found' }, common_1.HttpStatus.NOT_FOUND);
         }
-        await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, {
-            courseId: section.chapter.module.courseId,
-        });
+        await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: section.chapter.module.courseId }, { deliveryMode: section.chapter.module.course?.deliveryMode });
         if (!section.isArchived) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.CONFLICT,
@@ -4303,9 +4326,6 @@ let CourseService = CourseService_1 = class CourseService {
                 cause: error,
             });
         }
-    }
-    async _assertEnrollmentUsable(userId, courseId, userRole) {
-        return (0, assert_enrollment_usable_1.assertEnrollmentUsable)(this.prisma, userId, courseId, userRole);
     }
     async getUserChapterProgress(userId, courseId, chapterId) {
         try {

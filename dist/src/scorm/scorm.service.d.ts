@@ -26,6 +26,7 @@ export declare class ScormService {
             passingScore: number;
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
+            importWarning: string;
             createdAt: Date;
         };
     }>;
@@ -46,6 +47,7 @@ export declare class ScormService {
             passingScore: number;
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
+            importWarning: string;
             createdAt: Date;
         };
     }>;
@@ -66,6 +68,7 @@ export declare class ScormService {
             passingScore: number;
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
+            importWarning: string;
             createdAt: Date;
         }[];
     }>;
@@ -86,6 +89,7 @@ export declare class ScormService {
             passingScore: number;
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
+            importWarning: string;
             createdAt: Date;
         };
     }>;
@@ -131,6 +135,7 @@ export declare class ScormService {
         passingScore: number;
         status: import(".prisma/client").$Enums.ScormPackageStatus;
         failureReason: string;
+        importWarning: string;
         createdAt: Date;
     }>;
     private finishPublishAndReady;

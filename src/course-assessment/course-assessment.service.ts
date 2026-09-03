@@ -390,7 +390,7 @@ export class CourseAssessmentService {
       if (!course) throw new Error('Course not found');
       await assertImportedCourseTreeLocked(this.prisma, {
         courseId: body.courseId,
-      });
+      }, { deliveryMode: course.deliveryMode });
 
       if (body.mode === AssessmentMode.AUTOMATIC && !body.autoConfig)
         throw new Error('autoConfig is required for AUTOMATIC mode');
@@ -421,6 +421,17 @@ export class CourseAssessmentService {
 
   async updateAssessment(assessmentId: string, body: UpdateAssessmentDto) {
     try {
+      const existing = await this.prisma.assessment.findUnique({
+        where: { id: assessmentId },
+        include: { course: { select: { deliveryMode: true } } },
+      });
+      if (!existing) throw new Error('Assessment not found');
+      await assertImportedCourseTreeLocked(
+        this.prisma,
+        { courseId: existing.courseId },
+        { deliveryMode: existing.course.deliveryMode },
+      );
+
       const assessment = await this.prisma.assessment.update({
         where: { id: assessmentId },
         data: {
@@ -456,9 +467,17 @@ export class CourseAssessmentService {
     try {
       const assessment = await this.prisma.assessment.findUnique({
         where: { id: assessmentId },
-        include: { assessmentQuestions: true },
+        include: {
+          assessmentQuestions: true,
+          course: { select: { deliveryMode: true } },
+        },
       });
       if (!assessment) throw new Error('Assessment not found');
+      await assertImportedCourseTreeLocked(
+        this.prisma,
+        { courseId: assessment.courseId },
+        { deliveryMode: assessment.course.deliveryMode },
+      );
 
       if (
         assessment.mode === AssessmentMode.MANUAL &&
@@ -493,6 +512,17 @@ export class CourseAssessmentService {
 
   async deactivateAssessment(assessmentId: string) {
     try {
+      const existing = await this.prisma.assessment.findUnique({
+        where: { id: assessmentId },
+        include: { course: { select: { deliveryMode: true } } },
+      });
+      if (!existing) throw new Error('Assessment not found');
+      await assertImportedCourseTreeLocked(
+        this.prisma,
+        { courseId: existing.courseId },
+        { deliveryMode: existing.course.deliveryMode },
+      );
+
       const assessment = await this.prisma.assessment.update({
         where: { id: assessmentId },
         data: { isActive: false },

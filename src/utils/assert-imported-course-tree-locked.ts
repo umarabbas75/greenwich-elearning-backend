@@ -16,11 +16,22 @@ export type ImportedCourseTreeRef = {
  * Reject any native tree write on an IMPORTED_SCORM course. Extra live
  * sections would make countCompletionDenominator wait forever and
  * checkContentCompletion would never stamp courseCompletedAt.
+ *
+ * Pass `deliveryMode` when the caller already loaded the course row to
+ * avoid a redundant round trip.
  */
 export async function assertImportedCourseTreeLocked(
   prisma: PrismaService,
   ref: ImportedCourseTreeRef,
+  options?: { deliveryMode?: CourseDeliveryMode | null },
 ): Promise<void> {
+  if (options?.deliveryMode === CourseDeliveryMode.IMPORTED_SCORM) {
+    throw new ForbiddenException(IMPORTED_SCORM_TREE_LOCKED_MESSAGE);
+  }
+  if (options?.deliveryMode === CourseDeliveryMode.NATIVE) {
+    return;
+  }
+
   const courseId = await resolveCourseId(prisma, ref);
   if (!courseId) return;
 

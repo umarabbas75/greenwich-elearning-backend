@@ -13,6 +13,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ScormCloudClient = exports.ScormCloudHttpError = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
+const error_message_1 = require("../utils/error-message");
+const strip_trailing_slash_1 = require("../utils/strip-trailing-slash");
 class ScormCloudHttpError extends common_1.HttpException {
     constructor(status, body) {
         super({
@@ -29,9 +31,6 @@ let ScormCloudClient = ScormCloudClient_1 = class ScormCloudClient {
     constructor(config) {
         this.config = config;
         this.logger = new common_1.Logger(ScormCloudClient_1.name);
-    }
-    async ping() {
-        return this.request('GET', '/ping');
     }
     async createFetchAndImportCourseJob(args) {
         const qs = new URLSearchParams({
@@ -79,11 +78,11 @@ let ScormCloudClient = ScormCloudClient_1 = class ScormCloudClient {
     async getRegistrationProgress(registrationId) {
         return this.request('GET', `/registrations/${encodeURIComponent(registrationId)}/progress`);
     }
-    async testRegistrationPostback(postBack) {
-        return this.request('POST', '/registrations/postBackTest', postBack);
-    }
     async deleteRegistration(registrationId) {
         await this.request('DELETE', `/registrations/${encodeURIComponent(registrationId)}`, undefined, { acceptEmpty: true });
+    }
+    async deleteCourse(scormCloudCourseId) {
+        await this.request('DELETE', `/courses/${encodeURIComponent(scormCloudCourseId)}`, undefined, { acceptEmpty: true });
     }
     async deleteAllLearnerData(learnerId) {
         const ownerEmail = this.config.get('SCORM_CLOUD_OWNER_EMAIL');
@@ -96,7 +95,7 @@ let ScormCloudClient = ScormCloudClient_1 = class ScormCloudClient {
     apiBase() {
         const base = this.config.get('SCORM_CLOUD_API_BASE') ||
             'https://cloud.scorm.com/api/v2';
-        return base.replace(/\/$/, '');
+        return (0, strip_trailing_slash_1.stripTrailingSlash)(base);
     }
     authHeader() {
         const appId = this.config.get('SCORM_CLOUD_APP_ID');
@@ -137,8 +136,7 @@ let ScormCloudClient = ScormCloudClient_1 = class ScormCloudClient {
             response = await fetch(url, init);
         }
         catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            this.logger.error(`SCORM Cloud ${method} ${path} network error: ${message}`);
+            this.logger.error(`SCORM Cloud ${method} ${path} network error: ${(0, error_message_1.errorMessage)(err)}`);
             throw new common_1.HttpException('SCORM Cloud is unreachable', common_1.HttpStatus.BAD_GATEWAY);
         }
         const text = await response.text();

@@ -11,9 +11,9 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var ScormPostbackGuard_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.safeEqual = exports.parseBasicAuth = exports.ScormPostbackGuard = void 0;
-const crypto_1 = require("crypto");
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
+const constant_time_equal_1 = require("../utils/constant-time-equal");
 let ScormPostbackGuard = ScormPostbackGuard_1 = class ScormPostbackGuard {
     constructor(config) {
         this.config = config;
@@ -31,8 +31,8 @@ let ScormPostbackGuard = ScormPostbackGuard_1 = class ScormPostbackGuard {
         if (!parsed) {
             throw new common_1.UnauthorizedException('Invalid postback credentials');
         }
-        if (!safeEqual(parsed.user, expectedUser) ||
-            !safeEqual(parsed.password, expectedPass)) {
+        if (!(0, constant_time_equal_1.constantTimeEqual)(parsed.user, expectedUser) ||
+            !(0, constant_time_equal_1.constantTimeEqual)(parsed.password, expectedPass)) {
             throw new common_1.UnauthorizedException('Invalid postback credentials');
         }
         return true;
@@ -64,10 +64,5 @@ function parseBasicAuth(header) {
     }
 }
 exports.parseBasicAuth = parseBasicAuth;
-function safeEqual(provided, expected) {
-    const a = Buffer.from(provided);
-    const b = Buffer.from(expected);
-    return a.length === b.length && (0, crypto_1.timingSafeEqual)(a, b);
-}
-exports.safeEqual = safeEqual;
+exports.safeEqual = constant_time_equal_1.constantTimeEqual;
 //# sourceMappingURL=scorm-postback.guard.js.map

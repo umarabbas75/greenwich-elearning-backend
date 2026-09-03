@@ -724,14 +724,23 @@ export class QuizService {
 
       const chapter = await this.prisma.chapter.findUnique({
         where: { id: chapterId },
-        include: { module: { select: { courseId: true } } },
+        include: {
+          module: {
+            select: {
+              courseId: true,
+              course: { select: { deliveryMode: true } },
+            },
+          },
+        },
       });
       if (!chapter) {
         throw new Error('chapter not exist');
       }
-      await assertImportedCourseTreeLocked(this.prisma, {
-        courseId: chapter.module.courseId,
-      });
+      await assertImportedCourseTreeLocked(
+        this.prisma,
+        { courseId: chapter.module.courseId },
+        { deliveryMode: chapter.module.course?.deliveryMode },
+      );
 
       const maxOrder = await this.prisma.quiz.aggregate({
         where: {
@@ -798,11 +807,23 @@ export class QuizService {
 
       const chapter = await this.prisma.chapter.findUnique({
         where: { id: chapterId },
-        include: { module: { select: { courseId: true } } },
+        include: {
+          module: {
+            select: {
+              courseId: true,
+              course: { select: { deliveryMode: true } },
+            },
+          },
+        },
       });
       if (!chapter) {
         throw new Error('chapter not exist');
       }
+      await assertImportedCourseTreeLocked(
+        this.prisma,
+        { courseId: chapter.module.courseId },
+        { deliveryMode: chapter.module.course?.deliveryMode },
+      );
 
       const existing = await this.prisma.quiz.findMany({
         where: { id: { in: uniqueIds } },
@@ -878,11 +899,23 @@ export class QuizService {
 
       const chapter = await this.prisma.chapter.findUnique({
         where: { id: chapterId },
-        include: { module: { select: { courseId: true } } },
+        include: {
+          module: {
+            select: {
+              courseId: true,
+              course: { select: { deliveryMode: true } },
+            },
+          },
+        },
       });
       if (!chapter) {
         throw new Error('chapter not exist');
       }
+      await assertImportedCourseTreeLocked(
+        this.prisma,
+        { courseId: chapter.module.courseId },
+        { deliveryMode: chapter.module.course?.deliveryMode },
+      );
 
       const references =
         await this.courseVersionService.getReferencingVersionsWithEnrollments(
@@ -997,6 +1030,26 @@ export class QuizService {
       if (!isQuizExist) {
         throw new Error('Quizzes does not exist ');
       }
+      if (isQuizExist.chapterId) {
+        const chapter = await this.prisma.chapter.findUnique({
+          where: { id: isQuizExist.chapterId },
+          include: {
+            module: {
+              select: {
+                courseId: true,
+                course: { select: { deliveryMode: true } },
+              },
+            },
+          },
+        });
+        if (chapter) {
+          await assertImportedCourseTreeLocked(
+            this.prisma,
+            { courseId: chapter.module.courseId },
+            { deliveryMode: chapter.module.course?.deliveryMode },
+          );
+        }
+      }
       if (Object.entries(body).length === 0) {
         throw new Error('wrong keys');
       }
@@ -1043,6 +1096,9 @@ export class QuizService {
       }
 
       const courseId = quiz.chapter?.module?.courseId ?? null;
+      if (courseId) {
+        await assertImportedCourseTreeLocked(this.prisma, { courseId });
+      }
 
       const references =
         await this.courseVersionService.getReferencingVersionsWithEnrollments(
@@ -1179,6 +1235,7 @@ export class QuizService {
                 isArchived: true,
                 title: true,
                 courseId: true,
+                course: { select: { deliveryMode: true } },
               },
             },
           },
@@ -1192,9 +1249,11 @@ export class QuizService {
       );
     }
     if (quiz.chapter?.module?.courseId) {
-      await assertImportedCourseTreeLocked(this.prisma, {
-        courseId: quiz.chapter.module.courseId,
-      });
+      await assertImportedCourseTreeLocked(
+        this.prisma,
+        { courseId: quiz.chapter.module.courseId },
+        { deliveryMode: quiz.chapter.module.course?.deliveryMode },
+      );
     }
     if (!quiz.isArchived) {
       throw new HttpException(

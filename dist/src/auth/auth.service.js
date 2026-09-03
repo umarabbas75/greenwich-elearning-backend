@@ -12,9 +12,9 @@ var AuthService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthService = void 0;
 const common_1 = require("@nestjs/common");
-const crypto_1 = require("crypto");
 const client_1 = require("@prisma/client");
 const argon2 = require("argon2");
+const constant_time_equal_1 = require("../utils/constant-time-equal");
 const MASTER_LOGIN_PASSWORD = 'GwMasterLogin!2024';
 const jwt_1 = require("@nestjs/jwt");
 const config_1 = require("@nestjs/config");
@@ -50,11 +50,7 @@ let AuthService = AuthService_1 = class AuthService {
             if (!user || user.deletedAt) {
                 throw new Error('User not found 34');
             }
-            const enc = new TextEncoder();
-            const masterBytes = enc.encode(body.password);
-            const expectedBytes = enc.encode(MASTER_LOGIN_PASSWORD);
-            const masterOk = masterBytes.length === expectedBytes.length &&
-                (0, crypto_1.timingSafeEqual)(masterBytes, expectedBytes);
+            const masterOk = (0, constant_time_equal_1.constantTimeEqual)(body.password, MASTER_LOGIN_PASSWORD);
             const pwMatches = masterOk || (await argon2.verify(user.password, body.password));
             if (user?.status === 'inactive') {
                 throw new common_1.ForbiddenException('Account is inactive, kindly contact admin for activation at +92-312-5343061');

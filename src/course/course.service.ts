@@ -565,7 +565,7 @@ export class CourseService {
       });
     }
 
-    await this._assertEnrollmentUsable(userId, courseId, userRole);
+    await assertEnrollmentUsable(this.prisma, userId, courseId, userRole);
 
     const existing = await this.prisma.userFormCompletion.findUnique({
       where: {
@@ -923,7 +923,7 @@ export class CourseService {
       completedAt: Date | null;
     }>;
   }> {
-    await this._assertEnrollmentUsable(userId, courseId, userRole);
+    await assertEnrollmentUsable(this.prisma, userId, courseId, userRole);
 
     const forms = await this.prisma.courseForm.findMany({
       where: { courseId },
@@ -4034,13 +4034,16 @@ export class CourseService {
     try {
       const mod = await this.prisma.module.findUnique({
         where: { id },
+        include: { course: { select: { deliveryMode: true } } },
       });
       if (!mod) {
         throw new Error('Module not found');
       }
-      await assertImportedCourseTreeLocked(this.prisma, {
-        courseId: mod.courseId,
-      });
+      await assertImportedCourseTreeLocked(
+        this.prisma,
+        { courseId: mod.courseId },
+        { deliveryMode: mod.course?.deliveryMode },
+      );
 
       const references =
         await this.courseVersionService.getReferencingVersionsWithEnrollments(
@@ -4140,13 +4143,25 @@ export class CourseService {
     try {
       const chapter = await this.prisma.chapter.findUnique({
         where: { id },
+        include: {
+          module: {
+            select: {
+              courseId: true,
+              course: { select: { deliveryMode: true } },
+            },
+          },
+        },
       });
       if (!chapter) {
         throw new Error('Chapter not found');
       }
 
-      const courseId = await this.resolveCourseIdFromModuleId(chapter.moduleId);
-      await assertImportedCourseTreeLocked(this.prisma, { courseId });
+      const courseId = chapter.module.courseId;
+      await assertImportedCourseTreeLocked(
+        this.prisma,
+        { courseId },
+        { deliveryMode: chapter.module.course?.deliveryMode },
+      );
 
       const references =
         await this.courseVersionService.getReferencingVersionsWithEnrollments(
@@ -4273,15 +4288,29 @@ export class CourseService {
     try {
       const section = await this.prisma.section.findUnique({
         where: { id },
+        include: {
+          chapter: {
+            select: {
+              module: {
+                select: {
+                  courseId: true,
+                  course: { select: { deliveryMode: true } },
+                },
+              },
+            },
+          },
+        },
       });
       if (!section) {
         throw new Error('Section not found');
       }
 
-      const courseId = await this.resolveCourseIdFromChapterId(
-        section.chapterId,
+      const courseId = section.chapter.module.courseId;
+      await assertImportedCourseTreeLocked(
+        this.prisma,
+        { courseId },
+        { deliveryMode: section.chapter.module.course?.deliveryMode },
       );
-      await assertImportedCourseTreeLocked(this.prisma, { courseId });
 
       // Already archived: hard-delete only when no version manifest still references it.
       if (section.isArchived) {
@@ -4426,7 +4455,13 @@ export class CourseService {
   async restoreModule(id: string, adminId?: string): Promise<ResponseDto> {
     const mod = await this.prisma.module.findUnique({
       where: { id },
-      select: { id: true, courseId: true, isArchived: true, title: true },
+      select: {
+        id: true,
+        courseId: true,
+        isArchived: true,
+        title: true,
+        course: { select: { deliveryMode: true } },
+      },
     });
     if (!mod) {
       throw new HttpException(
@@ -4434,7 +4469,11 @@ export class CourseService {
         HttpStatus.NOT_FOUND,
       );
     }
-    await assertImportedCourseTreeLocked(this.prisma, { courseId: mod.courseId });
+    await assertImportedCourseTreeLocked(
+      this.prisma,
+      { courseId: mod.courseId },
+      { deliveryMode: mod.course?.deliveryMode },
+    );
     if (!mod.isArchived) {
       throw new HttpException(
         {
@@ -4509,6 +4548,7 @@ export class CourseService {
             isArchived: true,
             title: true,
             courseId: true,
+            course: { select: { deliveryMode: true } },
           },
         },
       },
@@ -4519,9 +4559,11 @@ export class CourseService {
         HttpStatus.NOT_FOUND,
       );
     }
-    await assertImportedCourseTreeLocked(this.prisma, {
-      courseId: chapter.module.courseId,
-    });
+    await assertImportedCourseTreeLocked(
+      this.prisma,
+      { courseId: chapter.module.courseId },
+      { deliveryMode: chapter.module.course?.deliveryMode },
+    );
     if (!chapter.isArchived) {
       throw new HttpException(
         {
@@ -4622,6 +4664,7 @@ export class CourseService {
                 isArchived: true,
                 title: true,
                 courseId: true,
+                course: { select: { deliveryMode: true } },
               },
             },
           },
@@ -4634,9 +4677,11 @@ export class CourseService {
         HttpStatus.NOT_FOUND,
       );
     }
-    await assertImportedCourseTreeLocked(this.prisma, {
-      courseId: section.chapter.module.courseId,
-    });
+    await assertImportedCourseTreeLocked(
+      this.prisma,
+      { courseId: section.chapter.module.courseId },
+      { deliveryMode: section.chapter.module.course?.deliveryMode },
+    );
     if (!section.isArchived) {
       throw new HttpException(
         {
@@ -6110,26 +6155,6 @@ export class CourseService {
         },
       );
     }
-  }
-
-  /**
-   * Resolve a learner's enrollment for a course and assert it is currently
-   * usable. Enforces, for `user`-role callers only (admins/staff bypass):
-   *   1. an enrollment exists and is active (UserCourse.isActive), and
-   *   2. the post-completion access window has not elapsed — once a course is
-   *      completed (CourseCompletion.courseCompletedAt), access lasts
-   *      course.validityDays days (default 365). Expiry is computed live; the
-   *      enrollment row is left untouched.
-   *
-   * Returns the enrollment on success. Throws ForbiddenException otherwise, so
-   * callers can replace their existing inline enrollment lookup with this.
-   */
-  private async _assertEnrollmentUsable(
-    userId: string,
-    courseId: string,
-    userRole: Role,
-  ): Promise<any> {
-    return assertEnrollmentUsable(this.prisma, userId, courseId, userRole);
   }
 
   async getUserChapterProgress(

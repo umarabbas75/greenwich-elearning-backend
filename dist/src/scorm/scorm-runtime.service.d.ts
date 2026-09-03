@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { User } from '@prisma/client';
+import { ScormRegistration, User } from '@prisma/client';
 import { CourseCompletionService } from '../course-completion/course-completion.service';
 import { CourseVersionService } from '../course-version/course-version.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -21,6 +21,10 @@ export declare class ScormRuntimeService {
         candidates: number;
         updated: number;
     }>;
+    pruneSupersededPackagesCron(): Promise<{
+        candidates: number;
+        pruned: number;
+    }>;
     getLearnerProgress(userId: string, courseId: string): Promise<{
         message: string;
         statusCode: number;
@@ -36,10 +40,12 @@ export declare class ScormRuntimeService {
             lastPostbackAt: Date;
         };
     }>;
-    applyProgressAndMaybeCertify(registrationId: string, payload: ScormCloudRegistrationProgress, options: {
+    applyProgressAndMaybeCertify(current: ScormRegistration, payload: ScormCloudRegistrationProgress, options: {
         throwIfCertifyIncomplete: boolean;
     }): Promise<void>;
     private runCompletionBridge;
+    private resolveCertifySection;
+    private canPruneSupersededPackage;
     private ensureCloudRegistration;
     private upsertLastSeen;
     private resolvePinnedScormTarget;

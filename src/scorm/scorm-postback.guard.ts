@@ -1,4 +1,3 @@
-import { timingSafeEqual } from 'crypto';
 import {
   CanActivate,
   ExecutionContext,
@@ -7,11 +6,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { constantTimeEqual } from '../utils/constant-time-equal';
 
 /**
  * HTTP Basic against SCORM_POSTBACK_AUTH_USER / PASSWORD.
- * Fail closed if either is unset. Length-check before timingSafeEqual so
- * unequal-length secrets do not throw (same pattern as auth.service.ts).
+ * Fail closed if either is unset.
  */
 @Injectable()
 export class ScormPostbackGuard implements CanActivate {
@@ -38,8 +37,8 @@ export class ScormPostbackGuard implements CanActivate {
     }
 
     if (
-      !safeEqual(parsed.user, expectedUser) ||
-      !safeEqual(parsed.password, expectedPass)
+      !constantTimeEqual(parsed.user, expectedUser) ||
+      !constantTimeEqual(parsed.password, expectedPass)
     ) {
       throw new UnauthorizedException('Invalid postback credentials');
     }
@@ -66,8 +65,5 @@ export function parseBasicAuth(
   }
 }
 
-export function safeEqual(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
+// Kept for tests that import safeEqual directly.
+export const safeEqual = constantTimeEqual;

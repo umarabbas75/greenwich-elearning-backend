@@ -13,6 +13,7 @@ import {
   Prisma,
   Role,
   ScormPackageStatus,
+  ScormRegistration,
   SectionType,
   User,
 } from '@prisma/client';
@@ -31,6 +32,9 @@ import {
 } from '../scorm-cloud/scorm-cloud.client';
 import { assertEnrollmentUsable } from '../utils/assert-enrollment-usable';
 import { recordChapterAndModuleCompletionIfNeeded } from '../utils/chapter-progression';
+import { errorMessage } from '../utils/error-message';
+import { compensateCloudRegistration } from '../utils/scorm-cloud-compensate';
+import { stripTrailingSlash } from '../utils/strip-trailing-slash';
 import { LaunchScormDto } from './dto';
 import {
   COMPLETION_RANK,
@@ -44,6 +48,9 @@ import {
 
 const RECONCILE_BATCH = 20;
 const DEFAULT_RECONCILE_AGE_SECONDS = 300;
+const PRUNE_SUPERSEDED_BATCH = 10;
+
+type CertifyOutcome = 'done' | 'skipped' | 'retry';
 
 @Injectable()
 export class ScormRuntimeService {
@@ -62,7 +69,28 @@ export class ScormRuntimeService {
       throw new ForbiddenException('Account is not available');
     }
 
-    const resolved = await this.resolvePinnedScormTarget(user.id, body.courseId);
+    const frontend = this.config.get<string>('PUBLIC_FRONTEND_URL');
+    if (!frontend) {
+      throw new InternalServerErrorException(
+        'PUBLIC_FRONTEND_URL is not configured',
+      );
+    }
+
+    const isLearner = user.role === Role.user;
+    const resolved = isLearner
+      ? (
+          await Promise.all([
+            this.resolvePinnedScormTarget(user.id, body.courseId),
+            assertEnrollmentUsable(
+              this.prisma,
+              user.id,
+              body.courseId,
+              Role.user,
+            ),
+          ])
+        )[0]
+      : await this.resolvePinnedScormTarget(user.id, body.courseId);
+
     if (
       body.packageId &&
       body.packageId !== resolved.package.id
@@ -72,17 +100,8 @@ export class ScormRuntimeService {
       );
     }
 
-    const isLearner = user.role === Role.user;
-    if (isLearner) {
-      await assertEnrollmentUsable(
-        this.prisma,
-        user.id,
-        body.courseId,
-        Role.user,
-      );
-      if (!resolved.courseIsActive) {
-        throw new ForbiddenException('This course is not published yet');
-      }
+    if (isLearner && !resolved.courseIsActive) {
+      throw new ForbiddenException('This course is not published yet');
     }
 
     const pkgStatus = resolved.package.status;
@@ -93,34 +112,29 @@ export class ScormRuntimeService {
       throw new ForbiddenException('This SCORM package is not ready to launch');
     }
 
-    const registration = await this.ensureCloudRegistration({
-      user,
-      courseId: body.courseId,
-      packageId: resolved.package.id,
-      scormCloudCourseId: resolved.package.scormCloudCourseId,
-      sectionId: resolved.sectionId,
-      moduleId: resolved.moduleId,
-      chapterId: resolved.chapterId,
-      completeOn: resolved.completeOn,
-    });
+    const [registration] = await Promise.all([
+      this.ensureCloudRegistration({
+        user,
+        courseId: body.courseId,
+        packageId: resolved.package.id,
+        scormCloudCourseId: resolved.package.scormCloudCourseId,
+        sectionId: resolved.sectionId,
+        moduleId: resolved.moduleId,
+        chapterId: resolved.chapterId,
+        completeOn: resolved.completeOn,
+      }),
+      this.upsertLastSeen({
+        userId: user.id,
+        courseId: body.courseId,
+        moduleId: resolved.moduleId,
+        chapterId: resolved.chapterId,
+        sectionId: resolved.sectionId,
+      }),
+    ]);
 
-    await this.upsertLastSeen({
-      userId: user.id,
-      courseId: body.courseId,
-      moduleId: resolved.moduleId,
-      chapterId: resolved.chapterId,
-      sectionId: resolved.sectionId,
-    });
-
-    const frontend = this.config.get<string>('PUBLIC_FRONTEND_URL');
-    if (!frontend) {
-      throw new InternalServerErrorException(
-        'PUBLIC_FRONTEND_URL is not configured',
-      );
-    }
     const launchLink = await this.cloud.buildRegistrationLaunchLink({
       registrationId: registration.scormCloudRegistrationId,
-      redirectOnExitUrl: frontend.replace(/\/$/, ''),
+      redirectOnExitUrl: stripTrailingSlash(frontend),
       expiry: 120,
     });
 
@@ -146,7 +160,7 @@ export class ScormRuntimeService {
       );
     }
 
-    await this.applyProgressAndMaybeCertify(row.id, parsed, {
+    await this.applyProgressAndMaybeCertify(row, parsed, {
       throwIfCertifyIncomplete: true,
     });
   }
@@ -181,27 +195,105 @@ export class ScormRuntimeService {
       `,
     );
 
-    let updated = 0;
-    for (const { id } of candidates) {
+    if (candidates.length === 0) {
+      return { candidates: 0, updated: 0 };
+    }
+
+    const rows = await this.prisma.scormRegistration.findMany({
+      where: { id: { in: candidates.map((c) => c.id) } },
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+
+    const results = await Promise.all(
+      candidates.map(async ({ id }) => {
+        try {
+          const row = byId.get(id);
+          if (!row) return false;
+          const progress = await this.cloud.getRegistrationProgress(
+            row.scormCloudRegistrationId,
+          );
+          const fresh = await this.prisma.scormRegistration.findUnique({
+            where: { id },
+          });
+          if (!fresh) return false;
+          await this.applyProgressAndMaybeCertify(fresh, progress, {
+            throwIfCertifyIncomplete: false,
+          });
+          return true;
+        } catch (err) {
+          this.logger.warn(
+            `Reconcile failed for registration ${id}: ${errorMessage(err)}`,
+          );
+          return false;
+        }
+      }),
+    );
+
+    return {
+      candidates: candidates.length,
+      updated: results.filter(Boolean).length,
+    };
+  }
+
+  /**
+   * Best-effort prune of SUPERSEDED packages whose Cloud course is no longer
+   * referenced by in-progress registrations or pinned enrollments on the old
+   * section's version.
+   */
+  async pruneSupersededPackagesCron() {
+    const superseded = await this.prisma.scormPackage.findMany({
+      where: {
+        status: ScormPackageStatus.SUPERSEDED,
+        sectionId: { not: null },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: PRUNE_SUPERSEDED_BATCH,
+      select: {
+        id: true,
+        courseId: true,
+        sectionId: true,
+        scormCloudCourseId: true,
+      },
+    });
+
+    let pruned = 0;
+    for (const pkg of superseded) {
       try {
-        const row = await this.prisma.scormRegistration.findUnique({
-          where: { id },
+        const canPrune = await this.canPruneSupersededPackage(pkg);
+        if (!canPrune) continue;
+
+        const registrations = await this.prisma.scormRegistration.findMany({
+          where: { packageId: pkg.id },
+          select: { scormCloudRegistrationId: true },
         });
-        if (!row) continue;
-        const progress = await this.cloud.getRegistrationProgress(
-          row.scormCloudRegistrationId,
-        );
-        await this.applyProgressAndMaybeCertify(row.id, progress, {
-          throwIfCertifyIncomplete: false,
+        for (const reg of registrations) {
+          await compensateCloudRegistration(
+            this.cloud,
+            reg.scormCloudRegistrationId,
+            this.logger,
+          );
+        }
+        try {
+          await this.cloud.deleteCourse(pkg.scormCloudCourseId);
+        } catch (err) {
+          this.logger.warn(
+            `Failed SCORM Cloud DeleteCourse ${pkg.scormCloudCourseId}: ${errorMessage(err)}`,
+          );
+          continue;
+        }
+        await this.prisma.scormPackage.update({
+          where: { id: pkg.id },
+          data: { status: ScormPackageStatus.PRUNED },
         });
-        updated += 1;
+        pruned += 1;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`Reconcile failed for registration ${id}: ${message}`);
+        this.logger.warn(
+          `Prune check failed for package ${pkg.id}: ${errorMessage(err)}`,
+        );
       }
     }
 
-    return { candidates: candidates.length, updated };
+    return { candidates: superseded.length, pruned };
   }
 
   async getLearnerProgress(userId: string, courseId: string) {
@@ -227,7 +319,7 @@ export class ScormRuntimeService {
   }
 
   async applyProgressAndMaybeCertify(
-    registrationId: string,
+    current: ScormRegistration,
     payload: ScormCloudRegistrationProgress,
     options: { throwIfCertifyIncomplete: boolean },
   ): Promise<void> {
@@ -242,13 +334,6 @@ export class ScormRuntimeService {
         ? payload.totalSecondsTracked
         : null;
 
-    const current = await this.prisma.scormRegistration.findUnique({
-      where: { id: registrationId },
-    });
-    if (!current) {
-      throw new InternalServerErrorException('SCORM registration disappeared');
-    }
-
     const completionStatus = pickMonotonic(
       current.completionStatus,
       incomingCompletion,
@@ -261,12 +346,19 @@ export class ScormRuntimeService {
     );
 
     await this.prisma.scormRegistration.update({
-      where: { id: registrationId },
+      where: { id: current.id },
       data: {
         completionStatus,
         successStatus,
-        scoreScaled: scoreScaled ?? current.scoreScaled,
-        totalTimeSeconds: totalTimeSeconds ?? current.totalTimeSeconds,
+        ...(scoreScaled != null ? { scoreScaled } : {}),
+        ...(totalTimeSeconds != null
+          ? {
+              totalTimeSeconds:
+                current.totalTimeSeconds != null
+                  ? Math.max(totalTimeSeconds, current.totalTimeSeconds)
+                  : totalTimeSeconds,
+            }
+          : {}),
         lastPostbackAt: new Date(),
       },
     });
@@ -277,8 +369,16 @@ export class ScormRuntimeService {
       return;
     }
 
-    const certified = await this.runCompletionBridge(current);
-    if (!certified && options.throwIfCertifyIncomplete) {
+    const outcome = await this.runCompletionBridge(
+      { ...current, completionStatus, successStatus },
+    );
+    if (outcome === 'skipped') {
+      return;
+    }
+    if (outcome === 'done') {
+      return;
+    }
+    if (options.throwIfCertifyIncomplete) {
       throw new InternalServerErrorException(
         'SCORM snapshot saved but course certification is not complete yet',
       );
@@ -292,7 +392,9 @@ export class ScormRuntimeService {
     packageId: string;
     sectionId: string;
     completeOn: string;
-  }): Promise<boolean> {
+    completionStatus: string;
+    successStatus: string;
+  }): Promise<CertifyOutcome> {
     const user = await this.prisma.user.findUnique({
       where: { id: row.userId },
       select: { id: true, role: true, deletedAt: true },
@@ -301,7 +403,7 @@ export class ScormRuntimeService {
       this.logger.warn(
         `Skipping SCORM certify for registration ${row.id}: user missing or deleted`,
       );
-      return false;
+      return 'skipped';
     }
 
     try {
@@ -312,29 +414,64 @@ export class ScormRuntimeService {
         Role.user,
       );
     } catch (err) {
-      this.logger.warn(
-        `Skipping SCORM certify for registration ${row.id}: enrolment not usable`,
-      );
-      return false;
+      if (err instanceof ForbiddenException) {
+        this.logger.warn(
+          `Skipping SCORM certify for registration ${row.id}: enrolment not usable (${errorMessage(err)})`,
+        );
+        return 'skipped';
+      }
+      throw err;
     }
 
-    const section = await this.prisma.section.findUnique({
-      where: { id: row.sectionId },
-      select: { chapterId: true, moduleId: true },
+    const course = await this.prisma.course.findUnique({
+      where: { id: row.courseId },
+      select: { isActive: true },
     });
-    if (!section?.chapterId || !section.moduleId) {
+    if (!course?.isActive) {
       this.logger.warn(
-        `Skipping SCORM certify for registration ${row.id}: section missing module/chapter`,
+        `Skipping SCORM certify for registration ${row.id}: course is not published`,
       );
-      return false;
+      return 'skipped';
+    }
+
+    const pkg = await this.prisma.scormPackage.findUnique({
+      where: { id: row.packageId },
+      select: { sectionId: true },
+    });
+    let sectionId = pkg?.sectionId ?? row.sectionId;
+    if (!sectionId) {
+      this.logger.warn(
+        `Skipping SCORM certify for registration ${row.id}: package has no section`,
+      );
+      return 'retry';
+    }
+    if (pkg?.sectionId && pkg.sectionId !== row.sectionId) {
+      await this.prisma.scormRegistration.update({
+        where: { id: row.id },
+        data: { sectionId: pkg.sectionId },
+      });
+      sectionId = pkg.sectionId;
+    }
+
+    const certifySection = await this.resolveCertifySection({
+      registrationId: row.id,
+      userId: row.userId,
+      courseId: row.courseId,
+      sectionId,
+    });
+    if (!certifySection) {
+      this.logger.warn(
+        `Skipping SCORM certify for registration ${row.id}: could not resolve a certify section`,
+      );
+      return 'retry';
     }
 
     const existingProgress = await this.prisma.userCourseProgress.findFirst({
       where: {
         userId: row.userId,
         courseId: row.courseId,
-        chapterId: section.chapterId,
-        sectionId: row.sectionId,
+        chapterId: certifySection.chapterId,
+        sectionId: certifySection.sectionId,
       },
     });
     if (!existingProgress) {
@@ -342,9 +479,9 @@ export class ScormRuntimeService {
         data: {
           userId: row.userId,
           courseId: row.courseId,
-          chapterId: section.chapterId,
-          sectionId: row.sectionId,
-          moduleId: section.moduleId,
+          chapterId: certifySection.chapterId,
+          sectionId: certifySection.sectionId,
+          moduleId: certifySection.moduleId,
         },
       });
     }
@@ -354,35 +491,46 @@ export class ScormRuntimeService {
       row.courseId,
     );
 
-    await this.prisma.courseCompletion.upsert({
-      where: {
-        userId_courseId: { userId: row.userId, courseId: row.courseId },
-      },
-      create: {
-        userId: row.userId,
-        courseId: row.courseId,
-        isPassed: true,
-        assessmentPassedAt: new Date(),
-      },
-      update: {
-        isPassed: true,
-        assessmentPassedAt: new Date(),
-      },
-    });
-
-    await recordChapterAndModuleCompletionIfNeeded(
-      this.prisma,
-      row.userId,
-      section.chapterId,
-      { courseId: row.courseId },
-    );
-
-    const completion = await this.prisma.courseCompletion.findUnique({
+    let completion = await this.prisma.courseCompletion.findUnique({
       where: {
         userId_courseId: { userId: row.userId, courseId: row.courseId },
       },
       select: { courseCompletedAt: true, isPassed: true },
     });
+    if (!completion?.courseCompletedAt) {
+      return 'retry';
+    }
+
+    // completeOn "completed" certifies on completion status only (not SCORM success).
+    const certifyPassed =
+      row.completeOn === 'passed'
+        ? row.successStatus === 'passed'
+        : row.completionStatus === 'completed';
+
+    if (certifyPassed && !completion.isPassed) {
+      await this.prisma.courseCompletion.update({
+        where: {
+          userId_courseId: { userId: row.userId, courseId: row.courseId },
+        },
+        data: {
+          isPassed: true,
+          assessmentPassedAt: new Date(),
+        },
+      });
+      completion = await this.prisma.courseCompletion.findUnique({
+        where: {
+          userId_courseId: { userId: row.userId, courseId: row.courseId },
+        },
+        select: { courseCompletedAt: true, isPassed: true },
+      });
+    }
+
+    await recordChapterAndModuleCompletionIfNeeded(
+      this.prisma,
+      row.userId,
+      certifySection.chapterId,
+      { courseId: row.courseId },
+    );
 
     const done = !!(completion?.courseCompletedAt && completion.isPassed);
     if (done) {
@@ -391,7 +539,118 @@ export class ScormRuntimeService {
         data: { completedAt: new Date() },
       });
     }
-    return done;
+    return done ? 'done' : 'retry';
+  }
+
+  /**
+   * Resolve which section row to stamp for certification. When a superseded
+   * package's section is archived, pinned learners keep it; unpinned floaters
+   * remap to the live SCORM section so checkContentCompletion's denominator matches.
+   */
+  private async resolveCertifySection(args: {
+    registrationId: string;
+    userId: string;
+    courseId: string;
+    sectionId: string;
+  }): Promise<{ sectionId: string; chapterId: string; moduleId: string } | null> {
+    const section = await this.prisma.section.findUnique({
+      where: { id: args.sectionId },
+      select: { id: true, chapterId: true, moduleId: true, isArchived: true },
+    });
+    if (!section?.chapterId || !section.moduleId) {
+      return null;
+    }
+
+    if (!section.isArchived) {
+      return {
+        sectionId: section.id,
+        chapterId: section.chapterId,
+        moduleId: section.moduleId,
+      };
+    }
+
+    const enrollment = await this.prisma.userCourse.findFirst({
+      where: { userId: args.userId, courseId: args.courseId },
+      select: { enrolledVersionId: true },
+    });
+    if (enrollment?.enrolledVersionId) {
+      return {
+        sectionId: section.id,
+        chapterId: section.chapterId,
+        moduleId: section.moduleId,
+      };
+    }
+
+    const live = await this.prisma.section.findFirst({
+      where: {
+        type: SectionType.SCORM,
+        isArchived: false,
+        chapter: {
+          isArchived: false,
+          module: { courseId: args.courseId, isArchived: false },
+        },
+      },
+      select: { id: true, chapterId: true, moduleId: true },
+    });
+    if (!live?.chapterId || !live.moduleId) {
+      return null;
+    }
+
+    await this.prisma.scormRegistration.update({
+      where: { id: args.registrationId },
+      data: { sectionId: live.id },
+    });
+
+    return {
+      sectionId: live.id,
+      chapterId: live.chapterId,
+      moduleId: live.moduleId,
+    };
+  }
+
+  private async canPruneSupersededPackage(pkg: {
+    id: string;
+    courseId: string;
+    sectionId: string | null;
+  }): Promise<boolean> {
+    if (!pkg.sectionId) return false;
+
+    const inProgress = await this.prisma.scormRegistration.count({
+      where: {
+        packageId: pkg.id,
+        completedAt: null,
+        OR: [{ firstLaunchAt: { not: null } }, { lastPostbackAt: { not: null } }],
+      },
+    });
+    if (inProgress > 0) return false;
+
+    const versions = await this.prisma.courseVersion.findMany({
+      where: { courseId: pkg.courseId, status: 'PUBLISHED' },
+      select: { id: true, manifest: true },
+    });
+    for (const version of versions) {
+      const manifest = version.manifest as Record<string, unknown> | null;
+      const modules = (manifest?.modules as Array<Record<string, unknown>>) ?? [];
+      const sectionIds = new Set<string>();
+      for (const mod of modules) {
+        const chapters = (mod.chapters as Array<Record<string, unknown>>) ?? [];
+        for (const chapter of chapters) {
+          const sections =
+            (chapter.sections as Array<Record<string, unknown>>) ?? [];
+          for (const section of sections) {
+            if (typeof section.id === 'string') sectionIds.add(section.id);
+          }
+        }
+      }
+      if (!sectionIds.has(pkg.sectionId)) continue;
+
+      const pinned = await this.prisma.userCourse.count({
+        where: { courseId: pkg.courseId, enrolledVersionId: version.id },
+      });
+      if (pinned > 0) return false;
+    }
+
+    return true;
   }
 
   private async ensureCloudRegistration(args: {
@@ -432,6 +691,7 @@ export class ScormRuntimeService {
     }
 
     const registrationId = randomUUID();
+    let cloudCreated = false;
     try {
       await this.cloud.createRegistration({
         courseId: args.scormCloudCourseId,
@@ -442,13 +702,14 @@ export class ScormRuntimeService {
           lastName: args.user.lastName,
         },
         postBack: {
-          url: `${publicApp.replace(/\/$/, '')}/api/v1/scorm/postback`,
+          url: `${stripTrailingSlash(publicApp)}/api/v1/scorm/postback`,
           authType: 'HTTPBASIC',
           userName: postUser,
           password: postPass,
           resultsFormat: 'COURSE',
         },
       });
+      cloudCreated = true;
     } catch (err) {
       if (err instanceof ScormCloudHttpError && err.cloudStatus === 409) {
         const raced = await this.prisma.scormRegistration.findUnique({
@@ -468,14 +729,11 @@ export class ScormRuntimeService {
           }
           return raced;
         }
-        // Cloud has a registration we don't. Continue using the id we sent
-        // if the 409 is for this id; otherwise fail closed.
-        this.logger.warn(
-          `SCORM Cloud 409 creating registration ${registrationId} with no local row`,
+        throw new InternalServerErrorException(
+          `SCORM Cloud 409 creating registration ${registrationId} with no local row — refusing to persist an unverified id`,
         );
-      } else {
-        throw err;
       }
+      throw err;
     }
 
     try {
@@ -505,25 +763,21 @@ export class ScormRuntimeService {
           },
         });
         if (raced) {
-          try {
-            await this.cloud.deleteRegistration(registrationId);
-          } catch (cleanupErr) {
-            const message =
-              cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
-            this.logger.warn(
-              `Failed to compensate Cloud registration ${registrationId}: ${message}`,
+          if (cloudCreated) {
+            await compensateCloudRegistration(
+              this.cloud,
+              registrationId,
+              this.logger,
             );
           }
           return raced;
         }
       }
-      try {
-        await this.cloud.deleteRegistration(registrationId);
-      } catch (cleanupErr) {
-        const message =
-          cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
-        this.logger.warn(
-          `Failed to compensate Cloud registration ${registrationId}: ${message}`,
+      if (cloudCreated) {
+        await compensateCloudRegistration(
+          this.cloud,
+          registrationId,
+          this.logger,
         );
       }
       throw err;
@@ -652,4 +906,3 @@ function findScormSection(
   }
   return null;
 }
-

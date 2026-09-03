@@ -1,5 +1,7 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { errorMessage } from '../utils/error-message';
+import { stripTrailingSlash } from '../utils/strip-trailing-slash';
 
 export class ScormCloudHttpError extends HttpException {
   readonly cloudStatus: number;
@@ -56,10 +58,6 @@ export class ScormCloudClient {
   private readonly logger = new Logger(ScormCloudClient.name);
 
   constructor(private readonly config: ConfigService) {}
-
-  async ping(): Promise<unknown> {
-    return this.request('GET', '/ping');
-  }
 
   /**
    * CreateFetchAndImportCourseJob. Body is `{ url }` (not contentUrl).
@@ -163,14 +161,19 @@ export class ScormCloudClient {
     );
   }
 
-  async testRegistrationPostback(postBack: CreateRegistrationInput['postBack']) {
-    return this.request('POST', '/registrations/postBackTest', postBack);
-  }
-
   async deleteRegistration(registrationId: string): Promise<void> {
     await this.request(
       'DELETE',
       `/registrations/${encodeURIComponent(registrationId)}`,
+      undefined,
+      { acceptEmpty: true },
+    );
+  }
+
+  async deleteCourse(scormCloudCourseId: string): Promise<void> {
+    await this.request(
+      'DELETE',
+      `/courses/${encodeURIComponent(scormCloudCourseId)}`,
       undefined,
       { acceptEmpty: true },
     );
@@ -198,7 +201,7 @@ export class ScormCloudClient {
     const base =
       this.config.get<string>('SCORM_CLOUD_API_BASE') ||
       'https://cloud.scorm.com/api/v2';
-    return base.replace(/\/$/, '');
+    return stripTrailingSlash(base);
   }
 
   private authHeader(): string {
@@ -256,8 +259,9 @@ export class ScormCloudClient {
     try {
       response = await fetch(url, init);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(`SCORM Cloud ${method} ${path} network error: ${message}`);
+      this.logger.error(
+        `SCORM Cloud ${method} ${path} network error: ${errorMessage(err)}`,
+      );
       throw new HttpException(
         'SCORM Cloud is unreachable',
         HttpStatus.BAD_GATEWAY,

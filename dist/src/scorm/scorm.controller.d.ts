@@ -21,6 +21,7 @@ export declare class ScormController {
             passingScore: number;
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
+            importWarning: string;
             createdAt: Date;
         };
     }>;
@@ -41,6 +42,7 @@ export declare class ScormController {
             passingScore: number;
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
+            importWarning: string;
             createdAt: Date;
         };
     }>;
@@ -61,6 +63,7 @@ export declare class ScormController {
             passingScore: number;
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
+            importWarning: string;
             createdAt: Date;
         };
     }>;
@@ -81,6 +84,7 @@ export declare class ScormController {
             passingScore: number;
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
+            importWarning: string;
             createdAt: Date;
         }[];
     }>;

@@ -4,7 +4,13 @@ exports.assertImportedCourseTreeLocked = exports.IMPORTED_SCORM_TREE_LOCKED_MESS
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 exports.IMPORTED_SCORM_TREE_LOCKED_MESSAGE = 'Imported SCORM courses have a locked curriculum. Replace the package instead of editing the tree.';
-async function assertImportedCourseTreeLocked(prisma, ref) {
+async function assertImportedCourseTreeLocked(prisma, ref, options) {
+    if (options?.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM) {
+        throw new common_1.ForbiddenException(exports.IMPORTED_SCORM_TREE_LOCKED_MESSAGE);
+    }
+    if (options?.deliveryMode === client_1.CourseDeliveryMode.NATIVE) {
+        return;
+    }
     const courseId = await resolveCourseId(prisma, ref);
     if (!courseId)
         return;

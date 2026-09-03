@@ -36,6 +36,10 @@
     {
       "path": "/api/v1/internal/cron/scorm-reconcile",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/v1/internal/cron/scorm-prune-superseded",
+      "schedule": "0 3 * * *"
     }
   ]
 }

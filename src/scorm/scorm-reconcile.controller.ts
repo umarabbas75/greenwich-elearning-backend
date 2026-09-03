@@ -43,6 +43,20 @@ export class ScormReconcileController {
     return this.runReconcile();
   }
 
+  @UseGuards(CronSecretGuard)
+  @Get('scorm-prune-superseded')
+  @HttpCode(200)
+  pruneSupersededGet() {
+    return this.runPruneSuperseded();
+  }
+
+  @UseGuards(CronSecretGuard)
+  @Post('scorm-prune-superseded')
+  @HttpCode(200)
+  pruneSupersededPost() {
+    return this.runPruneSuperseded();
+  }
+
   private async runImportJobs() {
     const data = await this.scorm.processImportJobsCron();
     return {
@@ -56,6 +70,15 @@ export class ScormReconcileController {
     const data = await this.runtime.reconcileCron();
     return {
       message: 'SCORM reconcile sweep completed',
+      statusCode: 200,
+      data,
+    };
+  }
+
+  private async runPruneSuperseded() {
+    const data = await this.runtime.pruneSupersededPackagesCron();
+    return {
+      message: 'SCORM superseded-package prune completed',
       statusCode: 200,
       data,
     };

@@ -42,6 +42,23 @@ export declare class ScormReconcileController {
             updated: number;
         };
     }>;
+    pruneSupersededGet(): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            candidates: number;
+            pruned: number;
+        };
+    }>;
+    pruneSupersededPost(): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            candidates: number;
+            pruned: number;
+        };
+    }>;
     private runImportJobs;
     private runReconcile;
+    private runPruneSuperseded;
 }

@@ -31,6 +31,12 @@ let ScormReconcileController = class ScormReconcileController {
     reconcilePost() {
         return this.runReconcile();
     }
+    pruneSupersededGet() {
+        return this.runPruneSuperseded();
+    }
+    pruneSupersededPost() {
+        return this.runPruneSuperseded();
+    }
     async runImportJobs() {
         const data = await this.scorm.processImportJobsCron();
         return {
@@ -43,6 +49,14 @@ let ScormReconcileController = class ScormReconcileController {
         const data = await this.runtime.reconcileCron();
         return {
             message: 'SCORM reconcile sweep completed',
+            statusCode: 200,
+            data,
+        };
+    }
+    async runPruneSuperseded() {
+        const data = await this.runtime.pruneSupersededPackagesCron();
+        return {
+            message: 'SCORM superseded-package prune completed',
             statusCode: 200,
             data,
         };
@@ -81,6 +95,22 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
 ], ScormReconcileController.prototype, "reconcilePost", null);
+__decorate([
+    (0, common_1.UseGuards)(cron_secret_guard_1.CronSecretGuard),
+    (0, common_1.Get)('scorm-prune-superseded'),
+    (0, common_1.HttpCode)(200),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], ScormReconcileController.prototype, "pruneSupersededGet", null);
+__decorate([
+    (0, common_1.UseGuards)(cron_secret_guard_1.CronSecretGuard),
+    (0, common_1.Post)('scorm-prune-superseded'),
+    (0, common_1.HttpCode)(200),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], ScormReconcileController.prototype, "pruneSupersededPost", null);
 exports.ScormReconcileController = ScormReconcileController = __decorate([
     (0, common_1.Controller)('internal/cron'),
     __metadata("design:paramtypes", [scorm_service_1.ScormService,

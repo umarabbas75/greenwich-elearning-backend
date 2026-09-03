@@ -14,6 +14,7 @@ exports.UserService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const argon2 = require("argon2");
+const error_message_1 = require("../utils/error-message");
 const prisma_service_1 = require("../prisma/prisma.service");
 const mail_service_1 = require("../mail/mail.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
@@ -33,25 +34,22 @@ let UserService = UserService_1 = class UserService {
             });
         }
         catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            UserService_1.logger.warn(`Failed to list ScormRegistration rows for purge (user ${userId}): ${message}`);
-            return;
+            UserService_1.logger.warn(`Failed to list ScormRegistration rows for purge (user ${userId}): ${(0, error_message_1.errorMessage)(err)}`);
+            rows = [];
         }
         for (const row of rows) {
             try {
                 await this.scormCloud.deleteRegistration(row.scormCloudRegistrationId);
             }
             catch (err) {
-                const message = err instanceof Error ? err.message : String(err);
-                UserService_1.logger.warn(`Failed SCORM Cloud DeleteRegistration ${row.scormCloudRegistrationId} for user ${userId}: ${message}`);
+                UserService_1.logger.warn(`Failed SCORM Cloud DeleteRegistration ${row.scormCloudRegistrationId} for user ${userId}: ${(0, error_message_1.errorMessage)(err)}`);
             }
         }
         try {
             await this.scormCloud.deleteAllLearnerData(userId);
         }
         catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            UserService_1.logger.warn(`Failed SCORM Cloud DeleteAllLearnerData for user ${userId}: ${message}`);
+            UserService_1.logger.warn(`Failed SCORM Cloud DeleteAllLearnerData for user ${userId}: ${(0, error_message_1.errorMessage)(err)}`);
         }
     }
     async recordPasswordChange(userId) {
@@ -65,8 +63,7 @@ let UserService = UserService_1 = class UserService {
             });
         }
         catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            UserService_1.logger.warn(`Failed to record SecurityEvent for password change (user ${userId}): ${message}`);
+            UserService_1.logger.warn(`Failed to record SecurityEvent for password change (user ${userId}): ${(0, error_message_1.errorMessage)(err)}`);
         }
     }
     async getUser(id) {

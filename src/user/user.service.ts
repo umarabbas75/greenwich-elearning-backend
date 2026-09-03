@@ -2,6 +2,8 @@ import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Prisma, SecurityEventType, User } from '@prisma/client';
 import { ResponseDto, BodyDto, BodyUpdateDto, ChangePasswordDto } from '../dto';
 import * as argon2 from 'argon2';
+import { constantTimeEqual } from '../utils/constant-time-equal';
+import { errorMessage } from '../utils/error-message';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
@@ -30,20 +32,18 @@ export class UserService {
         select: { scormCloudRegistrationId: true },
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       UserService.logger.warn(
-        `Failed to list ScormRegistration rows for purge (user ${userId}): ${message}`,
+        `Failed to list ScormRegistration rows for purge (user ${userId}): ${errorMessage(err)}`,
       );
-      return;
+      rows = [];
     }
 
     for (const row of rows) {
       try {
         await this.scormCloud.deleteRegistration(row.scormCloudRegistrationId);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
         UserService.logger.warn(
-          `Failed SCORM Cloud DeleteRegistration ${row.scormCloudRegistrationId} for user ${userId}: ${message}`,
+          `Failed SCORM Cloud DeleteRegistration ${row.scormCloudRegistrationId} for user ${userId}: ${errorMessage(err)}`,
         );
       }
     }
@@ -51,9 +51,8 @@ export class UserService {
     try {
       await this.scormCloud.deleteAllLearnerData(userId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       UserService.logger.warn(
-        `Failed SCORM Cloud DeleteAllLearnerData for user ${userId}: ${message}`,
+        `Failed SCORM Cloud DeleteAllLearnerData for user ${userId}: ${errorMessage(err)}`,
       );
     }
   }
@@ -72,9 +71,8 @@ export class UserService {
         },
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       UserService.logger.warn(
-        `Failed to record SecurityEvent for password change (user ${userId}): ${message}`,
+        `Failed to record SecurityEvent for password change (user ${userId}): ${errorMessage(err)}`,
       );
     }
   }

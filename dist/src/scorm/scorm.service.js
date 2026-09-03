@@ -17,6 +17,7 @@ const crypto_1 = require("crypto");
 const course_version_service_1 = require("../course-version/course-version.service");
 const prisma_service_1 = require("../prisma/prisma.service");
 const scorm_cloud_client_1 = require("../scorm-cloud/scorm-cloud.client");
+const error_message_1 = require("../utils/error-message");
 const rise_probe_1 = require("../utils/rise-probe");
 const scorm_status_1 = require("./scorm-status");
 const TREE_LOCK_SEED = 1;
@@ -51,18 +52,28 @@ let ScormService = ScormService_1 = class ScormService {
         const versionNumber = (latest?.versionNumber ?? 0) + 1;
         const scormCloudCourseId = (0, crypto_1.randomUUID)();
         const title = (body.title?.trim() || course.title).trim();
-        const pkg = await this.prisma.scormPackage.create({
-            data: {
-                courseId: course.id,
-                versionNumber,
-                title,
-                scormCloudCourseId,
-                zipSha256: body.zipSha256 ?? null,
-                completeOn: body.completeOn,
-                passingScore: body.passingScore ?? null,
-                status: client_1.ScormPackageStatus.PROCESSING,
-            },
-        });
+        let pkg;
+        try {
+            pkg = await this.prisma.scormPackage.create({
+                data: {
+                    courseId: course.id,
+                    versionNumber,
+                    title,
+                    scormCloudCourseId,
+                    zipSha256: body.zipSha256 ?? null,
+                    completeOn: body.completeOn,
+                    passingScore: body.passingScore ?? null,
+                    status: client_1.ScormPackageStatus.PROCESSING,
+                },
+            });
+        }
+        catch (err) {
+            if (err instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                err.code === 'P2002') {
+                throw new common_1.ConflictException('A concurrent package import created the same version number. Retry shortly.');
+            }
+            throw err;
+        }
         try {
             const jobId = await this.cloud.createFetchAndImportCourseJob({
                 courseId: scormCloudCourseId,
@@ -115,18 +126,16 @@ let ScormService = ScormService_1 = class ScormService {
             orderBy: { createdAt: 'asc' },
             take: IMPORT_CRON_BATCH,
         });
-        const results = [];
-        for (const pkg of pending) {
+        const results = await Promise.all(pending.map(async (pkg) => {
             try {
                 const data = await this.completeImportIfReady(pkg.id, null);
-                results.push({ id: pkg.id, status: String(data.status) });
+                return { id: pkg.id, status: String(data.status) };
             }
             catch (err) {
-                const message = err instanceof Error ? err.message : String(err);
-                this.logger.warn(`Import-job cron failed for package ${pkg.id}: ${message}`);
-                results.push({ id: pkg.id, status: 'error' });
+                this.logger.warn(`Import-job cron failed for package ${pkg.id}: ${(0, error_message_1.errorMessage)(err)}`);
+                return { id: pkg.id, status: 'error' };
             }
-        }
+        }));
         return { processed: results.length, results };
     }
     async replacePreview(courseId) {
@@ -201,10 +210,15 @@ let ScormService = ScormService_1 = class ScormService {
             return pkg;
         if (pkg.status === client_1.ScormPackageStatus.READY && pkg.sectionId)
             return pkg;
+        if (pkg.status === client_1.ScormPackageStatus.READY && !pkg.sectionId) {
+            this.logger.error(`Package ${pkg.id} is READY but sectionId is null — data invariant violated`);
+            throw new common_1.InternalServerErrorException('SCORM package is READY but has no linked section');
+        }
         if (pkg.sectionId && pkg.status === client_1.ScormPackageStatus.PROCESSING) {
             return this.finishPublishAndReady(pkg.id, pkg.courseId, adminId);
         }
         if (!pkg.cloudImportJobId) {
+            this.logger.warn(`Package ${pkg.id} is PROCESSING without cloudImportJobId — cannot complete import`);
             return pkg;
         }
         const job = await this.cloud.getImportJobStatus(pkg.cloudImportJobId);
@@ -230,7 +244,7 @@ let ScormService = ScormService_1 = class ScormService {
             probe = (0, rise_probe_1.parseRiseRuntimeData)(asset);
         }
         catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = (0, error_message_1.errorMessage)(err);
             this.logger.warn(`Rise probe failed for package ${pkg.id}: ${message}`);
         }
         const gate = this.policyGate(pkg.completeOn, probe);
@@ -248,6 +262,7 @@ let ScormService = ScormService_1 = class ScormService {
             this.logger.warn(`Package ${pkg.id}: ${gate.warn}`);
         }
         const chapterTitle = (0, rise_probe_1.unescapeRiseTitle)(probe?.title || pkg.title);
+        let treeBuilt = false;
         try {
             await this.prisma.$transaction(async (tx) => {
                 const [{ locked }] = await tx.$queryRaw(client_1.Prisma.sql `SELECT pg_try_advisory_xact_lock(hashtextextended(${pkg.id}, ${TREE_LOCK_SEED})) AS locked`);
@@ -270,31 +285,50 @@ let ScormService = ScormService_1 = class ScormService {
                     passingScore: pkg.passingScore ?? probe?.passingScore ?? null,
                     riseProbeJson: probe,
                 });
+                treeBuilt = true;
             }, { timeout: 20000 });
         }
         catch (err) {
             if (err instanceof common_1.ConflictException)
                 throw err;
-            const message = err instanceof Error ? err.message : String(err);
-            this.logger.error(`Synthetic tree failed for package ${pkg.id}: ${message}`);
+            this.logger.error(`Synthetic tree failed for package ${pkg.id}: ${(0, error_message_1.errorMessage)(err)}`);
             return this.prisma.scormPackage.update({
                 where: { id: pkg.id },
                 data: {
                     status: client_1.ScormPackageStatus.FAILED,
-                    failureReason: message,
+                    failureReason: (0, error_message_1.errorMessage)(err),
                     riseProbeJson: probe ? probe : undefined,
                 },
             });
         }
-        return this.finishPublishAndReady(pkg.id, pkg.courseId, adminId);
+        const after = await this.prisma.scormPackage.findUnique({
+            where: { id: pkg.id },
+        });
+        if (!after)
+            throw new common_1.NotFoundException('SCORM package not found');
+        if (after.status === client_1.ScormPackageStatus.READY)
+            return after;
+        if (!after.sectionId)
+            return after;
+        if (!treeBuilt) {
+            return after;
+        }
+        return this.finishPublishAndReady(pkg.id, pkg.courseId, adminId, gate.warn ?? null);
     }
-    async finishPublishAndReady(packageId, courseId, adminId) {
+    async finishPublishAndReady(packageId, courseId, adminId, importWarning = null) {
+        const current = await this.prisma.scormPackage.findUnique({
+            where: { id: packageId },
+        });
+        if (current?.status === client_1.ScormPackageStatus.READY) {
+            return current;
+        }
         const published = await this.courseVersionService.publishNewVersion(adminId, courseId, 'Imported SCORM package');
         return this.prisma.scormPackage.update({
             where: { id: packageId },
             data: {
                 status: client_1.ScormPackageStatus.READY,
                 failureReason: null,
+                importWarning,
             },
         }).then((pkg) => ({ ...pkg, publishedVersion: published }));
     }
@@ -320,6 +354,12 @@ let ScormService = ScormService_1 = class ScormService {
                     reason: `completeOn is "passed" but Rise reporting is "${reporting ?? 'unknown'}" (expected passed-*)`,
                 };
             }
+        }
+        if (completeOn === 'completed' && !probe) {
+            return {
+                refuse: false,
+                warn: 'Rise probe unavailable; completion gate could not be verified (non-Rise packages may still import with completeOn "completed")',
+            };
         }
         if (completeOn === 'completed' && quizItemCount === 0) {
             return {
@@ -438,23 +478,32 @@ let ScormService = ScormService_1 = class ScormService {
         if (existing) {
             throw new common_1.ConflictException('Course already exists with that title');
         }
-        return this.prisma.course.create({
-            data: {
-                title,
-                description: body.description?.trim() || '',
-                image: body.image?.trim() || PLACEHOLDER_IMAGE,
-                overview: body.overview?.trim() || '',
-                duration: body.duration?.trim() || '',
-                assessment: body.assessment?.trim() || '',
-                syllabusOverview: body.syllabusOverview?.trim() || '',
-                resourcesOverview: body.resourcesOverview?.trim() || '',
-                assessments: [],
-                resources: [],
-                syllabus: [],
-                deliveryMode: client_1.CourseDeliveryMode.IMPORTED_SCORM,
-                isActive: false,
-            },
-        });
+        try {
+            return await this.prisma.course.create({
+                data: {
+                    title,
+                    description: body.description?.trim() || '',
+                    image: body.image?.trim() || PLACEHOLDER_IMAGE,
+                    overview: body.overview?.trim() || '',
+                    duration: body.duration?.trim() || '',
+                    assessment: body.assessment?.trim() || '',
+                    syllabusOverview: body.syllabusOverview?.trim() || '',
+                    resourcesOverview: body.resourcesOverview?.trim() || '',
+                    assessments: [],
+                    resources: [],
+                    syllabus: [],
+                    deliveryMode: client_1.CourseDeliveryMode.IMPORTED_SCORM,
+                    isActive: false,
+                },
+            });
+        }
+        catch (err) {
+            if (err instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                err.code === 'P2002') {
+                throw new common_1.ConflictException('Course already exists with that title');
+            }
+            throw err;
+        }
     }
 };
 exports.ScormService = ScormService;
@@ -468,8 +517,6 @@ function cloudErrorMessage(err) {
     if (err instanceof scorm_cloud_client_1.ScormCloudHttpError) {
         return `SCORM Cloud HTTP ${err.cloudStatus}: ${err.cloudBody.slice(0, 300)}`;
     }
-    if (err instanceof Error)
-        return err.message;
-    return String(err);
+    return (0, error_message_1.errorMessage)(err);
 }
 //# sourceMappingURL=scorm.service.js.map

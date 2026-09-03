@@ -1396,6 +1396,7 @@ enum ScormPackageStatus {
   READY
   FAILED
   SUPERSEDED
+  PRUNED
 
   @@map("scorm_package_status")
 }
@@ -1419,6 +1420,8 @@ model ScormPackage {
   passingScore       Int?
   status             ScormPackageStatus @default(PROCESSING)
   failureReason      String?
+  /// Admin-visible note when import succeeded but gate verification was skipped or inconclusive.
+  importWarning      String?
   createdAt          DateTime           @default(now())
 
   course        Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)

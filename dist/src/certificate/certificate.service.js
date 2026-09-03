@@ -20,6 +20,7 @@ const mail_service_1 = require("../mail/mail.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
 const certificate_pdf_1 = require("./certificate-pdf");
 const certificate_cloudinary_1 = require("./certificate-cloudinary");
+const strip_trailing_slash_1 = require("../utils/strip-trailing-slash");
 let CertificateService = CertificateService_1 = class CertificateService {
     constructor(prisma, mail, config) {
         this.prisma = prisma;
@@ -231,7 +232,7 @@ let CertificateService = CertificateService_1 = class CertificateService {
             issuedAt,
             certificateId: completion.certificateId,
             verifyUrl,
-            scorePct: completion.bestAttempt?.percentage ?? null,
+            scorePct: await this.resolveCertificateScorePct(completion.userId, completion.courseId, completion.bestAttempt?.percentage),
         });
         const safeTitle = completion.course.title
             .replace(/[^a-zA-Z0-9-_]+/g, '-')
@@ -372,7 +373,7 @@ let CertificateService = CertificateService_1 = class CertificateService {
             issuedAt,
             certificateId,
             verifyUrl,
-            scorePct: completion.bestAttempt?.percentage ?? null,
+            scorePct: await this.resolveCertificateScorePct(userId, courseId, completion.bestAttempt?.percentage),
         });
         const safeTitle = course.title.replace(/[^a-zA-Z0-9-_]+/g, '-').slice(0, 60);
         return {
@@ -444,7 +445,7 @@ let CertificateService = CertificateService_1 = class CertificateService {
             issuedAt,
             certificateId,
             verifyUrl,
-            scorePct: completion.bestAttempt?.percentage ?? null,
+            scorePct: await this.resolveCertificateScorePct(userId, courseId, completion.bestAttempt?.percentage),
         });
         const publicId = `cert-${certificateId.replace(/[^a-zA-Z0-9-]/g, '')}`;
         const certificateUrl = await this.persistCertificatePdf(Buffer.from(pdfBytes), publicId, certificateId);
@@ -494,8 +495,10 @@ let CertificateService = CertificateService_1 = class CertificateService {
     }
     getApiBase() {
         const port = this.config.get('PORT') ?? '3333';
-        return (this.config.get('APP_BASE_URL')?.replace(/\/$/, '') ??
-            `http://localhost:${port}`);
+        const configured = this.config.get('APP_BASE_URL');
+        return configured
+            ? (0, strip_trailing_slash_1.stripTrailingSlash)(configured)
+            : `http://localhost:${port}`;
     }
     async persistCertificatePdf(buffer, publicId, certificateId) {
         if (this.canUseCloudinary()) {
@@ -523,7 +526,25 @@ let CertificateService = CertificateService_1 = class CertificateService {
     buildVerifyUrl(certificateId) {
         const base = this.config.get('APP_BASE_URL') ??
             'https://www.greenwichtc-elearning.com';
-        return `${base.replace(/\/$/, '')}/certificates/verify/${encodeURIComponent(certificateId)}`;
+        return `${(0, strip_trailing_slash_1.stripTrailingSlash)(base)}/certificates/verify/${encodeURIComponent(certificateId)}`;
+    }
+    async resolveCertificateScorePct(userId, courseId, bestAttemptPercentage) {
+        if (bestAttemptPercentage != null) {
+            return bestAttemptPercentage;
+        }
+        const course = await this.prisma.course.findUnique({
+            where: { id: courseId },
+            select: { deliveryMode: true },
+        });
+        if (course?.deliveryMode !== client_1.CourseDeliveryMode.IMPORTED_SCORM) {
+            return null;
+        }
+        const registration = await this.prisma.scormRegistration.findFirst({
+            where: { userId, courseId },
+            orderBy: [{ completedAt: 'desc' }, { lastPostbackAt: 'desc' }],
+            select: { scoreScaled: true },
+        });
+        return registration?.scoreScaled ?? null;
     }
     async allocateCertificateId() {
         for (let attempt = 0; attempt < 8; attempt++) {

@@ -39,7 +39,6 @@ export declare class ScormCloudClient {
     private readonly config;
     private readonly logger;
     constructor(config: ConfigService);
-    ping(): Promise<unknown>;
     createFetchAndImportCourseJob(args: {
         courseId: string;
         url: string;
@@ -53,8 +52,8 @@ export declare class ScormCloudClient {
         expiry?: number;
     }): Promise<string>;
     getRegistrationProgress(registrationId: string): Promise<ScormCloudRegistrationProgress>;
-    testRegistrationPostback(postBack: CreateRegistrationInput['postBack']): Promise<unknown>;
     deleteRegistration(registrationId: string): Promise<void>;
+    deleteCourse(scormCloudCourseId: string): Promise<void>;
     deleteAllLearnerData(learnerId: string): Promise<void>;
     private apiBase;
     private authHeader;

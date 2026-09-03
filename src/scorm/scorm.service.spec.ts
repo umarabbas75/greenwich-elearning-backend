@@ -113,18 +113,75 @@ describe('ScormService', () => {
     expect(courseVersionService.publishNewVersion).not.toHaveBeenCalled();
   });
 
-  it('publishes a version after the first successful import', async () => {
-    prisma.scormPackage.findUnique.mockResolvedValue({
+  it('persists importWarning when completeOn completed but the Rise probe is unavailable', async () => {
+    let treeExists = false;
+    prisma.scormPackage.findUnique.mockImplementation(async () => ({
       id: 'pkg-1',
       courseId: 'course-1',
       versionNumber: 1,
-      status: ScormPackageStatus.PROCESSING,
-      cloudImportJobId: 'job-1',
-      scormCloudCourseId: 'cloud-1',
-      sectionId: null,
       completeOn: 'completed',
       passingScore: null,
-      title: 'Lifting',
+      title: 'Storyline export',
+      scormCloudCourseId: 'cloud-1',
+      cloudImportJobId: 'job-1',
+      status: ScormPackageStatus.PROCESSING,
+      sectionId: treeExists ? 'sec-1' : null,
+    }));
+    cloud.getImportJobStatus.mockResolvedValue({ status: 'COMPLETE' });
+    cloud.getCourseAsset.mockRejectedValue(new Error('asset missing'));
+    prisma.scormPackage.findFirst.mockResolvedValue(null);
+    prisma.module.create.mockResolvedValue({ id: 'mod-1' });
+    prisma.chapter.create.mockResolvedValue({ id: 'ch-1' });
+    prisma.section.create.mockImplementation(async () => {
+      treeExists = true;
+      return { id: 'sec-1' };
+    });
+    prisma.scormPackage.update.mockImplementation(async ({ data }) => ({
+      id: 'pkg-1',
+      courseId: 'course-1',
+      ...data,
+    }));
+
+    const result = await service.completeImportIfReady('pkg-1', 'admin-1');
+
+    expect(result.status).toBe(ScormPackageStatus.READY);
+    expect(result.importWarning).toMatch(/probe unavailable/i);
+    expect(courseVersionService.publishNewVersion).toHaveBeenCalled();
+  });
+
+  it('publishes a version after the first successful import', async () => {
+    let treeExists = false;
+    let published = false;
+    prisma.scormPackage.findUnique.mockImplementation(async () => {
+      const common = {
+        id: 'pkg-1',
+        courseId: 'course-1',
+        versionNumber: 1,
+        completeOn: 'completed',
+        passingScore: null,
+        title: 'Lifting',
+        scormCloudCourseId: 'cloud-1',
+        cloudImportJobId: 'job-1',
+      };
+      if (published) {
+        return {
+          ...common,
+          status: ScormPackageStatus.READY,
+          sectionId: 'sec-1',
+        };
+      }
+      if (!treeExists) {
+        return {
+          ...common,
+          status: ScormPackageStatus.PROCESSING,
+          sectionId: null,
+        };
+      }
+      return {
+        ...common,
+        status: ScormPackageStatus.PROCESSING,
+        sectionId: 'sec-1',
+      };
     });
     cloud.getImportJobStatus.mockResolvedValue({ status: 'COMPLETE' });
     const { readFileSync } = require('fs');
@@ -138,12 +195,20 @@ describe('ScormService', () => {
     prisma.scormPackage.findFirst.mockResolvedValue(null);
     prisma.module.create.mockResolvedValue({ id: 'mod-1' });
     prisma.chapter.create.mockResolvedValue({ id: 'ch-1' });
-    prisma.section.create.mockResolvedValue({ id: 'sec-1' });
-    prisma.scormPackage.update.mockImplementation(async ({ data }) => ({
-      id: 'pkg-1',
-      courseId: 'course-1',
-      ...data,
-    }));
+    prisma.section.create.mockImplementation(async () => {
+      treeExists = true;
+      return { id: 'sec-1' };
+    });
+    prisma.scormPackage.update.mockImplementation(async ({ data }) => {
+      if (data.status === ScormPackageStatus.READY) {
+        published = true;
+      }
+      return {
+        id: 'pkg-1',
+        courseId: 'course-1',
+        ...data,
+      };
+    });
 
     await service.completeImportIfReady('pkg-1', 'admin-1');
 
@@ -166,5 +231,74 @@ describe('ScormService', () => {
     expect(result.sectionId).toBe('sec-1');
     expect(prisma.section.create).not.toHaveBeenCalled();
     expect(courseVersionService.publishNewVersion).not.toHaveBeenCalled();
+  });
+
+  it('does not double-publish when a concurrent import already built the tree', async () => {
+    prisma.scormPackage.findUnique.mockImplementation(async (args: any) => {
+      if (args?.where?.id !== 'pkg-1') {
+        return { id: 'pkg-1', sectionId: 'sec-1' };
+      }
+      const prior = prisma.scormPackage.findUnique.mock.calls.length;
+      if (prior <= 2) {
+        return {
+          id: 'pkg-1',
+          courseId: 'course-1',
+          versionNumber: 1,
+          status: ScormPackageStatus.PROCESSING,
+          cloudImportJobId: 'job-1',
+          scormCloudCourseId: 'cloud-1',
+          sectionId: null,
+          completeOn: 'completed',
+          passingScore: null,
+          title: 'Lifting',
+        };
+      }
+      return {
+        id: 'pkg-1',
+        courseId: 'course-1',
+        status: ScormPackageStatus.PROCESSING,
+        sectionId: 'sec-1',
+      };
+    });
+
+    cloud.getImportJobStatus.mockResolvedValue({ status: 'COMPLETE' });
+    const { readFileSync } = require('fs');
+    const { join } = require('path');
+    cloud.getCourseAsset.mockResolvedValue(
+      readFileSync(
+        join(__dirname, '../utils/fixtures/rise-runtime-lifting.js'),
+        'utf8',
+      ),
+    );
+
+    prisma.scormPackage.findFirst.mockResolvedValue(null);
+    prisma.scormPackage.update.mockImplementation(async ({ data }) => ({
+      id: 'pkg-1',
+      courseId: 'course-1',
+      ...data,
+    }));
+
+    const txFindUnique = prisma.scormPackage.findUnique;
+    prisma.$transaction = jest.fn(async (fn: (tx: any) => Promise<void>) => {
+      const tx = {
+        $queryRaw: prisma.$queryRaw,
+        scormPackage: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'pkg-1',
+            sectionId: 'sec-1',
+          }),
+          findFirst: prisma.scormPackage.findFirst,
+          update: prisma.scormPackage.update,
+        },
+        module: prisma.module,
+        chapter: prisma.chapter,
+        section: prisma.section,
+      };
+      await fn(tx);
+    });
+
+    await service.completeImportIfReady('pkg-1', 'admin-1');
+    expect(courseVersionService.publishNewVersion).not.toHaveBeenCalled();
+    prisma.scormPackage.findUnique = txFindUnique;
   });
 });
