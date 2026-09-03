@@ -44,6 +44,7 @@ export declare class LearnerSnapshotService {
             learner: {
                 id: string;
                 createdAt: Date;
+                status: import(".prisma/client").$Enums.UserStatus;
                 firstName: string;
                 lastName: string;
                 email: string;
@@ -52,7 +53,6 @@ export declare class LearnerSnapshotService {
                 mustChangePassword: boolean;
                 role: import(".prisma/client").$Enums.Role;
                 deletedAt: Date;
-                status: import(".prisma/client").$Enums.UserStatus;
             };
             summary: {
                 totalCourses: number;
