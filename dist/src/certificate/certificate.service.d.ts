@@ -54,5 +54,6 @@ export declare class CertificateService {
     private persistCertificatePdf;
     private ensureCloudinaryConfigured;
     private buildVerifyUrl;
+    private resolveCertificateScorePct;
     allocateCertificateId(): Promise<string>;
 }

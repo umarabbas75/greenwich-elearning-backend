@@ -18,6 +18,7 @@ const notification_service_1 = require("../notifications/notification.service");
 const course_version_service_1 = require("../course-version/course-version.service");
 const certificate_service_1 = require("../certificate/certificate.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
+const assert_imported_course_tree_locked_1 = require("../utils/assert-imported-course-tree-locked");
 let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessmentService {
     constructor(prisma, notificationService, courseVersionService, certificateService) {
         this.prisma = prisma;
@@ -282,6 +283,9 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             });
             if (!course)
                 throw new Error('Course not found');
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, {
+                courseId: body.courseId,
+            }, { deliveryMode: course.deliveryMode });
             if (body.mode === client_1.AssessmentMode.AUTOMATIC && !body.autoConfig)
                 throw new Error('autoConfig is required for AUTOMATIC mode');
             const assessment = await this.prisma.assessment.create({
@@ -309,6 +313,13 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
     }
     async updateAssessment(assessmentId, body) {
         try {
+            const existing = await this.prisma.assessment.findUnique({
+                where: { id: assessmentId },
+                include: { course: { select: { deliveryMode: true } } },
+            });
+            if (!existing)
+                throw new Error('Assessment not found');
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: existing.courseId }, { deliveryMode: existing.course.deliveryMode });
             const assessment = await this.prisma.assessment.update({
                 where: { id: assessmentId },
                 data: {
@@ -344,10 +355,14 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
         try {
             const assessment = await this.prisma.assessment.findUnique({
                 where: { id: assessmentId },
-                include: { assessmentQuestions: true },
+                include: {
+                    assessmentQuestions: true,
+                    course: { select: { deliveryMode: true } },
+                },
             });
             if (!assessment)
                 throw new Error('Assessment not found');
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: assessment.courseId }, { deliveryMode: assessment.course.deliveryMode });
             if (assessment.mode === client_1.AssessmentMode.MANUAL &&
                 assessment.assessmentQuestions.length === 0)
                 throw new Error('Cannot activate a MANUAL assessment with no questions. Add questions first.');
@@ -370,6 +385,13 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
     }
     async deactivateAssessment(assessmentId) {
         try {
+            const existing = await this.prisma.assessment.findUnique({
+                where: { id: assessmentId },
+                include: { course: { select: { deliveryMode: true } } },
+            });
+            if (!existing)
+                throw new Error('Assessment not found');
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: existing.courseId }, { deliveryMode: existing.course.deliveryMode });
             const assessment = await this.prisma.assessment.update({
                 where: { id: assessmentId },
                 data: { isActive: false },

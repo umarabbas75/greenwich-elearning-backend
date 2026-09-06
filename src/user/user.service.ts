@@ -2,9 +2,12 @@ import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Prisma, SecurityEventType, User } from '@prisma/client';
 import { ResponseDto, BodyDto, BodyUpdateDto, ChangePasswordDto } from '../dto';
 import * as argon2 from 'argon2';
+import { constantTimeEqual } from '../utils/constant-time-equal';
+import { errorMessage } from '../utils/error-message';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
+import { ScormCloudClient } from '../scorm-cloud/scorm-cloud.client';
 
 @Injectable()
 export class UserService {
@@ -13,7 +16,46 @@ export class UserService {
   constructor(
     private prisma: PrismaService,
     private mail: MailService,
+    private scormCloud: ScormCloudClient,
   ) {}
+
+  /**
+   * Best-effort SCORM Cloud PII wipe. HTTP cannot live inside the Prisma
+   * transaction array, so this runs first (twice — see purgeUser). Failures
+   * are logged; local delete still proceeds.
+   */
+  private async purgeScormCloudLearnerData(userId: string): Promise<void> {
+    let rows: Array<{ scormCloudRegistrationId: string }> = [];
+    try {
+      rows = await this.prisma.scormRegistration.findMany({
+        where: { userId },
+        select: { scormCloudRegistrationId: true },
+      });
+    } catch (err) {
+      UserService.logger.warn(
+        `Failed to list ScormRegistration rows for purge (user ${userId}): ${errorMessage(err)}`,
+      );
+      rows = [];
+    }
+
+    for (const row of rows) {
+      try {
+        await this.scormCloud.deleteRegistration(row.scormCloudRegistrationId);
+      } catch (err) {
+        UserService.logger.warn(
+          `Failed SCORM Cloud DeleteRegistration ${row.scormCloudRegistrationId} for user ${userId}: ${errorMessage(err)}`,
+        );
+      }
+    }
+
+    try {
+      await this.scormCloud.deleteAllLearnerData(userId);
+    } catch (err) {
+      UserService.logger.warn(
+        `Failed SCORM Cloud DeleteAllLearnerData for user ${userId}: ${errorMessage(err)}`,
+      );
+    }
+  }
 
   /**
    * Best-effort audit of an authenticated self-service password change. Never
@@ -29,9 +71,8 @@ export class UserService {
         },
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       UserService.logger.warn(
-        `Failed to record SecurityEvent for password change (user ${userId}): ${message}`,
+        `Failed to record SecurityEvent for password change (user ${userId}): ${errorMessage(err)}`,
       );
     }
   }
@@ -808,6 +849,11 @@ export class UserService {
         );
       }
 
+      await this.purgeScormCloudLearnerData(id);
+      // Re-capture after the HTTP round-trip: a still-valid session can
+      // launch and create a new Cloud registration while we were deleting.
+      await this.purgeScormCloudLearnerData(id);
+
       // Delete all self-owned records, then the user, atomically. Children
       // must be removed before the parent rows they reference.
       await this.prisma.$transaction([
@@ -842,6 +888,8 @@ export class UserService {
         this.prisma.policiesAndProcedures.deleteMany({ where: { userId: id } }),
         this.prisma.notification.deleteMany({ where: { userId: id } }),
         this.prisma.userCourse.deleteMany({ where: { userId: id } }),
+        this.prisma.scormRegistration.deleteMany({ where: { userId: id } }),
+        this.prisma.userCourseProgress.deleteMany({ where: { userId: id } }),
         this.prisma.user.delete({ where: { id } }),
       ]);
 

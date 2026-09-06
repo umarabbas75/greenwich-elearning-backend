@@ -67,6 +67,7 @@ model User {
   // or admin change). Null = never changed since creation. Drives the security
   // dashboard; the SecurityEvent log holds the full history.
   passwordChangedAt        DateTime?
+  scormRegistrations       ScormRegistration[]
 
   @@index([email])
   @@index([deletedAt])
@@ -153,6 +154,8 @@ model Course {
   ForumThread          ForumThread[]
   forumViewEvents      ForumViewEvent[]
   courseVersions       CourseVersion[]
+  deliveryMode         CourseDeliveryMode    @default(NATIVE)
+  scormPackages        ScormPackage[]
 
   @@map("courses")
 }
@@ -835,6 +838,7 @@ enum SectionType {
   MATCHING
   EMBED
   FLASHCARDS
+  SCORM
   @@map("section_type")
 }
 
@@ -1378,4 +1382,81 @@ model AdminAuditLog {
   @@index([userId, createdAt(sort: Desc)])
   @@index([targetType, targetId])
   @@map("admin_audit_logs")
+}
+
+enum CourseDeliveryMode {
+  NATIVE
+  IMPORTED_SCORM
+
+  @@map("course_delivery_mode")
+}
+
+enum ScormPackageStatus {
+  PROCESSING
+  READY
+  FAILED
+  SUPERSEDED
+  PRUNED
+
+  @@map("scorm_package_status")
+}
+
+/// One imported SCORM package (SCORM Cloud course) bound to a catalogue Course.
+/// versionNumber increments on replace-package. completeOn is stored here so
+/// complete-import can build Section.config after the original HTTP request
+/// has returned (import jobs are async; Cloud job ids last one week).
+model ScormPackage {
+  id                 String             @id @default(uuid())
+  courseId           String
+  versionNumber      Int
+  sectionId          String?
+  title              String
+  scormCloudCourseId String
+  cloudImportJobId   String?
+  zipSha256          String?
+  riseProbeJson      Json?
+  /// "completed" | "passed" — copied onto Section.config and ScormRegistration.
+  completeOn         String
+  passingScore       Int?
+  status             ScormPackageStatus @default(PROCESSING)
+  failureReason      String?
+  /// Admin-visible note when import succeeded but gate verification was skipped or inconclusive.
+  importWarning      String?
+  createdAt          DateTime           @default(now())
+
+  course        Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  registrations ScormRegistration[]
+
+  @@unique([courseId, versionNumber])
+  @@index([courseId, status])
+  @@map("scorm_packages")
+}
+
+/// One learner registration against one ScormPackage / Cloud course.
+/// scormCloudRegistrationId is what Cloud posts back as payload.id.
+model ScormRegistration {
+  id                       String    @id @default(uuid())
+  userId                   String
+  courseId                 String
+  packageId                String
+  sectionId                String
+  completeOn               String
+  scormCloudRegistrationId String    @unique
+  completionStatus         String    @default("unknown")
+  successStatus            String    @default("unknown")
+  scoreScaled              Float?
+  totalTimeSeconds         Float?
+  firstLaunchAt            DateTime?
+  lastPostbackAt           DateTime?
+  completedAt              DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  package ScormPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, packageId])
+  @@index([courseId, completionStatus])
+  @@index([userId, courseId])
+  @@map("scorm_registrations")
 }

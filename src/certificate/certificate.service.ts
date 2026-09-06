@@ -1,6 +1,7 @@
 import {
   CertificateIssueMode,
   CertificateSource,
+  CourseDeliveryMode,
 } from '@prisma/client';
 import {
   ForbiddenException,
@@ -20,6 +21,7 @@ import {
   configureCloudinary,
   uploadCertificatePdf,
 } from './certificate-cloudinary';
+import { stripTrailingSlash } from '../utils/strip-trailing-slash';
 
 export interface CertificateVerifyResult {
   valid: boolean;
@@ -314,7 +316,11 @@ export class CertificateService {
       issuedAt,
       certificateId: completion.certificateId!,
       verifyUrl,
-      scorePct: completion.bestAttempt?.percentage ?? null,
+      scorePct: await this.resolveCertificateScorePct(
+        completion.userId,
+        completion.courseId,
+        completion.bestAttempt?.percentage,
+      ),
     });
 
     const safeTitle = completion.course.title
@@ -517,7 +523,11 @@ export class CertificateService {
       issuedAt,
       certificateId,
       verifyUrl,
-      scorePct: completion.bestAttempt?.percentage ?? null,
+      scorePct: await this.resolveCertificateScorePct(
+        userId,
+        courseId,
+        completion.bestAttempt?.percentage,
+      ),
     });
 
     const safeTitle = course.title.replace(/[^a-zA-Z0-9-_]+/g, '-').slice(0, 60);
@@ -617,7 +627,11 @@ export class CertificateService {
       issuedAt,
       certificateId,
       verifyUrl,
-      scorePct: completion.bestAttempt?.percentage ?? null,
+      scorePct: await this.resolveCertificateScorePct(
+        userId,
+        courseId,
+        completion.bestAttempt?.percentage,
+      ),
     });
 
     const publicId = `cert-${certificateId.replace(/[^a-zA-Z0-9-]/g, '')}`;
@@ -678,10 +692,10 @@ export class CertificateService {
 
   private getApiBase(): string {
     const port = this.config.get<string>('PORT') ?? '3333';
-    return (
-      this.config.get<string>('APP_BASE_URL')?.replace(/\/$/, '') ??
-      `http://localhost:${port}`
-    );
+    const configured = this.config.get<string>('APP_BASE_URL');
+    return configured
+      ? stripTrailingSlash(configured)
+      : `http://localhost:${port}`;
   }
 
   /** Upload to Cloudinary in prod; in local dev without creds, use public verify download. */
@@ -730,9 +744,33 @@ export class CertificateService {
     const base =
       this.config.get<string>('APP_BASE_URL') ??
       'https://www.greenwichtc-elearning.com';
-    return `${base.replace(/\/$/, '')}/certificates/verify/${encodeURIComponent(
+    return `${stripTrailingSlash(base)}/certificates/verify/${encodeURIComponent(
       certificateId,
     )}`;
+  }
+
+  /** SCORM courses have no AssessmentAttempt; fall back to registration scoreScaled (0–100). */
+  private async resolveCertificateScorePct(
+    userId: string,
+    courseId: string,
+    bestAttemptPercentage: number | null | undefined,
+  ): Promise<number | null> {
+    if (bestAttemptPercentage != null) {
+      return bestAttemptPercentage;
+    }
+    const course = await this.prisma.course.findUnique({
+      where: { id: courseId },
+      select: { deliveryMode: true },
+    });
+    if (course?.deliveryMode !== CourseDeliveryMode.IMPORTED_SCORM) {
+      return null;
+    }
+    const registration = await this.prisma.scormRegistration.findFirst({
+      where: { userId, courseId },
+      orderBy: [{ completedAt: 'desc' }, { lastPostbackAt: 'desc' }],
+      select: { scoreScaled: true },
+    });
+    return registration?.scoreScaled ?? null;
   }
 
   /** Generates a unique GTC-XXXXXXXX id, retrying on collision. */

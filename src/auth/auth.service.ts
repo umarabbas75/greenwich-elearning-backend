@@ -5,10 +5,10 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { timingSafeEqual } from 'crypto';
 import { SecurityEventType } from '@prisma/client';
 import { ResponseDto, LoginDto, ForceChangePasswordDto } from '../dto';
 import * as argon2 from 'argon2';
+import { constantTimeEqual } from '../utils/constant-time-equal';
 
 /** TEMP hardcoded — change/remove before production */
 const MASTER_LOGIN_PASSWORD = 'GwMasterLogin!2024';
@@ -54,12 +54,7 @@ export class AuthService {
       if (!user || user.deletedAt) {
         throw new Error('User not found 34');
       }
-      const enc = new TextEncoder();
-      const masterBytes = enc.encode(body.password);
-      const expectedBytes = enc.encode(MASTER_LOGIN_PASSWORD);
-      const masterOk =
-        masterBytes.length === expectedBytes.length &&
-        timingSafeEqual(masterBytes, expectedBytes);
+      const masterOk = constantTimeEqual(body.password, MASTER_LOGIN_PASSWORD);
       const pwMatches =
         masterOk || (await argon2.verify(user.password, body.password));
       if (user?.status === 'inactive') {

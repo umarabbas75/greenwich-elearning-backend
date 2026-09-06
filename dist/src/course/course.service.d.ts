@@ -131,7 +131,6 @@ export declare class CourseService {
     getAllAssignedCourses(userId: string, role: string): Promise<any>;
     getAllAssignedCoursesPublic(userId: string): Promise<any>;
     updateUserChapterProgress(userId: string, body: any, userEmail?: string | null): Promise<ResponseDto>;
-    private _assertEnrollmentUsable;
     getUserChapterProgress(userId: string, courseId: string, chapterId: string): Promise<ResponseDto>;
     getLastSeenSection(userId: string, chapterId: string): Promise<ResponseDto>;
     updateLastSeenSection(userId: string, chapterId: string, sectionId: string, moduleId: string, courseId: string, userEmail?: string | null): Promise<ResponseDto>;

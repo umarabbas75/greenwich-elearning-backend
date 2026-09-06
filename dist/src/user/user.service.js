@@ -14,13 +14,43 @@ exports.UserService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const argon2 = require("argon2");
+const error_message_1 = require("../utils/error-message");
 const prisma_service_1 = require("../prisma/prisma.service");
 const mail_service_1 = require("../mail/mail.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
+const scorm_cloud_client_1 = require("../scorm-cloud/scorm-cloud.client");
 let UserService = UserService_1 = class UserService {
-    constructor(prisma, mail) {
+    constructor(prisma, mail, scormCloud) {
         this.prisma = prisma;
         this.mail = mail;
+        this.scormCloud = scormCloud;
+    }
+    async purgeScormCloudLearnerData(userId) {
+        let rows = [];
+        try {
+            rows = await this.prisma.scormRegistration.findMany({
+                where: { userId },
+                select: { scormCloudRegistrationId: true },
+            });
+        }
+        catch (err) {
+            UserService_1.logger.warn(`Failed to list ScormRegistration rows for purge (user ${userId}): ${(0, error_message_1.errorMessage)(err)}`);
+            rows = [];
+        }
+        for (const row of rows) {
+            try {
+                await this.scormCloud.deleteRegistration(row.scormCloudRegistrationId);
+            }
+            catch (err) {
+                UserService_1.logger.warn(`Failed SCORM Cloud DeleteRegistration ${row.scormCloudRegistrationId} for user ${userId}: ${(0, error_message_1.errorMessage)(err)}`);
+            }
+        }
+        try {
+            await this.scormCloud.deleteAllLearnerData(userId);
+        }
+        catch (err) {
+            UserService_1.logger.warn(`Failed SCORM Cloud DeleteAllLearnerData for user ${userId}: ${(0, error_message_1.errorMessage)(err)}`);
+        }
     }
     async recordPasswordChange(userId) {
         try {
@@ -33,8 +63,7 @@ let UserService = UserService_1 = class UserService {
             });
         }
         catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            UserService_1.logger.warn(`Failed to record SecurityEvent for password change (user ${userId}): ${message}`);
+            UserService_1.logger.warn(`Failed to record SecurityEvent for password change (user ${userId}): ${(0, error_message_1.errorMessage)(err)}`);
         }
     }
     async getUser(id) {
@@ -598,6 +627,8 @@ let UserService = UserService_1 = class UserService {
                     blockers: impact.blockers,
                 }, common_1.HttpStatus.CONFLICT);
             }
+            await this.purgeScormCloudLearnerData(id);
+            await this.purgeScormCloudLearnerData(id);
             await this.prisma.$transaction([
                 this.prisma.notification.updateMany({
                     where: { commenterId: id },
@@ -627,6 +658,8 @@ let UserService = UserService_1 = class UserService {
                 this.prisma.policiesAndProcedures.deleteMany({ where: { userId: id } }),
                 this.prisma.notification.deleteMany({ where: { userId: id } }),
                 this.prisma.userCourse.deleteMany({ where: { userId: id } }),
+                this.prisma.scormRegistration.deleteMany({ where: { userId: id } }),
+                this.prisma.userCourseProgress.deleteMany({ where: { userId: id } }),
                 this.prisma.user.delete({ where: { id } }),
             ]);
             return {
@@ -740,6 +773,7 @@ UserService.logger = new common_1.Logger(UserService_1.name);
 exports.UserService = UserService = UserService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        mail_service_1.MailService])
+        mail_service_1.MailService,
+        scorm_cloud_client_1.ScormCloudClient])
 ], UserService);
 //# sourceMappingURL=user.service.js.map

@@ -2,11 +2,14 @@ import { User } from '@prisma/client';
 import { ResponseDto, BodyDto, BodyUpdateDto, ChangePasswordDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { ScormCloudClient } from '../scorm-cloud/scorm-cloud.client';
 export declare class UserService {
     private prisma;
     private mail;
+    private scormCloud;
     private static readonly logger;
-    constructor(prisma: PrismaService, mail: MailService);
+    constructor(prisma: PrismaService, mail: MailService, scormCloud: ScormCloudClient);
+    private purgeScormCloudLearnerData;
     private recordPasswordChange;
     getUser(id: string): Promise<ResponseDto>;
     getDeletedUser(id: string): Promise<ResponseDto>;

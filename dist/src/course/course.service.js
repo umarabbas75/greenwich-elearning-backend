@@ -17,6 +17,8 @@ const dto_1 = require("../dto");
 const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../prisma/prisma.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
+const assert_enrollment_usable_1 = require("../utils/assert-enrollment-usable");
+const assert_imported_course_tree_locked_1 = require("../utils/assert-imported-course-tree-locked");
 const course_report_1 = require("../utils/course-report");
 const reject_inline_base64_1 = require("../utils/reject-inline-base64");
 const flashcards_section_1 = require("../utils/flashcards-section");
@@ -326,7 +328,7 @@ let CourseService = CourseService_1 = class CourseService {
                 detail: 'courseFormId does not match the given courseId and formId',
             });
         }
-        await this._assertEnrollmentUsable(userId, courseId, userRole);
+        await (0, assert_enrollment_usable_1.assertEnrollmentUsable)(this.prisma, userId, courseId, userRole);
         const existing = await this.prisma.userFormCompletion.findUnique({
             where: {
                 userId_courseId_formId: { userId, courseId, formId },
@@ -599,7 +601,7 @@ let CourseService = CourseService_1 = class CourseService {
         });
     }
     async getStudentCourseFormsStatus(userId, userRole, courseId) {
-        await this._assertEnrollmentUsable(userId, courseId, userRole);
+        await (0, assert_enrollment_usable_1.assertEnrollmentUsable)(this.prisma, userId, courseId, userRole);
         const forms = await this.prisma.courseForm.findMany({
             where: { courseId },
             orderBy: { createdAt: 'asc' },
@@ -893,7 +895,7 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async getCourseReport(courseId, userId) {
         try {
-            const [userDetails, completion, curriculum, courseForms, courseFeedback, chapterCompletions, moduleCompletions, newSinceCompletion, firstProgress,] = await Promise.all([
+            const [userDetails, completion, curriculum, courseForms, courseFeedback, chapterCompletions, moduleCompletions, newSinceCompletion, firstProgress, courseDeliveryInfo,] = await Promise.all([
                 this.prisma.user.findUnique({
                     where: { id: userId },
                     select: {
@@ -931,6 +933,10 @@ let CourseService = CourseService_1 = class CourseService {
                     orderBy: { createdAt: 'asc' },
                     select: { createdAt: true },
                 }),
+                this.prisma.course.findUnique({
+                    where: { id: courseId },
+                    select: { deliveryMode: true },
+                }),
             ]);
             const isFrozen = !!completion?.courseCompletedAt;
             const courseStartDate = firstProgress?.createdAt ?? null;
@@ -945,6 +951,7 @@ let CourseService = CourseService_1 = class CourseService {
                 isCompleted: isFrozen,
                 completedAt: completion?.courseCompletedAt ?? null,
                 courseStartDate,
+                deliveryMode: courseDeliveryInfo?.deliveryMode ?? null,
                 ...(newSinceCompletion ? { newSinceCompletion } : {}),
             };
             if (curriculum.mode === 'versioned') {
@@ -1524,6 +1531,7 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async createModule(body, adminId) {
         try {
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: body.id });
             const module = await this.prisma.module.create({
                 data: {
                     title: body.title,
@@ -1552,6 +1560,7 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async createChapter(body, adminId) {
         try {
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { moduleId: body.id });
             const courseId = await this.resolveCourseIdFromModuleId(body.id);
             const chapter = await this.prisma.chapter.create({
                 data: {
@@ -1582,6 +1591,9 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async createSection(body, adminId) {
         try {
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, {
+                chapterId: body.chapterId || body.id,
+            });
             (0, reject_inline_base64_1.assertNoInlineBase64)(body.description);
             (0, reject_inline_base64_1.assertNoInlineBase64)(body.shortDescription, 'shortDescription');
             const data = {
@@ -2140,6 +2152,33 @@ let CourseService = CourseService_1 = class CourseService {
             if (!existing) {
                 throw new Error('Course not found');
             }
+            if (isActive && existing.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM) {
+                const live = await this.prisma.section.findMany({
+                    where: {
+                        type: client_1.SectionType.SCORM,
+                        isArchived: false,
+                        chapter: {
+                            isArchived: false,
+                            module: { courseId, isArchived: false },
+                        },
+                    },
+                    select: { id: true },
+                });
+                if (live.length !== 1) {
+                    throw new Error('Imported SCORM course cannot be published without exactly one live SCORM section on a READY package');
+                }
+                const ready = await this.prisma.scormPackage.findFirst({
+                    where: {
+                        courseId,
+                        status: 'READY',
+                        sectionId: live[0].id,
+                    },
+                    select: { id: true },
+                });
+                if (!ready) {
+                    throw new Error('Imported SCORM course cannot be published without exactly one live SCORM section on a READY package');
+                }
+            }
             const course = await this.prisma.course.update({
                 where: { id: courseId },
                 data: { isActive },
@@ -2642,6 +2681,7 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async updateModule(id, body) {
         try {
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { moduleId: id });
             const isModuleExist = await this.prisma.module.findUnique({
                 where: { id: id },
             });
@@ -2676,6 +2716,7 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async updateChapter(id, body) {
         try {
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { chapterId: id });
             const isChapterExist = await this.prisma.chapter.findUnique({
                 where: { id: id },
             });
@@ -2710,6 +2751,7 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async updateSection(id, body) {
         try {
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { sectionId: id });
             const isSectionExist = await this.prisma.section.findUnique({
                 where: { id: id },
             });
@@ -2856,6 +2898,9 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async updateSectionOrder(body) {
         try {
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, {
+                chapterId: body.chapterId,
+            });
             const sectionIds = body.sections.map((s) => s.id);
             const sections = await this.prisma.section.findMany({
                 where: {
@@ -2894,6 +2939,9 @@ let CourseService = CourseService_1 = class CourseService {
             if (!course) {
                 throw new Error('Course not found');
             }
+            if (course.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM) {
+                throw new Error('Imported SCORM courses cannot be deleted in v1. Deactivate the course instead.');
+            }
             await this.prisma.course.delete({
                 where: { id },
             });
@@ -2925,10 +2973,12 @@ let CourseService = CourseService_1 = class CourseService {
         try {
             const mod = await this.prisma.module.findUnique({
                 where: { id },
+                include: { course: { select: { deliveryMode: true } } },
             });
             if (!mod) {
                 throw new Error('Module not found');
             }
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: mod.courseId }, { deliveryMode: mod.course?.deliveryMode });
             const references = await this.courseVersionService.getReferencingVersionsWithEnrollments('module', id, mod.courseId);
             const referenced = references.versions.length > 0;
             if (referenced) {
@@ -2993,11 +3043,20 @@ let CourseService = CourseService_1 = class CourseService {
         try {
             const chapter = await this.prisma.chapter.findUnique({
                 where: { id },
+                include: {
+                    module: {
+                        select: {
+                            courseId: true,
+                            course: { select: { deliveryMode: true } },
+                        },
+                    },
+                },
             });
             if (!chapter) {
                 throw new Error('Chapter not found');
             }
-            const courseId = await this.resolveCourseIdFromModuleId(chapter.moduleId);
+            const courseId = chapter.module.courseId;
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId }, { deliveryMode: chapter.module.course?.deliveryMode });
             const references = await this.courseVersionService.getReferencingVersionsWithEnrollments('chapter', id, courseId);
             const referenced = references.versions.length > 0;
             if (referenced) {
@@ -3062,11 +3121,24 @@ let CourseService = CourseService_1 = class CourseService {
         try {
             const section = await this.prisma.section.findUnique({
                 where: { id },
+                include: {
+                    chapter: {
+                        select: {
+                            module: {
+                                select: {
+                                    courseId: true,
+                                    course: { select: { deliveryMode: true } },
+                                },
+                            },
+                        },
+                    },
+                },
             });
             if (!section) {
                 throw new Error('Section not found');
             }
-            const courseId = await this.resolveCourseIdFromChapterId(section.chapterId);
+            const courseId = section.chapter.module.courseId;
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId }, { deliveryMode: section.chapter.module.course?.deliveryMode });
             if (section.isArchived) {
                 const stillReferenced = await this.courseVersionService.isReferencedByAnyVersion('section', id, courseId);
                 if (stillReferenced) {
@@ -3146,11 +3218,18 @@ let CourseService = CourseService_1 = class CourseService {
     async restoreModule(id, adminId) {
         const mod = await this.prisma.module.findUnique({
             where: { id },
-            select: { id: true, courseId: true, isArchived: true, title: true },
+            select: {
+                id: true,
+                courseId: true,
+                isArchived: true,
+                title: true,
+                course: { select: { deliveryMode: true } },
+            },
         });
         if (!mod) {
             throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Module not found' }, common_1.HttpStatus.NOT_FOUND);
         }
+        await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: mod.courseId }, { deliveryMode: mod.course?.deliveryMode });
         if (!mod.isArchived) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.CONFLICT,
@@ -3209,6 +3288,7 @@ let CourseService = CourseService_1 = class CourseService {
                         isArchived: true,
                         title: true,
                         courseId: true,
+                        course: { select: { deliveryMode: true } },
                     },
                 },
             },
@@ -3216,6 +3296,7 @@ let CourseService = CourseService_1 = class CourseService {
         if (!chapter) {
             throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Chapter not found' }, common_1.HttpStatus.NOT_FOUND);
         }
+        await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: chapter.module.courseId }, { deliveryMode: chapter.module.course?.deliveryMode });
         if (!chapter.isArchived) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.CONFLICT,
@@ -3300,6 +3381,7 @@ let CourseService = CourseService_1 = class CourseService {
                                 isArchived: true,
                                 title: true,
                                 courseId: true,
+                                course: { select: { deliveryMode: true } },
                             },
                         },
                     },
@@ -3309,6 +3391,7 @@ let CourseService = CourseService_1 = class CourseService {
         if (!section) {
             throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Section not found' }, common_1.HttpStatus.NOT_FOUND);
         }
+        await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: section.chapter.module.courseId }, { deliveryMode: section.chapter.module.course?.deliveryMode });
         if (!section.isArchived) {
             throw new common_1.HttpException({
                 status: common_1.HttpStatus.CONFLICT,
@@ -3738,6 +3821,12 @@ let CourseService = CourseService_1 = class CourseService {
             });
             if (!course) {
                 throw new Error('Course not found');
+            }
+            if (course.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM) {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.CONFLICT,
+                    error: 'Cannot unassign an imported SCORM course in v1. Cloud registrations are only removed by GDPR purge.',
+                }, common_1.HttpStatus.CONFLICT);
             }
             const userCourse = await this.prisma.userCourse.findFirst({
                 where: { userId, courseId },
@@ -4177,10 +4266,22 @@ let CourseService = CourseService_1 = class CourseService {
             await (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, body.chapterId, userEmail);
             const course = await this.prisma.course.findUnique({
                 where: { id: body.courseId },
-                select: { id: true },
+                select: { id: true, deliveryMode: true },
             });
             if (!course) {
                 throw new Error('Course not found');
+            }
+            if (course.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM) {
+                throw new common_1.ForbiddenException('Imported SCORM courses cannot be completed via native section progress. Finish the package in the SCORM player.');
+            }
+            if (body.sectionId) {
+                const section = await this.prisma.section.findUnique({
+                    where: { id: body.sectionId },
+                    select: { type: true },
+                });
+                if (section?.type === client_1.SectionType.SCORM) {
+                    throw new common_1.ForbiddenException('SCORM sections cannot be marked complete via native section progress.');
+                }
             }
             const user = await this.prisma.user.findUnique({
                 where: { id: userId },
@@ -4230,42 +4331,6 @@ let CourseService = CourseService_1 = class CourseService {
                 cause: error,
             });
         }
-    }
-    async _assertEnrollmentUsable(userId, courseId, userRole) {
-        const isLearner = userRole === client_1.Role.user;
-        const enrollment = await this.prisma.userCourse.findFirst({
-            where: isLearner
-                ? { userId, courseId, isActive: true }
-                : { userId, courseId },
-        });
-        if (!enrollment) {
-            throw new common_1.ForbiddenException({
-                detail: 'You are not assigned to this course, or the enrolment is inactive',
-            });
-        }
-        if (isLearner) {
-            const [completion, course] = await Promise.all([
-                this.prisma.courseCompletion.findUnique({
-                    where: { userId_courseId: { userId, courseId } },
-                    select: { courseCompletedAt: true },
-                }),
-                this.prisma.course.findUnique({
-                    where: { id: courseId },
-                    select: { validityDays: true },
-                }),
-            ]);
-            if (completion?.courseCompletedAt) {
-                const validityDays = course?.validityDays ?? 365;
-                const expiresAt = new Date(completion.courseCompletedAt);
-                expiresAt.setDate(expiresAt.getDate() + validityDays);
-                if (new Date() > expiresAt) {
-                    throw new common_1.ForbiddenException({
-                        detail: `Your access to this course expired on ${expiresAt.toISOString().split('T')[0]}. Please contact your administrator to renew access.`,
-                    });
-                }
-            }
-        }
-        return enrollment;
     }
     async getUserChapterProgress(userId, courseId, chapterId) {
         try {
@@ -4453,7 +4518,7 @@ let CourseService = CourseService_1 = class CourseService {
                 }),
                 this.prisma.course.findUnique({
                     where: { id: courseId },
-                    select: { id: true },
+                    select: { id: true, deliveryMode: true },
                 }),
             ]);
             if (!user || user.deletedAt) {
@@ -4461,6 +4526,12 @@ let CourseService = CourseService_1 = class CourseService {
             }
             if (!course) {
                 throw new common_1.BadRequestException('Course not found');
+            }
+            if (course.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM) {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.CONFLICT,
+                    error: 'Cannot reset progress on an imported SCORM course in v1. Cloud registrations are only removed by GDPR purge.',
+                }, common_1.HttpStatus.CONFLICT);
             }
             const wiped = await this.prisma.$transaction((tx) => this.wipeUserCourseState(tx, userId, courseId, {
                 deleteSectionTimeSpent: false,

@@ -13,12 +13,13 @@ const user_service_1 = require("./user.service");
 const jwt_1 = require("@nestjs/jwt");
 const strategy_1 = require("../strategy");
 const mail_module_1 = require("../mail/mail.module");
+const scorm_cloud_module_1 = require("../scorm-cloud/scorm-cloud.module");
 let UserModule = class UserModule {
 };
 exports.UserModule = UserModule;
 exports.UserModule = UserModule = __decorate([
     (0, common_1.Module)({
-        imports: [jwt_1.JwtModule.register({}), mail_module_1.MailModule],
+        imports: [jwt_1.JwtModule.register({}), mail_module_1.MailModule, scorm_cloud_module_1.ScormCloudModule],
         providers: [
             user_service_1.UserService,
             strategy_1.JwtUserStrategy,

@@ -35,6 +35,9 @@ describe('QuizService — course versioning', () => {
       },
       userCourse: { findUnique: jest.fn() },
       user: { findUnique: jest.fn() },
+      course: {
+        findUnique: jest.fn().mockResolvedValue({ deliveryMode: 'NATIVE' }),
+      },
       quiz: {
         findUnique: jest.fn(),
         findMany: jest.fn(),
@@ -344,6 +347,22 @@ describe('QuizService — course versioning', () => {
       });
     });
 
+    it('rejects delete on an IMPORTED_SCORM course', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({
+        id: 'quiz-1',
+        chapter: { module: { courseId: 'course-1' } },
+      });
+      prisma.course.findUnique.mockResolvedValue({
+        deliveryMode: 'IMPORTED_SCORM',
+      });
+
+      await expect(service.deleteQuiz('quiz-1')).rejects.toBeInstanceOf(
+        HttpException,
+      );
+      expect(prisma.quiz.delete).not.toHaveBeenCalled();
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
+    });
+
     // Regression: the auto-publish is best-effort. The quiz mutation has already
     // committed by the time it runs, so a publish failure must NOT propagate and
     // 403 the admin — it's logged and the version self-heals via reconcile.
@@ -519,6 +538,22 @@ describe('QuizService — course versioning', () => {
         versionId: 'version-2',
       });
     });
+
+    it('rejects assign on an IMPORTED_SCORM course', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        module: {
+          courseId: 'course-1',
+          course: { deliveryMode: 'IMPORTED_SCORM' },
+        },
+      });
+
+      await expect(
+        service.assignQuiz('quiz-1', 'ch-1', 'admin-1'),
+      ).rejects.toBeInstanceOf(HttpException);
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('bulkAssignQuiz', () => {
@@ -593,6 +628,23 @@ describe('QuizService — course versioning', () => {
       await expect(
         service.bulkAssignQuiz('missing-ch', ['quiz-a'], 'admin-1'),
       ).rejects.toThrow(HttpException);
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects bulk assign on an IMPORTED_SCORM course', async () => {
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        title: 'Element 2',
+        module: {
+          courseId: 'course-1',
+          course: { deliveryMode: 'IMPORTED_SCORM' },
+        },
+      });
+      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-a' }]);
+
+      await expect(
+        service.bulkAssignQuiz('ch-1', ['quiz-a'], 'admin-1'),
+      ).rejects.toBeInstanceOf(HttpException);
       expect(prisma.quiz.update).not.toHaveBeenCalled();
     });
 
@@ -719,6 +771,24 @@ describe('QuizService — course versioning', () => {
         where: { id: 'ch-1' },
         data: { quizzes: { disconnect: { id: 'quiz-1' } } },
       });
+    });
+
+    it('rejects unassign on an IMPORTED_SCORM course', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.chapter.findUnique.mockResolvedValue({
+        id: 'ch-1',
+        title: 'C',
+        module: {
+          courseId: 'course-1',
+          course: { deliveryMode: 'IMPORTED_SCORM' },
+        },
+      });
+
+      await expect(service.unAssignQuiz('quiz-1', 'ch-1')).rejects.toBeInstanceOf(
+        HttpException,
+      );
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
+      expect(prisma.chapter.update).not.toHaveBeenCalled();
     });
   });
 
