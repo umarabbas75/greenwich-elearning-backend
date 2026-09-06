@@ -60,6 +60,7 @@ model User {
   forumViewEvents          ForumViewEvent[]
   forumCategoriesCreated   ForumCategory[]            @relation("ForumCategoryCreator")
   forumVotes               ForumVote[]
+  forumTagsCreated         ForumTag[]           @relation("ForumTagCreator")
   sectionTimeSpent         SectionTimeSpent[]
   sectionTimeSpentDaily    SectionTimeSpentDaily[]
   emailLogs                EmailLog[]
@@ -678,6 +679,13 @@ enum ForumNotifyOnCreate {
   NONE
 }
 
+/// Who may attach tags to a thread. DISABLED leaves the tables in place.
+enum ForumTagPolicy {
+  FREEFORM
+  ADMIN_ONLY
+  DISABLED
+}
+
 /// Admin-managed board. Threads point here with a nullable FK so the category
 /// layer can be detached later without deleting discussions.
 model ForumCategory {
@@ -695,6 +703,8 @@ model ForumCategory {
   allowAcceptedAnswer Boolean                  @default(true)
   allowVotes          Boolean                  @default(true)
   allowMentions       Boolean                  @default(true)
+  tagPolicy           ForumTagPolicy           @default(FREEFORM)
+  allowAttachments    Boolean                  @default(true)
   createdByAdminId    String?
   createdAt           DateTime                 @default(now())
   updatedAt           DateTime                 @updatedAt
@@ -709,6 +719,8 @@ model ForumThread {
   id                  String                @id @default(uuid())
   title               String
   content             String
+  /// Plain-text preview for list cards. Avoids shipping Quill HTML on GET list.
+  excerpt             String                @default("")
   userId              String
   courseId            String?
   /// Nullable so we can unplug categories later (ON DELETE SET NULL).
@@ -732,10 +744,17 @@ model ForumThread {
   Notification        Notification[]
   ThreadSubscription  ThreadSubscription[]
   viewEvents          ForumViewEvent[]
+  threadTags          ForumThreadTag[]
+  attachments         ForumAttachment[]
+  /// Set when this thread was copied from in-course Discussions (Wave 3).
+  sourcePostId        String?               @unique
+  sourcePost          Post?                 @relation(fields: [sourcePostId], references: [id], onDelete: SetNull)
 
   @@index([categoryId, isPinned(sort: Desc), lastActivityAt(sort: Desc)])
+  @@index([categoryId, status, isPinned(sort: Desc), lastActivityAt(sort: Desc)])
   @@index([isPinned(sort: Desc), lastActivityAt(sort: Desc)])
   @@index([isPinned(sort: Desc), voteScore(sort: Desc), lastActivityAt(sort: Desc)])
+  @@index([courseId])
   @@map("forum_threads")
 }
 
@@ -764,21 +783,26 @@ enum ForumViewScope {
 }
 
 model ForumComment {
-  id        String      @id @default(uuid())
-  content   String
-  userId    String
-  threadId  String
-  voteScore Int         @default(0)
-  isAccepted Boolean    @default(false)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  thread    ForumThread @relation(fields: [threadId], references: [id])
-  user      User        @relation(fields: [userId], references: [id])
-  votes     ForumVote[]
+  id         String   @id @default(uuid())
+  content    String
+  userId     String
+  threadId   String
+  /// Null = top-level reply to the thread. One level of nested replies only.
+  parentId   String?
+  voteScore  Int      @default(0)
+  isAccepted Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  thread     ForumThread    @relation(fields: [threadId], references: [id])
+  user       User           @relation(fields: [userId], references: [id])
+  parent     ForumComment?  @relation("ForumCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    ForumComment[] @relation("ForumCommentReplies")
+  votes      ForumVote[]
   acceptedForThread ForumThread[] @relation("ThreadAcceptedComment")
 
   @@index([threadId, isAccepted(sort: Desc), voteScore(sort: Desc), createdAt(sort: Desc)])
   @@index([threadId, isAccepted(sort: Desc), createdAt(sort: Desc)])
+  @@index([threadId, parentId, createdAt])
   @@map("forum_comments")
 }
 
@@ -798,6 +822,48 @@ model ForumVote {
   @@unique([userId, threadId])
   @@unique([userId, commentId])
   @@map("forum_votes")
+}
+
+model ForumTag {
+  id               String   @id @default(uuid())
+  name             String
+  slug             String   @unique
+  createdByAdminId String?
+  createdAt        DateTime @default(now())
+
+  createdByAdmin User?            @relation("ForumTagCreator", fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  threads        ForumThreadTag[]
+
+  @@index([name])
+  @@map("forum_tags")
+}
+
+model ForumThreadTag {
+  threadId String
+  tagId    String
+  thread   ForumThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  tag      ForumTag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([threadId, tagId])
+  @@index([tagId])
+  @@map("forum_thread_tags")
+}
+
+/// PDF/docx next to the thread body. Droppable via category.allowAttachments.
+model ForumAttachment {
+  id        String   @id @default(uuid())
+  threadId  String
+  url       String
+  publicId  String?
+  fileName  String
+  mimeType  String
+  bytes     Int?
+  createdAt DateTime @default(now())
+
+  thread ForumThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId])
+  @@map("forum_attachments")
 }
 
 model FavoriteForumThread {
@@ -858,9 +924,10 @@ model Post {
   userId    String
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  comments  Comment[]
-  course    Course    @relation(fields: [courseId], references: [id])
-  user      User      @relation(fields: [userId], references: [id])
+  comments     Comment[]
+  course       Course    @relation(fields: [courseId], references: [id])
+  user         User      @relation(fields: [userId], references: [id])
+  forumThread  ForumThread?
 
   @@map("posts")
 }
@@ -1038,6 +1105,7 @@ enum NotificationType {
   FORUM_COMMENT
   FORUM_THREAD
   FORUM_MENTION
+  FORUM_ANSWER_ACCEPTED // OP or admin marked a top-level reply as the solution
   ASSESSMENT_SUBMITTED
   ASSESSMENT_GRADED
   ENGAGEMENT_REMINDER // automated low-engagement nudge; reminderType (never_started|stalled) lives in payload
@@ -1371,6 +1439,7 @@ enum EmailType {
   NOTIFICATION_FORUM_THREAD
   NOTIFICATION_FORUM_COMMENT
   NOTIFICATION_FORUM_MENTION
+  NOTIFICATION_FORUM_ANSWER_ACCEPTED
   NOTIFICATION_ASSESSMENT_SUBMITTED
   NOTIFICATION_ASSESSMENT_GRADED
   NOTIFICATION_ASSIGNMENT_CREATED

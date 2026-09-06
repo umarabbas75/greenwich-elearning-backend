@@ -58,6 +58,7 @@ export type NotificationEmail =
       threadId: string;
       threadTitle: string;
       creatorName: string;
+      pendingReview?: boolean;
     }
   | {
       kind: 'FORUM_COMMENT';
@@ -68,6 +69,7 @@ export type NotificationEmail =
       threadTitle: string;
       commenterName: string;
       excerpt: string;
+      directReply?: boolean;
     }
   | {
       kind: 'FORUM_MENTION';
@@ -77,6 +79,15 @@ export type NotificationEmail =
       threadId: string;
       threadTitle: string;
       mentionerName: string;
+    }
+  | {
+      kind: 'FORUM_ANSWER_ACCEPTED';
+      to: string;
+      userId?: string | null;
+      recipientFirstName: string;
+      threadId: string;
+      threadTitle: string;
+      yours?: boolean;
     }
   | {
       kind: 'ASSESSMENT_SUBMITTED';

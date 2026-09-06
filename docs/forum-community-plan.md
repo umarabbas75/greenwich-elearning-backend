@@ -1,6 +1,6 @@
 # Community Forum — Plan
 
-**Status:** Wave 1 in progress. §2 decisions locked. Confirmed 6 Sep 2026: Study requires a course (via category setting, not a hardcoded slug); student threads publish live (via category setting); Wave 1 first. DB stays detachable so categories / course rules / posting rules can be turned off later without dropping tables.
+**Status:** Wave 3 in progress. Waves 1–2 shipped. §2 decisions locked. Confirmed 6 Sep 2026: Study requires a course (via category setting, not a hardcoded slug); student threads publish live (via category setting); Wave 1 first. DB stays detachable so categories / course rules / posting rules can be turned off later without dropping tables.
 **Audience:** Backend + frontend. Implements the client’s 4-board community, then the LMS extras.
 **Related:** [forum-course-scoping-frontend-handoff.md](forum-course-scoping-frontend-handoff.md) (already shipped).
 
@@ -152,16 +152,16 @@ Turns Support/Technical into a real help desk, Study into a living class board.
 
 See [forum-community-wave2-frontend-handoff.md](./forum-community-wave2-frontend-handoff.md).
 
-### Wave 3 — Unify the product
+### Wave 3 — Unify the product **(backend in progress)**
 
-- **Tags:** optional free-form or admin-managed (`#module-1`). Filter + search. Do not use tags as a substitute for categories.
-- **File attachments:** Cloudinary files (PDF/docx), max 3, alongside the body. Only if Support actually needs more than screenshots.
+- **Tags:** optional; not a substitute for categories. Admin choice per board: `tagPolicy` = `FREEFORM` | `ADMIN_ONLY` | `DISABLED`. Filter + search by `tagId` / slug.
+- **File attachments:** Cloudinary PDF/docx, max 3, on the thread body. Screenshots stay in Quill. Category flag `allowAttachments`.
 - **Deprecate in-course Discussions:**
-  1. Player “Discussions” button becomes a link: Community → Study → this course (`/forum?category=study&courseId=`).
-  2. Optional one-off migrate `Post` → `ForumThread` (Study + that `courseId`) and `Comment` → `ForumComment`.
-  3. Remove `DiscussionForum/` UI and `/courses/post*` routes.
+  1. Player “Discussions” button becomes a link: Community → Study → this course (`/forum?category=<studySlug>&courseId=`). Drive the slug from `GET /forum/categories` (`courseScope === 'REQUIRED'`), fallback `'study'`.
+  2. Optional one-off migrate `Post` → `ForumThread` (Study + that `courseId`) and `Comment` → `ForumComment` (`yarn script:forum-posts-migrate`). Idempotent via `sourcePostId`.
+  3. Remove `DiscussionForum/` UI usage and stop fetching `/courses/posts/:courseId`. Keep `/courses/post*` APIs until a later cleanup.
 
-Do not run Wave 3 until Wave 1 has been live long enough that Study+course is the obvious home for class chat.
+See [forum-community-wave3-frontend-handoff.md](./forum-community-wave3-frontend-handoff.md).
 
 ---
 
@@ -309,6 +309,19 @@ List sort: `isPinned desc`, then `createdAt desc` (or last comment time if we ad
 | GET | `/forum/mentions?q=&threadId=&courseId=` | Autocomplete. `{ id, firstName, lastName, photo, role }`. |
 
 Mentions are parsed server-side from stored HTML on **create** (`data-mention-user-id` or `@[Name](uuid)`). Category flags `allowAcceptedAnswer`, `allowVotes`, `allowMentions` default true.
+
+### Wave 3
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/forum/tags?q=` | Autocomplete `{ id, name, slug }`. No counts. |
+| POST | `/forum/tags` | `{ name }`. Returns existing slug match if present. |
+| PATCH/DELETE | `/forum/tags/:id` | Admin. |
+| GET | `/forum-thread?tagId=` / `?tag=` | Filter by id or slug. List includes `tags`. |
+| POST/PUT thread | `tagIds` / `tags`, `attachments` | Max 8 tags, 3 PDF/DOCX files. Nested create; no interactive `$transaction`. |
+| DELETE | `/forum-thread/:id/attachments/:attachmentId` | Author or admin. |
+
+Category flags `tagPolicy` (`FREEFORM` \| `ADMIN_ONLY` \| `DISABLED`) and `allowAttachments` default on. Detail includes `attachments`; list does not.
 
 ---
 

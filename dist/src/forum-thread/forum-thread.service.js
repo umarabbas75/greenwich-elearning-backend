@@ -12,9 +12,65 @@ var ForumThreadService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ForumThreadService = void 0;
 const common_1 = require("@nestjs/common");
-const prisma_service_1 = require("../prisma/prisma.service");
 const client_1 = require("@prisma/client");
+const prisma_service_1 = require("../prisma/prisma.service");
 const notification_service_1 = require("../notifications/notification.service");
+const forum_policy_1 = require("./forum-policy");
+const forum_mention_notify_1 = require("./forum-mention-notify");
+const forum_vote_1 = require("./forum-vote");
+const forum_extras_1 = require("./forum-extras");
+const THREAD_AUTHOR = {
+    id: true,
+    firstName: true,
+    lastName: true,
+    photo: true,
+    role: true,
+};
+const THREAD_COURSE = {
+    id: true,
+    title: true,
+};
+const LIST_CATEGORY = {
+    id: true,
+    name: true,
+    slug: true,
+    allowAcceptedAnswer: true,
+    allowVotes: true,
+    allowMentions: true,
+    tagPolicy: true,
+    allowAttachments: true,
+};
+const THREAD_CATEGORY = {
+    id: true,
+    name: true,
+    slug: true,
+    description: true,
+    icon: true,
+    courseScope: true,
+    studentCreatePolicy: true,
+    notifyOnCreate: true,
+    allowAcceptedAnswer: true,
+    allowVotes: true,
+    allowMentions: true,
+    tagPolicy: true,
+    allowAttachments: true,
+    isActive: true,
+};
+const THREAD_TAGS_INCLUDE = {
+    select: { tag: { select: forum_extras_1.TAG_SELECT } },
+};
+const THREAD_ATTACHMENTS_INCLUDE = {
+    select: {
+        id: true,
+        url: true,
+        publicId: true,
+        fileName: true,
+        mimeType: true,
+        bytes: true,
+        createdAt: true,
+    },
+    orderBy: { createdAt: 'asc' },
+};
 let ForumThreadService = ForumThreadService_1 = class ForumThreadService {
     constructor(prisma, notificationService) {
         this.prisma = prisma;
@@ -116,99 +172,112 @@ let ForumThreadService = ForumThreadService_1 = class ForumThreadService {
             });
         }
     }
-    async getAllForumThreads(user) {
+    async getAllForumThreads(user, query = {}) {
         try {
-            const [favoriteThreads, subscribedThreads, forums] = await Promise.all([
-                this.prisma.favoriteForumThread.findMany({
-                    where: {
-                        userId: user.id,
-                    },
-                    select: {
-                        threadId: true,
-                    },
-                }),
-                this.prisma.threadSubscription.findMany({
-                    where: {
-                        userId: user.id,
-                    },
-                    select: {
-                        threadId: true,
-                    },
-                }),
-                this.prisma.forumThread.findMany({
-                    orderBy: {
-                        createdAt: 'desc',
-                    },
-                    include: {
-                        user: {
-                            select: {
-                                id: true,
-                                firstName: true,
-                                lastName: true,
-                                photo: true,
+            const filters = [];
+            if (user.role === client_1.Role.user) {
+                filters.push({ status: 'active' });
+                filters.push({
+                    OR: [
+                        { courseId: null },
+                        {
+                            course: {
+                                users: { some: { userId: user.id, isActive: true } },
                             },
                         },
-                        course: {
-                            select: {
-                                id: true,
-                                title: true,
-                            },
-                        },
-                        ForumComment: {
-                            select: {
-                                id: true,
-                                user: {
-                                    select: {
-                                        id: true,
-                                        firstName: true,
-                                        lastName: true,
-                                        photo: true,
-                                    },
-                                },
-                                createdAt: true,
-                            },
-                            orderBy: {
-                                createdAt: client_1.Prisma.SortOrder.desc,
-                            },
-                        },
+                    ],
+                });
+                filters.push({
+                    OR: [{ categoryId: null }, { category: { isActive: true } }],
+                });
+            }
+            if (query.categoryId)
+                filters.push({ categoryId: query.categoryId });
+            if (query.courseId)
+                filters.push({ courseId: query.courseId });
+            if (query.tagId) {
+                filters.push({ threadTags: { some: { tagId: query.tagId } } });
+            }
+            else if (query.tag?.trim()) {
+                filters.push({
+                    threadTags: { some: { tag: { slug: query.tag.trim() } } },
+                });
+            }
+            const q = query.q?.trim();
+            if (q) {
+                filters.push({
+                    OR: [
+                        { title: { contains: q, mode: 'insensitive' } },
+                        { excerpt: { contains: q, mode: 'insensitive' } },
+                    ],
+                });
+            }
+            const forums = await this.prisma.forumThread.findMany({
+                where: filters.length ? { AND: filters } : undefined,
+                take: forum_extras_1.THREAD_LIST_TAKE,
+                select: {
+                    id: true,
+                    title: true,
+                    excerpt: true,
+                    status: true,
+                    isPinned: true,
+                    lastActivityAt: true,
+                    voteScore: true,
+                    acceptedCommentId: true,
+                    createdAt: true,
+                    categoryId: true,
+                    courseId: true,
+                    userId: true,
+                    user: { select: THREAD_AUTHOR },
+                    course: { select: THREAD_COURSE },
+                    category: { select: LIST_CATEGORY },
+                    votes: {
+                        where: { userId: user.id },
+                        select: { id: true },
                     },
-                    where: user?.role === 'user'
-                        ? {
-                            status: 'active',
-                            OR: [
-                                { courseId: null },
-                                {
-                                    course: {
-                                        users: { some: { userId: user.id, isActive: true } },
-                                    },
-                                },
-                            ],
-                        }
-                        : undefined,
-                }),
-            ]);
-            void this.recordForumView(user.id, { scope: client_1.ForumViewScope.list });
-            const favoriteThreadIds = new Set(favoriteThreads.map((fav) => fav.threadId));
-            const subscribedThreadIds = new Set(subscribedThreads.map((sub) => sub.threadId));
-            const sortedForums = forums
-                .map((thread) => ({
-                ...thread,
-                isFavorite: favoriteThreadIds.has(thread.id),
-                isSubscribed: subscribedThreadIds.has(thread.id),
-            }))
-                .sort((a, b) => {
-                if (a.isFavorite && !b.isFavorite) {
-                    return -1;
-                }
-                if (!a.isFavorite && b.isFavorite) {
-                    return 1;
-                }
-                return 0;
+                    FavoriteForumThread: {
+                        where: { userId: user.id },
+                        select: { id: true },
+                    },
+                    ThreadSubscription: {
+                        where: { userId: user.id },
+                        select: { id: true },
+                    },
+                    ForumComment: {
+                        select: {
+                            id: true,
+                            user: { select: THREAD_AUTHOR },
+                            createdAt: true,
+                        },
+                        orderBy: { createdAt: client_1.Prisma.SortOrder.desc },
+                        take: 3,
+                    },
+                    threadTags: THREAD_TAGS_INCLUDE,
+                    _count: { select: { ForumComment: true } },
+                },
+                orderBy: query.sort === 'top'
+                    ? [
+                        { isPinned: 'desc' },
+                        { voteScore: 'desc' },
+                        { lastActivityAt: 'desc' },
+                    ]
+                    : [{ isPinned: 'desc' }, { lastActivityAt: 'desc' }],
+            });
+            const data = forums.map((thread) => {
+                const voted = (0, forum_vote_1.withVotedByMe)(thread);
+                const { _count, FavoriteForumThread, ThreadSubscription, threadTags, ...rest } = voted;
+                return {
+                    ...rest,
+                    tags: (0, forum_extras_1.flattenThreadTags)(threadTags),
+                    commentCount: _count.ForumComment,
+                    isFavorite: FavoriteForumThread.length > 0,
+                    isSubscribed: ThreadSubscription.length > 0,
+                };
             });
             return {
                 message: 'Successfully fetched all forum threads',
                 statusCode: 200,
-                data: sortedForums,
+                data,
             };
         }
         catch (error) {
@@ -220,25 +289,118 @@ let ForumThreadService = ForumThreadService_1 = class ForumThreadService {
             });
         }
     }
-    async createForumThread(body, userId) {
+    async createForumThread(body, user) {
         try {
-            if (!body.courseId) {
-                throw new Error('courseId is required');
+            if (!body?.categoryId) {
+                throw new Error('categoryId is required');
             }
+            if (!body?.title || !body?.content) {
+                throw new Error('title and content are required');
+            }
+            const category = await this.prisma.forumCategory.findUnique({
+                where: { id: body.categoryId },
+            });
+            if (!category)
+                throw new Error('Category not found');
+            (0, forum_policy_1.assertStudentMayCreate)(category, user.role);
+            const courseId = body.courseId || null;
+            (0, forum_policy_1.assertCourseScope)(category, courseId);
+            if (courseId) {
+                await this.assertCourseVisible(courseId, user);
+            }
+            const status = (0, forum_policy_1.resolveNewThreadStatus)({
+                role: user.role,
+                category,
+                requestedStatus: body.status,
+            });
+            const isPinned = (0, forum_policy_1.isAdminRole)(user.role) && Boolean(body.isPinned);
+            const now = new Date();
+            const broadcast = (0, forum_policy_1.shouldBroadcastNewThread)({
+                role: user.role,
+                category,
+                status,
+            });
+            const extras = await this.resolveWriteExtras(body, category, user);
             const newThread = await this.prisma.forumThread.create({
                 data: {
                     title: body.title,
                     content: body.content,
-                    userId: userId,
-                    courseId: body.courseId,
-                    status: 'inActive',
+                    userId: user.id,
+                    courseId,
+                    categoryId: category.id,
+                    status,
+                    isPinned,
+                    lastActivityAt: now,
+                    notificationSent: broadcast,
+                    excerpt: (0, forum_extras_1.threadExcerpt)(String(body.content)),
+                    ThreadSubscription: {
+                        create: { userId: user.id },
+                    },
+                    ...(extras.tagIds.length
+                        ? {
+                            threadTags: {
+                                create: extras.tagIds.map((tagId) => ({ tagId })),
+                            },
+                        }
+                        : {}),
+                    ...(extras.attachments.length
+                        ? { attachments: { create: extras.attachments } }
+                        : {}),
+                },
+                include: {
+                    user: { select: THREAD_AUTHOR },
+                    course: { select: THREAD_COURSE },
+                    category: { select: THREAD_CATEGORY },
+                    threadTags: THREAD_TAGS_INCLUDE,
+                    attachments: THREAD_ATTACHMENTS_INCLUDE,
                 },
             });
-            console.log({ newThread });
+            if (broadcast) {
+                await this.notificationService.notifyAllUsersForNewThread({
+                    threadId: newThread.id,
+                    threadTitle: newThread.title,
+                    courseId: newThread.courseId,
+                    creator: {
+                        id: user.id,
+                        firstName: user.firstName,
+                        lastName: user.lastName,
+                    },
+                });
+            }
+            else if (!(0, forum_policy_1.isAdminRole)(user.role)) {
+                await this.notificationService.notifyAdminsOfStudentThread({
+                    threadId: newThread.id,
+                    threadTitle: newThread.title,
+                    pendingReview: status !== 'active',
+                    creator: {
+                        id: user.id,
+                        firstName: user.firstName,
+                        lastName: user.lastName,
+                    },
+                });
+            }
+            await (0, forum_mention_notify_1.notifyForumMentions)({
+                prisma: this.prisma,
+                notifications: this.notificationService,
+                actor: {
+                    id: user.id,
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                },
+                content: newThread.content,
+                threadId: newThread.id,
+                threadTitle: newThread.title,
+                allowMentions: (0, forum_policy_1.categoryAllows)(category, 'allowMentions'),
+                sourceKey: `thread:${newThread.id}`,
+            });
             return {
-                message: 'Successfully create quiz record',
+                message: 'Successfully created forum thread',
                 statusCode: 200,
-                data: {},
+                data: {
+                    ...this.withTags(newThread),
+                    isFavorite: false,
+                    isSubscribed: true,
+                },
             };
         }
         catch (error) {
@@ -250,49 +412,135 @@ let ForumThreadService = ForumThreadService_1 = class ForumThreadService {
             });
         }
     }
-    async updateForumThread(forumThreadId, body, userId) {
+    async updateForumThread(forumThreadId, body, user) {
         try {
             const existingForumThread = await this.prisma.forumThread.findUnique({
                 where: { id: forumThreadId },
+                include: { category: true },
             });
             if (!existingForumThread) {
                 throw new Error('Forum thread not found');
             }
-            if (Object.entries(body).length === 0) {
+            const admin = (0, forum_policy_1.isAdminRole)(user.role);
+            if (!admin && existingForumThread.userId !== user.id) {
+                throw new Error('You can only edit your own thread');
+            }
+            if (Object.entries(body ?? {}).length === 0) {
                 throw new Error('wrong keys');
             }
-            const updateForumThread = {};
-            for (const [key, value] of Object.entries(body)) {
-                updateForumThread[key] = value;
+            const data = {};
+            if (body.title != null)
+                data.title = body.title;
+            if (body.content != null) {
+                data.content = body.content;
+                data.excerpt = (0, forum_extras_1.threadExcerpt)(String(body.content));
             }
-            const statusChangingToActive = existingForumThread.status === 'inActive' &&
-                updateForumThread['status'] === 'active';
-            const shouldSendNotification = statusChangingToActive && !existingForumThread.notificationSent;
-            if (shouldSendNotification) {
-                updateForumThread['notificationSent'] = true;
+            const nextCategoryId = body.categoryId !== undefined
+                ? body.categoryId || null
+                : existingForumThread.categoryId;
+            const nextCourseId = body.courseId !== undefined
+                ? body.courseId || null
+                : existingForumThread.courseId;
+            if (body.categoryId !== undefined || body.courseId !== undefined) {
+                if (nextCategoryId) {
+                    const category = await this.prisma.forumCategory.findUnique({
+                        where: { id: nextCategoryId },
+                    });
+                    if (!category)
+                        throw new Error('Category not found');
+                    (0, forum_policy_1.assertCourseScope)(category, nextCourseId);
+                    data.category = { connect: { id: nextCategoryId } };
+                }
+                else {
+                    data.category = { disconnect: true };
+                }
+                if (nextCourseId) {
+                    await this.assertCourseVisible(nextCourseId, user);
+                    data.course = { connect: { id: nextCourseId } };
+                }
+                else if (body.courseId !== undefined) {
+                    data.course = { disconnect: true };
+                }
+            }
+            const policyCategoryId = nextCategoryId ?? existingForumThread.categoryId;
+            const extrasCategory = policyCategoryId === existingForumThread.categoryId
+                ? existingForumThread.category
+                : policyCategoryId
+                    ? await this.prisma.forumCategory.findUnique({
+                        where: { id: policyCategoryId },
+                    })
+                    : null;
+            if (body.tagIds !== undefined ||
+                body.tags !== undefined ||
+                body.attachments !== undefined) {
+                const extras = await this.resolveWriteExtras(body, extrasCategory ?? undefined, user);
+                if (body.tagIds !== undefined || body.tags !== undefined) {
+                    data.threadTags = {
+                        deleteMany: {},
+                        create: extras.tagIds.map((tagId) => ({ tagId })),
+                    };
+                }
+                if (body.attachments !== undefined) {
+                    data.attachments = {
+                        deleteMany: {},
+                        create: extras.attachments,
+                    };
+                }
+            }
+            if (admin) {
+                if (body.status === 'active' || body.status === 'inActive') {
+                    data.status = body.status;
+                }
+                if (body.isPinned != null)
+                    data.isPinned = Boolean(body.isPinned);
+            }
+            const statusChangingToActive = existingForumThread.status === 'inActive' && data.status === 'active';
+            const firstPublish = statusChangingToActive && !existingForumThread.notificationSent;
+            let willNotify = false;
+            if (firstPublish) {
+                data.notificationSent = true;
+                const categoryId = nextCategoryId ?? existingForumThread.categoryId;
+                const notifyCategory = categoryId
+                    ? await this.prisma.forumCategory.findUnique({
+                        where: { id: categoryId },
+                    })
+                    : null;
+                willNotify = notifyCategory
+                    ? (0, forum_policy_1.shouldBroadcastNewThread)({
+                        role: user.role,
+                        category: notifyCategory,
+                        status: 'active',
+                    })
+                    : (0, forum_policy_1.isAdminRole)(user.role);
             }
             const updatedForumThread = await this.prisma.forumThread.update({
                 where: { id: forumThreadId },
-                data: updateForumThread,
+                data,
+                include: {
+                    user: { select: THREAD_AUTHOR },
+                    course: { select: THREAD_COURSE },
+                    category: { select: THREAD_CATEGORY },
+                    threadTags: THREAD_TAGS_INCLUDE,
+                    attachments: THREAD_ATTACHMENTS_INCLUDE,
+                },
             });
-            if (shouldSendNotification) {
-                const admin = await this.prisma.user.findUnique({
-                    where: { id: userId },
-                    select: { id: true, firstName: true, lastName: true },
+            if (willNotify) {
+                await this.notificationService.notifyAllUsersForNewThread({
+                    threadId: forumThreadId,
+                    threadTitle: updatedForumThread.title,
+                    courseId: updatedForumThread.courseId,
+                    creator: {
+                        id: user.id,
+                        firstName: user.firstName,
+                        lastName: user.lastName,
+                    },
+                    skipAdmins: existingForumThread.userId !== user.id,
                 });
-                if (admin) {
-                    await this.notificationService.notifyAllUsersForNewThread({
-                        threadId: forumThreadId,
-                        threadTitle: existingForumThread.title,
-                        courseId: existingForumThread.courseId,
-                        creator: admin,
-                    });
-                }
             }
             return {
                 message: 'Successfully updated forum record',
                 statusCode: 200,
-                data: updatedForumThread,
+                data: this.withTags(updatedForumThread),
             };
         }
         catch (error) {
@@ -304,13 +552,16 @@ let ForumThreadService = ForumThreadService_1 = class ForumThreadService {
             });
         }
     }
-    async deleteForumThread(forumThreadId) {
+    async deleteForumThread(forumThreadId, user) {
         try {
             const quiz = await this.prisma.forumThread.findUnique({
                 where: { id: forumThreadId },
             });
             if (!quiz) {
                 throw new Error('Forum Thread not found');
+            }
+            if (!(0, forum_policy_1.isAdminRole)(user.role) && quiz.userId !== user.id) {
+                throw new Error('You can only delete your own thread');
             }
             await this.prisma.forumThread.delete({
                 where: { id: forumThreadId },
@@ -339,38 +590,180 @@ let ForumThreadService = ForumThreadService_1 = class ForumThreadService {
             }
         }
     }
-    async getForumThread(forumThreadId, userId) {
+    async getForumThread(forumThreadId, user) {
         try {
-            const forum = await this.prisma.forumThread.findUnique({
-                where: { id: forumThreadId },
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            firstName: true,
-                            lastName: true,
-                            photo: true,
+            const visibility = [{ id: forumThreadId }];
+            if (!(0, forum_policy_1.isAdminRole)(user.role)) {
+                visibility.push({
+                    OR: [{ status: 'active' }, { userId: user.id }],
+                });
+                visibility.push({
+                    OR: [
+                        { courseId: null },
+                        {
+                            course: {
+                                users: { some: { userId: user.id, isActive: true } },
+                            },
                         },
-                    },
-                    course: {
-                        select: {
-                            id: true,
-                            title: true,
-                        },
-                    },
-                },
-            });
-            if (userId && forum) {
-                void this.recordForumView(userId, {
-                    scope: client_1.ForumViewScope.thread,
-                    threadId: forum.id,
-                    courseId: forum.courseId,
+                    ],
                 });
             }
+            const forum = await this.prisma.forumThread.findFirst({
+                where: { AND: visibility },
+                include: {
+                    user: { select: THREAD_AUTHOR },
+                    course: { select: THREAD_COURSE },
+                    category: { select: THREAD_CATEGORY },
+                    threadTags: THREAD_TAGS_INCLUDE,
+                    attachments: THREAD_ATTACHMENTS_INCLUDE,
+                    votes: { where: { userId: user.id }, select: { id: true } },
+                },
+            });
+            if (!forum) {
+                throw new Error('Forum thread not found');
+            }
+            void this.recordForumView(user.id, {
+                scope: client_1.ForumViewScope.thread,
+                threadId: forum.id,
+                courseId: forum.courseId,
+            });
             return {
                 message: 'Successfully fetch Quiz info',
                 statusCode: 200,
-                data: forum,
+                data: this.withTags((0, forum_vote_1.withVotedByMe)(forum)),
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async deleteForumAttachment(threadId, attachmentId, user) {
+        try {
+            const attachment = await this.prisma.forumAttachment.findFirst({
+                where: { id: attachmentId, threadId },
+                select: {
+                    id: true,
+                    thread: { select: { userId: true } },
+                },
+            });
+            if (!attachment)
+                throw new Error('Attachment not found');
+            if (!(0, forum_policy_1.isAdminRole)(user.role) &&
+                attachment.thread.userId !== user.id) {
+                throw new Error('You can only remove attachments from your own thread');
+            }
+            await this.prisma.forumAttachment.delete({ where: { id: attachmentId } });
+            return {
+                message: 'Successfully deleted attachment',
+                statusCode: 200,
+                data: {},
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async voteForumThread(threadId, body, user) {
+        try {
+            const value = (0, forum_vote_1.parseVoteValue)(body);
+            const result = await (0, forum_vote_1.toggleForumVote)(this.prisma, {
+                userId: user.id,
+                threadId,
+                value,
+            });
+            return {
+                message: value === 1 ? 'Liked thread' : 'Removed like',
+                statusCode: 200,
+                data: result,
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, {
+                cause: error,
+            });
+        }
+    }
+    async searchMentions(user, query) {
+        try {
+            let courseId = query.courseId || null;
+            let allowMentions = true;
+            if (query.threadId) {
+                const thread = await this.prisma.forumThread.findUnique({
+                    where: { id: query.threadId },
+                    select: {
+                        courseId: true,
+                        category: { select: { allowMentions: true } },
+                    },
+                });
+                if (!thread)
+                    throw new Error('Forum thread not found');
+                allowMentions = (0, forum_policy_1.categoryAllows)(thread.category, 'allowMentions');
+                courseId = thread.courseId;
+            }
+            if (!allowMentions) {
+                return {
+                    message: 'Successfully fetched mention suggestions',
+                    statusCode: 200,
+                    data: [],
+                };
+            }
+            if (courseId && !query.threadId) {
+                await this.assertCourseVisible(courseId, user);
+            }
+            const term = query.q?.trim();
+            const nameFilter = term
+                ? {
+                    OR: [
+                        { firstName: { contains: term, mode: 'insensitive' } },
+                        { lastName: { contains: term, mode: 'insensitive' } },
+                    ],
+                }
+                : undefined;
+            const scope = courseId
+                ? {
+                    OR: [
+                        { role: client_1.Role.admin },
+                        {
+                            UserCourse: {
+                                some: { courseId, isActive: true },
+                            },
+                        },
+                    ],
+                }
+                : undefined;
+            const users = await this.prisma.user.findMany({
+                where: {
+                    deletedAt: null,
+                    status: client_1.UserStatus.active,
+                    AND: [scope, nameFilter].filter(Boolean),
+                },
+                select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    photo: true,
+                    role: true,
+                },
+                orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+                take: 20,
+            });
+            return {
+                message: 'Successfully fetched mention suggestions',
+                statusCode: 200,
+                data: users,
             };
         }
         catch (error) {
@@ -409,6 +802,44 @@ let ForumThreadService = ForumThreadService_1 = class ForumThreadService {
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             ForumThreadService_1.logger.warn(`Failed to record forum view for user ${userId}: ${message}`);
+        }
+    }
+    withTags(thread) {
+        const { threadTags, ...rest } = thread;
+        return {
+            ...rest,
+            tags: threadTags ? (0, forum_extras_1.flattenThreadTags)(threadTags) : [],
+        };
+    }
+    async resolveWriteExtras(body, category, user) {
+        const tagIds = await (0, forum_extras_1.resolveTagIds)(this.prisma, user, category?.tagPolicy, {
+            tagIds: body.tagIds,
+            tags: body.tags,
+        });
+        const attachments = body.attachments === undefined
+            ? []
+            : (0, forum_extras_1.parseAttachmentList)(body.attachments);
+        if (attachments.length && !(0, forum_policy_1.categoryAllows)(category, 'allowAttachments')) {
+            throw new Error('Attachments are not enabled for this category');
+        }
+        return { tagIds, attachments };
+    }
+    async assertCourseVisible(courseId, user) {
+        if ((0, forum_policy_1.isAdminRole)(user.role)) {
+            const course = await this.prisma.course.findUnique({
+                where: { id: courseId },
+                select: { id: true },
+            });
+            if (!course)
+                throw new Error('Course not found');
+            return;
+        }
+        const enrolled = await this.prisma.userCourse.findFirst({
+            where: { userId: user.id, courseId, isActive: true },
+            select: { id: true },
+        });
+        if (!enrolled) {
+            throw new Error('You must be enrolled in this course to post here');
         }
     }
 };

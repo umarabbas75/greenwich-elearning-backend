@@ -19,7 +19,7 @@ const mail_layout_1 = require("../mail/templates/mail-layout");
 const NOTIFICATION_INCLUDE = {
     thread: { select: { title: true } },
     commenter: {
-        select: { id: true, firstName: true, lastName: true, photo: true },
+        select: { id: true, firstName: true, lastName: true, photo: true, role: true },
     },
 };
 let NotificationService = NotificationService_1 = class NotificationService {
@@ -159,8 +159,12 @@ let NotificationService = NotificationService_1 = class NotificationService {
         }
     }
     async createNotificationForMany(input) {
-        if (input.userIds.length === 0)
+        if (input.userIds.length === 0) {
+            if (input.email && input.emailCcAddresses?.length) {
+                await this.dispatchNotificationEmails([], input.email, input.emailCcAddresses);
+            }
             return;
+        }
         const result = await this.prisma.notification.createMany({
             data: input.userIds.map((userId) => ({
                 userId,
@@ -242,10 +246,28 @@ let NotificationService = NotificationService_1 = class NotificationService {
     async notifyAllUsersForNewThread(args) {
         const users = await this.prisma.user.findMany({
             where: args.courseId
-                ? {
-                    UserCourse: { some: { courseId: args.courseId, isActive: true } },
-                }
-                : undefined,
+                ? args.skipAdmins
+                    ? {
+                        deletedAt: null,
+                        role: { not: client_1.Role.admin },
+                        UserCourse: {
+                            some: { courseId: args.courseId, isActive: true },
+                        },
+                    }
+                    : {
+                        deletedAt: null,
+                        OR: [
+                            {
+                                UserCourse: {
+                                    some: { courseId: args.courseId, isActive: true },
+                                },
+                            },
+                            { role: client_1.Role.admin },
+                        ],
+                    }
+                : args.skipAdmins
+                    ? { deletedAt: null, role: { not: client_1.Role.admin } }
+                    : { deletedAt: null },
             select: { id: true },
         });
         const creatorName = `${args.creator.firstName} ${args.creator.lastName}`.trim();
@@ -274,6 +296,49 @@ let NotificationService = NotificationService_1 = class NotificationService {
                     threadId: args.threadId,
                     threadTitle: args.threadTitle,
                     creatorName,
+                }),
+            },
+        });
+    }
+    async notifyAdminsOfStudentThread(args) {
+        const admins = await this.prisma.user.findMany({
+            where: { role: client_1.Role.admin, deletedAt: null },
+            select: { id: true },
+        });
+        const userIds = admins
+            .map((row) => row.id)
+            .filter((id) => id !== args.creator.id);
+        const creatorName = `${args.creator.firstName} ${args.creator.lastName}`.trim();
+        await this.createNotificationForMany({
+            userIds,
+            emailCcAddresses: [mail_layout_1.ADMIN_EMAIL],
+            type: client_1.NotificationType.FORUM_THREAD,
+            message: args.pendingReview
+                ? `${creatorName} posted a discussion awaiting review.`
+                : `${creatorName} posted a new discussion.`,
+            payload: {
+                threadId: args.threadId,
+                threadTitle: args.threadTitle,
+                creatorFirstName: args.creator.firstName,
+                creatorLastName: args.creator.lastName,
+                studentPost: true,
+                pendingReview: args.pendingReview,
+            },
+            groupKey: null,
+            threadId: args.threadId,
+            commenterId: args.creator.id,
+            dedupeKeyFor: (userId) => `thread-admin:${args.threadId}:${userId}`,
+            email: {
+                excludeUserId: args.creator.id,
+                build: (r) => ({
+                    kind: 'FORUM_THREAD',
+                    to: r.email,
+                    userId: r.id,
+                    recipientFirstName: r.firstName,
+                    threadId: args.threadId,
+                    threadTitle: args.threadTitle,
+                    creatorName,
+                    pendingReview: args.pendingReview,
                 }),
             },
         });

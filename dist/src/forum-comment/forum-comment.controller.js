@@ -22,16 +22,22 @@ let ForumCommentController = class ForumCommentController {
         this.forumThreadService = forumThreadService;
     }
     createForumThreadComment(body, user) {
-        return this.forumThreadService.createForumThreadComment(body, user.id);
+        return this.forumThreadService.createForumThreadComment(body, user);
     }
-    async getForumCommentsByThreadId(params) {
-        return this.forumThreadService.getForumCommentsByThreadId(params?.forumThreadId);
+    acceptForumComment(id, user, body) {
+        return this.forumThreadService.acceptForumComment(id, user, body);
     }
-    async updateForumThreadComment(params, body) {
-        return this.forumThreadService.updateForumThreadComment(params?.forumThreadId, body);
+    voteForumComment(id, body, user) {
+        return this.forumThreadService.voteForumComment(id, body, user);
     }
-    async deleteForumThreadComment(params) {
-        return this.forumThreadService.deleteForumThreadComment(params?.forumThreadId);
+    async getForumCommentsByThreadId(forumThreadId, user, sort) {
+        return this.forumThreadService.getForumCommentsByThreadId(forumThreadId, user, sort);
+    }
+    async updateForumThreadComment(forumThreadId, body, user) {
+        return this.forumThreadService.updateForumThreadComment(forumThreadId, body, user);
+    }
+    async deleteForumThreadComment(forumThreadId, user) {
+        return this.forumThreadService.deleteForumThreadComment(forumThreadId, user);
     }
 };
 exports.ForumCommentController = ForumCommentController;
@@ -46,27 +52,51 @@ __decorate([
 ], ForumCommentController.prototype, "createForumThreadComment", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
-    (0, common_1.Get)('/:forumThreadId'),
-    __param(0, (0, common_1.Param)()),
+    (0, common_1.Post)('/:id/accept'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, decorator_1.GetUser)()),
+    __param(2, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", void 0)
+], ForumCommentController.prototype, "acceptForumComment", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Post)('/:id/vote'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", void 0)
+], ForumCommentController.prototype, "voteForumComment", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Get)('/:forumThreadId'),
+    __param(0, (0, common_1.Param)('forumThreadId')),
+    __param(1, (0, decorator_1.GetUser)()),
+    __param(2, (0, common_1.Query)('sort')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, String]),
     __metadata("design:returntype", Promise)
 ], ForumCommentController.prototype, "getForumCommentsByThreadId", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Put)('/:forumThreadId'),
-    __param(0, (0, common_1.Param)()),
+    __param(0, (0, common_1.Param)('forumThreadId')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [String, Object, Object]),
     __metadata("design:returntype", Promise)
 ], ForumCommentController.prototype, "updateForumThreadComment", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Delete)('/:forumThreadId'),
-    __param(0, (0, common_1.Param)()),
+    __param(0, (0, common_1.Param)('forumThreadId')),
+    __param(1, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], ForumCommentController.prototype, "deleteForumThreadComment", null);
 exports.ForumCommentController = ForumCommentController = __decorate([

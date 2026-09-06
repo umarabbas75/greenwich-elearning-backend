@@ -12,12 +12,21 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ScormReconcileController = void 0;
 const common_1 = require("@nestjs/common");
 const cron_secret_guard_1 = require("../engagement/cron-secret.guard");
+const engagement_service_1 = require("../engagement/engagement.service");
+const error_message_1 = require("../utils/error-message");
 const scorm_runtime_service_1 = require("./scorm-runtime.service");
 const scorm_service_1 = require("./scorm.service");
 let ScormReconcileController = class ScormReconcileController {
-    constructor(scorm, runtime) {
+    constructor(scorm, runtime, engagement) {
         this.scorm = scorm;
         this.runtime = runtime;
+        this.engagement = engagement;
+    }
+    dailyGet() {
+        return this.runDaily();
+    }
+    dailyPost() {
+        return this.runDaily();
     }
     importJobsGet() {
         return this.runImportJobs();
@@ -61,8 +70,45 @@ let ScormReconcileController = class ScormReconcileController {
             data,
         };
     }
+    async runDaily() {
+        const data = {
+            engagement: await this.runSettled(() => this.engagement.runSweep()),
+            importJobs: await this.runSettled(() => this.scorm.processImportJobsCron()),
+            reconcile: await this.runSettled(() => this.runtime.reconcileCron()),
+            pruneSuperseded: await this.runSettled(() => this.runtime.pruneSupersededPackagesCron()),
+        };
+        return {
+            message: 'Daily cron sweep completed',
+            statusCode: 200,
+            data,
+        };
+    }
+    async runSettled(fn) {
+        try {
+            return await fn();
+        }
+        catch (err) {
+            return { error: (0, error_message_1.errorMessage)(err) };
+        }
+    }
 };
 exports.ScormReconcileController = ScormReconcileController;
+__decorate([
+    (0, common_1.UseGuards)(cron_secret_guard_1.CronSecretGuard),
+    (0, common_1.Get)('daily'),
+    (0, common_1.HttpCode)(200),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], ScormReconcileController.prototype, "dailyGet", null);
+__decorate([
+    (0, common_1.UseGuards)(cron_secret_guard_1.CronSecretGuard),
+    (0, common_1.Post)('daily'),
+    (0, common_1.HttpCode)(200),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], ScormReconcileController.prototype, "dailyPost", null);
 __decorate([
     (0, common_1.UseGuards)(cron_secret_guard_1.CronSecretGuard),
     (0, common_1.Get)('scorm-import-jobs'),
@@ -114,6 +160,7 @@ __decorate([
 exports.ScormReconcileController = ScormReconcileController = __decorate([
     (0, common_1.Controller)('internal/cron'),
     __metadata("design:paramtypes", [scorm_service_1.ScormService,
-        scorm_runtime_service_1.ScormRuntimeService])
+        scorm_runtime_service_1.ScormRuntimeService,
+        engagement_service_1.EngagementService])
 ], ScormReconcileController);
 //# sourceMappingURL=scorm-reconcile.controller.js.map

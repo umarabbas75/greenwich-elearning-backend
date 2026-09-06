@@ -62,6 +62,22 @@ export function renderNotificationEmail(
       const title = escapeHtml(mail.threadTitle);
       const creator = escapeHtml(mail.creatorName);
       const url = forumThread(mail.threadId);
+      if (mail.pendingReview) {
+        const body = `<p>Dear ${name},</p>
+        <p style="margin-top:12px;">${creator} posted <strong>${title}</strong>. It is hidden until you review and publish it.</p>`;
+        return {
+          subject: `Discussion awaiting review: ${mail.threadTitle}`,
+          html: layout({
+            heading: 'A discussion is waiting for review',
+            bodyHtml: body,
+            ctaLabel: 'Review discussion',
+            ctaUrl: url,
+          }),
+          text: `Dear ${
+            mail.recipientFirstName || 'there'
+          },\n\n${mail.creatorName} posted "${mail.threadTitle}". It is hidden until you review and publish it.\n\nReview it: ${url}\n\nKind regards,\nThe ${BRAND.name} Team`,
+        };
+      }
       const body = `<p>Dear ${name},</p>
         <p style="margin-top:12px;">A new discussion, <strong>${title}</strong>, has been posted by ${creator}. Join the conversation when you have a moment.</p>`;
       return {
@@ -86,20 +102,29 @@ export function renderNotificationEmail(
       const commenter = escapeHtml(mail.commenterName);
       const excerpt = escapeHtml(mail.excerpt);
       const url = forumThread(mail.threadId);
+      const intro = mail.directReply
+        ? `${commenter} replied to your comment in <strong>${title}</strong>:`
+        : `${commenter} replied in <strong>${title}</strong>:`;
       const body = `<p>Dear ${name},</p>
-        <p style="margin-top:12px;">${commenter} replied in <strong>${title}</strong>:</p>
+        <p style="margin-top:12px;">${intro}</p>
         <p style="margin-top:8px;padding:12px 16px;background:#f4f5f7;border-radius:8px;font-style:italic;">"${excerpt}"</p>`;
       return {
-        subject: `New reply in ${mail.threadTitle}`,
+        subject: mail.directReply
+          ? `${mail.commenterName} replied to your comment in ${mail.threadTitle}`
+          : `New reply in ${mail.threadTitle}`,
         html: layout({
-          heading: 'New reply to a discussion',
+          heading: mail.directReply
+            ? 'Someone replied to your comment'
+            : 'New reply to a discussion',
           bodyHtml: body,
           ctaLabel: 'View reply',
           ctaUrl: url,
         }),
         text: `Dear ${mail.recipientFirstName || 'there'},\n\n${
           mail.commenterName
-        } replied in "${mail.threadTitle}":\n"${
+        } ${
+          mail.directReply ? 'replied to your comment in' : 'replied in'
+        } "${mail.threadTitle}":\n"${
           mail.excerpt
         }"\n\nView it: ${url}\n\nKind regards,\nThe ${BRAND.name} Team`,
       };
@@ -125,6 +150,35 @@ export function renderNotificationEmail(
         },\n\n${mail.mentionerName} mentioned you in "${
           mail.threadTitle
         }".\n\nView it: ${url}\n\nKind regards,\nThe ${BRAND.name} Team`,
+      };
+    }
+
+    case 'FORUM_ANSWER_ACCEPTED': {
+      const name = escapeHtml(mail.recipientFirstName || 'there');
+      const title = escapeHtml(mail.threadTitle);
+      const url = forumThread(mail.threadId);
+      const sentence = mail.yours
+        ? `Your reply in <strong>${title}</strong> was marked as the solution.`
+        : `A reply in <strong>${title}</strong> was marked as the solution.`;
+      const body = `<p>Dear ${name},</p>
+        <p style="margin-top:12px;">${sentence}</p>`;
+      return {
+        subject: mail.yours
+          ? `Your reply was marked as the solution in ${mail.threadTitle}`
+          : `A solution was marked in ${mail.threadTitle}`,
+        html: layout({
+          heading: mail.yours
+            ? 'Your reply was marked as the solution'
+            : 'A discussion was marked as solved',
+          bodyHtml: body,
+          ctaLabel: 'View discussion',
+          ctaUrl: url,
+        }),
+        text: `Dear ${mail.recipientFirstName || 'there'},\n\n${
+          mail.yours
+            ? `Your reply in "${mail.threadTitle}" was marked as the solution.`
+            : `A reply in "${mail.threadTitle}" was marked as the solution.`
+        }\n\nView it: ${url}\n\nKind regards,\nThe ${BRAND.name} Team`,
       };
     }
 

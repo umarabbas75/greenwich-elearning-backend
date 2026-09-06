@@ -11,6 +11,7 @@ const common_1 = require("@nestjs/common");
 const jwt_1 = require("@nestjs/jwt");
 const course_completion_module_1 = require("../course-completion/course-completion.module");
 const course_version_module_1 = require("../course-version/course-version.module");
+const engagement_module_1 = require("../engagement/engagement.module");
 const cron_secret_guard_1 = require("../engagement/cron-secret.guard");
 const scorm_cloud_module_1 = require("../scorm-cloud/scorm-cloud.module");
 const strategy_1 = require("../strategy");
@@ -30,6 +31,7 @@ exports.ScormModule = ScormModule = __decorate([
             scorm_cloud_module_1.ScormCloudModule,
             course_completion_module_1.CourseCompletionModule,
             course_version_module_1.CourseVersionModule,
+            engagement_module_1.EngagementModule,
         ],
         controllers: [
             scorm_controller_1.ScormController,

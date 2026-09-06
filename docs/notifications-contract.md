@@ -51,7 +51,7 @@ There is **no IntersectionObserver, no localStorage, no client-side
   threadId: string | null;    // forum thread reference
   commenterId: string | null; // user who triggered it
   commenter: {                // hydrated on read
-    id, firstName, lastName, photo
+    id, firstName, lastName, photo, role  // role is 'admin' | 'user'
   } | null;
   createdAt: string;
   updatedAt: string;
@@ -68,9 +68,10 @@ migration but the canonical shape is `seenAt` + `readAt`.
 ```
 ASSESSMENT_SUBMITTED   // → admin: a student submitted an assessment
 ASSESSMENT_GRADED      // → student: admin finalized their attempt
-FORUM_THREAD           // → all users: admin created a new thread
-FORUM_COMMENT          // → thread subscribers: new comment on a thread
+FORUM_THREAD           // → learners (broadcast) or admins (student post / pending review)
+FORUM_COMMENT          // → thread followers + OP; parent author for nested replies
 FORUM_MENTION          // → mentioned user: @mention in a thread or comment
+FORUM_ANSWER_ACCEPTED  // → comment author (and OP if an admin marked it): reply marked as solution
 ENGAGEMENT_REMINDER    // → student: automated low-engagement nudge (see §4 payload)
 ```
 
@@ -111,6 +112,8 @@ falls back to `message`. Proposed payload shapes per type:
   threadTitle: string;
   creatorFirstName: string;
   creatorLastName: string;
+  studentPost?: boolean;     // admin-only ping for a student-authored thread
+  pendingReview?: boolean;   // moderated board; thread is inActive
 }
 
 // FORUM_COMMENT
@@ -121,6 +124,7 @@ falls back to `message`. Proposed payload shapes per type:
   commentExcerpt: string;            // first 140 chars
   commenterFirstName: string;
   commenterLastName: string;
+  parentCommentId?: string;          // set only for the parent-author ping
 }
 
 // FORUM_MENTION
@@ -130,6 +134,13 @@ falls back to `message`. Proposed payload shapes per type:
   commentId?: string;                // omitted when the mention is in the thread body
   mentionerFirstName: string;
   mentionerLastName: string;
+}
+
+// FORUM_ANSWER_ACCEPTED
+{
+  threadId: string;
+  threadTitle: string;
+  commentId: string;
 }
 
 // ENGAGEMENT_REMINDER  (automated, written by the engagement sweep)
@@ -160,6 +171,7 @@ one row with "+N more …" suffix. Convention:
 | `FORUM_THREAD`        | `null`                                  |
 | `FORUM_COMMENT`       | `forum-comment:<threadId>`              |
 | `FORUM_MENTION`       | `forum-mention:<threadId>`              |
+| `FORUM_ANSWER_ACCEPTED` | `null`                                |
 
 Until `groupKey` ships, FE groups client-side on
 `(type, message)` for `ASSESSMENT_SUBMITTED`, which is fragile (any
@@ -177,7 +189,9 @@ sites should set:
 | Assessment submitted            | `submitted:<attemptId>`                                  |
 | Assessment graded               | `graded:<attemptId>:<finalizeIteration>` *or just attemptId if you never re-finalize* |
 | New forum thread broadcast      | `thread-created:<threadId>:<userId>`                     |
+| Student thread → admins         | `thread-admin:<threadId>:<userId>`                       |
 | New forum comment fan-out       | `comment:<commentId>:<userId>`                           |
+| Forum answer accepted           | `accepted:<commentId>:<userId>`                          |
 
 Insertion strategy: `ON CONFLICT (userId, dedupeKey) DO NOTHING`.
 FE does not need to handle this — it just stops seeing duplicates.

@@ -11,8 +11,10 @@ import { notifyForumMentions } from '../forum-thread/forum-mention-notify';
 import {
   parseVoteValue,
   toggleForumVote,
-  withVotedByMe,
 } from '../forum-thread/forum-vote';
+import { withDbRetry } from '../utils/with-db-retry';
+import { nestForumComments } from './forum-comment-tree';
+import { assertForumReplyWordLimit } from './forum-reply-words';
 
 /** Truncate to N chars after stripping HTML-ish tags. Cheap defensive scrub
  * — comment content is plain text today but this protects against future
@@ -29,6 +31,22 @@ const COMMENT_AUTHOR = {
   role: true,
 } satisfies Prisma.UserSelect;
 
+type CommentListRow = {
+  id: string;
+  content: string;
+  parentId: string | null;
+  voteScore: number;
+  isAccepted: boolean;
+  createdAt: Date;
+  threadId: string;
+  userId: string;
+  firstName: string;
+  lastName: string;
+  photo: string | null;
+  role: string;
+  isVotedByMe: boolean;
+};
+
 @Injectable()
 export class ForumCommentService {
   constructor(
@@ -38,24 +56,64 @@ export class ForumCommentService {
 
   async createForumThreadComment(body: any, user: User): Promise<any> {
     try {
-      const thread = await this.prisma.forumThread.findUnique({
-        where: { id: body?.threadId },
-        select: {
-          id: true,
-          title: true,
-          category: {
-            select: { allowMentions: true },
-          },
-        },
-      });
-      if (!thread) throw new Error('Forum thread not found');
+      if (!body?.threadId) throw new Error('threadId is required');
       if (!body?.content) throw new Error('content is required');
+      assertForumReplyWordLimit(String(body.content));
+
+      const parentId = body.parentId ? String(body.parentId) : null;
+      let thread: {
+        id: string;
+        title: string;
+        userId: string;
+        category: { allowMentions: boolean } | null;
+      } | null = null;
+      let parentAuthorId: string | null = null;
+
+      if (parentId) {
+        const parent = await this.prisma.forumComment.findFirst({
+          where: { id: parentId, threadId: body.threadId },
+          select: {
+            id: true,
+            parentId: true,
+            userId: true,
+            thread: {
+              select: {
+                id: true,
+                title: true,
+                userId: true,
+                category: { select: { allowMentions: true } },
+              },
+            },
+          },
+        });
+        if (!parent?.thread) throw new Error('Forum comment not found');
+        if (parent.parentId) {
+          throw new Error('Replies can only be one level deep');
+        }
+        thread = parent.thread;
+        parentAuthorId = parent.userId;
+      } else {
+        thread = await this.prisma.forumThread.findUnique({
+          where: { id: body.threadId },
+          select: {
+            id: true,
+            title: true,
+            userId: true,
+            category: { select: { allowMentions: true } },
+          },
+        });
+      }
+      if (!thread) throw new Error('Forum thread not found');
+      const threadId = thread.id;
+      const threadTitle = thread.title;
+      const allowMentions = categoryAllows(thread.category, 'allowMentions');
 
       const comment = await this.prisma.forumComment.create({
         data: {
           content: body.content,
           user: { connect: { id: user.id } },
-          thread: { connect: { id: body.threadId } },
+          thread: { connect: { id: threadId } },
+          ...(parentId ? { parent: { connect: { id: parentId } } } : {}),
         },
         include: {
           user: { select: COMMENT_AUTHOR },
@@ -63,7 +121,7 @@ export class ForumCommentService {
       });
 
       await this.prisma.forumThread.update({
-        where: { id: body.threadId },
+        where: { id: threadId },
         data: { lastActivityAt: new Date() },
       });
 
@@ -76,38 +134,48 @@ export class ForumCommentService {
           lastName: user.lastName,
         },
         content: body.content,
-        threadId: thread.id,
-        threadTitle: thread.title,
-        allowMentions: categoryAllows(thread.category, 'allowMentions'),
+        threadId,
+        threadTitle,
+        allowMentions,
         sourceKey: `comment:${comment.id}`,
         commentId: comment.id,
       });
 
+      const skipIds = new Set([user.id, ...mentionedIds]);
       const subscribedUsers = await this.prisma.threadSubscription.findMany({
         where: {
-          threadId: body.threadId,
-          userId: { notIn: [user.id, ...mentionedIds] },
+          threadId,
+          userId: { notIn: [...skipIds] },
         },
         select: { userId: true },
       });
+      const followerIds = new Set(subscribedUsers.map((row) => row.userId));
+      if (thread.userId && !skipIds.has(thread.userId)) {
+        followerIds.add(thread.userId);
+      }
+      const parentRecipient =
+        parentAuthorId && !skipIds.has(parentAuthorId) ? parentAuthorId : null;
+      if (parentRecipient) followerIds.delete(parentRecipient);
 
       const excerpt = buildExcerpt(body.content ?? '');
       const commenterName = `${user.firstName} ${user.lastName}`.trim();
+      const commentPayload = {
+        threadId,
+        threadTitle,
+        commentId: comment.id,
+        commentExcerpt: excerpt,
+        commenterFirstName: user.firstName,
+        commenterLastName: user.lastName,
+      };
+
       await this.notificationService.createNotificationForMany({
-        userIds: subscribedUsers.map((s) => s.userId),
+        userIds: [...followerIds],
         emailCcAddresses: [ADMIN_EMAIL],
         type: NotificationType.FORUM_COMMENT,
         message: body.content,
-        payload: {
-          threadId: thread.id,
-          threadTitle: thread.title,
-          commentId: comment.id,
-          commentExcerpt: excerpt,
-          commenterFirstName: user.firstName,
-          commenterLastName: user.lastName,
-        },
-        groupKey: `forum-comment:${thread.id}`,
-        threadId: thread.id,
+        payload: commentPayload,
+        groupKey: `forum-comment:${threadId}`,
+        threadId,
         commenterId: user.id,
         dedupeKeyFor: (recipientId) => `comment:${comment.id}:${recipientId}`,
         email: {
@@ -117,18 +185,53 @@ export class ForumCommentService {
             to: r.email,
             userId: r.id,
             recipientFirstName: r.firstName,
-            threadId: thread.id,
-            threadTitle: thread.title,
+            threadId,
+            threadTitle,
             commenterName,
             excerpt,
           }),
         },
       });
 
+      if (parentRecipient) {
+        await this.notificationService.createNotificationForMany({
+          userIds: [parentRecipient],
+          type: NotificationType.FORUM_COMMENT,
+          message: `${commenterName} replied to your comment in ${threadTitle}`,
+          payload: {
+            ...commentPayload,
+            parentCommentId: parentId,
+          },
+          groupKey: `forum-comment:${threadId}`,
+          threadId,
+          commenterId: user.id,
+          dedupeKeyFor: (recipientId) => `comment:${comment.id}:${recipientId}`,
+          email: {
+            excludeUserId: user.id,
+            build: (r) => ({
+              kind: 'FORUM_COMMENT',
+              to: r.email,
+              userId: r.id,
+              recipientFirstName: r.firstName,
+              threadId,
+              threadTitle,
+              commenterName,
+              excerpt,
+              directReply: true,
+            }),
+          },
+        });
+      }
+
       return {
         message: 'Successfully create quiz record',
         statusCode: 200,
-        data: { ...comment, isVotedByMe: false },
+        data: {
+          ...comment,
+          parentId: comment.parentId ?? null,
+          isVotedByMe: false,
+          replies: parentId ? undefined : [],
+        },
       };
     } catch (error) {
       throw this.wrap(error);
@@ -140,29 +243,55 @@ export class ForumCommentService {
     user: User,
     sort?: string,
   ) {
-    const comments = await this.prisma.forumComment.findMany({
-      where: { threadId },
-      include: {
-        user: { select: COMMENT_AUTHOR },
-        votes: {
-          where: { userId: user.id },
-          select: { id: true },
-        },
+    const rows = await withDbRetry(() =>
+      this.prisma.$queryRaw<CommentListRow[]>`
+        SELECT
+          c.id,
+          c.content,
+          c."parentId",
+          c."voteScore",
+          c."isAccepted",
+          c."createdAt",
+          c."threadId",
+          u.id AS "userId",
+          u."firstName",
+          u."lastName",
+          u.photo,
+          u.role::text AS role,
+          EXISTS (
+            SELECT 1
+            FROM "forum_votes" v
+            WHERE v."commentId" = c.id
+              AND v."userId" = ${user.id}
+          ) AS "isVotedByMe"
+        FROM "forum_comments" c
+        INNER JOIN "users" u ON u.id = c."userId"
+        WHERE c."threadId" = ${threadId}
+      `,
+    );
+
+    const comments = rows.map((row) => ({
+      id: row.id,
+      content: row.content,
+      parentId: row.parentId,
+      voteScore: Number(row.voteScore ?? 0),
+      isAccepted: Boolean(row.isAccepted),
+      createdAt: row.createdAt,
+      threadId: row.threadId,
+      isVotedByMe: Boolean(row.isVotedByMe),
+      user: {
+        id: row.userId,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        photo: row.photo,
+        role: row.role,
       },
-      orderBy:
-        sort === 'latest'
-          ? [{ isAccepted: 'desc' }, { createdAt: 'desc' }]
-          : [
-              { isAccepted: 'desc' },
-              { voteScore: 'desc' },
-              { createdAt: 'desc' },
-            ],
-    });
+    }));
 
     return {
       message: 'Successfully fetch all forum comments',
       statusCode: 200,
-      data: comments.map(withVotedByMe),
+      data: nestForumComments(comments, sort),
     };
   }
 
@@ -197,9 +326,12 @@ export class ForumCommentService {
           id: true,
           isAccepted: true,
           threadId: true,
+          parentId: true,
+          userId: true,
           thread: {
             select: {
               userId: true,
+              title: true,
               acceptedCommentId: true,
               category: { select: { allowAcceptedAnswer: true } },
             },
@@ -207,6 +339,9 @@ export class ForumCommentService {
         },
       });
       if (!comment) throw new Error('Forum comment not found');
+      if (comment.parentId) {
+        throw new Error('Only top-level replies can be marked as the solution');
+      }
       if (
         !isAdminRole(user.role) &&
         comment.thread.userId !== user.id
@@ -221,6 +356,8 @@ export class ForumCommentService {
         body?.accepted !== undefined
           ? Boolean(body.accepted)
           : comment.thread.acceptedCommentId !== comment.id;
+      const becameAccepted =
+        shouldAccept && comment.thread.acceptedCommentId !== comment.id;
 
       if (shouldAccept) {
         if (
@@ -251,6 +388,68 @@ export class ForumCommentService {
         });
       }
 
+      if (becameAccepted) {
+        const threadTitle = comment.thread.title;
+        const payload = {
+          threadId: comment.threadId,
+          threadTitle,
+          commentId: comment.id,
+        };
+        const authorId =
+          comment.userId !== user.id ? comment.userId : null;
+        const opId =
+          comment.thread.userId !== user.id &&
+          comment.thread.userId !== comment.userId
+            ? comment.thread.userId
+            : null;
+        if (authorId) {
+          await this.notificationService.createNotificationForMany({
+            userIds: [authorId],
+            type: NotificationType.FORUM_ANSWER_ACCEPTED,
+            message: `Your reply was marked as the solution in ${threadTitle}`,
+            payload,
+            threadId: comment.threadId,
+            commenterId: user.id,
+            dedupeKeyFor: (id) => `accepted:${comment.id}:${id}`,
+            email: {
+              excludeUserId: user.id,
+              build: (r) => ({
+                kind: 'FORUM_ANSWER_ACCEPTED',
+                to: r.email,
+                userId: r.id,
+                recipientFirstName: r.firstName,
+                threadId: comment.threadId,
+                threadTitle,
+                yours: true,
+              }),
+            },
+          });
+        }
+        if (opId) {
+          await this.notificationService.createNotificationForMany({
+            userIds: [opId],
+            type: NotificationType.FORUM_ANSWER_ACCEPTED,
+            message: `A reply was marked as the solution in ${threadTitle}`,
+            payload,
+            threadId: comment.threadId,
+            commenterId: user.id,
+            dedupeKeyFor: (id) => `accepted:${comment.id}:${id}`,
+            email: {
+              excludeUserId: user.id,
+              build: (r) => ({
+                kind: 'FORUM_ANSWER_ACCEPTED',
+                to: r.email,
+                userId: r.id,
+                recipientFirstName: r.firstName,
+                threadId: comment.threadId,
+                threadTitle,
+                yours: false,
+              }),
+            },
+          });
+        }
+      }
+
       return {
         message: shouldAccept ? 'Marked as solution' : 'Cleared solution',
         statusCode: 200,
@@ -271,13 +470,7 @@ export class ForumCommentService {
           createdAt: 'desc',
         },
         include: {
-          user: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-            },
-          },
+          user: { select: COMMENT_AUTHOR },
         },
       });
 
@@ -309,6 +502,7 @@ export class ForumCommentService {
       if (body?.content == null || String(body.content).length === 0) {
         throw new Error('content is required');
       }
+      assertForumReplyWordLimit(String(body.content));
 
       const updated = await this.prisma.forumComment.update({
         where: { id: commentId },
@@ -357,13 +551,7 @@ export class ForumCommentService {
       const forum = await this.prisma.forumThread.findUnique({
         where: { id: forumThreadId },
         include: {
-          user: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-            },
-          },
+          user: { select: COMMENT_AUTHOR },
         },
       });
 

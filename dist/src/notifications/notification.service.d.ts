@@ -112,6 +112,17 @@ export declare class NotificationService {
             firstName: string;
             lastName: string;
         };
+        skipAdmins?: boolean;
+    }): Promise<void>;
+    notifyAdminsOfStudentThread(args: {
+        threadId: string;
+        threadTitle: string;
+        pendingReview: boolean;
+        creator: {
+            id: string;
+            firstName: string;
+            lastName: string;
+        };
     }): Promise<void>;
 }
 export {};

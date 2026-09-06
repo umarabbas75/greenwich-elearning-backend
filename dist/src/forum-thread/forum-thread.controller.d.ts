@@ -8,8 +8,21 @@ export declare class ForumThreadController {
     createFavoriteForumThread(body: any, user: User): Promise<any>;
     unFavoriteForumThread(params: any, user: User): Promise<any>;
     createForumThread(body: any, user: User): Promise<any>;
-    getAllForumThreads(user: User): Promise<any>;
+    getAllForumThreads(user: User, categoryId?: string, courseId?: string, q?: string, sort?: string, tagId?: string, tag?: string): Promise<any>;
+    deleteForumAttachment(forumThreadId: string, attachmentId: string, user: User): Promise<{
+        message: string;
+        statusCode: number;
+        data: {};
+    }>;
+    voteForumThread(forumThreadId: string, body: unknown, user: User): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            voteScore: number;
+            isVotedByMe: boolean;
+        };
+    }>;
     getForumThread(params: any, user: User): Promise<any>;
     updateForumThread(params: any, body: any, user: User): Promise<any>;
-    deleteForumThread(params: any): Promise<any>;
+    deleteForumThread(params: any, user: User): Promise<any>;
 }

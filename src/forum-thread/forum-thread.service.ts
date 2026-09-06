@@ -19,12 +19,22 @@ import {
 } from './forum-policy';
 import { notifyForumMentions } from './forum-mention-notify';
 import { parseVoteValue, toggleForumVote, withVotedByMe } from './forum-vote';
+import {
+  flattenThreadTags,
+  parseAttachmentList,
+  resolveTagIds,
+  TAG_SELECT,
+  THREAD_LIST_TAKE,
+  threadExcerpt,
+} from './forum-extras';
 
 export type ForumThreadListQuery = {
   categoryId?: string;
   courseId?: string;
   q?: string;
   sort?: string;
+  tagId?: string;
+  tag?: string;
 };
 
 const THREAD_AUTHOR = {
@@ -32,12 +42,24 @@ const THREAD_AUTHOR = {
   firstName: true,
   lastName: true,
   photo: true,
+  role: true,
 } satisfies Prisma.UserSelect;
 
 const THREAD_COURSE = {
   id: true,
   title: true,
 } satisfies Prisma.CourseSelect;
+
+const LIST_CATEGORY = {
+  id: true,
+  name: true,
+  slug: true,
+  allowAcceptedAnswer: true,
+  allowVotes: true,
+  allowMentions: true,
+  tagPolicy: true,
+  allowAttachments: true,
+} satisfies Prisma.ForumCategorySelect;
 
 const THREAD_CATEGORY = {
   id: true,
@@ -51,8 +73,27 @@ const THREAD_CATEGORY = {
   allowAcceptedAnswer: true,
   allowVotes: true,
   allowMentions: true,
+  tagPolicy: true,
+  allowAttachments: true,
   isActive: true,
 } satisfies Prisma.ForumCategorySelect;
+
+const THREAD_TAGS_INCLUDE = {
+  select: { tag: { select: TAG_SELECT } },
+} satisfies Prisma.ForumThreadInclude['threadTags'];
+
+const THREAD_ATTACHMENTS_INCLUDE = {
+  select: {
+    id: true,
+    url: true,
+    publicId: true,
+    fileName: true,
+    mimeType: true,
+    bytes: true,
+    createdAt: true,
+  },
+  orderBy: { createdAt: 'asc' as const },
+};
 
 @Injectable()
 export class ForumThreadService {
@@ -199,22 +240,42 @@ export class ForumThreadService {
       }
       if (query.categoryId) filters.push({ categoryId: query.categoryId });
       if (query.courseId) filters.push({ courseId: query.courseId });
+      if (query.tagId) {
+        filters.push({ threadTags: { some: { tagId: query.tagId } } });
+      } else if (query.tag?.trim()) {
+        filters.push({
+          threadTags: { some: { tag: { slug: query.tag.trim() } } },
+        });
+      }
       const q = query.q?.trim();
       if (q) {
         filters.push({
           OR: [
             { title: { contains: q, mode: 'insensitive' } },
-            { content: { contains: q, mode: 'insensitive' } },
+            { excerpt: { contains: q, mode: 'insensitive' } },
           ],
         });
       }
 
       const forums = await this.prisma.forumThread.findMany({
         where: filters.length ? { AND: filters } : undefined,
-        include: {
+        take: THREAD_LIST_TAKE,
+        select: {
+          id: true,
+          title: true,
+          excerpt: true,
+          status: true,
+          isPinned: true,
+          lastActivityAt: true,
+          voteScore: true,
+          acceptedCommentId: true,
+          createdAt: true,
+          categoryId: true,
+          courseId: true,
+          userId: true,
           user: { select: THREAD_AUTHOR },
           course: { select: THREAD_COURSE },
-          category: { select: THREAD_CATEGORY },
+          category: { select: LIST_CATEGORY },
           votes: {
             where: { userId: user.id },
             select: { id: true },
@@ -236,6 +297,7 @@ export class ForumThreadService {
             orderBy: { createdAt: Prisma.SortOrder.desc },
             take: 3,
           },
+          threadTags: THREAD_TAGS_INCLUDE,
           _count: { select: { ForumComment: true } },
         },
         orderBy:
@@ -248,18 +310,18 @@ export class ForumThreadService {
             : [{ isPinned: 'desc' }, { lastActivityAt: 'desc' }],
       });
 
-      void this.recordForumView(user.id, { scope: ForumViewScope.list });
-
       const data = forums.map((thread) => {
         const voted = withVotedByMe(thread);
         const {
           _count,
           FavoriteForumThread,
           ThreadSubscription,
+          threadTags,
           ...rest
         } = voted;
         return {
           ...rest,
+          tags: flattenThreadTags(threadTags),
           commentCount: _count.ForumComment,
           isFavorite: FavoriteForumThread.length > 0,
           isSubscribed: ThreadSubscription.length > 0,
@@ -320,6 +382,8 @@ export class ForumThreadService {
         status,
       });
 
+      const extras = await this.resolveWriteExtras(body, category, user);
+
       const newThread = await this.prisma.forumThread.create({
         data: {
           title: body.title,
@@ -331,14 +395,27 @@ export class ForumThreadService {
           isPinned,
           lastActivityAt: now,
           notificationSent: broadcast,
+          excerpt: threadExcerpt(String(body.content)),
           ThreadSubscription: {
             create: { userId: user.id },
           },
+          ...(extras.tagIds.length
+            ? {
+                threadTags: {
+                  create: extras.tagIds.map((tagId) => ({ tagId })),
+                },
+              }
+            : {}),
+          ...(extras.attachments.length
+            ? { attachments: { create: extras.attachments } }
+            : {}),
         },
         include: {
           user: { select: THREAD_AUTHOR },
           course: { select: THREAD_COURSE },
           category: { select: THREAD_CATEGORY },
+          threadTags: THREAD_TAGS_INCLUDE,
+          attachments: THREAD_ATTACHMENTS_INCLUDE,
         },
       });
 
@@ -347,6 +424,17 @@ export class ForumThreadService {
           threadId: newThread.id,
           threadTitle: newThread.title,
           courseId: newThread.courseId,
+          creator: {
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+          },
+        });
+      } else if (!isAdminRole(user.role)) {
+        await this.notificationService.notifyAdminsOfStudentThread({
+          threadId: newThread.id,
+          threadTitle: newThread.title,
+          pendingReview: status !== 'active',
           creator: {
             id: user.id,
             firstName: user.firstName,
@@ -373,7 +461,11 @@ export class ForumThreadService {
       return {
         message: 'Successfully created forum thread',
         statusCode: 200,
-        data: { ...newThread, isFavorite: false, isSubscribed: true },
+        data: {
+          ...this.withTags(newThread),
+          isFavorite: false,
+          isSubscribed: true,
+        },
       };
     } catch (error) {
       throw new HttpException(
@@ -397,6 +489,7 @@ export class ForumThreadService {
     try {
       const existingForumThread = await this.prisma.forumThread.findUnique({
         where: { id: forumThreadId },
+        include: { category: true },
       });
       if (!existingForumThread) {
         throw new Error('Forum thread not found');
@@ -411,7 +504,10 @@ export class ForumThreadService {
 
       const data: Prisma.ForumThreadUpdateInput = {};
       if (body.title != null) data.title = body.title;
-      if (body.content != null) data.content = body.content;
+      if (body.content != null) {
+        data.content = body.content;
+        data.excerpt = threadExcerpt(String(body.content));
+      }
 
       const nextCategoryId =
         body.categoryId !== undefined
@@ -438,6 +534,39 @@ export class ForumThreadService {
           data.course = { connect: { id: nextCourseId } };
         } else if (body.courseId !== undefined) {
           data.course = { disconnect: true };
+        }
+      }
+
+      const policyCategoryId = nextCategoryId ?? existingForumThread.categoryId;
+      const extrasCategory =
+        policyCategoryId === existingForumThread.categoryId
+          ? existingForumThread.category
+          : policyCategoryId
+            ? await this.prisma.forumCategory.findUnique({
+                where: { id: policyCategoryId },
+              })
+            : null;
+      if (
+        body.tagIds !== undefined ||
+        body.tags !== undefined ||
+        body.attachments !== undefined
+      ) {
+        const extras = await this.resolveWriteExtras(
+          body,
+          extrasCategory ?? undefined,
+          user,
+        );
+        if (body.tagIds !== undefined || body.tags !== undefined) {
+          data.threadTags = {
+            deleteMany: {},
+            create: extras.tagIds.map((tagId) => ({ tagId })),
+          };
+        }
+        if (body.attachments !== undefined) {
+          data.attachments = {
+            deleteMany: {},
+            create: extras.attachments,
+          };
         }
       }
 
@@ -478,6 +607,8 @@ export class ForumThreadService {
           user: { select: THREAD_AUTHOR },
           course: { select: THREAD_COURSE },
           category: { select: THREAD_CATEGORY },
+          threadTags: THREAD_TAGS_INCLUDE,
+          attachments: THREAD_ATTACHMENTS_INCLUDE,
         },
       });
 
@@ -491,13 +622,14 @@ export class ForumThreadService {
             firstName: user.firstName,
             lastName: user.lastName,
           },
+          skipAdmins: existingForumThread.userId !== user.id,
         });
       }
 
       return {
         message: 'Successfully updated forum record',
         statusCode: 200,
-        data: updatedForumThread,
+        data: this.withTags(updatedForumThread),
       };
     } catch (error) {
       throw new HttpException(
@@ -564,29 +696,34 @@ export class ForumThreadService {
     }
   }
 
-  async getForumThread(forumThreadId: string, userId?: string): Promise<any> {
+  async getForumThread(forumThreadId: string, user: User): Promise<any> {
     try {
-      const forum = await this.prisma.forumThread.findUnique({
-        where: { id: forumThreadId },
+      const visibility: Prisma.ForumThreadWhereInput[] = [{ id: forumThreadId }];
+      if (!isAdminRole(user.role)) {
+        visibility.push({
+          OR: [{ status: 'active' }, { userId: user.id }],
+        });
+        visibility.push({
+          OR: [
+            { courseId: null },
+            {
+              course: {
+                users: { some: { userId: user.id, isActive: true } },
+              },
+            },
+          ],
+        });
+      }
+
+      const forum = await this.prisma.forumThread.findFirst({
+        where: { AND: visibility },
         include: {
-          user: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              photo: true,
-            },
-          },
-          course: {
-            select: {
-              id: true,
-              title: true,
-            },
-          },
+          user: { select: THREAD_AUTHOR },
+          course: { select: THREAD_COURSE },
           category: { select: THREAD_CATEGORY },
-          votes: userId
-            ? { where: { userId }, select: { id: true } }
-            : false,
+          threadTags: THREAD_TAGS_INCLUDE,
+          attachments: THREAD_ATTACHMENTS_INCLUDE,
+          votes: { where: { userId: user.id }, select: { id: true } },
         },
       });
 
@@ -594,41 +731,56 @@ export class ForumThreadService {
         throw new Error('Forum thread not found');
       }
 
-      if (userId) {
-        const viewer = await this.prisma.user.findUnique({
-          where: { id: userId },
-          select: { id: true, role: true },
-        });
-        if (viewer?.role === Role.user) {
-          if (forum.status !== 'active' && forum.userId !== userId) {
-            throw new Error('Forum thread not found');
-          }
-          if (forum.courseId) {
-            const enrolled = await this.prisma.userCourse.findFirst({
-              where: {
-                userId,
-                courseId: forum.courseId,
-                isActive: true,
-              },
-              select: { id: true },
-            });
-            if (!enrolled) throw new Error('Forum thread not found');
-          }
-        }
-      }
-
-      if (userId && forum) {
-        void this.recordForumView(userId, {
-          scope: ForumViewScope.thread,
-          threadId: forum.id,
-          courseId: forum.courseId,
-        });
-      }
+      void this.recordForumView(user.id, {
+        scope: ForumViewScope.thread,
+        threadId: forum.id,
+        courseId: forum.courseId,
+      });
 
       return {
         message: 'Successfully fetch Quiz info',
         statusCode: 200,
-        data: withVotedByMe(forum),
+        data: this.withTags(withVotedByMe(forum)),
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async deleteForumAttachment(
+    threadId: string,
+    attachmentId: string,
+    user: User,
+  ) {
+    try {
+      const attachment = await this.prisma.forumAttachment.findFirst({
+        where: { id: attachmentId, threadId },
+        select: {
+          id: true,
+          thread: { select: { userId: true } },
+        },
+      });
+      if (!attachment) throw new Error('Attachment not found');
+      if (
+        !isAdminRole(user.role) &&
+        attachment.thread.userId !== user.id
+      ) {
+        throw new Error('You can only remove attachments from your own thread');
+      }
+      await this.prisma.forumAttachment.delete({ where: { id: attachmentId } });
+      return {
+        message: 'Successfully deleted attachment',
+        statusCode: 200,
+        data: {},
       };
     } catch (error) {
       throw new HttpException(
@@ -701,7 +853,7 @@ export class ForumThreadService {
         };
       }
 
-      if (courseId) {
+      if (courseId && !query.threadId) {
         await this.assertCourseVisible(courseId, user);
       }
 
@@ -805,13 +957,46 @@ export class ForumThreadService {
     }
   }
 
-  private async assertCourseVisible(courseId: string, user: User) {
-    const course = await this.prisma.course.findUnique({
-      where: { id: courseId },
-      select: { id: true },
+  private withTags<
+    T extends {
+      threadTags?: { tag: { id: string; name: string; slug: string } }[];
+    },
+  >(thread: T) {
+    const { threadTags, ...rest } = thread;
+    return {
+      ...rest,
+      tags: threadTags ? flattenThreadTags(threadTags) : [],
+    };
+  }
+
+  private async resolveWriteExtras(
+    body: { tagIds?: unknown; tags?: unknown; attachments?: unknown },
+    category: { tagPolicy?: import('@prisma/client').ForumTagPolicy; allowAttachments?: boolean } | null | undefined,
+    user: User,
+  ) {
+    const tagIds = await resolveTagIds(this.prisma, user, category?.tagPolicy, {
+      tagIds: body.tagIds,
+      tags: body.tags,
     });
-    if (!course) throw new Error('Course not found');
-    if (isAdminRole(user.role)) return;
+    const attachments =
+      body.attachments === undefined
+        ? []
+        : parseAttachmentList(body.attachments);
+    if (attachments.length && !categoryAllows(category, 'allowAttachments')) {
+      throw new Error('Attachments are not enabled for this category');
+    }
+    return { tagIds, attachments };
+  }
+
+  private async assertCourseVisible(courseId: string, user: User) {
+    if (isAdminRole(user.role)) {
+      const course = await this.prisma.course.findUnique({
+        where: { id: courseId },
+        select: { id: true },
+      });
+      if (!course) throw new Error('Course not found');
+      return;
+    }
     const enrolled = await this.prisma.userCourse.findFirst({
       where: { userId: user.id, courseId, isActive: true },
       select: { id: true },

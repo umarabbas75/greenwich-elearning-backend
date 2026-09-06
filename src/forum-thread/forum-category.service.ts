@@ -7,6 +7,7 @@ import {
   ForumCourseScope,
   ForumNotifyOnCreate,
   ForumStudentCreatePolicy,
+  ForumTagPolicy,
   Prisma,
   Role,
   User,
@@ -28,6 +29,8 @@ const CATEGORY_SELECT = {
   allowAcceptedAnswer: true,
   allowVotes: true,
   allowMentions: true,
+  tagPolicy: true,
+  allowAttachments: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.ForumCategorySelect;
@@ -128,6 +131,12 @@ export class ForumCategoryService {
           allowAcceptedAnswer: this.parseBool(body?.allowAcceptedAnswer, true),
           allowVotes: this.parseBool(body?.allowVotes, true),
           allowMentions: this.parseBool(body?.allowMentions, true),
+          tagPolicy: this.parseEnum(
+            ForumTagPolicy,
+            body?.tagPolicy,
+            ForumTagPolicy.FREEFORM,
+          ),
+          allowAttachments: this.parseBool(body?.allowAttachments, true),
           createdByAdminId: user.id,
         },
         select: CATEGORY_SELECT,
@@ -196,6 +205,19 @@ export class ForumCategoryService {
       data.allowMentions = this.parseBool(
         body.allowMentions,
         existing.allowMentions,
+      );
+    }
+    if (body?.tagPolicy != null) {
+      data.tagPolicy = this.parseEnum(
+        ForumTagPolicy,
+        body.tagPolicy,
+        existing.tagPolicy,
+      );
+    }
+    if (body?.allowAttachments != null) {
+      data.allowAttachments = this.parseBool(
+        body.allowAttachments,
+        existing.allowAttachments,
       );
     }
 

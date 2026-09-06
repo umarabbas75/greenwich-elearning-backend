@@ -116,5 +116,9 @@ describe('forum-policy', () => {
     expect(
       categoryAllows({ ...study, allowVotes: false }, 'allowVotes'),
     ).toBe(false);
+    expect(categoryAllows(study, 'allowAttachments')).toBe(true);
+    expect(
+      categoryAllows({ ...study, allowAttachments: false }, 'allowAttachments'),
+    ).toBe(false);
   });
 });

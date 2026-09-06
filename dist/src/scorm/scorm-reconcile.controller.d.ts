@@ -1,9 +1,71 @@
+import { EngagementService } from '../engagement/engagement.service';
 import { ScormRuntimeService } from './scorm-runtime.service';
 import { ScormService } from './scorm.service';
 export declare class ScormReconcileController {
     private readonly scorm;
     private readonly runtime;
-    constructor(scorm: ScormService, runtime: ScormRuntimeService);
+    private readonly engagement;
+    constructor(scorm: ScormService, runtime: ScormRuntimeService, engagement: EngagementService);
+    dailyGet(): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            engagement: import("../engagement/engagement.service").SweepSummary | {
+                error: string;
+            };
+            importJobs: {
+                error: string;
+            } | {
+                processed: number;
+                results: {
+                    id: string;
+                    status: string;
+                }[];
+            };
+            reconcile: {
+                error: string;
+            } | {
+                candidates: number;
+                updated: number;
+            };
+            pruneSuperseded: {
+                error: string;
+            } | {
+                candidates: number;
+                pruned: number;
+            };
+        };
+    }>;
+    dailyPost(): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            engagement: import("../engagement/engagement.service").SweepSummary | {
+                error: string;
+            };
+            importJobs: {
+                error: string;
+            } | {
+                processed: number;
+                results: {
+                    id: string;
+                    status: string;
+                }[];
+            };
+            reconcile: {
+                error: string;
+            } | {
+                candidates: number;
+                updated: number;
+            };
+            pruneSuperseded: {
+                error: string;
+            } | {
+                candidates: number;
+                pruned: number;
+            };
+        };
+    }>;
     importJobsGet(): Promise<{
         message: string;
         statusCode: number;
@@ -61,4 +123,6 @@ export declare class ScormReconcileController {
     private runImportJobs;
     private runReconcile;
     private runPruneSuperseded;
+    private runDaily;
+    private runSettled;
 }

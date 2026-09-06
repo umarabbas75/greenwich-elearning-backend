@@ -34,19 +34,32 @@ let ForumThreadController = class ForumThreadController {
         return this.forumThreadService.unFavoriteForumThread(params, user.id);
     }
     createForumThread(body, user) {
-        return this.forumThreadService.createForumThread(body, user.id);
+        return this.forumThreadService.createForumThread(body, user);
     }
-    async getAllForumThreads(user) {
-        return this.forumThreadService.getAllForumThreads(user);
+    async getAllForumThreads(user, categoryId, courseId, q, sort, tagId, tag) {
+        return this.forumThreadService.getAllForumThreads(user, {
+            categoryId,
+            courseId,
+            q,
+            sort,
+            tagId,
+            tag,
+        });
+    }
+    deleteForumAttachment(forumThreadId, attachmentId, user) {
+        return this.forumThreadService.deleteForumAttachment(forumThreadId, attachmentId, user);
+    }
+    voteForumThread(forumThreadId, body, user) {
+        return this.forumThreadService.voteForumThread(forumThreadId, body, user);
     }
     async getForumThread(params, user) {
-        return this.forumThreadService.getForumThread(params.forumThreadId, user.id);
+        return this.forumThreadService.getForumThread(params.forumThreadId, user);
     }
     updateForumThread(params, body, user) {
-        return this.forumThreadService.updateForumThread(params.forumThreadId, body, user?.id);
+        return this.forumThreadService.updateForumThread(params.forumThreadId, body, user);
     }
-    deleteForumThread(params) {
-        return this.forumThreadService.deleteForumThread(params.forumThreadId);
+    deleteForumThread(params, user) {
+        return this.forumThreadService.deleteForumThread(params.forumThreadId, user);
     }
 };
 exports.ForumThreadController = ForumThreadController;
@@ -99,10 +112,36 @@ __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/'),
     __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Query)('categoryId')),
+    __param(2, (0, common_1.Query)('courseId')),
+    __param(3, (0, common_1.Query)('q')),
+    __param(4, (0, common_1.Query)('sort')),
+    __param(5, (0, common_1.Query)('tagId')),
+    __param(6, (0, common_1.Query)('tag')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, String, String, String, String, String, String]),
     __metadata("design:returntype", Promise)
 ], ForumThreadController.prototype, "getAllForumThreads", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Delete)('/:forumThreadId/attachments/:attachmentId'),
+    __param(0, (0, common_1.Param)('forumThreadId')),
+    __param(1, (0, common_1.Param)('attachmentId')),
+    __param(2, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, Object]),
+    __metadata("design:returntype", void 0)
+], ForumThreadController.prototype, "deleteForumAttachment", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Post)('/:forumThreadId/vote'),
+    __param(0, (0, common_1.Param)('forumThreadId')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", void 0)
+], ForumThreadController.prototype, "voteForumThread", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/:forumThreadId'),
@@ -126,8 +165,9 @@ __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Delete)('/delete/:forumThreadId'),
     __param(0, (0, common_1.Param)()),
+    __param(1, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], ForumThreadController.prototype, "deleteForumThread", null);
 exports.ForumThreadController = ForumThreadController = __decorate([

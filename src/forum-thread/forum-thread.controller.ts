@@ -65,13 +65,31 @@ export class ForumThreadController {
     @Query('courseId') courseId?: string,
     @Query('q') q?: string,
     @Query('sort') sort?: string,
+    @Query('tagId') tagId?: string,
+    @Query('tag') tag?: string,
   ) {
     return this.forumThreadService.getAllForumThreads(user, {
       categoryId,
       courseId,
       q,
       sort,
+      tagId,
+      tag,
     });
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Delete('/:forumThreadId/attachments/:attachmentId')
+  deleteForumAttachment(
+    @Param('forumThreadId') forumThreadId: string,
+    @Param('attachmentId') attachmentId: string,
+    @GetUser() user: User,
+  ) {
+    return this.forumThreadService.deleteForumAttachment(
+      forumThreadId,
+      attachmentId,
+      user,
+    );
   }
 
   @UseGuards(AuthGuard('cJwt'))
@@ -89,7 +107,7 @@ export class ForumThreadController {
   async getForumThread(@Param() params: any, @GetUser() user: User) {
     return this.forumThreadService.getForumThread(
       params.forumThreadId,
-      user.id,
+      user,
     );
   }
   @UseGuards(AuthGuard('cJwt'))

@@ -31,6 +31,10 @@ type VoteRow = {
  * score. A single statement is an implicit transaction on Neon’s pooler,
  * so we avoid interactive $transaction ("Transaction already closed")
  * and the 3–4 sequential Prisma round trips that replaced it.
+ *
+ * Like responses must read isVotedByMe from the INSERT CTE (`ins`), not
+ * from a SELECT on forum_votes: Postgres CTE snapshots cannot see the
+ * row inserted in the same statement.
  */
 export async function toggleForumVote(
   prisma: PrismaService,
@@ -97,9 +101,12 @@ function voteThread(
               (SELECT "voteScore" FROM upd),
               (SELECT "voteScore" FROM target)
             ) AS "voteScore",
-            EXISTS (
-              SELECT 1 FROM "forum_votes"
-              WHERE "userId" = ${userId} AND "threadId" = ${threadId}
+            (
+              EXISTS (SELECT 1 FROM ins)
+              OR EXISTS (
+                SELECT 1 FROM "forum_votes"
+                WHERE "userId" = ${userId} AND "threadId" = ${threadId}
+              )
             ) AS "isVotedByMe"
         `
       : Prisma.sql`
@@ -174,9 +181,12 @@ function voteComment(
               (SELECT "voteScore" FROM upd),
               (SELECT "voteScore" FROM target)
             ) AS "voteScore",
-            EXISTS (
-              SELECT 1 FROM "forum_votes"
-              WHERE "userId" = ${userId} AND "commentId" = ${commentId}
+            (
+              EXISTS (SELECT 1 FROM ins)
+              OR EXISTS (
+                SELECT 1 FROM "forum_votes"
+                WHERE "userId" = ${userId} AND "commentId" = ${commentId}
+              )
             ) AS "isVotedByMe"
         `
       : Prisma.sql`

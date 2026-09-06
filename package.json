@@ -39,7 +39,9 @@
     "script:audit-archived-quizzes": "ts-node -r tsconfig-paths/register scripts/audit-archived-attached-quizzes.ts",
     "script:extract-images:dry": "ts-node -r tsconfig-paths/register scripts/extract-base64-images.ts",
     "script:extract-images": "ts-node -r tsconfig-paths/register scripts/extract-base64-images.ts --apply",
-    "script:extract-images:rollback": "ts-node -r tsconfig-paths/register scripts/extract-base64-images.ts --rollback"
+    "script:extract-images:rollback": "ts-node -r tsconfig-paths/register scripts/extract-base64-images.ts --rollback",
+    "script:forum-posts-migrate:dry": "ts-node -r tsconfig-paths/register scripts/migrate-course-posts-to-forum.ts",
+    "script:forum-posts-migrate": "ts-node -r tsconfig-paths/register scripts/migrate-course-posts-to-forum.ts --apply"
   },
   "dependencies": {
     "@cantoo/pdf-lib": "^2.9.1",

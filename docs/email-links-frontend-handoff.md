@@ -191,7 +191,7 @@ The bell uses the **exact same paths** as the corresponding emails — so any fu
 | `ENGAGEMENT_REMINDER`        | `/studentCourses/{referenceId}`                 |
 | `ASSESSMENT_SUBMITTED`       | `/assessment/grade/{referenceId}`               |
 | `ASSESSMENT_GRADED`          | `/studentCourses` (will upgrade alongside the email — see §6) |
-| `FORUM_THREAD` / `FORUM_COMMENT` / `FORUM_MENTION` | `/forum/{threadId}`          |
+| `FORUM_THREAD` / `FORUM_COMMENT` / `FORUM_MENTION` / `FORUM_ANSWER_ACCEPTED` | `/forum/{threadId}`          |
 
 `referenceId` = the BE-stored notification reference (course / attempt / thread).
 

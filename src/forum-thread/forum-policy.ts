@@ -2,6 +2,7 @@ import {
   ForumCourseScope,
   ForumNotifyOnCreate,
   ForumStudentCreatePolicy,
+  ForumTagPolicy,
   Role,
 } from '@prisma/client';
 
@@ -14,6 +15,8 @@ export type ForumCategoryPolicy = {
   allowAcceptedAnswer?: boolean;
   allowVotes?: boolean;
   allowMentions?: boolean;
+  allowAttachments?: boolean;
+  tagPolicy?: ForumTagPolicy;
 };
 
 export function isAdminRole(role: Role | string | undefined): boolean {
@@ -89,6 +92,7 @@ type ForumEngagementFlags = {
   allowAcceptedAnswer?: boolean;
   allowVotes?: boolean;
   allowMentions?: boolean;
+  allowAttachments?: boolean;
 };
 
 /** Missing category (uncategorized thread) keeps features on. */

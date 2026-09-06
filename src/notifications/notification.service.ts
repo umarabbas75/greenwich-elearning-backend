@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { NotificationType, Prisma } from '@prisma/client';
+import { NotificationType, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationEmail } from '../mail/mail.types';
@@ -67,7 +67,7 @@ interface BulkCreateNotificationInput
 const NOTIFICATION_INCLUDE = {
   thread: { select: { title: true } },
   commenter: {
-    select: { id: true, firstName: true, lastName: true, photo: true },
+    select: { id: true, firstName: true, lastName: true, photo: true, role: true },
   },
 } as const;
 
@@ -282,7 +282,16 @@ export class NotificationService {
   async createNotificationForMany(
     input: BulkCreateNotificationInput,
   ): Promise<void> {
-    if (input.userIds.length === 0) return;
+    if (input.userIds.length === 0) {
+      if (input.email && input.emailCcAddresses?.length) {
+        await this.dispatchNotificationEmails(
+          [],
+          input.email,
+          input.emailCcAddresses,
+        );
+      }
+      return;
+    }
     const result = await this.prisma.notification.createMany({
       data: input.userIds.map((userId) => ({
         userId,
@@ -409,16 +418,36 @@ export class NotificationService {
     threadTitle: string;
     courseId?: string | null;
     creator: { id: string; firstName: string; lastName: string };
+    /** When true, enrolled students only — admins already got a student-post ping. */
+    skipAdmins?: boolean;
   }): Promise<void> {
-    // Course-scoped threads notify only enrolled users (in-app); legacy global
-    // threads (no courseId) still fan out to everyone. The admin inbox is CC'd
-    // by EMAIL only — no in-app row — preserving the course-scoped bell.
+    // Course-scoped threads notify enrolled users (in-app); admins are included
+    // unless skipAdmins (they were notified when a student posted). The admin
+    // inbox is CC'd by EMAIL only — no in-app row — preserving the course-scoped bell.
     const users = await this.prisma.user.findMany({
       where: args.courseId
-        ? {
-            UserCourse: { some: { courseId: args.courseId, isActive: true } },
-          }
-        : undefined,
+        ? args.skipAdmins
+          ? {
+              deletedAt: null,
+              role: { not: Role.admin },
+              UserCourse: {
+                some: { courseId: args.courseId, isActive: true },
+              },
+            }
+          : {
+              deletedAt: null,
+              OR: [
+                {
+                  UserCourse: {
+                    some: { courseId: args.courseId, isActive: true },
+                  },
+                },
+                { role: Role.admin },
+              ],
+            }
+        : args.skipAdmins
+          ? { deletedAt: null, role: { not: Role.admin } }
+          : { deletedAt: null },
       select: { id: true },
     });
 
@@ -449,6 +478,60 @@ export class NotificationService {
           threadId: args.threadId,
           threadTitle: args.threadTitle,
           creatorName,
+        }),
+      },
+    });
+  }
+
+  /**
+   * Student posts that do not broadcast to the class still ping admins so the
+   * board is not silent. Moderated posts use pendingReview until publish.
+   */
+  async notifyAdminsOfStudentThread(args: {
+    threadId: string;
+    threadTitle: string;
+    pendingReview: boolean;
+    creator: { id: string; firstName: string; lastName: string };
+  }): Promise<void> {
+    const admins = await this.prisma.user.findMany({
+      where: { role: Role.admin, deletedAt: null },
+      select: { id: true },
+    });
+    const userIds = admins
+      .map((row) => row.id)
+      .filter((id) => id !== args.creator.id);
+    const creatorName =
+      `${args.creator.firstName} ${args.creator.lastName}`.trim();
+    await this.createNotificationForMany({
+      userIds,
+      emailCcAddresses: [ADMIN_EMAIL],
+      type: NotificationType.FORUM_THREAD,
+      message: args.pendingReview
+        ? `${creatorName} posted a discussion awaiting review.`
+        : `${creatorName} posted a new discussion.`,
+      payload: {
+        threadId: args.threadId,
+        threadTitle: args.threadTitle,
+        creatorFirstName: args.creator.firstName,
+        creatorLastName: args.creator.lastName,
+        studentPost: true,
+        pendingReview: args.pendingReview,
+      },
+      groupKey: null,
+      threadId: args.threadId,
+      commenterId: args.creator.id,
+      dedupeKeyFor: (userId) => `thread-admin:${args.threadId}:${userId}`,
+      email: {
+        excludeUserId: args.creator.id,
+        build: (r) => ({
+          kind: 'FORUM_THREAD',
+          to: r.email,
+          userId: r.id,
+          recipientFirstName: r.firstName,
+          threadId: args.threadId,
+          threadTitle: args.threadTitle,
+          creatorName,
+          pendingReview: args.pendingReview,
         }),
       },
     });

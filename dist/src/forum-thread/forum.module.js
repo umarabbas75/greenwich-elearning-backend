@@ -10,6 +10,11 @@ exports.ForumModule = void 0;
 const common_1 = require("@nestjs/common");
 const forum_thread_service_1 = require("./forum-thread.service");
 const forum_thread_controller_1 = require("./forum-thread.controller");
+const forum_category_service_1 = require("./forum-category.service");
+const forum_category_controller_1 = require("./forum-category.controller");
+const forum_mentions_controller_1 = require("./forum-mentions.controller");
+const forum_tag_service_1 = require("./forum-tag.service");
+const forum_tag_controller_1 = require("./forum-tag.controller");
 const jwt_1 = require("@nestjs/jwt");
 const strategy_1 = require("../strategy");
 const notification_module_1 = require("../notifications/notification.module");
@@ -21,11 +26,18 @@ exports.ForumModule = ForumModule = __decorate([
         imports: [jwt_1.JwtModule.register({}), notification_module_1.NotificationModule],
         providers: [
             forum_thread_service_1.ForumThreadService,
+            forum_category_service_1.ForumCategoryService,
+            forum_tag_service_1.ForumTagService,
             strategy_1.JwtUserStrategy,
             strategy_1.JwtAdminStrategy,
             strategy_1.JwtCombineStrategy,
         ],
-        controllers: [forum_thread_controller_1.ForumThreadController],
+        controllers: [
+            forum_thread_controller_1.ForumThreadController,
+            forum_category_controller_1.ForumCategoryController,
+            forum_mentions_controller_1.ForumMentionsController,
+            forum_tag_controller_1.ForumTagController,
+        ],
         exports: [forum_thread_service_1.ForumThreadService],
     })
 ], ForumModule);
