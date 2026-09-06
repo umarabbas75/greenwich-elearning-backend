@@ -34,6 +34,7 @@ import { assertEnrollmentUsable } from '../utils/assert-enrollment-usable';
 import { recordChapterAndModuleCompletionIfNeeded } from '../utils/chapter-progression';
 import { errorMessage } from '../utils/error-message';
 import { compensateCloudRegistration } from '../utils/scorm-cloud-compensate';
+import { scormPlayerReturnUrl } from '../utils/scorm-player-url';
 import { stripTrailingSlash } from '../utils/strip-trailing-slash';
 import { LaunchScormDto } from './dto';
 import {
@@ -134,7 +135,7 @@ export class ScormRuntimeService {
 
     const launchLink = await this.cloud.buildRegistrationLaunchLink({
       registrationId: registration.scormCloudRegistrationId,
-      redirectOnExitUrl: stripTrailingSlash(frontend),
+      redirectOnExitUrl: scormPlayerReturnUrl(frontend, body.courseId),
       expiry: 120,
     });
 

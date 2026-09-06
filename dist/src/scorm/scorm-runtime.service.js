@@ -23,6 +23,7 @@ const assert_enrollment_usable_1 = require("../utils/assert-enrollment-usable");
 const chapter_progression_1 = require("../utils/chapter-progression");
 const error_message_1 = require("../utils/error-message");
 const scorm_cloud_compensate_1 = require("../utils/scorm-cloud-compensate");
+const scorm_player_url_1 = require("../utils/scorm-player-url");
 const strip_trailing_slash_1 = require("../utils/strip-trailing-slash");
 const scorm_status_1 = require("./scorm-status");
 const RECONCILE_BATCH = 20;
@@ -85,7 +86,7 @@ let ScormRuntimeService = ScormRuntimeService_1 = class ScormRuntimeService {
         ]);
         const launchLink = await this.cloud.buildRegistrationLaunchLink({
             registrationId: registration.scormCloudRegistrationId,
-            redirectOnExitUrl: (0, strip_trailing_slash_1.stripTrailingSlash)(frontend),
+            redirectOnExitUrl: (0, scorm_player_url_1.scormPlayerReturnUrl)(frontend, body.courseId),
             expiry: 120,
         });
         return { launchLink };

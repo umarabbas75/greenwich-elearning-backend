@@ -35,6 +35,19 @@ export type ScormCloudRegistrationProgress = {
   [key: string]: unknown;
 };
 
+export type ScormCloudConfigurationSetting = {
+  settingId: string;
+  value: string;
+  explicit?: boolean;
+};
+
+/** Embedded iframe / same-tab launch — not NEW_WINDOW popup launcher. */
+export const SCORM_EMBEDDED_LAUNCH_SETTINGS: ScormCloudConfigurationSetting[] =
+  [
+    { settingId: 'PlayerLaunchType', value: 'FRAMESET', explicit: true },
+    { settingId: 'PlayerScoLaunchType', value: 'FRAMESET', explicit: true },
+  ];
+
 export type CreateRegistrationInput = {
   courseId: string;
   registrationId: string;
@@ -74,7 +87,7 @@ export class ScormCloudClient {
     });
     const json = await this.request<{ result?: string }>(
       'POST',
-      `/courses/importJobs/fetch?${qs.toString()}`,
+      `/courses/importJobs?${qs.toString()}`,
       { url: args.url },
     );
     const jobId = json && typeof json === 'object' ? json.result : undefined;
@@ -85,6 +98,22 @@ export class ScormCloudClient {
       );
     }
     return jobId;
+  }
+
+  /**
+   * SetCourseConfiguration — e.g. PlayerLaunchType / PlayerScoLaunchType for
+   * embedded iframe launch (FRAMESET instead of default NEW_WINDOW popup).
+   */
+  async setCourseConfiguration(
+    courseId: string,
+    settings: ScormCloudConfigurationSetting[],
+  ): Promise<void> {
+    await this.request(
+      'POST',
+      `/courses/${encodeURIComponent(courseId)}/configuration`,
+      { settings },
+      { acceptEmpty: true },
+    );
   }
 
   async getImportJobStatus(jobId: string): Promise<ScormCloudImportJobStatus> {
@@ -157,7 +186,7 @@ export class ScormCloudClient {
   ): Promise<ScormCloudRegistrationProgress> {
     return this.request<ScormCloudRegistrationProgress>(
       'GET',
-      `/registrations/${encodeURIComponent(registrationId)}/progress`,
+      `/registrations/${encodeURIComponent(registrationId)}`,
     );
   }
 

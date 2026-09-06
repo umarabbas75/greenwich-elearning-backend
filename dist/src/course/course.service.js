@@ -895,7 +895,7 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async getCourseReport(courseId, userId) {
         try {
-            const [userDetails, completion, curriculum, courseForms, courseFeedback, chapterCompletions, moduleCompletions, newSinceCompletion, firstProgress,] = await Promise.all([
+            const [userDetails, completion, curriculum, courseForms, courseFeedback, chapterCompletions, moduleCompletions, newSinceCompletion, firstProgress, courseDeliveryInfo,] = await Promise.all([
                 this.prisma.user.findUnique({
                     where: { id: userId },
                     select: {
@@ -933,6 +933,10 @@ let CourseService = CourseService_1 = class CourseService {
                     orderBy: { createdAt: 'asc' },
                     select: { createdAt: true },
                 }),
+                this.prisma.course.findUnique({
+                    where: { id: courseId },
+                    select: { deliveryMode: true },
+                }),
             ]);
             const isFrozen = !!completion?.courseCompletedAt;
             const courseStartDate = firstProgress?.createdAt ?? null;
@@ -947,6 +951,7 @@ let CourseService = CourseService_1 = class CourseService {
                 isCompleted: isFrozen,
                 completedAt: completion?.courseCompletedAt ?? null,
                 courseStartDate,
+                deliveryMode: courseDeliveryInfo?.deliveryMode ?? null,
                 ...(newSinceCompletion ? { newSinceCompletion } : {}),
             };
             if (curriculum.mode === 'versioned') {

@@ -17,7 +17,11 @@ import {
 import { randomUUID } from 'crypto';
 import { CourseVersionService } from '../course-version/course-version.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { ScormCloudClient, ScormCloudHttpError } from '../scorm-cloud/scorm-cloud.client';
+import {
+  SCORM_EMBEDDED_LAUNCH_SETTINGS,
+  ScormCloudClient,
+  ScormCloudHttpError,
+} from '../scorm-cloud/scorm-cloud.client';
 import { errorMessage } from '../utils/error-message';
 import {
   parseRiseRuntimeData,
@@ -286,6 +290,25 @@ export class ScormService {
         `Import job ${pkg.cloudImportJobId} has unrecognised status "${job.status}" — leaving PROCESSING`,
       );
       return pkg;
+    }
+
+    try {
+      await this.cloud.setCourseConfiguration(
+        pkg.scormCloudCourseId,
+        SCORM_EMBEDDED_LAUNCH_SETTINGS,
+      );
+    } catch (err) {
+      const message = errorMessage(err);
+      this.logger.error(
+        `FRAMESET launch configuration failed for package ${pkg.id}: ${message}`,
+      );
+      return this.prisma.scormPackage.update({
+        where: { id: pkg.id },
+        data: {
+          status: ScormPackageStatus.FAILED,
+          failureReason: `SCORM Cloud launch configuration failed: ${message}`,
+        },
+      });
     }
 
     let probe: RiseProbeResult | null = null;

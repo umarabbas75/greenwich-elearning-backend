@@ -273,7 +273,12 @@ describe('ScormRuntimeService', () => {
     );
 
     expect(result.launchLink).toContain('cloud.scorm.com');
-    expect(cloud.buildRegistrationLaunchLink).toHaveBeenCalled();
+    expect(cloud.buildRegistrationLaunchLink).toHaveBeenCalledWith({
+      registrationId: expect.any(String),
+      redirectOnExitUrl:
+        'https://app.example.com/studentCourses/course-1/scorm',
+      expiry: 120,
+    });
     expect(cloud.deleteRegistration).not.toHaveBeenCalled();
   });
 

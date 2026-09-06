@@ -19,6 +19,12 @@ export type ScormCloudRegistrationProgress = {
     totalSecondsTracked?: number;
     [key: string]: unknown;
 };
+export type ScormCloudConfigurationSetting = {
+    settingId: string;
+    value: string;
+    explicit?: boolean;
+};
+export declare const SCORM_EMBEDDED_LAUNCH_SETTINGS: ScormCloudConfigurationSetting[];
 export type CreateRegistrationInput = {
     courseId: string;
     registrationId: string;
@@ -43,6 +49,7 @@ export declare class ScormCloudClient {
         courseId: string;
         url: string;
     }): Promise<string>;
+    setCourseConfiguration(courseId: string, settings: ScormCloudConfigurationSetting[]): Promise<void>;
     getImportJobStatus(jobId: string): Promise<ScormCloudImportJobStatus>;
     getCourseAsset(scormCloudCourseId: string, relativePath: string): Promise<string>;
     createRegistration(input: CreateRegistrationInput): Promise<void>;

@@ -1338,6 +1338,7 @@ export class CourseService {
         moduleCompletions,
         newSinceCompletion,
         firstProgress,
+        courseDeliveryInfo,
       ] = await Promise.all([
         this.prisma.user.findUnique({
           where: { id: userId },
@@ -1382,6 +1383,16 @@ export class CourseService {
           orderBy: { createdAt: 'asc' },
           select: { createdAt: true },
         }),
+        // FE handoff: deliveryMode was missing from this endpoint's response,
+        // so Grades.tsx had to fall back to a separate /courses/:id call to
+        // decide whether to render the SCORM report instead of the
+        // modules/chapters/quiz tables below (which don't exist for
+        // IMPORTED_SCORM courses). Cheap dedicated lookup, kept out of the
+        // versioned/live branches below so both paths get it uniformly.
+        this.prisma.course.findUnique({
+          where: { id: courseId },
+          select: { deliveryMode: true },
+        }),
       ]);
 
       const isFrozen = !!completion?.courseCompletedAt;
@@ -1402,6 +1413,7 @@ export class CourseService {
         isCompleted: isFrozen,
         completedAt: completion?.courseCompletedAt ?? null,
         courseStartDate,
+        deliveryMode: courseDeliveryInfo?.deliveryMode ?? null,
         ...(newSinceCompletion ? { newSinceCompletion } : {}),
       };
 

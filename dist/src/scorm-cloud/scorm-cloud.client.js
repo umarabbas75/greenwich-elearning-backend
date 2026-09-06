@@ -10,7 +10,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 var ScormCloudClient_1;
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ScormCloudClient = exports.ScormCloudHttpError = void 0;
+exports.ScormCloudClient = exports.SCORM_EMBEDDED_LAUNCH_SETTINGS = exports.ScormCloudHttpError = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const error_message_1 = require("../utils/error-message");
@@ -27,6 +27,10 @@ class ScormCloudHttpError extends common_1.HttpException {
     }
 }
 exports.ScormCloudHttpError = ScormCloudHttpError;
+exports.SCORM_EMBEDDED_LAUNCH_SETTINGS = [
+    { settingId: 'PlayerLaunchType', value: 'FRAMESET', explicit: true },
+    { settingId: 'PlayerScoLaunchType', value: 'FRAMESET', explicit: true },
+];
 let ScormCloudClient = ScormCloudClient_1 = class ScormCloudClient {
     constructor(config) {
         this.config = config;
@@ -37,12 +41,15 @@ let ScormCloudClient = ScormCloudClient_1 = class ScormCloudClient {
             courseId: args.courseId,
             mayCreateNewVersion: 'false',
         });
-        const json = await this.request('POST', `/courses/importJobs/fetch?${qs.toString()}`, { url: args.url });
+        const json = await this.request('POST', `/courses/importJobs?${qs.toString()}`, { url: args.url });
         const jobId = json && typeof json === 'object' ? json.result : undefined;
         if (!jobId || typeof jobId !== 'string') {
             throw new common_1.HttpException('SCORM Cloud import job did not return a result id', common_1.HttpStatus.BAD_GATEWAY);
         }
         return jobId;
+    }
+    async setCourseConfiguration(courseId, settings) {
+        await this.request('POST', `/courses/${encodeURIComponent(courseId)}/configuration`, { settings }, { acceptEmpty: true });
     }
     async getImportJobStatus(jobId) {
         const json = await this.request('GET', `/courses/importJobs/${encodeURIComponent(jobId)}`);
@@ -76,7 +83,7 @@ let ScormCloudClient = ScormCloudClient_1 = class ScormCloudClient {
         return link;
     }
     async getRegistrationProgress(registrationId) {
-        return this.request('GET', `/registrations/${encodeURIComponent(registrationId)}/progress`);
+        return this.request('GET', `/registrations/${encodeURIComponent(registrationId)}`);
     }
     async deleteRegistration(registrationId) {
         await this.request('DELETE', `/registrations/${encodeURIComponent(registrationId)}`, undefined, { acceptEmpty: true });

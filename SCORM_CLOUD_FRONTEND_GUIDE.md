@@ -156,9 +156,11 @@ Response:
 { launchLink: string }
 ```
 
-**Critical: the launch link expires in 120 seconds.** Call this endpoint immediately before you need it — do not cache it, do not fetch it ahead of time, do not reuse it across page loads/refreshes. Every time a learner clicks "Start/Continue", call this fresh and immediately open the returned URL (new tab or iframe — SCORM Cloud content is typically embedded in an iframe; confirm sizing/embedding requirements with design, the backend has no opinion here).
+**Critical: the launch link expires in 120 seconds.** Call this endpoint immediately before you need it — do not cache it, do not fetch it ahead of time, do not reuse it across page loads/refreshes. Every time a learner clicks "Start/Continue", call this fresh and immediately consume the returned URL.
 
-**On exit, SCORM Cloud redirects the learner to your app's configured base URL (`PUBLIC_FRONTEND_URL`), not back to the specific course page.** There's no per-launch custom return URL today. If you need "return to course X" behavior, that's a backend follow-up (parameterizing `redirectOnExitUrl`) — flag it if it's a hard requirement, don't try to work around it client-side with sessionStorage tricks that won't survive a real redirect.
+**Launch UX:** The frontend embeds the link in an iframe on `/studentCourses/{courseId}/scorm` (default), or navigates the whole tab to the same URL ("Open in browser tab"). Both require SCORM Cloud **`FRAMESET`** launch types — set automatically on import by the backend (`SetCourseConfiguration`). See `docs/scorm-cloud-dashboard-settings.md` §3.4.
+
+**On exit, SCORM Cloud redirects the learner to** `${PUBLIC_FRONTEND_URL}/studentCourses/{courseId}/scorm` (per-launch `redirectOnExitUrl`). Inside an iframe, the redirect loads that course player page in the frame; in full-tab mode the whole window returns there.
 
 Possible errors:
 - `403` — account disabled, not enrolled/enrollment expired, course not published, or package not `READY`/`SUPERSEDED` — show a generic "This course isn't available right now" and let the learner retry or contact support; these map to real backend states, not bugs
@@ -221,6 +223,6 @@ All list/detail responses use the envelope `{ message: string, statusCode: numbe
 
 ## 8. Open questions to raise with backend before/while building
 
-1. **Return-to-course after exit** — currently fixed to the app's base URL (§5.2). Confirm whether that's acceptable for launch or needs a follow-up.
+1. **Return-to-course after exit** — implemented via per-launch `redirectOnExitUrl` to `/studentCourses/{courseId}/scorm` (§5.2).
 2. **Zip upload path** — confirm where the "get a public HTTPS URL for the zip" step lives (existing asset pipeline vs. new work) before scoping the import form.
 3. **Polling cadence** — no push mechanism exists for import status or learner progress; agree on acceptable polling intervals so you're not hammering the API.

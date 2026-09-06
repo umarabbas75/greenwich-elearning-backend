@@ -38,6 +38,7 @@ describe('ScormService', () => {
       createFetchAndImportCourseJob: jest.fn().mockResolvedValue('job-1'),
       getImportJobStatus: jest.fn(),
       getCourseAsset: jest.fn(),
+      setCourseConfiguration: jest.fn().mockResolvedValue(undefined),
     };
 
     courseVersionService = {
@@ -144,6 +145,19 @@ describe('ScormService', () => {
 
     const result = await service.completeImportIfReady('pkg-1', 'admin-1');
 
+    expect(cloud.setCourseConfiguration).toHaveBeenCalledWith(
+      'cloud-1',
+      expect.arrayContaining([
+        expect.objectContaining({
+          settingId: 'PlayerLaunchType',
+          value: 'FRAMESET',
+        }),
+        expect.objectContaining({
+          settingId: 'PlayerScoLaunchType',
+          value: 'FRAMESET',
+        }),
+      ]),
+    );
     expect(result.status).toBe(ScormPackageStatus.READY);
     expect(result.importWarning).toMatch(/probe unavailable/i);
     expect(courseVersionService.publishNewVersion).toHaveBeenCalled();
@@ -212,6 +226,7 @@ describe('ScormService', () => {
 
     await service.completeImportIfReady('pkg-1', 'admin-1');
 
+    expect(cloud.setCourseConfiguration).toHaveBeenCalled();
     expect(courseVersionService.publishNewVersion).toHaveBeenCalledWith(
       'admin-1',
       'course-1',

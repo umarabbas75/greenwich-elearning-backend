@@ -238,6 +238,20 @@ let ScormService = ScormService_1 = class ScormService {
             this.logger.warn(`Import job ${pkg.cloudImportJobId} has unrecognised status "${job.status}" — leaving PROCESSING`);
             return pkg;
         }
+        try {
+            await this.cloud.setCourseConfiguration(pkg.scormCloudCourseId, scorm_cloud_client_1.SCORM_EMBEDDED_LAUNCH_SETTINGS);
+        }
+        catch (err) {
+            const message = (0, error_message_1.errorMessage)(err);
+            this.logger.error(`FRAMESET launch configuration failed for package ${pkg.id}: ${message}`);
+            return this.prisma.scormPackage.update({
+                where: { id: pkg.id },
+                data: {
+                    status: client_1.ScormPackageStatus.FAILED,
+                    failureReason: `SCORM Cloud launch configuration failed: ${message}`,
+                },
+            });
+        }
         let probe = null;
         try {
             const asset = await this.cloud.getCourseAsset(pkg.scormCloudCourseId, 'scormcontent/runtime-data.js');
