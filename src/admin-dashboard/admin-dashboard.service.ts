@@ -21,7 +21,7 @@ export class AdminDashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-  ) {}
+  ) { }
 
   // ────────────────────────────────────────────────────────────────────────
   // OVERVIEW
@@ -161,6 +161,8 @@ export class AdminDashboardService {
 
   async getLoginsToday(): Promise<ResponseDto> {
     return this.wrap("Today's logins fetched successfully", async () => {
+
+      console.log('test')
       const rows = await this.read<
         {
           userId: string;
@@ -359,9 +361,8 @@ export class AdminDashboardService {
           FROM a
           JOIN "users" u ON u."id" = a."userId"
           LEFT JOIN "courses" c ON c."id" = a."courseId"
-         WHERE a."occurredAt" >= now() - make_interval(days => ${
-           params.days
-         }::int)
+         WHERE a."occurredAt" >= now() - make_interval(days => ${params.days
+        }::int)
            ${userFilter}
            ${cursorFilter}
          ORDER BY a."occurredAt" DESC
@@ -439,9 +440,8 @@ export class AdminDashboardService {
           JOIN "users" u ON u."id" = fv."userId"
           LEFT JOIN "forum_threads" ft ON ft."id" = fv."threadId"
           LEFT JOIN "courses" c ON c."id" = fv."courseId"
-         WHERE fv."createdAt" >= now() - make_interval(days => ${
-           params.days
-         }::int)
+         WHERE fv."createdAt" >= now() - make_interval(days => ${params.days
+        }::int)
            ${userFilter}
            ${threadFilter}
            ${scopeFilter}
@@ -875,9 +875,8 @@ export class AdminDashboardService {
                  SUM(std."totalSeconds")::bigint AS total_seconds
             FROM "section_time_spent_daily" std
            WHERE std."userId" IN (${Prisma.join(userIds)})
-             AND std."day" >= (CURRENT_DATE - make_interval(days => ${
-               days - 1
-             }::int))::date
+             AND std."day" >= (CURRENT_DATE - make_interval(days => ${days - 1
+          }::int))::date
              ${courseDailyFilter}
            GROUP BY std."userId", std."day"
            ORDER BY std."userId", std."day" DESC
