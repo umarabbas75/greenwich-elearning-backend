@@ -11,6 +11,7 @@ export interface CertificateVerifyResult {
     issuedAt: string;
     certificateSource?: CertificateSource | null;
     certificateUrl?: string;
+    verifyUrl?: string;
 }
 export declare class CertificateService {
     private readonly prisma;
@@ -51,6 +52,7 @@ export declare class CertificateService {
     private canUseCloudinary;
     private isDevelopment;
     private getApiBase;
+    private getFrontendBase;
     private persistCertificatePdf;
     private ensureCloudinaryConfigured;
     private buildVerifyUrl;

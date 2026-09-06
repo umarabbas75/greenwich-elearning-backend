@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Header,
   Param,
   Query,
   StreamableFile,
@@ -17,6 +18,7 @@ export class CertificateController {
 
   /** Public verification page/API — no login required. */
   @Get('verify/:certificateId/file')
+  @Header('Cache-Control', 'no-store')
   async downloadVerifiedCertificate(
     @Param('certificateId') certificateId: string,
   ): Promise<StreamableFile> {
@@ -29,6 +31,7 @@ export class CertificateController {
   }
 
   @Get('verify/:certificateId')
+  @Header('Cache-Control', 'no-store')
   verify(@Param('certificateId') certificateId: string) {
     return this.certificateService.verifyCertificate(certificateId);
   }

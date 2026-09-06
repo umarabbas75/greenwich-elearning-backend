@@ -1,4 +1,4 @@
-import { RGB } from 'pdf-lib';
+import { RGB } from '@cantoo/pdf-lib';
 export interface CertificateFieldLayout {
     yRatio: number;
     fontSize: number;
@@ -7,6 +7,15 @@ export interface CertificateFieldLayout {
     bold?: boolean;
     x?: number;
     align?: 'left' | 'center' | 'right';
+}
+export interface CertificateQrLayout {
+    size: number;
+    x: number;
+    y: number;
+    urlFontSize: number;
+    urlGap: number;
+    urlMaxWidth: number;
+    urlColor: RGB;
 }
 export declare const CERTIFICATE_LAYOUT: {
     learnerName: {
@@ -37,5 +46,14 @@ export declare const CERTIFICATE_LAYOUT: {
         maxWidth: number;
         align: "center";
         color: RGB;
+    };
+    qr: {
+        size: number;
+        x: number;
+        y: number;
+        urlFontSize: number;
+        urlGap: number;
+        urlMaxWidth: number;
+        urlColor: RGB;
     };
 };

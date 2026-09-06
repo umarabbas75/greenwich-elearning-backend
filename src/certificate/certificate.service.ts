@@ -22,6 +22,7 @@ import {
   uploadCertificatePdf,
 } from './certificate-cloudinary';
 import { stripTrailingSlash } from '../utils/strip-trailing-slash';
+import { normalizeCertificateId } from './certificate-id';
 
 export interface CertificateVerifyResult {
   valid: boolean;
@@ -31,6 +32,7 @@ export interface CertificateVerifyResult {
   issuedAt: string;
   certificateSource?: CertificateSource | null;
   certificateUrl?: string;
+  verifyUrl?: string;
 }
 
 @Injectable()
@@ -245,11 +247,18 @@ export class CertificateService {
     };
   }
 
-  /** Public verification — no auth required. */
+  /**
+   * Public verification — no auth required, case-insensitive ID.
+   * Missing / revoked / unpublished IDs are 404 with no extra detail.
+   */
   async verifyCertificate(
     certificateId: string,
   ): Promise<CertificateVerifyResult> {
-    const normalized = certificateId.trim().toUpperCase();
+    const normalized = normalizeCertificateId(certificateId);
+    if (!normalized) {
+      throw new NotFoundException('Certificate not found.');
+    }
+
     const completion = await this.prisma.courseCompletion.findUnique({
       where: { certificateId: normalized },
       include: {
@@ -261,6 +270,7 @@ export class CertificateService {
     if (
       !completion?.certificateUrl ||
       !completion.certificateIssuedAt ||
+      !completion.certificateId ||
       completion.user.deletedAt
     ) {
       throw new NotFoundException('Certificate not found.');
@@ -270,15 +280,16 @@ export class CertificateService {
 
     return {
       valid: true,
-      certificateId: completion.certificateId!,
+      certificateId: completion.certificateId,
       learnerName,
       courseTitle: completion.course.title,
       issuedAt: completion.certificateIssuedAt.toISOString(),
       certificateSource: completion.certificateSource,
       certificateUrl: this.resolvePublicDownloadUrl(
         completion.certificateUrl,
-        completion.certificateId!,
+        completion.certificateId,
       ),
+      verifyUrl: this.buildVerifyUrl(completion.certificateId),
     };
   }
 
@@ -286,7 +297,10 @@ export class CertificateService {
   async buildVerifiedCertificatePdf(
     certificateId: string,
   ): Promise<{ buffer: Uint8Array; filename: string }> {
-    const normalized = certificateId.trim().toUpperCase();
+    const normalized = normalizeCertificateId(certificateId);
+    if (!normalized) {
+      throw new NotFoundException('Certificate not found.');
+    }
     const completion = await this.prisma.courseCompletion.findUnique({
       where: { certificateId: normalized },
       include: {
@@ -692,10 +706,22 @@ export class CertificateService {
 
   private getApiBase(): string {
     const port = this.config.get<string>('PORT') ?? '3333';
-    const configured = this.config.get<string>('APP_BASE_URL');
+    const configured =
+      this.config.get<string>('PUBLIC_APP_URL') ||
+      this.config.get<string>('APP_BASE_URL');
     return configured
       ? stripTrailingSlash(configured)
       : `http://localhost:${port}`;
+  }
+
+  /** Learner-facing origin for the public verify page (QR + footer URL). */
+  private getFrontendBase(): string {
+    const configured =
+      this.config.get<string>('PUBLIC_FRONTEND_URL') ||
+      this.config.get<string>('APP_BASE_URL');
+    return stripTrailingSlash(
+      configured || 'https://www.greenwichtc-elearning.com',
+    );
   }
 
   /** Upload to Cloudinary in prod; in local dev without creds, use public verify download. */
@@ -741,10 +767,7 @@ export class CertificateService {
   }
 
   private buildVerifyUrl(certificateId: string): string {
-    const base =
-      this.config.get<string>('APP_BASE_URL') ??
-      'https://www.greenwichtc-elearning.com';
-    return `${stripTrailingSlash(base)}/certificates/verify/${encodeURIComponent(
+    return `${this.getFrontendBase()}/certificates/verify/${encodeURIComponent(
       certificateId,
     )}`;
   }

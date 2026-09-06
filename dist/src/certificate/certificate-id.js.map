@@ -1,0 +1,1 @@
+{"version":3,"file":"certificate-id.js","sourceRoot":"","sources":["../../../src/certificate/certificate-id.ts"],"names":[],"mappings":";;;AACA,MAAM,sBAAsB,GAAG,sBAAsB,CAAC;AAGtD,SAAgB,sBAAsB,CAAC,GAAW;IAChD,MAAM,UAAU,GAAG,GAAG,CAAC,IAAI,EAAE,CAAC,WAAW,EAAE,CAAC;IAC5C,IAAI,CAAC,sBAAsB,CAAC,IAAI,CAAC,UAAU,CAAC;QAAE,OAAO,IAAI,CAAC;IAC1D,OAAO,UAAU,CAAC;AACpB,CAAC;AAJD,wDAIC"}

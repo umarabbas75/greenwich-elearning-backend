@@ -21,6 +21,7 @@ const mail_layout_1 = require("../mail/templates/mail-layout");
 const certificate_pdf_1 = require("./certificate-pdf");
 const certificate_cloudinary_1 = require("./certificate-cloudinary");
 const strip_trailing_slash_1 = require("../utils/strip-trailing-slash");
+const certificate_id_1 = require("./certificate-id");
 let CertificateService = CertificateService_1 = class CertificateService {
     constructor(prisma, mail, config) {
         this.prisma = prisma;
@@ -183,7 +184,10 @@ let CertificateService = CertificateService_1 = class CertificateService {
         };
     }
     async verifyCertificate(certificateId) {
-        const normalized = certificateId.trim().toUpperCase();
+        const normalized = (0, certificate_id_1.normalizeCertificateId)(certificateId);
+        if (!normalized) {
+            throw new common_1.NotFoundException('Certificate not found.');
+        }
         const completion = await this.prisma.courseCompletion.findUnique({
             where: { certificateId: normalized },
             include: {
@@ -193,6 +197,7 @@ let CertificateService = CertificateService_1 = class CertificateService {
         });
         if (!completion?.certificateUrl ||
             !completion.certificateIssuedAt ||
+            !completion.certificateId ||
             completion.user.deletedAt) {
             throw new common_1.NotFoundException('Certificate not found.');
         }
@@ -205,10 +210,14 @@ let CertificateService = CertificateService_1 = class CertificateService {
             issuedAt: completion.certificateIssuedAt.toISOString(),
             certificateSource: completion.certificateSource,
             certificateUrl: this.resolvePublicDownloadUrl(completion.certificateUrl, completion.certificateId),
+            verifyUrl: this.buildVerifyUrl(completion.certificateId),
         };
     }
     async buildVerifiedCertificatePdf(certificateId) {
-        const normalized = certificateId.trim().toUpperCase();
+        const normalized = (0, certificate_id_1.normalizeCertificateId)(certificateId);
+        if (!normalized) {
+            throw new common_1.NotFoundException('Certificate not found.');
+        }
         const completion = await this.prisma.courseCompletion.findUnique({
             where: { certificateId: normalized },
             include: {
@@ -501,10 +510,16 @@ let CertificateService = CertificateService_1 = class CertificateService {
     }
     getApiBase() {
         const port = this.config.get('PORT') ?? '3333';
-        const configured = this.config.get('APP_BASE_URL');
+        const configured = this.config.get('PUBLIC_APP_URL') ||
+            this.config.get('APP_BASE_URL');
         return configured
             ? (0, strip_trailing_slash_1.stripTrailingSlash)(configured)
             : `http://localhost:${port}`;
+    }
+    getFrontendBase() {
+        const configured = this.config.get('PUBLIC_FRONTEND_URL') ||
+            this.config.get('APP_BASE_URL');
+        return (0, strip_trailing_slash_1.stripTrailingSlash)(configured || 'https://www.greenwichtc-elearning.com');
     }
     async persistCertificatePdf(buffer, publicId, certificateId) {
         if (this.canUseCloudinary()) {
@@ -530,9 +545,7 @@ let CertificateService = CertificateService_1 = class CertificateService {
         this.cloudinaryReady = true;
     }
     buildVerifyUrl(certificateId) {
-        const base = this.config.get('APP_BASE_URL') ??
-            'https://www.greenwichtc-elearning.com';
-        return `${(0, strip_trailing_slash_1.stripTrailingSlash)(base)}/certificates/verify/${encodeURIComponent(certificateId)}`;
+        return `${this.getFrontendBase()}/certificates/verify/${encodeURIComponent(certificateId)}`;
     }
     async resolveCertificateScorePct(userId, courseId, bestAttemptPercentage) {
         if (bestAttemptPercentage != null) {

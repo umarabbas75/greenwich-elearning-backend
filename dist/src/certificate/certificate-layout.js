@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CERTIFICATE_LAYOUT = void 0;
-const pdf_lib_1 = require("pdf-lib");
+const pdf_lib_1 = require("@cantoo/pdf-lib");
 exports.CERTIFICATE_LAYOUT = {
     learnerName: {
         yRatio: 0.577,
@@ -31,6 +31,15 @@ exports.CERTIFICATE_LAYOUT = {
         maxWidth: 147,
         align: 'center',
         color: (0, pdf_lib_1.rgb)(0.25, 0.28, 0.32),
+    },
+    qr: {
+        size: 68,
+        x: 800,
+        y: 198,
+        urlFontSize: 7,
+        urlGap: 7,
+        urlMaxWidth: 275,
+        urlColor: (0, pdf_lib_1.rgb)(0.28, 0.32, 0.36),
     },
 };
 //# sourceMappingURL=certificate-layout.js.map

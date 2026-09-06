@@ -56,6 +56,7 @@ let CertificateController = class CertificateController {
 exports.CertificateController = CertificateController;
 __decorate([
     (0, common_1.Get)('verify/:certificateId/file'),
+    (0, common_1.Header)('Cache-Control', 'no-store'),
     __param(0, (0, common_1.Param)('certificateId')),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String]),
@@ -63,6 +64,7 @@ __decorate([
 ], CertificateController.prototype, "downloadVerifiedCertificate", null);
 __decorate([
     (0, common_1.Get)('verify/:certificateId'),
+    (0, common_1.Header)('Cache-Control', 'no-store'),
     __param(0, (0, common_1.Param)('certificateId')),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String]),
