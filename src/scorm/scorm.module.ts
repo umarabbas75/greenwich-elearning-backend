@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { CourseCompletionModule } from '../course-completion/course-completion.module';
 import { CourseVersionModule } from '../course-version/course-version.module';
+import { EngagementModule } from '../engagement/engagement.module';
 import { CronSecretGuard } from '../engagement/cron-secret.guard';
 import { ScormCloudModule } from '../scorm-cloud/scorm-cloud.module';
 import {
@@ -26,6 +27,7 @@ import { ScormService } from './scorm.service';
     ScormCloudModule,
     CourseCompletionModule,
     CourseVersionModule,
+    EngagementModule,
   ],
   controllers: [
     ScormController,

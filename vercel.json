@@ -26,20 +26,8 @@
   ],
   "crons": [
     {
-      "path": "/api/v1/internal/cron/engagement-reminders",
+      "path": "/api/v1/internal/cron/daily",
       "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/v1/internal/cron/scorm-import-jobs",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/v1/internal/cron/scorm-reconcile",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/v1/internal/cron/scorm-prune-superseded",
-      "schedule": "0 3 * * *"
     }
   ]
 }

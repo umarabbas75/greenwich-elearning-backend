@@ -162,7 +162,6 @@ export class AdminDashboardService {
   async getLoginsToday(): Promise<ResponseDto> {
     return this.wrap("Today's logins fetched successfully", async () => {
 
-      console.log('test')
       const rows = await this.read<
         {
           userId: string;
