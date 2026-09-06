@@ -1,7 +1,58 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import {
+  ForumThread,
+  ForumViewScope,
+  Prisma,
+  Role,
+  User,
+  UserStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { ForumThread, ForumViewScope, Prisma } from '@prisma/client';
 import { NotificationService } from '../notifications/notification.service';
+import {
+  assertCourseScope,
+  assertStudentMayCreate,
+  categoryAllows,
+  isAdminRole,
+  resolveNewThreadStatus,
+  shouldBroadcastNewThread,
+} from './forum-policy';
+import { notifyForumMentions } from './forum-mention-notify';
+import { parseVoteValue, toggleForumVote, withVotedByMe } from './forum-vote';
+
+export type ForumThreadListQuery = {
+  categoryId?: string;
+  courseId?: string;
+  q?: string;
+  sort?: string;
+};
+
+const THREAD_AUTHOR = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  photo: true,
+} satisfies Prisma.UserSelect;
+
+const THREAD_COURSE = {
+  id: true,
+  title: true,
+} satisfies Prisma.CourseSelect;
+
+const THREAD_CATEGORY = {
+  id: true,
+  name: true,
+  slug: true,
+  description: true,
+  icon: true,
+  courseScope: true,
+  studentCreatePolicy: true,
+  notifyOnCreate: true,
+  allowAcceptedAnswer: true,
+  allowVotes: true,
+  allowMentions: true,
+  isActive: true,
+} satisfies Prisma.ForumCategorySelect;
 
 @Injectable()
 export class ForumThreadService {
@@ -124,110 +175,101 @@ export class ForumThreadService {
     }
   }
 
-  async getAllForumThreads(user: any): Promise<any> {
+  async getAllForumThreads(
+    user: User,
+    query: ForumThreadListQuery = {},
+  ): Promise<any> {
     try {
-      const [favoriteThreads, subscribedThreads, forums] = await Promise.all([
-        this.prisma.favoriteForumThread.findMany({
-          where: {
-            userId: user.id,
-          },
-          select: {
-            threadId: true,
-          },
-        }),
-        this.prisma.threadSubscription.findMany({
-          where: {
-            userId: user.id,
-          },
-          select: {
-            threadId: true,
-          },
-        }),
-        this.prisma.forumThread.findMany({
-          orderBy: {
-            createdAt: 'desc',
-          },
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                photo: true,
+      const filters: Prisma.ForumThreadWhereInput[] = [];
+      if (user.role === Role.user) {
+        filters.push({ status: 'active' });
+        filters.push({
+          OR: [
+            { courseId: null },
+            {
+              course: {
+                users: { some: { userId: user.id, isActive: true } },
               },
             },
-            course: {
-              select: {
-                id: true,
-                title: true,
-              },
-            },
-            ForumComment: {
-              select: {
-                id: true,
-                user: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    photo: true,
-                  },
-                },
-                createdAt: true,
-              },
-              orderBy: {
-                createdAt: Prisma.SortOrder.desc,
-              },
-            },
+          ],
+        });
+        filters.push({
+          OR: [{ categoryId: null }, { category: { isActive: true } }],
+        });
+      }
+      if (query.categoryId) filters.push({ categoryId: query.categoryId });
+      if (query.courseId) filters.push({ courseId: query.courseId });
+      const q = query.q?.trim();
+      if (q) {
+        filters.push({
+          OR: [
+            { title: { contains: q, mode: 'insensitive' } },
+            { content: { contains: q, mode: 'insensitive' } },
+          ],
+        });
+      }
+
+      const forums = await this.prisma.forumThread.findMany({
+        where: filters.length ? { AND: filters } : undefined,
+        include: {
+          user: { select: THREAD_AUTHOR },
+          course: { select: THREAD_COURSE },
+          category: { select: THREAD_CATEGORY },
+          votes: {
+            where: { userId: user.id },
+            select: { id: true },
           },
-          where:
-            user?.role === 'user'
-              ? {
-                  status: 'active',
-                  OR: [
-                    { courseId: null },
-                    {
-                      course: {
-                        users: { some: { userId: user.id, isActive: true } },
-                      },
-                    },
-                  ],
-                }
-              : undefined,
-        }),
-      ]);
+          FavoriteForumThread: {
+            where: { userId: user.id },
+            select: { id: true },
+          },
+          ThreadSubscription: {
+            where: { userId: user.id },
+            select: { id: true },
+          },
+          ForumComment: {
+            select: {
+              id: true,
+              user: { select: THREAD_AUTHOR },
+              createdAt: true,
+            },
+            orderBy: { createdAt: Prisma.SortOrder.desc },
+            take: 3,
+          },
+          _count: { select: { ForumComment: true } },
+        },
+        orderBy:
+          query.sort === 'top'
+            ? [
+                { isPinned: 'desc' },
+                { voteScore: 'desc' },
+                { lastActivityAt: 'desc' },
+              ]
+            : [{ isPinned: 'desc' }, { lastActivityAt: 'desc' }],
+      });
 
       void this.recordForumView(user.id, { scope: ForumViewScope.list });
 
-      const favoriteThreadIds = new Set(
-        favoriteThreads.map((fav) => fav.threadId),
-      );
-
-      const subscribedThreadIds = new Set(
-        subscribedThreads.map((sub) => sub.threadId),
-      );
-
-      // Step 5: Add `isFavorite`, `isSubscribed`, and `commenters` properties to each thread and sort favorite threads on top
-      const sortedForums = forums
-        .map((thread) => ({
-          ...thread,
-          isFavorite: favoriteThreadIds.has(thread.id),
-          isSubscribed: subscribedThreadIds.has(thread.id),
-        }))
-        .sort((a, b) => {
-          if (a.isFavorite && !b.isFavorite) {
-            return -1;
-          }
-          if (!a.isFavorite && b.isFavorite) {
-            return 1;
-          }
-          return 0;
-        });
+      const data = forums.map((thread) => {
+        const voted = withVotedByMe(thread);
+        const {
+          _count,
+          FavoriteForumThread,
+          ThreadSubscription,
+          ...rest
+        } = voted;
+        return {
+          ...rest,
+          commentCount: _count.ForumComment,
+          isFavorite: FavoriteForumThread.length > 0,
+          isSubscribed: ThreadSubscription.length > 0,
+        };
+      });
 
       return {
         message: 'Successfully fetched all forum threads',
         statusCode: 200,
-        data: sortedForums,
+        data,
       };
     } catch (error) {
       throw new HttpException(
@@ -243,29 +285,95 @@ export class ForumThreadService {
     }
   }
 
-  async createForumThread(body: any, userId: string): Promise<any> {
+  async createForumThread(body: any, user: User): Promise<any> {
     try {
-      if (!body.courseId) {
-        throw new Error('courseId is required');
+      if (!body?.categoryId) {
+        throw new Error('categoryId is required');
       }
+      if (!body?.title || !body?.content) {
+        throw new Error('title and content are required');
+      }
+
+      const category = await this.prisma.forumCategory.findUnique({
+        where: { id: body.categoryId },
+      });
+      if (!category) throw new Error('Category not found');
+
+      assertStudentMayCreate(category, user.role);
+
+      const courseId = body.courseId || null;
+      assertCourseScope(category, courseId);
+      if (courseId) {
+        await this.assertCourseVisible(courseId, user);
+      }
+
+      const status = resolveNewThreadStatus({
+        role: user.role,
+        category,
+        requestedStatus: body.status,
+      });
+      const isPinned = isAdminRole(user.role) && Boolean(body.isPinned);
+      const now = new Date();
+      const broadcast = shouldBroadcastNewThread({
+        role: user.role,
+        category,
+        status,
+      });
+
       const newThread = await this.prisma.forumThread.create({
         data: {
           title: body.title,
           content: body.content,
-          userId: userId,
-          courseId: body.courseId,
-          status: 'inActive',
+          userId: user.id,
+          courseId,
+          categoryId: category.id,
+          status,
+          isPinned,
+          lastActivityAt: now,
+          notificationSent: broadcast,
+          ThreadSubscription: {
+            create: { userId: user.id },
+          },
+        },
+        include: {
+          user: { select: THREAD_AUTHOR },
+          course: { select: THREAD_COURSE },
+          category: { select: THREAD_CATEGORY },
         },
       });
-      console.log({ newThread });
 
-      // Notification fan-out happens later when the thread is activated
-      // (status: inActive → active). See updateForumThread below.
+      if (broadcast) {
+        await this.notificationService.notifyAllUsersForNewThread({
+          threadId: newThread.id,
+          threadTitle: newThread.title,
+          courseId: newThread.courseId,
+          creator: {
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+          },
+        });
+      }
+
+      await notifyForumMentions({
+        prisma: this.prisma,
+        notifications: this.notificationService,
+        actor: {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        },
+        content: newThread.content,
+        threadId: newThread.id,
+        threadTitle: newThread.title,
+        allowMentions: categoryAllows(category, 'allowMentions'),
+        sourceKey: `thread:${newThread.id}`,
+      });
 
       return {
-        message: 'Successfully create quiz record',
+        message: 'Successfully created forum thread',
         statusCode: 200,
-        data: {},
+        data: { ...newThread, isFavorite: false, isSubscribed: true },
       };
     } catch (error) {
       throw new HttpException(
@@ -284,55 +392,106 @@ export class ForumThreadService {
   async updateForumThread(
     forumThreadId: string,
     body: any,
-    userId: any,
+    user: User,
   ): Promise<any> {
     try {
-      const existingForumThread: ForumThread =
-        await this.prisma.forumThread.findUnique({
-          where: { id: forumThreadId },
-        });
+      const existingForumThread = await this.prisma.forumThread.findUnique({
+        where: { id: forumThreadId },
+      });
       if (!existingForumThread) {
         throw new Error('Forum thread not found');
       }
-      if (Object.entries(body).length === 0) {
+      const admin = isAdminRole(user.role);
+      if (!admin && existingForumThread.userId !== user.id) {
+        throw new Error('You can only edit your own thread');
+      }
+      if (Object.entries(body ?? {}).length === 0) {
         throw new Error('wrong keys');
       }
-      const updateForumThread = {};
 
-      for (const [key, value] of Object.entries(body)) {
-        updateForumThread[key] = value;
+      const data: Prisma.ForumThreadUpdateInput = {};
+      if (body.title != null) data.title = body.title;
+      if (body.content != null) data.content = body.content;
+
+      const nextCategoryId =
+        body.categoryId !== undefined
+          ? body.categoryId || null
+          : existingForumThread.categoryId;
+      const nextCourseId =
+        body.courseId !== undefined
+          ? body.courseId || null
+          : existingForumThread.courseId;
+
+      if (body.categoryId !== undefined || body.courseId !== undefined) {
+        if (nextCategoryId) {
+          const category = await this.prisma.forumCategory.findUnique({
+            where: { id: nextCategoryId },
+          });
+          if (!category) throw new Error('Category not found');
+          assertCourseScope(category, nextCourseId);
+          data.category = { connect: { id: nextCategoryId } };
+        } else {
+          data.category = { disconnect: true };
+        }
+        if (nextCourseId) {
+          await this.assertCourseVisible(nextCourseId, user);
+          data.course = { connect: { id: nextCourseId } };
+        } else if (body.courseId !== undefined) {
+          data.course = { disconnect: true };
+        }
       }
 
-      // Check if status is being changed from 'inactive' to 'active' and if notification has not been sent
-      const statusChangingToActive =
-        existingForumThread.status === 'inActive' &&
-        updateForumThread['status'] === 'active';
+      if (admin) {
+        if (body.status === 'active' || body.status === 'inActive') {
+          data.status = body.status;
+        }
+        if (body.isPinned != null) data.isPinned = Boolean(body.isPinned);
+      }
 
-      const shouldSendNotification =
+      const statusChangingToActive =
+        existingForumThread.status === 'inActive' && data.status === 'active';
+      const firstPublish =
         statusChangingToActive && !existingForumThread.notificationSent;
 
-      if (shouldSendNotification) {
-        updateForumThread['notificationSent'] = true;
+      let willNotify = false;
+      if (firstPublish) {
+        data.notificationSent = true;
+        const categoryId = nextCategoryId ?? existingForumThread.categoryId;
+        const notifyCategory = categoryId
+          ? await this.prisma.forumCategory.findUnique({
+              where: { id: categoryId },
+            })
+          : null;
+        willNotify = notifyCategory
+          ? shouldBroadcastNewThread({
+              role: user.role,
+              category: notifyCategory,
+              status: 'active',
+            })
+          : isAdminRole(user.role);
       }
-      // Save the updated user
+
       const updatedForumThread = await this.prisma.forumThread.update({
-        where: { id: forumThreadId }, // Specify the unique identifier for the user you want to update
-        data: updateForumThread, // Pass the modified user object
+        where: { id: forumThreadId },
+        data,
+        include: {
+          user: { select: THREAD_AUTHOR },
+          course: { select: THREAD_COURSE },
+          category: { select: THREAD_CATEGORY },
+        },
       });
 
-      if (shouldSendNotification) {
-        const admin = await this.prisma.user.findUnique({
-          where: { id: userId },
-          select: { id: true, firstName: true, lastName: true },
+      if (willNotify) {
+        await this.notificationService.notifyAllUsersForNewThread({
+          threadId: forumThreadId,
+          threadTitle: updatedForumThread.title,
+          courseId: updatedForumThread.courseId,
+          creator: {
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+          },
         });
-        if (admin) {
-          await this.notificationService.notifyAllUsersForNewThread({
-            threadId: forumThreadId,
-            threadTitle: existingForumThread.title,
-            courseId: existingForumThread.courseId,
-            creator: admin,
-          });
-        }
       }
 
       return {
@@ -354,13 +513,16 @@ export class ForumThreadService {
     }
   }
 
-  async deleteForumThread(forumThreadId: any): Promise<any> {
+  async deleteForumThread(forumThreadId: string, user: User): Promise<any> {
     try {
       const quiz: ForumThread = await this.prisma.forumThread.findUnique({
         where: { id: forumThreadId },
       });
       if (!quiz) {
         throw new Error('Forum Thread not found');
+      }
+      if (!isAdminRole(user.role) && quiz.userId !== user.id) {
+        throw new Error('You can only delete your own thread');
       }
 
       await this.prisma.forumThread.delete({
@@ -421,8 +583,39 @@ export class ForumThreadService {
               title: true,
             },
           },
+          category: { select: THREAD_CATEGORY },
+          votes: userId
+            ? { where: { userId }, select: { id: true } }
+            : false,
         },
       });
+
+      if (!forum) {
+        throw new Error('Forum thread not found');
+      }
+
+      if (userId) {
+        const viewer = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, role: true },
+        });
+        if (viewer?.role === Role.user) {
+          if (forum.status !== 'active' && forum.userId !== userId) {
+            throw new Error('Forum thread not found');
+          }
+          if (forum.courseId) {
+            const enrolled = await this.prisma.userCourse.findFirst({
+              where: {
+                userId,
+                courseId: forum.courseId,
+                isActive: true,
+              },
+              select: { id: true },
+            });
+            if (!enrolled) throw new Error('Forum thread not found');
+          }
+        }
+      }
 
       if (userId && forum) {
         void this.recordForumView(userId, {
@@ -435,7 +628,126 @@ export class ForumThreadService {
       return {
         message: 'Successfully fetch Quiz info',
         statusCode: 200,
-        data: forum,
+        data: withVotedByMe(forum),
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async voteForumThread(threadId: string, body: unknown, user: User) {
+    try {
+      const value = parseVoteValue(body);
+      const result = await toggleForumVote(this.prisma, {
+        userId: user.id,
+        threadId,
+        value,
+      });
+
+      return {
+        message: value === 1 ? 'Liked thread' : 'Removed like',
+        statusCode: 200,
+        data: result,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  async searchMentions(
+    user: User,
+    query: { q?: string; threadId?: string; courseId?: string },
+  ) {
+    try {
+      let courseId = query.courseId || null;
+      let allowMentions = true;
+
+      if (query.threadId) {
+        const thread = await this.prisma.forumThread.findUnique({
+          where: { id: query.threadId },
+          select: {
+            courseId: true,
+            category: { select: { allowMentions: true } },
+          },
+        });
+        if (!thread) throw new Error('Forum thread not found');
+        allowMentions = categoryAllows(thread.category, 'allowMentions');
+        courseId = thread.courseId;
+      }
+
+      if (!allowMentions) {
+        return {
+          message: 'Successfully fetched mention suggestions',
+          statusCode: 200,
+          data: [],
+        };
+      }
+
+      if (courseId) {
+        await this.assertCourseVisible(courseId, user);
+      }
+
+      const term = query.q?.trim();
+      const nameFilter: Prisma.UserWhereInput | undefined = term
+        ? {
+            OR: [
+              { firstName: { contains: term, mode: 'insensitive' } },
+              { lastName: { contains: term, mode: 'insensitive' } },
+            ],
+          }
+        : undefined;
+      const scope: Prisma.UserWhereInput | undefined = courseId
+        ? {
+            OR: [
+              { role: Role.admin },
+              {
+                UserCourse: {
+                  some: { courseId, isActive: true },
+                },
+              },
+            ],
+          }
+        : undefined;
+
+      const users = await this.prisma.user.findMany({
+        where: {
+          deletedAt: null,
+          status: UserStatus.active,
+          AND: [scope, nameFilter].filter(Boolean) as Prisma.UserWhereInput[],
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          photo: true,
+          role: true,
+        },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+        take: 20,
+      });
+
+      return {
+        message: 'Successfully fetched mention suggestions',
+        statusCode: 200,
+        data: users,
       };
     } catch (error) {
       throw new HttpException(
@@ -490,6 +802,22 @@ export class ForumThreadService {
       ForumThreadService.logger.warn(
         `Failed to record forum view for user ${userId}: ${message}`,
       );
+    }
+  }
+
+  private async assertCourseVisible(courseId: string, user: User) {
+    const course = await this.prisma.course.findUnique({
+      where: { id: courseId },
+      select: { id: true },
+    });
+    if (!course) throw new Error('Course not found');
+    if (isAdminRole(user.role)) return;
+    const enrolled = await this.prisma.userCourse.findFirst({
+      where: { userId: user.id, courseId, isActive: true },
+      select: { id: true },
+    });
+    if (!enrolled) {
+      throw new Error('You must be enrolled in this course to post here');
     }
   }
 }

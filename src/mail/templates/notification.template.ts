@@ -105,6 +105,29 @@ export function renderNotificationEmail(
       };
     }
 
+    case 'FORUM_MENTION': {
+      const name = escapeHtml(mail.recipientFirstName || 'there');
+      const title = escapeHtml(mail.threadTitle);
+      const mentioner = escapeHtml(mail.mentionerName);
+      const url = forumThread(mail.threadId);
+      const body = `<p>Dear ${name},</p>
+        <p style="margin-top:12px;">${mentioner} mentioned you in <strong>${title}</strong>.</p>`;
+      return {
+        subject: `${mail.mentionerName} mentioned you in ${mail.threadTitle}`,
+        html: layout({
+          heading: 'You were mentioned in a discussion',
+          bodyHtml: body,
+          ctaLabel: 'View discussion',
+          ctaUrl: url,
+        }),
+        text: `Dear ${
+          mail.recipientFirstName || 'there'
+        },\n\n${mail.mentionerName} mentioned you in "${
+          mail.threadTitle
+        }".\n\nView it: ${url}\n\nKind regards,\nThe ${BRAND.name} Team`,
+      };
+    }
+
     case 'ASSESSMENT_SUBMITTED': {
       const name = escapeHtml(mail.recipientFirstName || 'there');
       const student = escapeHtml(mail.studentName);

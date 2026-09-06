@@ -70,6 +70,7 @@ ASSESSMENT_SUBMITTED   // → admin: a student submitted an assessment
 ASSESSMENT_GRADED      // → student: admin finalized their attempt
 FORUM_THREAD           // → all users: admin created a new thread
 FORUM_COMMENT          // → thread subscribers: new comment on a thread
+FORUM_MENTION          // → mentioned user: @mention in a thread or comment
 ENGAGEMENT_REMINDER    // → student: automated low-engagement nudge (see §4 payload)
 ```
 
@@ -122,6 +123,15 @@ falls back to `message`. Proposed payload shapes per type:
   commenterLastName: string;
 }
 
+// FORUM_MENTION
+{
+  threadId: string;
+  threadTitle: string;
+  commentId?: string;                // omitted when the mention is in the thread body
+  mentionerFirstName: string;
+  mentionerLastName: string;
+}
+
 // ENGAGEMENT_REMINDER  (automated, written by the engagement sweep)
 {
   reminderType: 'never_started' | 'stalled';
@@ -149,6 +159,7 @@ one row with "+N more …" suffix. Convention:
 | `ASSESSMENT_GRADED`   | `null` (per-student, no grouping)       |
 | `FORUM_THREAD`        | `null`                                  |
 | `FORUM_COMMENT`       | `forum-comment:<threadId>`              |
+| `FORUM_MENTION`       | `forum-mention:<threadId>`              |
 
 Until `groupKey` ships, FE groups client-side on
 `(type, message)` for `ASSESSMENT_SUBMITTED`, which is fragile (any

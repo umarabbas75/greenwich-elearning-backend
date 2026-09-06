@@ -58,6 +58,8 @@ model User {
   passwordResets           PasswordReset[]
   loginEvents              LoginEvent[]
   forumViewEvents          ForumViewEvent[]
+  forumCategoriesCreated   ForumCategory[]            @relation("ForumCategoryCreator")
+  forumVotes               ForumVote[]
   sectionTimeSpent         SectionTimeSpent[]
   sectionTimeSpentDaily    SectionTimeSpentDaily[]
   emailLogs                EmailLog[]
@@ -654,24 +656,86 @@ model LastSeenSection {
   @@index([userId, courseId, updatedAt])
 }
 
+/// How strictly a board is tied to a course. Stored on the category so admins
+/// can change it later (and so we never hardcode slug = "study").
+enum ForumCourseScope {
+  REQUIRED
+  OPTIONAL
+  FORBIDDEN
+}
+
+/// Who may start a thread on this board, and whether it goes live immediately.
+enum ForumStudentCreatePolicy {
+  ALLOWED
+  MODERATED
+  DISABLED
+}
+
+/// When a new thread is published, who gets the FORUM_THREAD fan-out.
+enum ForumNotifyOnCreate {
+  ADMIN_ONLY
+  ALL
+  NONE
+}
+
+/// Admin-managed board. Threads point here with a nullable FK so the category
+/// layer can be detached later without deleting discussions.
+model ForumCategory {
+  id                  String                   @id @default(uuid())
+  name                String
+  slug                String                   @unique
+  description         String?
+  icon                String?
+  sortOrder           Int                      @default(0)
+  isActive            Boolean                  @default(true)
+  courseScope         ForumCourseScope         @default(OPTIONAL)
+  studentCreatePolicy ForumStudentCreatePolicy @default(ALLOWED)
+  notifyOnCreate      ForumNotifyOnCreate      @default(ADMIN_ONLY)
+  /// Feature flags — turn a capability off without dropping columns.
+  allowAcceptedAnswer Boolean                  @default(true)
+  allowVotes          Boolean                  @default(true)
+  allowMentions       Boolean                  @default(true)
+  createdByAdminId    String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  createdByAdmin User?         @relation("ForumCategoryCreator", fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  threads        ForumThread[]
+
+  @@map("forum_categories")
+}
+
 model ForumThread {
   id                  String                @id @default(uuid())
   title               String
   content             String
   userId              String
   courseId            String?
+  /// Nullable so we can unplug categories later (ON DELETE SET NULL).
+  categoryId          String?
   status              String
+  isPinned            Boolean               @default(false)
+  lastActivityAt      DateTime              @default(now())
+  /// Denormalised; ignore if votes are turned off. Safe to leave in place.
+  voteScore           Int                   @default(0)
+  acceptedCommentId   String?
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
   notificationSent    Boolean               @default(false)
   FavoriteForumThread FavoriteForumThread[]
   ForumComment        ForumComment[]
+  votes               ForumVote[]
   user                User                  @relation(fields: [userId], references: [id])
   course              Course?               @relation(fields: [courseId], references: [id])
+  category            ForumCategory?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  acceptedComment     ForumComment?         @relation("ThreadAcceptedComment", fields: [acceptedCommentId], references: [id], onDelete: SetNull)
   Notification        Notification[]
   ThreadSubscription  ThreadSubscription[]
   viewEvents          ForumViewEvent[]
 
+  @@index([categoryId, isPinned(sort: Desc), lastActivityAt(sort: Desc)])
+  @@index([isPinned(sort: Desc), lastActivityAt(sort: Desc)])
+  @@index([isPinned(sort: Desc), voteScore(sort: Desc), lastActivityAt(sort: Desc)])
   @@map("forum_threads")
 }
 
@@ -704,12 +768,36 @@ model ForumComment {
   content   String
   userId    String
   threadId  String
+  voteScore Int         @default(0)
+  isAccepted Boolean    @default(false)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
   thread    ForumThread @relation(fields: [threadId], references: [id])
   user      User        @relation(fields: [userId], references: [id])
+  votes     ForumVote[]
+  acceptedForThread ForumThread[] @relation("ThreadAcceptedComment")
 
+  @@index([threadId, isAccepted(sort: Desc), voteScore(sort: Desc), createdAt(sort: Desc)])
+  @@index([threadId, isAccepted(sort: Desc), createdAt(sort: Desc)])
   @@map("forum_comments")
+}
+
+/// One like per user per thread or comment. Delete the row to unlike.
+/// Either threadId or commentId is set (not both). Droppable later.
+model ForumVote {
+  id        String   @id @default(uuid())
+  userId    String
+  threadId  String?
+  commentId String?
+  createdAt DateTime @default(now())
+
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread  ForumThread?  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  comment ForumComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, threadId])
+  @@unique([userId, commentId])
+  @@map("forum_votes")
 }
 
 model FavoriteForumThread {
@@ -949,6 +1037,7 @@ model AssignmentSubmissionAttachment {
 enum NotificationType {
   FORUM_COMMENT
   FORUM_THREAD
+  FORUM_MENTION
   ASSESSMENT_SUBMITTED
   ASSESSMENT_GRADED
   ENGAGEMENT_REMINDER // automated low-engagement nudge; reminderType (never_started|stalled) lives in payload
@@ -1281,6 +1370,7 @@ enum EmailType {
   // Notification mirror emails — one per in-app NotificationType.
   NOTIFICATION_FORUM_THREAD
   NOTIFICATION_FORUM_COMMENT
+  NOTIFICATION_FORUM_MENTION
   NOTIFICATION_ASSESSMENT_SUBMITTED
   NOTIFICATION_ASSESSMENT_GRADED
   NOTIFICATION_ASSIGNMENT_CREATED

@@ -4,19 +4,16 @@ import {
   Body,
   UseGuards,
   Get,
-  // Put,
   Param,
   Put,
   Delete,
-  // Delete,
+  Query,
 } from '@nestjs/common';
 import { ForumCommentService } from './forum-comment.service';
 
 import { AuthGuard } from '@nestjs/passport';
 import { GetUser } from 'src/decorator';
 import { User } from '@prisma/client';
-// import { GetUser } from '../decorator';
-// import { User } from '@prisma/client';
 
 @Controller('forum-thread-comment')
 export class ForumCommentController {
@@ -28,30 +25,66 @@ export class ForumCommentController {
     @Body() body: any,
     @GetUser() user: User,
   ): Promise<any> {
-    return this.forumThreadService.createForumThreadComment(body, user.id);
+    return this.forumThreadService.createForumThreadComment(body, user);
   }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/:id/accept')
+  acceptForumComment(
+    @Param('id') id: string,
+    @GetUser() user: User,
+    @Body() body?: { accepted?: boolean },
+  ) {
+    return this.forumThreadService.acceptForumComment(id, user, body);
+  }
+
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/:id/vote')
+  voteForumComment(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @GetUser() user: User,
+  ) {
+    return this.forumThreadService.voteForumComment(id, body, user);
+  }
+
   @UseGuards(AuthGuard('cJwt'))
   @Get('/:forumThreadId')
-  async getForumCommentsByThreadId(@Param() params: any) {
+  async getForumCommentsByThreadId(
+    @Param('forumThreadId') forumThreadId: string,
+    @GetUser() user: User,
+    @Query('sort') sort?: string,
+  ) {
     return this.forumThreadService.getForumCommentsByThreadId(
-      params?.forumThreadId,
+      forumThreadId,
+      user,
+      sort,
     );
   }
 
   @UseGuards(AuthGuard('cJwt'))
   @Put('/:forumThreadId')
-  async updateForumThreadComment(@Param() params: any, @Body() body: any) {
+  async updateForumThreadComment(
+    @Param('forumThreadId') forumThreadId: string,
+    @Body() body: any,
+    @GetUser() user: User,
+  ) {
     return this.forumThreadService.updateForumThreadComment(
-      params?.forumThreadId,
+      forumThreadId,
       body,
+      user,
     );
   }
 
   @UseGuards(AuthGuard('cJwt'))
   @Delete('/:forumThreadId')
-  async deleteForumThreadComment(@Param() params: any) {
+  async deleteForumThreadComment(
+    @Param('forumThreadId') forumThreadId: string,
+    @GetUser() user: User,
+  ) {
     return this.forumThreadService.deleteForumThreadComment(
-      params?.forumThreadId,
+      forumThreadId,
+      user,
     );
   }
 }

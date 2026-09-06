@@ -70,6 +70,15 @@ export type NotificationEmail =
       excerpt: string;
     }
   | {
+      kind: 'FORUM_MENTION';
+      to: string;
+      userId?: string | null;
+      recipientFirstName: string;
+      threadId: string;
+      threadTitle: string;
+      mentionerName: string;
+    }
+  | {
       kind: 'ASSESSMENT_SUBMITTED';
       to: string;
       userId?: string | null;

@@ -259,6 +259,23 @@ function buildPreviews(): PreviewItem[] {
         }).html,
     },
     {
+      id: 'notification-forum-mention',
+      category: 'Notifications',
+      name: 'Forum — mention',
+      subject: '',
+      trigger: 'Someone mentioned you in a discussion',
+      recipient: 'Student',
+      render: () =>
+        renderNotificationEmail({
+          kind: 'FORUM_MENTION',
+          to: SAMPLE.email,
+          recipientFirstName: SAMPLE.firstName,
+          threadId: SAMPLE.threadId,
+          threadTitle: 'Best practices for risk assessment',
+          mentionerName: 'Samira Khan',
+        }).html,
+    },
+    {
       id: 'notification-assessment-submitted',
       category: 'Notifications',
       name: 'Assessment submitted',
@@ -396,6 +413,14 @@ function getSubjectForId(id: string): string {
       threadTitle: 'Best practices for risk assessment',
       commenterName: 'Samira Khan',
       excerpt: 'Great point.',
+    }).subject,
+    'notification-forum-mention': renderNotificationEmail({
+      kind: 'FORUM_MENTION',
+      to: SAMPLE.email,
+      recipientFirstName: SAMPLE.firstName,
+      threadId: SAMPLE.threadId,
+      threadTitle: 'Best practices for risk assessment',
+      mentionerName: 'Samira Khan',
     }).subject,
     'notification-assessment-submitted': renderNotificationEmail({
       kind: 'ASSESSMENT_SUBMITTED',

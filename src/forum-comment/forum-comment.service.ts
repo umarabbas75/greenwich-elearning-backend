@@ -1,8 +1,18 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { NotificationType } from '@prisma/client';
+import { NotificationType, Prisma, User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
+import {
+  categoryAllows,
+  isAdminRole,
+} from '../forum-thread/forum-policy';
+import { notifyForumMentions } from '../forum-thread/forum-mention-notify';
+import {
+  parseVoteValue,
+  toggleForumVote,
+  withVotedByMe,
+} from '../forum-thread/forum-vote';
 
 /** Truncate to N chars after stripping HTML-ish tags. Cheap defensive scrub
  * — comment content is plain text today but this protects against future
@@ -11,6 +21,14 @@ function buildExcerpt(content: string, maxLen = 140): string {
   return content.replace(/<[^>]*>/g, '').slice(0, maxLen);
 }
 
+const COMMENT_AUTHOR = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  photo: true,
+  role: true,
+} satisfies Prisma.UserSelect;
+
 @Injectable()
 export class ForumCommentService {
   constructor(
@@ -18,34 +36,58 @@ export class ForumCommentService {
     private notificationService: NotificationService,
   ) {}
 
-  async createForumThreadComment(body: any, userId: string): Promise<any> {
+  async createForumThreadComment(body: any, user: User): Promise<any> {
     try {
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true, firstName: true, lastName: true },
-      });
-      if (!user) throw new Error('User not found');
-
       const thread = await this.prisma.forumThread.findUnique({
         where: { id: body?.threadId },
-        select: { id: true, title: true },
+        select: {
+          id: true,
+          title: true,
+          category: {
+            select: { allowMentions: true },
+          },
+        },
       });
       if (!thread) throw new Error('Forum thread not found');
+      if (!body?.content) throw new Error('content is required');
 
       const comment = await this.prisma.forumComment.create({
         data: {
-          content: body?.content,
-          user: { connect: { id: userId } },
+          content: body.content,
+          user: { connect: { id: user.id } },
           thread: { connect: { id: body.threadId } },
         },
-        select: { id: true },
+        include: {
+          user: { select: COMMENT_AUTHOR },
+        },
       });
 
-      // In-app notifications go to thread subscribers (minus the commenter).
-      // The admin inbox is CC'd by EMAIL only — no in-app row — so the bell
-      // stays subscriber-scoped as before.
+      await this.prisma.forumThread.update({
+        where: { id: body.threadId },
+        data: { lastActivityAt: new Date() },
+      });
+
+      const mentionedIds = await notifyForumMentions({
+        prisma: this.prisma,
+        notifications: this.notificationService,
+        actor: {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        },
+        content: body.content,
+        threadId: thread.id,
+        threadTitle: thread.title,
+        allowMentions: categoryAllows(thread.category, 'allowMentions'),
+        sourceKey: `comment:${comment.id}`,
+        commentId: comment.id,
+      });
+
       const subscribedUsers = await this.prisma.threadSubscription.findMany({
-        where: { threadId: body.threadId, userId: { not: userId } },
+        where: {
+          threadId: body.threadId,
+          userId: { notIn: [user.id, ...mentionedIds] },
+        },
         select: { userId: true },
       });
 
@@ -66,10 +108,10 @@ export class ForumCommentService {
         },
         groupKey: `forum-comment:${thread.id}`,
         threadId: thread.id,
-        commenterId: userId,
+        commenterId: user.id,
         dedupeKeyFor: (recipientId) => `comment:${comment.id}:${recipientId}`,
         email: {
-          excludeUserId: userId, // don't email the commenter about their own comment
+          excludeUserId: user.id,
           build: (r) => ({
             kind: 'FORUM_COMMENT',
             to: r.email,
@@ -86,53 +128,140 @@ export class ForumCommentService {
       return {
         message: 'Successfully create quiz record',
         statusCode: 200,
-        data: {},
+        data: { ...comment, isVotedByMe: false },
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw this.wrap(error);
     }
   }
 
-  async getForumCommentsByThreadId(threadId: string) {
+  async getForumCommentsByThreadId(
+    threadId: string,
+    user: User,
+    sort?: string,
+  ) {
     const comments = await this.prisma.forumComment.findMany({
-      orderBy: {
-        createdAt: 'desc',
-      },
-      where: {
-        threadId,
-      },
+      where: { threadId },
       include: {
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            phone: true,
-            photo: true,
-            timezone: true,
-            createdAt: true,
-            updatedAt: true,
-            role: true,
-          },
-        }, // Include user details for each comment
+        user: { select: COMMENT_AUTHOR },
+        votes: {
+          where: { userId: user.id },
+          select: { id: true },
+        },
       },
+      orderBy:
+        sort === 'latest'
+          ? [{ isAccepted: 'desc' }, { createdAt: 'desc' }]
+          : [
+              { isAccepted: 'desc' },
+              { voteScore: 'desc' },
+              { createdAt: 'desc' },
+            ],
     });
 
     return {
       message: 'Successfully fetch all forum comments',
       statusCode: 200,
-      data: comments,
+      data: comments.map(withVotedByMe),
     };
+  }
+
+  async voteForumComment(commentId: string, body: unknown, user: User) {
+    try {
+      const value = parseVoteValue(body);
+      const result = await toggleForumVote(this.prisma, {
+        userId: user.id,
+        commentId,
+        value,
+      });
+
+      return {
+        message: value === 1 ? 'Liked comment' : 'Removed like',
+        statusCode: 200,
+        data: result,
+      };
+    } catch (error) {
+      throw this.wrap(error);
+    }
+  }
+
+  async acceptForumComment(
+    commentId: string,
+    user: User,
+    body?: { accepted?: boolean },
+  ) {
+    try {
+      const comment = await this.prisma.forumComment.findUnique({
+        where: { id: commentId },
+        select: {
+          id: true,
+          isAccepted: true,
+          threadId: true,
+          thread: {
+            select: {
+              userId: true,
+              acceptedCommentId: true,
+              category: { select: { allowAcceptedAnswer: true } },
+            },
+          },
+        },
+      });
+      if (!comment) throw new Error('Forum comment not found');
+      if (
+        !isAdminRole(user.role) &&
+        comment.thread.userId !== user.id
+      ) {
+        throw new Error('Only the thread author or an admin can accept an answer');
+      }
+      if (!categoryAllows(comment.thread.category, 'allowAcceptedAnswer')) {
+        throw new Error('Accepted answers are not enabled for this category');
+      }
+
+      const shouldAccept =
+        body?.accepted !== undefined
+          ? Boolean(body.accepted)
+          : comment.thread.acceptedCommentId !== comment.id;
+
+      if (shouldAccept) {
+        if (
+          comment.thread.acceptedCommentId &&
+          comment.thread.acceptedCommentId !== comment.id
+        ) {
+          await this.prisma.forumComment.update({
+            where: { id: comment.thread.acceptedCommentId },
+            data: { isAccepted: false },
+          });
+        }
+        await this.prisma.forumComment.update({
+          where: { id: comment.id },
+          data: { isAccepted: true },
+        });
+        await this.prisma.forumThread.update({
+          where: { id: comment.threadId },
+          data: { acceptedCommentId: comment.id },
+        });
+      } else {
+        await this.prisma.forumComment.update({
+          where: { id: comment.id },
+          data: { isAccepted: false },
+        });
+        await this.prisma.forumThread.update({
+          where: { id: comment.threadId },
+          data: { acceptedCommentId: null },
+        });
+      }
+
+      return {
+        message: shouldAccept ? 'Marked as solution' : 'Cleared solution',
+        statusCode: 200,
+        data: {
+          acceptedCommentId: shouldAccept ? comment.id : null,
+          isAccepted: shouldAccept,
+        },
+      };
+    } catch (error) {
+      throw this.wrap(error);
+    }
   }
 
   async getAllForumThreads(): Promise<any> {
@@ -158,75 +287,59 @@ export class ForumCommentService {
         data: forums,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw this.wrap(error);
     }
   }
 
   async updateForumThreadComment(
-    forumThreadId: string,
+    commentId: string,
     body: any,
+    user: User,
   ): Promise<any> {
     try {
-      const existingForumThread = await this.prisma.forumComment.findUnique({
-        where: { id: forumThreadId },
+      const existing = await this.prisma.forumComment.findUnique({
+        where: { id: commentId },
       });
-      if (!existingForumThread) {
+      if (!existing) {
         throw new Error('Forum comment not found');
       }
-      if (Object.entries(body).length === 0) {
-        throw new Error('wrong keys');
+      if (!isAdminRole(user.role) && existing.userId !== user.id) {
+        throw new Error('You can only edit your own comment');
       }
-      const updateForumThread = {};
-
-      for (const [key, value] of Object.entries(body)) {
-        updateForumThread[key] = value;
+      if (body?.content == null || String(body.content).length === 0) {
+        throw new Error('content is required');
       }
 
-      // Save the updated user
-      const updatedForumThread = await this.prisma.forumComment.update({
-        where: { id: forumThreadId }, // Specify the unique identifier for the user you want to update
-        data: updateForumThread, // Pass the modified user object
+      const updated = await this.prisma.forumComment.update({
+        where: { id: commentId },
+        data: { content: body.content },
+        include: { user: { select: COMMENT_AUTHOR } },
       });
 
       return {
         message: 'Successfully updated forum record',
         statusCode: 200,
-        data: updatedForumThread,
+        data: updated,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw this.wrap(error);
     }
   }
 
-  async deleteForumThreadComment(forumThreadId: any): Promise<any> {
+  async deleteForumThreadComment(commentId: string, user: User): Promise<any> {
     try {
-      const quiz = await this.prisma.forumComment.findUnique({
-        where: { id: forumThreadId },
+      const existing = await this.prisma.forumComment.findUnique({
+        where: { id: commentId },
       });
-      if (!quiz) {
-        throw new Error('Forum Thread not found');
+      if (!existing) {
+        throw new Error('Forum comment not found');
+      }
+      if (!isAdminRole(user.role) && existing.userId !== user.id) {
+        throw new Error('You can only delete your own comment');
       }
 
       await this.prisma.forumComment.delete({
-        where: { id: forumThreadId },
+        where: { id: commentId },
       });
 
       return {
@@ -235,16 +348,7 @@ export class ForumCommentService {
         data: {},
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw this.wrap(error);
     }
   }
 
@@ -269,16 +373,21 @@ export class ForumCommentService {
         data: forum,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      throw this.wrap(error);
     }
+  }
+
+  private wrap(error: unknown) {
+    if (error instanceof HttpException) return error;
+    const message =
+      error instanceof Error ? error.message : 'Something went wrong';
+    return new HttpException(
+      {
+        status: HttpStatus.FORBIDDEN,
+        error: message,
+      },
+      HttpStatus.FORBIDDEN,
+      { cause: error },
+    );
   }
 }
