@@ -19,6 +19,7 @@ export function uploadCertificatePdf(
   publicId: string,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    console.log('test')
     const stream = cloudinary.uploader.upload_stream(
       {
         resource_type: 'raw',

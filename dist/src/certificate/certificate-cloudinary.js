@@ -13,6 +13,7 @@ function configureCloudinary(config) {
 exports.configureCloudinary = configureCloudinary;
 function uploadCertificatePdf(buffer, publicId) {
     return new Promise((resolve, reject) => {
+        console.log('test');
         const stream = cloudinary_1.v2.uploader.upload_stream({
             resource_type: 'raw',
             folder: 'certificates',
