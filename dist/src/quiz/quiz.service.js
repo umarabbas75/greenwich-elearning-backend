@@ -20,6 +20,8 @@ const course_version_manifest_1 = require("../course-version/course-version.mani
 const chapter_progression_1 = require("../utils/chapter-progression");
 const course_completion_service_1 = require("../course-completion/course-completion.service");
 const assert_imported_course_tree_locked_1 = require("../utils/assert-imported-course-tree-locked");
+const question_grading_1 = require("../utils/question-grading");
+const QUIZ_QUESTION_MAX_MARKS = 1;
 let QuizService = QuizService_1 = class QuizService {
     constructor(prisma, config, courseVersionService, courseCompletion) {
         this.prisma = prisma;
@@ -231,18 +233,28 @@ let QuizService = QuizService_1 = class QuizService {
                                 question: true,
                                 options: true,
                                 answer: true,
+                                type: true,
+                                content: true,
                             },
                         },
                     },
                 });
                 quizzes = chapter?.quizzes ?? [];
             }
+            const isStudentRole = role !== 'admin';
             const updatedUserQuizData = quizzes?.map((item) => {
                 const userAnswer = userAnswers.find((ua) => ua.quizId === item.id);
+                const isTyped = Boolean(item.type);
                 return {
                     ...item,
-                    userAnswered: userAnswer?.answer ? true : false,
+                    content: isTyped && isStudentRole
+                        ? (0, question_grading_1.stripCorrectAnswerFields)(item.content)
+                        : item.content,
+                    userAnswered: isTyped
+                        ? userAnswer?.studentAnswer != null
+                        : Boolean(userAnswer?.answer),
                     isAnswerCorrect: userAnswer?.isAnswerCorrect,
+                    studentAnswer: userAnswer?.studentAnswer ?? null,
                 };
             });
             return {
@@ -415,17 +427,24 @@ let QuizService = QuizService_1 = class QuizService {
     }
     async createQuiz(body) {
         try {
-            await this.prisma.quiz.create({
-                data: {
-                    question: body.question,
-                    options: body.options,
-                    answer: body.answer,
-                },
+            const quiz = await this.prisma.quiz.create({
+                data: body.type
+                    ? {
+                        question: body.question,
+                        options: [],
+                        type: body.type,
+                        content: body.content,
+                    }
+                    : {
+                        question: body.question,
+                        options: body.options,
+                        answer: body.answer,
+                    },
             });
             return {
                 message: 'Successfully create quiz record',
                 statusCode: 200,
-                data: {},
+                data: quiz,
             };
         }
         catch (error) {
@@ -717,14 +736,14 @@ let QuizService = QuizService_1 = class QuizService {
             for (const [key, value] of Object.entries(body)) {
                 updateQuiz[key] = value;
             }
-            await this.prisma.quiz.update({
+            const updated = await this.prisma.quiz.update({
                 where: { id },
                 data: updateQuiz,
             });
             return {
                 message: 'Successfully create quiz record',
                 statusCode: 200,
-                data: {},
+                data: updated,
             };
         }
         catch (error) {
@@ -963,6 +982,23 @@ let QuizService = QuizService_1 = class QuizService {
             if (!servedQuizIds.includes(body.quizId)) {
                 throw new common_1.BadRequestException('This quiz does not belong to the chapter you are viewing.');
             }
+            const isTyped = Boolean(quiz.type);
+            let isAnswerCorrect;
+            let systemScore = null;
+            if (isTyped) {
+                if (body.studentAnswer == null) {
+                    throw new common_1.BadRequestException('studentAnswer is required for this quiz question');
+                }
+                const score = (0, question_grading_1.calculateAutoScore)(quiz.type, quiz.content, body.studentAnswer, QUIZ_QUESTION_MAX_MARKS);
+                systemScore = score ?? 0;
+                isAnswerCorrect = systemScore >= QUIZ_QUESTION_MAX_MARKS;
+            }
+            else {
+                if (!body.answer) {
+                    throw new common_1.BadRequestException('answer is required for this quiz question');
+                }
+                isAnswerCorrect = body.answer == quiz.answer;
+            }
             const quizAnswerPromise = existingQuizAnswer
                 ? this.prisma.quizAnswer.update({
                     where: {
@@ -971,26 +1007,49 @@ let QuizService = QuizService_1 = class QuizService {
                             quizId: body.quizId,
                         },
                     },
-                    data: {
-                        chapterId: body.chapterId,
-                        answer: body.answer,
-                        isAnswerCorrect: body.answer == quiz.answer,
-                    },
+                    data: isTyped
+                        ? {
+                            chapterId: body.chapterId,
+                            studentAnswer: body.studentAnswer,
+                            isAnswerCorrect,
+                            systemScore,
+                        }
+                        : {
+                            chapterId: body.chapterId,
+                            answer: body.answer,
+                            isAnswerCorrect,
+                        },
                 })
                 : this.prisma.quizAnswer.create({
-                    data: {
-                        quizId: body.quizId,
-                        chapterId: body.chapterId,
-                        userId: userId,
-                        answer: body.answer,
-                        isAnswerCorrect: body.answer == quiz.answer,
-                    },
+                    data: isTyped
+                        ? {
+                            quizId: body.quizId,
+                            chapterId: body.chapterId,
+                            userId: userId,
+                            studentAnswer: body.studentAnswer,
+                            isAnswerCorrect,
+                            systemScore,
+                        }
+                        : {
+                            quizId: body.quizId,
+                            chapterId: body.chapterId,
+                            userId: userId,
+                            answer: body.answer,
+                            isAnswerCorrect,
+                        },
                 });
             const quizAnswer = await quizAnswerPromise;
             return {
                 message: 'Success',
                 statusCode: 200,
-                data: quizAnswer,
+                data: isTyped
+                    ? {
+                        ...quizAnswer,
+                        isAnswerCorrect,
+                        systemScore,
+                        maxMarks: QUIZ_QUESTION_MAX_MARKS,
+                    }
+                    : quizAnswer,
             };
         }
         catch (error) {

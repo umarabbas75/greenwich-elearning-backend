@@ -6,7 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, QuestionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   buildManifestFromLiveTree,
@@ -178,6 +178,8 @@ export class CourseVersionService {
     question: string;
     options: string[];
     answer?: string;
+    type?: QuestionType | null;
+    content?: unknown;
   }> | null> {
     const versionId =
       preResolvedVersionId !== undefined

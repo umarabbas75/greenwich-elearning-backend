@@ -19,6 +19,7 @@ const course_version_service_1 = require("../course-version/course-version.servi
 const certificate_service_1 = require("../certificate/certificate.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
 const assert_imported_course_tree_locked_1 = require("../utils/assert-imported-course-tree-locked");
+const question_grading_1 = require("../utils/question-grading");
 let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessmentService {
     constructor(prisma, notificationService, courseVersionService, certificateService) {
         this.prisma = prisma;
@@ -1225,60 +1226,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
         return a;
     }
     _calculateAutoScore(type, content, answer, maxMarks) {
-        if (!answer)
-            return null;
-        switch (type) {
-            case client_1.QuestionType.SINGLE_CHOICE:
-                return answer.selectedOptionId === content.correctOptionId
-                    ? maxMarks
-                    : 0;
-            case client_1.QuestionType.TRUE_FALSE:
-                return answer.answer === content.correctAnswer ? maxMarks : 0;
-            case client_1.QuestionType.FILL_IN_THE_BLANK:
-                return (answer.selectedWord ?? '').toLowerCase().trim() ===
-                    (content.correctAnswer ?? '').toLowerCase().trim()
-                    ? maxMarks
-                    : 0;
-            case client_1.QuestionType.MULTIPLE_CHOICE: {
-                const correct = new Set(content.correctOptionIds ?? []);
-                const selected = new Set(answer.selectedOptionIds ?? []);
-                const intersection = [...correct].filter((x) => selected.has(x)).length;
-                const union = new Set([...correct, ...selected]).size;
-                return union === 0 ? 0 : (intersection / union) * maxMarks;
-            }
-            case client_1.QuestionType.VISUAL_ACTIVITY: {
-                const correct = new Set(content.options
-                    ?.filter((o) => o.isCorrect)
-                    .map((o) => o.id) ?? []);
-                const selected = new Set(answer.selectedOptionIds ?? []);
-                if (correct.size === 1 && !content.allowMultiple) {
-                    const [onlyCorrect] = correct;
-                    return selected.has(onlyCorrect) && selected.size === 1
-                        ? maxMarks
-                        : 0;
-                }
-                const intersection = [...correct].filter((x) => selected.has(x)).length;
-                const union = new Set([...correct, ...selected]).size;
-                return union === 0 ? 0 : (intersection / union) * maxMarks;
-            }
-            case client_1.QuestionType.ORDERING: {
-                const correct = content.correctOrder ?? [];
-                const given = answer.orderedIds ?? [];
-                const matches = correct.filter((id, idx) => given[idx] === id).length;
-                return correct.length === 0 ? 0 : (matches / correct.length) * maxMarks;
-            }
-            case client_1.QuestionType.MATCHING: {
-                const pairs = content.pairs ?? [];
-                const givenPairs = answer.pairs ?? [];
-                const correct = givenPairs.filter((gp) => gp.leftId === gp.rightId).length;
-                return pairs.length === 0 ? 0 : (correct / pairs.length) * maxMarks;
-            }
-            case client_1.QuestionType.SHORT_ANSWER:
-            case client_1.QuestionType.LONG_ANSWER:
-                return null;
-            default:
-                return null;
-        }
+        return (0, question_grading_1.calculateAutoScore)(type, content, answer, maxMarks);
     }
     async _expireStaleAttempts(userId, assessmentId) {
         const graceMs = CourseAssessmentService_1.ASSESSMENT_TIMER_GRACE_SECONDS * 1000;
@@ -1326,29 +1274,10 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             ...attempt,
             questionSnapshots: (attempt.questionSnapshots ?? []).map((s) => {
                 const { questionContent, ...rest } = s;
-                const sanitizedContent = { ...questionContent };
-                delete sanitizedContent.correctOptionId;
-                delete sanitizedContent.correctOptionIds;
-                delete sanitizedContent.correctAnswer;
-                delete sanitizedContent.correctOrder;
-                if (sanitizedContent.pairs) {
-                    const categories = this._shuffle(sanitizedContent.pairs.map((p) => ({
-                        id: p.id,
-                        text: p.right,
-                    })));
-                    sanitizedContent.categories = categories;
-                    sanitizedContent.pairs = sanitizedContent.pairs.map((p) => ({
-                        id: p.id,
-                        left: p.left,
-                    }));
-                }
-                if (sanitizedContent.options) {
-                    sanitizedContent.options = sanitizedContent.options.map((o) => ({
-                        id: o.id,
-                        text: o.text,
-                    }));
-                }
-                return { ...rest, questionContent: sanitizedContent };
+                return {
+                    ...rest,
+                    questionContent: (0, question_grading_1.stripCorrectAnswerFields)(questionContent),
+                };
             }),
         };
     }

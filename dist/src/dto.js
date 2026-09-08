@@ -14,6 +14,7 @@ exports.SectionAttemptDto = exports.TrackingHeartbeatDto = exports.ResetPassword
 const client_1 = require("@prisma/client");
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
+const question_grading_1 = require("./utils/question-grading");
 class BodyDto {
 }
 exports.BodyDto = BodyDto;
@@ -265,15 +266,28 @@ __decorate([
     __metadata("design:type", String)
 ], QuizDto.prototype, "question", void 0);
 __decorate([
+    (0, class_validator_1.ValidateIf)((o) => !o.type),
     (0, class_validator_1.IsArray)(),
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", Array)
 ], QuizDto.prototype, "options", void 0);
 __decorate([
+    (0, class_validator_1.ValidateIf)((o) => !o.type),
     (0, class_validator_1.IsNotEmpty)(),
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], QuizDto.prototype, "answer", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsIn)(question_grading_1.QUIZ_QUESTION_TYPES),
+    __metadata("design:type", String)
+], QuizDto.prototype, "type", void 0);
+__decorate([
+    (0, class_validator_1.ValidateIf)((o) => !!o.type),
+    (0, class_validator_1.IsObject)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Object)
+], QuizDto.prototype, "content", void 0);
 class UpdateQuizDto {
 }
 exports.UpdateQuizDto = UpdateQuizDto;
@@ -292,6 +306,16 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], UpdateQuizDto.prototype, "answer", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsIn)(question_grading_1.QUIZ_QUESTION_TYPES),
+    __metadata("design:type", String)
+], UpdateQuizDto.prototype, "type", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsObject)(),
+    __metadata("design:type", Object)
+], UpdateQuizDto.prototype, "content", void 0);
 class AssignQuizDto {
 }
 exports.AssignQuizDto = AssignQuizDto;
@@ -532,10 +556,22 @@ __decorate([
     __metadata("design:type", String)
 ], CheckQuiz.prototype, "chapterId", void 0);
 __decorate([
+    (0, class_validator_1.ValidateIf)((o) => o.studentAnswer === undefined),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", String)
 ], CheckQuiz.prototype, "answer", void 0);
+__decorate([
+    (0, class_validator_1.ValidateIf)((o) => o.answer === undefined),
+    (0, class_validator_1.IsObject)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", Object)
+], CheckQuiz.prototype, "studentAnswer", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], CheckQuiz.prototype, "isAnswered", void 0);
 class GetUpdateLastSeen {
 }
 exports.GetUpdateLastSeen = GetUpdateLastSeen;

@@ -427,14 +427,14 @@ export declare class CourseAssessmentService {
                 id: string;
                 orderIndex: number;
                 questionText: string;
-                maxMarks: number;
                 studentAnswer: Prisma.JsonValue;
+                systemScore: number;
+                isAnswered: boolean;
+                maxMarks: number;
                 adminFeedback: string;
                 questionType: import(".prisma/client").$Enums.QuestionType;
                 questionImageUrl: string;
-                isAnswered: boolean;
                 isLocked: boolean;
-                systemScore: number;
                 finalScore: number;
             }[];
         } & {

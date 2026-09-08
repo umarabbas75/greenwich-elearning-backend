@@ -217,7 +217,7 @@ export async function gradeChapterQuizFromStoredAnswers(
   const [answers, progress] = await Promise.all([
     prisma.quizAnswer.findMany({
       where: { userId, chapterId, quizId: { in: quizIds } },
-      select: { quizId: true, isAnswerCorrect: true },
+      select: { quizId: true, isAnswerCorrect: true, systemScore: true },
     }),
     // Only look up the stored passing criteria when the caller didn't supply it.
     storedPassingCriteria == null
@@ -233,8 +233,18 @@ export async function gradeChapterQuizFromStoredAnswers(
   );
 
   const answeredQuestions = answers.length;
-  const correctCount = answers.filter((a) => a.isAnswerCorrect).length;
-  const score = Math.round((correctCount / quizIds.length) * 1000) / 10;
+  // Every quiz question is worth 1 mark (legacy and typed alike — see
+  // QUIZ_QUESTION_MAX_MARKS in quiz.service.ts). A typed answer's
+  // `systemScore` carries partial credit (Jaccard/positional/pair-count
+  // fractions); a legacy answer has no systemScore, so it falls back to the
+  // pre-existing all-or-nothing boolean. Summing per-answer marks over the
+  // served question count reduces to the old correctCount/total math exactly
+  // when every answer is boolean-graded.
+  const earnedMarks = answers.reduce(
+    (sum, a) => sum + (a.systemScore ?? (a.isAnswerCorrect ? 1 : 0)),
+    0,
+  );
+  const score = Math.round((earnedMarks / quizIds.length) * 1000) / 10;
   const isPassed = score >= passingCriteria;
 
   return {

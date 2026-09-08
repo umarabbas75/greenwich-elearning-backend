@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, QuestionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { DiffTitledResult, getChapterIdsFromManifest, getQuizIdsFromManifest, getSectionIdsFromManifest, PinnedCurriculumModule, PinnedCurriculumQuiz, PinnedCurriculumSection, PinnedCurriculumTree, ReportCurriculumTree } from './course-version.manifest';
 export type CurriculumResolveResult = {
@@ -35,6 +35,8 @@ export declare class CourseVersionService {
         question: string;
         options: string[];
         answer?: string;
+        type?: QuestionType | null;
+        content?: unknown;
     }> | null>;
     resolveCurriculumByEnrollment(enrolledVersionId: string | null | undefined): Promise<CurriculumResolveResult>;
     getLatestPublishedVersion(courseId: string): Promise<{

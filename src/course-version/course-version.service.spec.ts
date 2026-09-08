@@ -335,7 +335,14 @@ describe('CourseVersionService', () => {
       // Only the target chapter's quiz ids are queried — no whole-tree hydration.
       expect(prisma.quiz.findMany).toHaveBeenCalledWith({
         where: { id: { in: ['quiz-1'] } },
-        select: { id: true, question: true, options: true, answer: true },
+        select: {
+          id: true,
+          question: true,
+          options: true,
+          answer: true,
+          type: true,
+          content: true,
+        },
       });
     });
 

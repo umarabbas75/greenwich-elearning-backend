@@ -498,7 +498,17 @@ model Quiz {
   id         String   @id @default(uuid())
   question   String   @unique
   options    String[]
-  answer     String
+  /// Legacy correct-answer string. Nullable so multi-type quizzes (type set,
+  /// graded via `content` instead) don't need one — see `type`/`content` below.
+  answer     String?
+  /// One of the 7 auto-gradable QuestionType values shared with the Assessment
+  /// feature (SHORT_ANSWER/LONG_ANSWER excluded — a chapter quiz must stay
+  /// fully automated). Null = legacy single-correct-answer MCQ using
+  /// `options`/`answer` above. See docs/quiz-question-types-backend-handoff.md.
+  type       QuestionType?
+  /// Polymorphic per-type payload (options/correctOptionId, pairs, items, …),
+  /// reused verbatim from Question.content. Null for legacy quizzes.
+  content    Json?
   chapterId  String?
   /// Display order within the chapter (lower first; nulls last). Reorder-only
   /// updates do not publish a new course version — see quiz reorder API.
@@ -567,7 +577,16 @@ model QuizAnswer {
   quizId          String
   userId          String
   chapterId       String
-  answer          String
+  /// Legacy plain-text answer. Nullable — multi-type submissions use
+  /// `studentAnswer` below instead.
+  answer          String?
+  /// Polymorphic student answer for a typed (Quiz.type set) quiz — e.g.
+  /// `{ selectedOptionIds: [...] }`. Null for legacy submissions.
+  studentAnswer   Json?
+  /// Auto-graded score in [0, 1] for a typed quiz (one question = 1 mark;
+  /// partial credit for MULTIPLE_CHOICE/ORDERING/MATCHING/VISUAL_ACTIVITY).
+  /// Null for legacy submissions, which are graded purely by `isAnswerCorrect`.
+  systemScore     Float?
   isAnswerCorrect Boolean
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

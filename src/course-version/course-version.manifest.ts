@@ -1,4 +1,9 @@
-import { Prisma, PrismaClient, SectionType } from '@prisma/client';
+import {
+  Prisma,
+  PrismaClient,
+  QuestionType,
+  SectionType,
+} from '@prisma/client';
 import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -62,6 +67,10 @@ export type PinnedCurriculumQuiz = {
   question: string;
   options: string[];
   answer: string;
+  /** Multi-type quiz question support — null for legacy MCQ quizzes. */
+  type?: QuestionType | null;
+  /** Correct-answer fields included; caller strips them for students. */
+  content?: unknown;
 };
 
 export type PinnedCurriculumChapter = {
@@ -1043,7 +1052,14 @@ export async function loadPinnedChapterQuizzes(
 
   const rows = await prisma.quiz.findMany({
     where: { id: { in: orderedIds } },
-    select: { id: true, question: true, options: true, answer: true },
+    select: {
+      id: true,
+      question: true,
+      options: true,
+      answer: true,
+      type: true,
+      content: true,
+    },
   });
   const byId = new Map(rows.map((q) => [q.id, q]));
 
@@ -1055,6 +1071,8 @@ export async function loadPinnedChapterQuizzes(
       question: q.question,
       options: q.options,
       answer: q.answer,
+      type: q.type,
+      content: q.content,
     }));
 
   return mapPinnedQuizzesForLearner(ordered, includeAnswers);

@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, SectionType } from '@prisma/client';
+import { Prisma, PrismaClient, QuestionType, SectionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 type Db = PrismaService | Prisma.TransactionClient | PrismaClient;
 export type CourseVersionManifestChapter = {
@@ -53,6 +53,8 @@ export type PinnedCurriculumQuiz = {
     question: string;
     options: string[];
     answer: string;
+    type?: QuestionType | null;
+    content?: unknown;
 };
 export type PinnedCurriculumChapter = {
     sourceChapterId: string;

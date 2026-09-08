@@ -13,7 +13,9 @@ import {
   IsArray,
   IsNumber,
   IsEnum,
+  IsIn,
   IsBoolean,
+  ValidateIf,
   ValidateNested,
   ArrayMinSize,
   IsObject,
@@ -25,6 +27,10 @@ import {
   Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import {
+  QUIZ_QUESTION_TYPES,
+  QuizQuestionType,
+} from './utils/question-grading';
 
 export class BodyDto {
   @IsString()
@@ -223,31 +229,54 @@ export class SetCourseActiveDto {
   @IsBoolean()
   isActive: boolean;
 }
+// A quiz is either legacy (no `type`: single-correct-answer MCQ via
+// `options`/`answer`) or multi-type (`type` + `content`, reusing the
+// Assessment feature's 7 auto-gradable question shapes). See
+// docs/quiz-question-types-backend-handoff.md.
 export class QuizDto {
   @IsNotEmpty()
   @IsString()
   question: string;
 
+  @ValidateIf((o) => !o.type)
   @IsArray()
   @IsNotEmpty()
-  options: string[];
+  options?: string[];
 
+  @ValidateIf((o) => !o.type)
   @IsNotEmpty()
   @IsString()
-  answer: string;
+  answer?: string;
+
+  @IsOptional()
+  @IsIn(QUIZ_QUESTION_TYPES)
+  type?: QuizQuestionType;
+
+  @ValidateIf((o) => !!o.type)
+  @IsObject()
+  @IsNotEmpty()
+  content?: Record<string, any>;
 }
 export class UpdateQuizDto {
   @IsString()
   @IsOptional()
-  question: string;
+  question?: string;
 
   @IsArray()
   @IsOptional()
-  options: string[];
+  options?: string[];
 
   @IsOptional()
   @IsString()
-  answer: string;
+  answer?: string;
+
+  @IsOptional()
+  @IsIn(QUIZ_QUESTION_TYPES)
+  type?: QuizQuestionType;
+
+  @IsOptional()
+  @IsObject()
+  content?: Record<string, any>;
 }
 export class AssignQuizDto {
   @IsString()
@@ -431,6 +460,11 @@ export class ParamsDto1 {
   courseId: string;
 }
 
+// Legacy submissions send `answer` (a plain string, matched against the
+// quiz's single correct answer). Multi-type submissions send `studentAnswer`
+// instead (the polymorphic per-type shape). The service re-checks which one
+// applies against the target quiz's own `type` rather than trusting whichever
+// field the client sent.
 export class CheckQuiz {
   @IsString()
   @IsNotEmpty()
@@ -438,9 +472,20 @@ export class CheckQuiz {
   @IsString()
   @IsNotEmpty()
   chapterId: string;
+
+  @ValidateIf((o) => o.studentAnswer === undefined)
   @IsString()
   @IsNotEmpty()
-  answer: string;
+  answer?: string;
+
+  @ValidateIf((o) => o.answer === undefined)
+  @IsObject()
+  @IsNotEmpty()
+  studentAnswer?: Record<string, any>;
+
+  @IsOptional()
+  @IsBoolean()
+  isAnswered?: boolean;
 }
 
 export class GetUpdateLastSeen {

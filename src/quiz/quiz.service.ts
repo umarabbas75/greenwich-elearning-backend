@@ -31,6 +31,15 @@ import {
 } from '../utils/chapter-progression';
 import { CourseCompletionService } from '../course-completion/course-completion.service';
 import { assertImportedCourseTreeLocked } from '../utils/assert-imported-course-tree-locked';
+import {
+  calculateAutoScore,
+  stripCorrectAnswerFields,
+} from '../utils/question-grading';
+
+/** Every quiz question — legacy or typed — is worth 1 mark; partial credit is
+ *  a fraction of this. Keeps the report's sum(score)/sum(maxMarks) identical
+ *  to the pre-existing correctCount/totalQuestions math for legacy quizzes. */
+const QUIZ_QUESTION_MAX_MARKS = 1;
 
 @Injectable()
 export class QuizService {
@@ -259,10 +268,13 @@ export class QuizService {
         question: string;
         options: string[];
         answer?: string;
+        type?: string | null;
+        content?: any;
       }> = [];
       let userAnswers: Array<{
         quizId: string;
-        answer: string;
+        answer: string | null;
+        studentAnswer?: any;
         isAnswerCorrect: boolean;
       }> = [];
       // True once we have an authoritative set from the user's pinned version.
@@ -351,6 +363,8 @@ export class QuizService {
                 question: true,
                 options: true,
                 answer: true,
+                type: true,
+                content: true,
               },
             },
           },
@@ -358,12 +372,25 @@ export class QuizService {
         quizzes = chapter?.quizzes ?? [];
       }
 
+      // Students never see the answer key: strip correct-answer fields from a
+      // typed quiz's content before it goes out. Admin callers get the full
+      // content (they authored it). Legacy `options`/`answer` stripping is
+      // untouched — this only adds the new `type`/`content` behavior.
+      const isStudentRole = role !== 'admin';
       const updatedUserQuizData = quizzes?.map((item) => {
         const userAnswer = userAnswers.find((ua) => ua.quizId === item.id);
+        const isTyped = Boolean(item.type);
         return {
           ...item,
-          userAnswered: userAnswer?.answer ? true : false,
+          content:
+            isTyped && isStudentRole
+              ? stripCorrectAnswerFields(item.content)
+              : item.content,
+          userAnswered: isTyped
+            ? userAnswer?.studentAnswer != null
+            : Boolean(userAnswer?.answer),
           isAnswerCorrect: userAnswer?.isAnswerCorrect,
+          studentAnswer: userAnswer?.studentAnswer ?? null,
         };
       });
 
@@ -621,17 +648,27 @@ export class QuizService {
 
   async createQuiz(body: QuizDto): Promise<ResponseDto> {
     try {
-      await this.prisma.quiz.create({
-        data: {
-          question: body.question,
-          options: body.options,
-          answer: body.answer,
-        },
+      // `type` set = multi-type quiz (content-graded, no legacy options/answer
+      // needed); omitted = legacy single-correct-answer MCQ. QuizDto's
+      // @ValidateIf already enforces which fields are required for each shape.
+      const quiz = await this.prisma.quiz.create({
+        data: body.type
+          ? {
+              question: body.question,
+              options: [],
+              type: body.type,
+              content: body.content,
+            }
+          : {
+              question: body.question,
+              options: body.options,
+              answer: body.answer,
+            },
       });
       return {
         message: 'Successfully create quiz record',
         statusCode: 200,
-        data: {},
+        data: quiz,
       };
     } catch (error) {
       throw new HttpException(
@@ -1060,7 +1097,7 @@ export class QuizService {
       }
 
       // Save the updated user
-      await this.prisma.quiz.update({
+      const updated = await this.prisma.quiz.update({
         where: { id }, // Specify the unique identifier for the user you want to update
         data: updateQuiz, // Pass the modified user object
       });
@@ -1068,7 +1105,7 @@ export class QuizService {
       return {
         message: 'Successfully create quiz record',
         statusCode: 200,
-        data: {},
+        data: updated,
       };
     } catch (error) {
       throw new HttpException(
@@ -1425,7 +1462,39 @@ export class QuizService {
         );
       }
 
-      // Determine the promise for creating or updating the quizAnswer
+      // Grading branches on the QUIZ's own `type` (server-side truth), not on
+      // which field the client happened to send — see CheckQuiz in ../dto.
+      const isTyped = Boolean(quiz.type);
+      let isAnswerCorrect: boolean;
+      let systemScore: number | null = null;
+
+      if (isTyped) {
+        if (body.studentAnswer == null) {
+          throw new BadRequestException(
+            'studentAnswer is required for this quiz question',
+          );
+        }
+        const score = calculateAutoScore(
+          quiz.type,
+          quiz.content,
+          body.studentAnswer,
+          QUIZ_QUESTION_MAX_MARKS,
+        );
+        systemScore = score ?? 0;
+        isAnswerCorrect = systemScore >= QUIZ_QUESTION_MAX_MARKS;
+      } else {
+        if (!body.answer) {
+          throw new BadRequestException(
+            'answer is required for this quiz question',
+          );
+        }
+        isAnswerCorrect = body.answer == quiz.answer;
+      }
+
+      // Determine the promise for creating or updating the quizAnswer. Legacy
+      // and typed write disjoint field sets — kept as separate literals
+      // (rather than one spread) so the legacy shape stays byte-identical to
+      // before.
       const quizAnswerPromise = existingQuizAnswer
         ? this.prisma.quizAnswer.update({
             where: {
@@ -1434,20 +1503,36 @@ export class QuizService {
                 quizId: body.quizId,
               },
             },
-            data: {
-              chapterId: body.chapterId,
-              answer: body.answer,
-              isAnswerCorrect: body.answer == quiz.answer,
-            },
+            data: isTyped
+              ? {
+                  chapterId: body.chapterId,
+                  studentAnswer: body.studentAnswer,
+                  isAnswerCorrect,
+                  systemScore,
+                }
+              : {
+                  chapterId: body.chapterId,
+                  answer: body.answer,
+                  isAnswerCorrect,
+                },
           })
         : this.prisma.quizAnswer.create({
-            data: {
-              quizId: body.quizId,
-              chapterId: body.chapterId,
-              userId: userId,
-              answer: body.answer,
-              isAnswerCorrect: body.answer == quiz.answer,
-            },
+            data: isTyped
+              ? {
+                  quizId: body.quizId,
+                  chapterId: body.chapterId,
+                  userId: userId,
+                  studentAnswer: body.studentAnswer,
+                  isAnswerCorrect,
+                  systemScore,
+                }
+              : {
+                  quizId: body.quizId,
+                  chapterId: body.chapterId,
+                  userId: userId,
+                  answer: body.answer,
+                  isAnswerCorrect,
+                },
           });
 
       // Await the result of the create or update operation
@@ -1456,7 +1541,14 @@ export class QuizService {
       return {
         message: 'Success',
         statusCode: 200,
-        data: quizAnswer,
+        data: isTyped
+          ? {
+              ...quizAnswer,
+              isAnswerCorrect,
+              systemScore,
+              maxMarks: QUIZ_QUESTION_MAX_MARKS,
+            }
+          : quizAnswer,
       };
     } catch (error) {
       if (error instanceof HttpException) {

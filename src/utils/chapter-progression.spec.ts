@@ -151,6 +151,39 @@ describe('chapter-progression', () => {
         select: { id: true, orderIndex: true, createdAt: true },
       });
     });
+
+    // Multi-type quizzes carry partial credit via `systemScore` (e.g. Jaccard
+    // similarity for MULTIPLE_CHOICE) instead of an all-or-nothing boolean.
+    it('unpinned: sums systemScore for partial credit, falling back to the boolean for legacy answers', async () => {
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-1' },
+        { id: 'quiz-2' },
+        { id: 'quiz-3' },
+        { id: 'quiz-4' },
+      ]);
+      prisma.quizAnswer.findMany.mockResolvedValue([
+        // Typed, partial credit (e.g. MULTIPLE_CHOICE Jaccard 1/3).
+        { quizId: 'quiz-1', isAnswerCorrect: false, systemScore: 1 / 3 },
+        // Typed, full credit.
+        { quizId: 'quiz-2', isAnswerCorrect: true, systemScore: 1 },
+        // Legacy — no systemScore, falls back to the boolean.
+        { quizId: 'quiz-3', isAnswerCorrect: true },
+        { quizId: 'quiz-4', isAnswerCorrect: false },
+      ]);
+
+      const grade = await gradeChapterQuizFromStoredAnswers(
+        prisma as unknown as PrismaService,
+        'user-1',
+        'ch-1',
+        70,
+        { courseId: 'course-1', enrolledVersionId: null },
+      );
+
+      // (1/3 + 1 + 1 + 0) / 4 * 100 = 58.3
+      expect(grade.totalQuestions).toBe(4);
+      expect(grade.score).toBeCloseTo(58.3, 1);
+      expect(grade.isPassed).toBe(false);
+    });
   });
 
   describe('isChapterComplete', () => {

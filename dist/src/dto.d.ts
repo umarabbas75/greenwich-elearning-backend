@@ -1,4 +1,5 @@
 import { Role, QuestionType, QuestionDifficulty, AssessmentMode, CertificateIssueMode } from '@prisma/client';
+import { QuizQuestionType } from './utils/question-grading';
 export declare class BodyDto {
     firstName: string;
     lastName: string;
@@ -76,13 +77,17 @@ export declare class SetCourseActiveDto {
 }
 export declare class QuizDto {
     question: string;
-    options: string[];
-    answer: string;
+    options?: string[];
+    answer?: string;
+    type?: QuizQuestionType;
+    content?: Record<string, any>;
 }
 export declare class UpdateQuizDto {
-    question: string;
-    options: string[];
-    answer: string;
+    question?: string;
+    options?: string[];
+    answer?: string;
+    type?: QuizQuestionType;
+    content?: Record<string, any>;
 }
 export declare class AssignQuizDto {
     chapterId: string;
@@ -154,7 +159,9 @@ export declare class ParamsDto1 {
 export declare class CheckQuiz {
     quizId: string;
     chapterId: string;
-    answer: string;
+    answer?: string;
+    studentAnswer?: Record<string, any>;
+    isAnswered?: boolean;
 }
 export declare class GetUpdateLastSeen {
     userId: string;

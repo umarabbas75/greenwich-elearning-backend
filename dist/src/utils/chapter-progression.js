@@ -126,7 +126,7 @@ async function gradeChapterQuizFromStoredAnswers(prisma, userId, chapterId, stor
     const [answers, progress] = await Promise.all([
         prisma.quizAnswer.findMany({
             where: { userId, chapterId, quizId: { in: quizIds } },
-            select: { quizId: true, isAnswerCorrect: true },
+            select: { quizId: true, isAnswerCorrect: true, systemScore: true },
         }),
         storedPassingCriteria == null
             ? prisma.quizProgress.findUnique({
@@ -137,8 +137,8 @@ async function gradeChapterQuizFromStoredAnswers(prisma, userId, chapterId, stor
     ]);
     const passingCriteria = resolvePassingCriteria(storedPassingCriteria ?? progress?.passingCriteria ?? null);
     const answeredQuestions = answers.length;
-    const correctCount = answers.filter((a) => a.isAnswerCorrect).length;
-    const score = Math.round((correctCount / quizIds.length) * 1000) / 10;
+    const earnedMarks = answers.reduce((sum, a) => sum + (a.systemScore ?? (a.isAnswerCorrect ? 1 : 0)), 0);
+    const score = Math.round((earnedMarks / quizIds.length) * 1000) / 10;
     const isPassed = score >= passingCriteria;
     return {
         score,

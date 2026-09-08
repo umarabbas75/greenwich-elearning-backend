@@ -586,7 +586,14 @@ async function loadPinnedChapterQuizzes(prisma, versionId, sourceChapterId, incl
         return [];
     const rows = await prisma.quiz.findMany({
         where: { id: { in: orderedIds } },
-        select: { id: true, question: true, options: true, answer: true },
+        select: {
+            id: true,
+            question: true,
+            options: true,
+            answer: true,
+            type: true,
+            content: true,
+        },
     });
     const byId = new Map(rows.map((q) => [q.id, q]));
     const ordered = orderedIds
@@ -597,6 +604,8 @@ async function loadPinnedChapterQuizzes(prisma, versionId, sourceChapterId, incl
         question: q.question,
         options: q.options,
         answer: q.answer,
+        type: q.type,
+        content: q.content,
     }));
     return mapPinnedQuizzesForLearner(ordered, includeAnswers);
 }
