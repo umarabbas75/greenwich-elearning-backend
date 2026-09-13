@@ -33,6 +33,7 @@ exports.CourseModule = CourseModule = __decorate([
         providers: [
             course_service_1.CourseService,
             strategy_1.JwtUserStrategy,
+            strategy_1.JwtUserLiteStrategy,
             strategy_1.JwtAdminStrategy,
             strategy_1.JwtCombineStrategy,
         ],

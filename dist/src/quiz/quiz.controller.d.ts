@@ -10,7 +10,10 @@ export declare class QuizController {
     reorderChapterQuizzes(body: UpdateChapterQuizOrderDto): Promise<ResponseDto>;
     getChapterQuizzesReport(params: any, user: User): Promise<ResponseDto>;
     getAllQuizReport(): Promise<ResponseDto>;
-    createChapterQuizzesReport(body: any, user: User): Promise<ResponseDto>;
+    createChapterQuizzesReport(body: any, user: {
+        id: string;
+        email?: string | null;
+    }): Promise<ResponseDto>;
     retakeChapterQuiz(body: any, user: User): Promise<ResponseDto>;
     createQuiz(body: QuizDto): Promise<ResponseDto>;
     updateQuiz(body: UpdateQuizDto, params: ParamsDto): Promise<ResponseDto>;

@@ -1,6 +1,6 @@
 import { rgb, RGB } from '@cantoo/pdf-lib';
 
-/** Text placement on the designed template (1123 × 794 pt, origin bottom-left). */
+/** Text placement on the designed template (1684 × 1190 pt, origin bottom-left). */
 export interface CertificateFieldLayout {
   /** Vertical position as a fraction of page height (0 = bottom, 1 = top). */
   yRatio: number;
@@ -14,57 +14,55 @@ export interface CertificateFieldLayout {
   align?: 'left' | 'center' | 'right';
 }
 
-/** QR sits to the right of CERTIFICATE ID; the verify URL is printed under it. */
+/** QR sits inside the verification card, grouped with the certificate ID. */
 export interface CertificateQrLayout {
   size: number;
   /** Left edge of the QR square. */
   x: number;
   /** Bottom edge of the QR square. */
   y: number;
-  urlFontSize: number;
-  urlGap: number;
-  urlMaxWidth: number;
-  urlColor: RGB;
 }
 
-/** Positions derived from Figma frame "Certificate of Completion" (1123×794). */
+const NAVY = rgb(0.09, 0.141, 0.282);
+const INK = rgb(0.106, 0.141, 0.125);
+
+/**
+ * Positions from Figma frame "Certificate of Completion" (1684×1190).
+ * Static template already includes Managing Director "Tayyab Shah".
+ */
 export const CERTIFICATE_LAYOUT = {
   learnerName: {
-    yRatio: 0.577,
-    fontSize: 34,
-    maxWidth: 760,
-    color: rgb(0.09, 0.16, 0.32),
+    yRatio: 0.524,
+    fontSize: 42,
+    maxWidth: 920,
+    color: NAVY,
     bold: true,
   },
   courseTitle: {
-    yRatio: 0.448,
-    fontSize: 20,
-    maxWidth: 820,
-    color: rgb(0.09, 0.16, 0.32),
+    yRatio: 0.408,
+    fontSize: 28,
+    maxWidth: 1000,
+    color: INK,
     bold: true,
   },
   issuedDate: {
-    yRatio: 0.291,
-    fontSize: 13,
-    x: 448,
-    align: 'center' as const,
-    color: rgb(0.25, 0.28, 0.32),
+    yRatio: 0.151,
+    fontSize: 18,
+    x: 108,
+    align: 'left' as const,
+    color: INK,
   },
   certificateId: {
-    yRatio: 0.291,
-    fontSize: 13,
-    x: 659,
-    maxWidth: 147,
-    align: 'center' as const,
-    color: rgb(0.25, 0.28, 0.32),
+    yRatio: 0.105,
+    fontSize: 15,
+    x: 1432,
+    maxWidth: 160,
+    align: 'left' as const,
+    color: INK,
   },
   qr: {
-    size: 68,
-    x: 800,
-    y: 198,
-    urlFontSize: 7,
-    urlGap: 7,
-    urlMaxWidth: 275,
-    urlColor: rgb(0.28, 0.32, 0.36),
+    size: 124,
+    x: 1290,
+    y: 86,
   } satisfies CertificateQrLayout,
 } satisfies Record<string, CertificateFieldLayout | CertificateQrLayout>;

@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.JwtHeartbeatStrategy = exports.JwtCombineStrategy = exports.JwtUserStrategy = exports.JwtAdminStrategy = void 0;
+exports.JwtHeartbeatStrategy = exports.JwtCombineStrategy = exports.JwtUserLiteStrategy = exports.JwtUserStrategy = exports.JwtAdminStrategy = void 0;
 const common_1 = require("@nestjs/common");
 const passport_1 = require("@nestjs/passport");
 const passport_jwt_1 = require("passport-jwt");
@@ -97,6 +97,44 @@ exports.JwtUserStrategy = JwtUserStrategy = __decorate([
     __metadata("design:paramtypes", [config_1.ConfigService,
         prisma_service_1.PrismaService])
 ], JwtUserStrategy);
+let JwtUserLiteStrategy = class JwtUserLiteStrategy extends (0, passport_1.PassportStrategy)(passport_jwt_1.Strategy, 'uJwtLite') {
+    constructor(config, prisma) {
+        const jwt_secret = config.get('JWT_SECRET');
+        if (!jwt_secret) {
+            throw new Error('JWT_SECRET is not set');
+        }
+        super({
+            jwtFromRequest: passport_jwt_1.ExtractJwt.fromAuthHeaderAsBearerToken(),
+            secretOrKey: jwt_secret,
+        });
+        this.prisma = prisma;
+    }
+    async validate(payload) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: payload.sub },
+            select: { id: true, email: true, role: true },
+        });
+        if (!user) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: 'User not found',
+            }, common_1.HttpStatus.FORBIDDEN);
+        }
+        if (user.role !== 'user') {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: 'Forbidden',
+            }, common_1.HttpStatus.FORBIDDEN);
+        }
+        return user;
+    }
+};
+exports.JwtUserLiteStrategy = JwtUserLiteStrategy;
+exports.JwtUserLiteStrategy = JwtUserLiteStrategy = __decorate([
+    (0, common_1.Injectable)(),
+    __metadata("design:paramtypes", [config_1.ConfigService,
+        prisma_service_1.PrismaService])
+], JwtUserLiteStrategy);
 let JwtCombineStrategy = class JwtCombineStrategy extends (0, passport_1.PassportStrategy)(passport_jwt_1.Strategy, 'cJwt') {
     constructor(config, prisma) {
         const jwt_secret = config.get('JWT_SECRET');
@@ -165,7 +203,7 @@ let JwtHeartbeatStrategy = class JwtHeartbeatStrategy extends (0, passport_1.Pas
         if (!payload?.sub) {
             throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: 'UnAuthorized' }, common_1.HttpStatus.FORBIDDEN);
         }
-        return { id: payload.sub };
+        return { id: payload.sub, email: payload.email ?? null };
     }
 };
 exports.JwtHeartbeatStrategy = JwtHeartbeatStrategy;

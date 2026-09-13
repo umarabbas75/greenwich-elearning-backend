@@ -128,7 +128,7 @@ async function gradeChapterQuizFromStoredAnswers(prisma, userId, chapterId, stor
             where: { userId, chapterId, quizId: { in: quizIds } },
             select: { quizId: true, isAnswerCorrect: true, systemScore: true },
         }),
-        storedPassingCriteria == null
+        storedPassingCriteria === undefined
             ? prisma.quizProgress.findUnique({
                 where: { userId_chapterId: { userId, chapterId } },
                 select: { passingCriteria: true },

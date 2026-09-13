@@ -139,7 +139,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], QuizController.prototype, "getAllQuizReport", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwtHeartbeat')),
     (0, common_1.Post)('/createChapterQuizzesReport'),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, decorator_1.GetUser)()),

@@ -7,8 +7,8 @@ const VERIFY_URL =
 describe('renderCertificatePdf', () => {
   it('returns a non-empty PDF with a QR image and a clickable verify link', async () => {
     const bytes = await renderCertificatePdf({
-      learnerName: 'Jane Doe',
-      courseTitle: 'Fire Safety Management',
+      learnerName: 'umar student',
+      courseTitle: 'fire safety management',
       issuedAt: new Date('2026-08-31T00:00:00.000Z'),
       certificateId: 'GTC-ABCD1234',
       verifyUrl: VERIFY_URL,

@@ -52,6 +52,19 @@ export declare class JwtUserStrategy extends JwtUserStrategy_base {
         passwordChangedAt: Date;
     }>;
 }
+declare const JwtUserLiteStrategy_base: new (...args: any[]) => any;
+export declare class JwtUserLiteStrategy extends JwtUserLiteStrategy_base {
+    private prisma;
+    constructor(config: ConfigService, prisma: PrismaService);
+    validate(payload: {
+        sub: string;
+        email: string;
+    }): Promise<{
+        id: string;
+        email: string;
+        role: import(".prisma/client").$Enums.Role;
+    }>;
+}
 declare const JwtCombineStrategy_base: new (...args: any[]) => any;
 export declare class JwtCombineStrategy extends JwtCombineStrategy_base {
     private prisma;
@@ -84,8 +97,10 @@ export declare class JwtHeartbeatStrategy extends JwtHeartbeatStrategy_base {
     constructor(config: ConfigService);
     validate(payload: {
         sub?: string;
+        email?: string;
     }): {
         id: string;
+        email: string;
     };
 }
 export {};

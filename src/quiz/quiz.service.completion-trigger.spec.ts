@@ -92,6 +92,9 @@ describe('QuizService.createChapterQuizzesReport — course-completion trigger',
       USER_ID,
       COURSE_ID,
     );
+    // Handler fetches enrollment once and passes it into the gate, grader, and
+    // roll-up — they must not each re-read userCourse.
+    expect(prisma.userCourse.findUnique).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT re-check completion when the submission fails', async () => {
@@ -133,5 +136,6 @@ describe('QuizService.createChapterQuizzesReport — course-completion trigger',
 
     expect(prisma.quizProgress.create).not.toHaveBeenCalled();
     expect(courseCompletion.checkContentCompletion).not.toHaveBeenCalled();
+    expect(prisma.userCourse.findUnique).not.toHaveBeenCalled();
   });
 });

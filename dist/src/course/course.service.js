@@ -4263,55 +4263,88 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async updateUserChapterProgress(userId, body, userEmail) {
         try {
-            await (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, body.chapterId, userEmail);
-            const course = await this.prisma.course.findUnique({
-                where: { id: body.courseId },
-                select: { id: true, deliveryMode: true },
+            const progressKey = {
+                userId,
+                courseId: body.courseId,
+                chapterId: body.chapterId,
+                sectionId: body.sectionId,
+            };
+            const existing = await this.prisma.userCourseProgress.findUnique({
+                where: { userId_courseId_chapterId_sectionId: progressKey },
             });
+            if (existing) {
+                return {
+                    message: 'User course progress updated successfully',
+                    statusCode: 200,
+                    data: { userCourseProgress: existing },
+                };
+            }
+            const [chapter, course, section] = await Promise.all([
+                this.prisma.chapter.findUnique({
+                    where: { id: body.chapterId },
+                    select: {
+                        moduleId: true,
+                        module: { select: { courseId: true } },
+                    },
+                }),
+                this.prisma.course.findUnique({
+                    where: { id: body.courseId },
+                    select: { id: true, deliveryMode: true },
+                }),
+                body.sectionId
+                    ? this.prisma.section.findUnique({
+                        where: { id: body.sectionId },
+                        select: { type: true },
+                    })
+                    : Promise.resolve(null),
+            ]);
             if (!course) {
                 throw new Error('Course not found');
             }
             if (course.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM) {
                 throw new common_1.ForbiddenException('Imported SCORM courses cannot be completed via native section progress. Finish the package in the SCORM player.');
             }
-            if (body.sectionId) {
-                const section = await this.prisma.section.findUnique({
-                    where: { id: body.sectionId },
-                    select: { type: true },
-                });
-                if (section?.type === client_1.SectionType.SCORM) {
-                    throw new common_1.ForbiddenException('SCORM sections cannot be marked complete via native section progress.');
-                }
+            if (!chapter) {
+                throw new common_1.ForbiddenException('Chapter not found');
             }
-            const user = await this.prisma.user.findUnique({
-                where: { id: userId },
-                select: { id: true },
-            });
-            if (!user) {
-                throw new Error('user not found');
+            if (chapter.module.courseId !== body.courseId) {
+                throw new Error('Chapter does not belong to the specified course');
             }
-            let userCourseProgress = await this.prisma.userCourseProgress.findFirst({
-                where: {
-                    userId: userId,
-                    courseId: body.courseId,
-                    chapterId: body.chapterId,
-                    sectionId: body.sectionId,
-                    moduleId: body.moduleId,
-                },
-            });
-            if (!userCourseProgress) {
+            if (section?.type === client_1.SectionType.SCORM) {
+                throw new common_1.ForbiddenException('SCORM sections cannot be marked complete via native section progress.');
+            }
+            await (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, body.chapterId, userEmail, { courseId: body.courseId });
+            let userCourseProgress;
+            try {
                 userCourseProgress = await this.prisma.userCourseProgress.create({
                     data: {
-                        userId: userId,
+                        userId,
                         courseId: body.courseId,
                         chapterId: body.chapterId,
                         sectionId: body.sectionId,
-                        moduleId: body.moduleId,
+                        moduleId: body.moduleId ?? chapter.moduleId,
                     },
                 });
-                await this.courseCompletion.checkContentCompletion(userId, body.courseId);
-                await (0, chapter_progression_1.recordChapterAndModuleCompletionIfNeeded)(this.prisma, userId, body.chapterId, { courseId: body.courseId });
             }
+            catch (error) {
+                if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                    error.code === 'P2002') {
+                    userCourseProgress =
+                        await this.prisma.userCourseProgress.findUnique({
+                            where: { userId_courseId_chapterId_sectionId: progressKey },
+                        });
+                    return {
+                        message: 'User course progress updated successfully',
+                        statusCode: 200,
+                        data: { userCourseProgress },
+                    };
+                }
+                throw error;
+            }
+            await Promise.all([
+                this.courseCompletion.checkContentCompletion(userId, body.courseId),
+                (0, chapter_progression_1.recordChapterAndModuleCompletionIfNeeded)(this.prisma, userId, body.chapterId, { courseId: body.courseId }),
+            ]);
             return {
                 message: 'User course progress updated successfully',
                 statusCode: 200,

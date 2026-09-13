@@ -6056,26 +6056,48 @@ export class CourseService {
     userEmail?: string | null,
   ): Promise<ResponseDto> {
     try {
-      await assertChapterAccessible(
-        this.prisma,
-        this.config,
+      const progressKey = {
         userId,
-        body.chapterId,
-        userEmail,
-      );
+        courseId: body.courseId,
+        chapterId: body.chapterId,
+        sectionId: body.sectionId,
+      };
 
-      // Existence check for the course. Previously this fetched the course
-      // with `include: { modules: true }` — every Module row for the course
-      // — but nothing in this method reads `course.modules`. The comment
-      // "Get total modules in the course" was a leftover from an older
-      // module-rollup path that no longer lives here. This runs on the
-      // hottest write path in the app (every section completion), so on a
-      // course with 12 modules that was 12 dead Module rows per completion,
-      // per user, forever.
-      const course = await this.prisma.course.findUnique({
-        where: { id: body.courseId },
-        select: { id: true, deliveryMode: true },
+      // Idempotent re-hit: the learner already has this section. Skip the
+      // progression gate, SCORM checks, and completion re-evaluation — they
+      // all ran when the row was created. This is the common case when the FE
+      // re-posts on navigation / resume.
+      const existing = await this.prisma.userCourseProgress.findUnique({
+        where: { userId_courseId_chapterId_sectionId: progressKey },
       });
+      if (existing) {
+        return {
+          message: 'User course progress updated successfully',
+          statusCode: 200,
+          data: { userCourseProgress: existing },
+        };
+      }
+
+      const [chapter, course, section] = await Promise.all([
+        this.prisma.chapter.findUnique({
+          where: { id: body.chapterId },
+          select: {
+            moduleId: true,
+            module: { select: { courseId: true } },
+          },
+        }),
+        this.prisma.course.findUnique({
+          where: { id: body.courseId },
+          select: { id: true, deliveryMode: true },
+        }),
+        body.sectionId
+          ? this.prisma.section.findUnique({
+              where: { id: body.sectionId },
+              select: { type: true },
+            })
+          : Promise.resolve(null),
+      ]);
+
       if (!course) {
         throw new Error('Course not found');
       }
@@ -6084,66 +6106,69 @@ export class CourseService {
           'Imported SCORM courses cannot be completed via native section progress. Finish the package in the SCORM player.',
         );
       }
-      if (body.sectionId) {
-        const section = await this.prisma.section.findUnique({
-          where: { id: body.sectionId },
-          select: { type: true },
-        });
-        if (section?.type === PrismaSectionType.SCORM) {
-          throw new ForbiddenException(
-            'SCORM sections cannot be marked complete via native section progress.',
-          );
-        }
+      if (!chapter) {
+        throw new ForbiddenException('Chapter not found');
+      }
+      if (chapter.module.courseId !== body.courseId) {
+        throw new Error('Chapter does not belong to the specified course');
+      }
+      if (section?.type === PrismaSectionType.SCORM) {
+        throw new ForbiddenException(
+          'SCORM sections cannot be marked complete via native section progress.',
+        );
       }
 
-      // Existence check for the user. `assertChapterAccessible` above
-      // already validates the JWT-derived userId against gating rules, so
-      // this is just a defensive "was the user hard-deleted between token
-      // issue and this call?" probe. Kept as `select: { id: true }` for the
-      // same reason we trimmed the course load — the previous full-row
-      // fetch was ~12 wasted columns per call.
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true },
-      });
+      await assertChapterAccessible(
+        this.prisma,
+        this.config,
+        userId,
+        body.chapterId,
+        userEmail,
+        { courseId: body.courseId },
+      );
 
-      if (!user) {
-        throw new Error('user not found');
-      }
-      // Update or create progress record
-      let userCourseProgress = await this.prisma.userCourseProgress.findFirst({
-        where: {
-          userId: userId,
-          courseId: body.courseId,
-          chapterId: body.chapterId,
-          sectionId: body.sectionId,
-          moduleId: body.moduleId,
-        },
-      });
-      if (!userCourseProgress) {
+      let userCourseProgress;
+      try {
         userCourseProgress = await this.prisma.userCourseProgress.create({
           data: {
-            userId: userId,
+            userId,
             courseId: body.courseId,
             chapterId: body.chapterId,
             sectionId: body.sectionId,
-            moduleId: body.moduleId,
+            moduleId: body.moduleId ?? chapter.moduleId,
           },
         });
-        // A new section was just completed — re-check whether the user has now
-        // finished all content for this course (content completion is the
-        // course-completion criterion; assessment pass is tracked separately).
-        await this.courseCompletion.checkContentCompletion(
-          userId,
-          body.courseId,
-        );
-        await recordChapterAndModuleCompletionIfNeeded(
+      } catch (error) {
+        // Two overlapping first-completes: the unique constraint is the
+        // source of truth. Return the winner's row and skip side effects —
+        // the winner already queued them.
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          userCourseProgress =
+            await this.prisma.userCourseProgress.findUnique({
+              where: { userId_courseId_chapterId_sectionId: progressKey },
+            });
+          return {
+            message: 'User course progress updated successfully',
+            statusCode: 200,
+            data: { userCourseProgress },
+          };
+        }
+        throw error;
+      }
+
+      // Completion bookkeeping is independent of chapter/module stamps.
+      await Promise.all([
+        this.courseCompletion.checkContentCompletion(userId, body.courseId),
+        recordChapterAndModuleCompletionIfNeeded(
           this.prisma,
           userId,
           body.chapterId,
           { courseId: body.courseId },
-        );
-      }
+        ),
+      ]);
 
       return {
         message: 'User course progress updated successfully',

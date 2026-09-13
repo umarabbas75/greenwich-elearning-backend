@@ -507,11 +507,11 @@ export class CourseController {
     });
   }
 
-  @UseGuards(AuthGuard('uJwt'))
+  @UseGuards(AuthGuard('uJwtLite'))
   @Put('/updateUserChapter/progress')
   updateUserChapterProgress(
     @Body() body: any,
-    @GetUser() user: User,
+    @GetUser() user: { id: string; email: string },
   ): Promise<ResponseDto> {
     return this.appService.updateUserChapterProgress(user.id, body, user.email);
   }

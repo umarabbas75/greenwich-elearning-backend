@@ -6,6 +6,7 @@ import {
   JwtAdminStrategy,
   JwtCombineStrategy,
   JwtUserStrategy,
+  JwtUserLiteStrategy,
 } from '../strategy';
 import { MailModule } from '../mail/mail.module';
 import { FeedbackModule } from '../feedback/feedback.module';
@@ -25,6 +26,7 @@ import { NotificationModule } from '../notifications/notification.module';
   providers: [
     CourseService,
     JwtUserStrategy,
+    JwtUserLiteStrategy,
     JwtAdminStrategy,
     JwtCombineStrategy,
   ],

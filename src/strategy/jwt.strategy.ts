@@ -98,6 +98,54 @@ export class JwtUserStrategy extends PassportStrategy(Strategy, 'uJwt') {
   }
 }
 
+/**
+ * Student-only JWT for high-frequency learner writes (section progress).
+ * Same role check as `uJwt`, but only loads `{ id, email, role }` — the full
+ * user row is wasted work on a path that never reads anything else.
+ */
+@Injectable()
+export class JwtUserLiteStrategy extends PassportStrategy(Strategy, 'uJwtLite') {
+  constructor(
+    config: ConfigService,
+    private prisma: PrismaService,
+  ) {
+    const jwt_secret = config.get('JWT_SECRET');
+    if (!jwt_secret) {
+      throw new Error('JWT_SECRET is not set');
+    }
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      secretOrKey: jwt_secret,
+    });
+  }
+
+  async validate(payload: { sub: string; email: string }) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, email: true, role: true },
+    });
+    if (!user) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: 'User not found',
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    if (user.role !== 'user') {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: 'Forbidden',
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    return user;
+  }
+}
+
 @Injectable()
 export class JwtCombineStrategy extends PassportStrategy(Strategy, 'cJwt') {
   constructor(
@@ -162,12 +210,13 @@ export class JwtCombineStrategy extends PassportStrategy(Strategy, 'cJwt') {
 }
 
 /**
- * High-frequency tracking pings only need `userId`. Passport already verified
- * the JWT signature (and expiry); the signed `sub` is enough. Skipping the
- * users-table round-trip is the single largest latency cut on `/heartbeat`.
+ * High-frequency learner writes only need `userId` (and sometimes email for
+ * free-roam). Passport already verified the JWT signature and expiry; the
+ * signed `sub`/`email` are enough. Skipping the users-table round-trip is the
+ * single largest latency cut on heartbeat and chapter-quiz submit.
  *
- * A deleted account can keep accruing until the token expires — acceptable for
- * telemetry. Other tracking routes keep `cJwt` and still load the user row.
+ * A deleted account can keep calling until the token expires — acceptable for
+ * these paths. Other routes keep `cJwt` and still load the user row.
  */
 @Injectable()
 export class JwtHeartbeatStrategy extends PassportStrategy(
@@ -185,13 +234,13 @@ export class JwtHeartbeatStrategy extends PassportStrategy(
     });
   }
 
-  validate(payload: { sub?: string }) {
+  validate(payload: { sub?: string; email?: string }) {
     if (!payload?.sub) {
       throw new HttpException(
         { status: HttpStatus.FORBIDDEN, error: 'UnAuthorized' },
         HttpStatus.FORBIDDEN,
       );
     }
-    return { id: payload.sub };
+    return { id: payload.sub, email: payload.email ?? null };
   }
 }

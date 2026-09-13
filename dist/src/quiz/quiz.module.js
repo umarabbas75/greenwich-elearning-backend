@@ -29,6 +29,7 @@ exports.QuizModule = QuizModule = __decorate([
             strategy_1.JwtUserStrategy,
             strategy_1.JwtAdminStrategy,
             strategy_1.JwtCombineStrategy,
+            strategy_1.JwtHeartbeatStrategy,
         ],
         controllers: [quiz_controller_1.QuizController],
         exports: [quiz_service_1.QuizService],

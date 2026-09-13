@@ -5,6 +5,7 @@ import { JwtModule } from '@nestjs/jwt';
 import {
   JwtAdminStrategy,
   JwtCombineStrategy,
+  JwtHeartbeatStrategy,
   JwtUserStrategy,
 } from '../strategy';
 
@@ -22,6 +23,7 @@ import { CourseCompletionModule } from '../course-completion/course-completion.m
     JwtUserStrategy,
     JwtAdminStrategy,
     JwtCombineStrategy,
+    JwtHeartbeatStrategy,
   ],
   controllers: [QuizController],
   exports: [QuizService],

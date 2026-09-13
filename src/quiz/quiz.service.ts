@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -23,7 +24,6 @@ import {
 import {
   assertChapterAccessible,
   enrichQuizProgressReport,
-  getCourseIdForChapter,
   gradeChapterQuizFromStoredAnswers,
   recordChapterAndModuleCompletionIfNeeded,
   resolveChapterQuizIds,
@@ -482,29 +482,50 @@ export class QuizService {
     userEmail?: string | null,
   ): Promise<ResponseDto> {
     try {
-      await assertChapterAccessible(
-        this.prisma,
-        this.config,
-        userId,
-        chapterId,
-        userEmail,
-      );
+      // Chapter → course and existing progress are independent; fetch together
+      // so the gate, grader, and completion roll-up can reuse the same context
+      // instead of each re-reading chapter + enrollment.
+      const [chapter, quizReport] = await Promise.all([
+        this.prisma.chapter.findUnique({
+          where: { id: chapterId },
+          select: { module: { select: { courseId: true } } },
+        }),
+        this.prisma.quizProgress.findUnique({
+          where: { userId_chapterId: { userId, chapterId } },
+        }),
+      ]);
 
-      const quizReport = await this.prisma.quizProgress.findUnique({
-        where: {
-          userId_chapterId: {
-            userId,
-            chapterId,
-          },
-        },
+      const courseId = chapter?.module?.courseId;
+      if (!courseId) {
+        throw new ForbiddenException('Chapter not found');
+      }
+
+      const enrollment = await this.prisma.userCourse.findUnique({
+        where: { userId_courseId: { userId, courseId } },
+        select: { enrolledVersionId: true },
       });
+      const progressCtx = {
+        courseId,
+        enrolledVersionId: enrollment?.enrolledVersionId ?? null,
+      };
 
-      const grade = await gradeChapterQuizFromStoredAnswers(
-        this.prisma,
-        userId,
-        chapterId,
-        quizReport?.passingCriteria,
-      );
+      const [, grade] = await Promise.all([
+        assertChapterAccessible(
+          this.prisma,
+          this.config,
+          userId,
+          chapterId,
+          userEmail,
+          progressCtx,
+        ),
+        gradeChapterQuizFromStoredAnswers(
+          this.prisma,
+          userId,
+          chapterId,
+          quizReport?.passingCriteria ?? null,
+          progressCtx,
+        ),
+      ]);
 
       if (grade.answeredQuestions < grade.totalQuestions) {
         throw new BadRequestException(
@@ -557,21 +578,20 @@ export class QuizService {
       // Wrapped defensively: the quiz answers and QuizProgress are ALREADY
       // committed by this point, so a failure in completion bookkeeping must
       // not turn a successful submission into a 403 via the outer catch.
-      // checkContentCompletion swallows its own errors, but the courseId
-      // lookup and chapter/module rollup can still throw.
+      // checkContentCompletion swallows its own errors, but the chapter/module
+      // rollup can still throw.
       try {
-        const courseId = await getCourseIdForChapter(this.prisma, chapterId);
-
-        await recordChapterAndModuleCompletionIfNeeded(
-          this.prisma,
-          userId,
-          chapterId,
-          courseId ? { courseId } : undefined,
-        );
-
-        if (stickyPassed && courseId) {
-          await this.courseCompletion.checkContentCompletion(userId, courseId);
-        }
+        await Promise.all([
+          recordChapterAndModuleCompletionIfNeeded(
+            this.prisma,
+            userId,
+            chapterId,
+            progressCtx,
+          ),
+          stickyPassed
+            ? this.courseCompletion.checkContentCompletion(userId, courseId)
+            : Promise.resolve(),
+        ]);
       } catch (completionError) {
         const message =
           completionError instanceof Error

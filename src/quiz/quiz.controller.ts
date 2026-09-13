@@ -100,11 +100,15 @@ export class QuizController {
     return this.appService.getAllQuizReport();
   }
 
-  @UseGuards(AuthGuard('cJwt'))
+  /**
+   * Chapter quiz submit. Uses signature-only JWT (`cJwtHeartbeat`) so we don't
+   * load the full user row — this route only needs `user.id` and `user.email`.
+   */
+  @UseGuards(AuthGuard('cJwtHeartbeat'))
   @Post('/createChapterQuizzesReport')
   createChapterQuizzesReport(
     @Body() body: any,
-    @GetUser() user: User,
+    @GetUser() user: { id: string; email?: string | null },
   ): Promise<ResponseDto> {
     return this.appService.createChapterQuizzesReport(
       user.id,

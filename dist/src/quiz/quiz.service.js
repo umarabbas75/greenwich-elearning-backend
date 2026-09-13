@@ -322,16 +322,31 @@ let QuizService = QuizService_1 = class QuizService {
     }
     async createChapterQuizzesReport(userId, chapterId, userEmail) {
         try {
-            await (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, chapterId, userEmail);
-            const quizReport = await this.prisma.quizProgress.findUnique({
-                where: {
-                    userId_chapterId: {
-                        userId,
-                        chapterId,
-                    },
-                },
+            const [chapter, quizReport] = await Promise.all([
+                this.prisma.chapter.findUnique({
+                    where: { id: chapterId },
+                    select: { module: { select: { courseId: true } } },
+                }),
+                this.prisma.quizProgress.findUnique({
+                    where: { userId_chapterId: { userId, chapterId } },
+                }),
+            ]);
+            const courseId = chapter?.module?.courseId;
+            if (!courseId) {
+                throw new common_1.ForbiddenException('Chapter not found');
+            }
+            const enrollment = await this.prisma.userCourse.findUnique({
+                where: { userId_courseId: { userId, courseId } },
+                select: { enrolledVersionId: true },
             });
-            const grade = await (0, chapter_progression_1.gradeChapterQuizFromStoredAnswers)(this.prisma, userId, chapterId, quizReport?.passingCriteria);
+            const progressCtx = {
+                courseId,
+                enrolledVersionId: enrollment?.enrolledVersionId ?? null,
+            };
+            const [, grade] = await Promise.all([
+                (0, chapter_progression_1.assertChapterAccessible)(this.prisma, this.config, userId, chapterId, userEmail, progressCtx),
+                (0, chapter_progression_1.gradeChapterQuizFromStoredAnswers)(this.prisma, userId, chapterId, quizReport?.passingCriteria ?? null, progressCtx),
+            ]);
             if (grade.answeredQuestions < grade.totalQuestions) {
                 throw new common_1.BadRequestException('Answer all chapter quiz questions before submitting the report');
             }
@@ -368,11 +383,12 @@ let QuizService = QuizService_1 = class QuizService {
                 });
             }
             try {
-                const courseId = await (0, chapter_progression_1.getCourseIdForChapter)(this.prisma, chapterId);
-                await (0, chapter_progression_1.recordChapterAndModuleCompletionIfNeeded)(this.prisma, userId, chapterId, courseId ? { courseId } : undefined);
-                if (stickyPassed && courseId) {
-                    await this.courseCompletion.checkContentCompletion(userId, courseId);
-                }
+                await Promise.all([
+                    (0, chapter_progression_1.recordChapterAndModuleCompletionIfNeeded)(this.prisma, userId, chapterId, progressCtx),
+                    stickyPassed
+                        ? this.courseCompletion.checkContentCompletion(userId, courseId)
+                        : Promise.resolve(),
+                ]);
             }
             catch (completionError) {
                 const message = completionError instanceof Error

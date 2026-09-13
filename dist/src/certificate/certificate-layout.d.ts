@@ -12,10 +12,6 @@ export interface CertificateQrLayout {
     size: number;
     x: number;
     y: number;
-    urlFontSize: number;
-    urlGap: number;
-    urlMaxWidth: number;
-    urlColor: RGB;
 }
 export declare const CERTIFICATE_LAYOUT: {
     learnerName: {
@@ -36,7 +32,7 @@ export declare const CERTIFICATE_LAYOUT: {
         yRatio: number;
         fontSize: number;
         x: number;
-        align: "center";
+        align: "left";
         color: RGB;
     };
     certificateId: {
@@ -44,16 +40,12 @@ export declare const CERTIFICATE_LAYOUT: {
         fontSize: number;
         x: number;
         maxWidth: number;
-        align: "center";
+        align: "left";
         color: RGB;
     };
     qr: {
         size: number;
         x: number;
         y: number;
-        urlFontSize: number;
-        urlGap: number;
-        urlMaxWidth: number;
-        urlColor: RGB;
     };
 };

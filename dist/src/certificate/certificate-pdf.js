@@ -5,6 +5,7 @@ const pdf_lib_1 = require("@cantoo/pdf-lib");
 const QRCode = require("qrcode");
 const certificate_layout_1 = require("./certificate-layout");
 const certificate_template_1 = require("./certificate-template");
+const certificate_text_1 = require("./certificate-text");
 function fitFontSize(text, font, startSize, maxWidth) {
     let size = startSize;
     while (size > 7 && font.widthOfTextAtSize(text, size) > maxWidth) {
@@ -41,37 +42,6 @@ function drawField(page, text, pageWidth, pageHeight, layout, font, boldFont) {
         color: layout.color,
     });
 }
-function wrapVerifyUrl(url, font, size, maxWidth) {
-    if (font.widthOfTextAtSize(url, size) <= maxWidth)
-        return [url];
-    try {
-        const parsed = new URL(url);
-        const origin = parsed.origin;
-        const rest = url.slice(origin.length);
-        if (rest &&
-            font.widthOfTextAtSize(origin, size) <= maxWidth &&
-            font.widthOfTextAtSize(rest, size) <= maxWidth) {
-            return [origin, rest];
-        }
-    }
-    catch {
-    }
-    return wrapToWidth(url, font, size, maxWidth);
-}
-function wrapToWidth(text, font, size, maxWidth) {
-    const lines = [];
-    let remaining = text;
-    while (remaining.length > 0) {
-        let take = remaining.length;
-        while (take > 1 &&
-            font.widthOfTextAtSize(remaining.slice(0, take), size) > maxWidth) {
-            take -= 1;
-        }
-        lines.push(remaining.slice(0, take));
-        remaining = remaining.slice(take);
-    }
-    return lines;
-}
 function addUriLink(page, uri, rect) {
     const pad = 2;
     const link = page.doc.context.register(page.doc.context.obj({
@@ -92,44 +62,18 @@ function addUriLink(page, uri, rect) {
     }));
     page.node.addAnnot(link);
 }
-async function drawVerifyQrAndUrl(doc, page, verifyUrl, font) {
+async function drawVerifyQr(doc, page, verifyUrl) {
     const png = await QRCode.toBuffer(verifyUrl, {
         type: 'png',
         width: 256,
         margin: 1,
         errorCorrectionLevel: 'M',
-        color: { dark: '#172852', light: '#FFFFFF' },
+        color: { dark: '#1B2420', light: '#FFFFFF' },
     });
     const qrImage = await doc.embedPng(png);
-    const { size, x, y, urlFontSize, urlGap, urlMaxWidth, urlColor } = certificate_layout_1.CERTIFICATE_LAYOUT.qr;
+    const { size, x, y } = certificate_layout_1.CERTIFICATE_LAYOUT.qr;
     page.drawImage(qrImage, { x, y, width: size, height: size });
-    const lines = wrapVerifyUrl(verifyUrl, font, urlFontSize, urlMaxWidth);
-    const lineHeight = urlFontSize + 1.5;
-    const firstLineY = y - urlGap - urlFontSize;
-    let maxLineWidth = 0;
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const width = font.widthOfTextAtSize(line, urlFontSize);
-        maxLineWidth = Math.max(maxLineWidth, width);
-        page.drawText(line, {
-            x,
-            y: firstLineY - i * lineHeight,
-            size: urlFontSize,
-            font,
-            color: urlColor,
-        });
-    }
-    const urlHeight = lines.length * lineHeight;
-    const urlBottom = firstLineY - (lines.length - 1) * lineHeight;
-    return [
-        { x, y, width: size, height: size },
-        {
-            x,
-            y: urlBottom,
-            width: Math.max(size, maxLineWidth),
-            height: urlHeight,
-        },
-    ];
+    return { x, y, width: size, height: size };
 }
 function applyMetadata(doc, data) {
     doc.setTitle(`Certificate of Completion — ${data.certificateId}`);
@@ -164,9 +108,9 @@ async function renderCertificatePdf(data) {
     const { width: pageWidth, height: pageHeight } = page.getSize();
     const helvetica = await stamped.embedFont(pdf_lib_1.StandardFonts.Helvetica);
     const helveticaBold = await stamped.embedFont(pdf_lib_1.StandardFonts.HelveticaBold);
-    const learnerName = data.learnerName.trim() || 'Learner';
+    const learnerName = (0, certificate_text_1.formatCertificateTitle)(data.learnerName) || 'Learner';
     drawField(page, learnerName, pageWidth, pageHeight, certificate_layout_1.CERTIFICATE_LAYOUT.learnerName, helvetica, helveticaBold);
-    const courseTitle = data.courseTitle.trim() || 'Course';
+    const courseTitle = (0, certificate_text_1.formatCertificateTitle)(data.courseTitle) || 'Course';
     drawField(page, courseTitle, pageWidth, pageHeight, certificate_layout_1.CERTIFICATE_LAYOUT.courseTitle, helvetica, helveticaBold);
     const dateStr = data.issuedAt.toLocaleDateString('en-GB', {
         day: 'numeric',
@@ -175,10 +119,8 @@ async function renderCertificatePdf(data) {
     });
     drawField(page, dateStr, pageWidth, pageHeight, certificate_layout_1.CERTIFICATE_LAYOUT.issuedDate, helvetica, helveticaBold);
     drawField(page, data.certificateId, pageWidth, pageHeight, certificate_layout_1.CERTIFICATE_LAYOUT.certificateId, helvetica, helveticaBold);
-    const linkRects = await drawVerifyQrAndUrl(stamped, page, data.verifyUrl, helvetica);
-    for (const rect of linkRects) {
-        addUriLink(page, data.verifyUrl, rect);
-    }
+    const qrRect = await drawVerifyQr(stamped, page, data.verifyUrl);
+    addUriLink(page, data.verifyUrl, qrRect);
     applyMetadata(stamped, data);
     return stamped.save();
 }

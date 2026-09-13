@@ -65,7 +65,10 @@ export declare class CourseController {
     restoreChapter(user: User, params: ParamsDto): Promise<ResponseDto>;
     restoreSection(user: User, params: ParamsDto): Promise<ResponseDto>;
     getArchivedInventory(courseId: string, page?: string, pageSize?: string, entityType?: 'module' | 'chapter' | 'section' | 'quiz', search?: string, sort?: string): Promise<ResponseDto>;
-    updateUserChapterProgress(body: any, user: User): Promise<ResponseDto>;
+    updateUserChapterProgress(body: any, user: {
+        id: string;
+        email: string;
+    }): Promise<ResponseDto>;
     getUserChapterProgress(params: AssignCourseDto): Promise<ResponseDto>;
     getLastSeen(param: GetUpdateLastSeen): Promise<ResponseDto>;
     updateLastSeen(body: any, user: User): Promise<ResponseDto>;

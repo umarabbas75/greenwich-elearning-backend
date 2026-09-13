@@ -219,8 +219,10 @@ export async function gradeChapterQuizFromStoredAnswers(
       where: { userId, chapterId, quizId: { in: quizIds } },
       select: { quizId: true, isAnswerCorrect: true, systemScore: true },
     }),
-    // Only look up the stored passing criteria when the caller didn't supply it.
-    storedPassingCriteria == null
+    // Only look up the stored passing criteria when the caller didn't supply
+    // it. `null` means "already looked, there isn't one" (use the default);
+    // `undefined` means the caller didn't fetch QuizProgress.
+    storedPassingCriteria === undefined
       ? prisma.quizProgress.findUnique({
           where: { userId_chapterId: { userId, chapterId } },
           select: { passingCriteria: true },

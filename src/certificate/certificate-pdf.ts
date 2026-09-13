@@ -8,6 +8,7 @@ import {
 import QRCode = require('qrcode');
 import { CERTIFICATE_LAYOUT, CertificateFieldLayout } from './certificate-layout';
 import { loadCertificateTemplateBytes } from './certificate-template';
+import { formatCertificateTitle } from './certificate-text';
 
 export interface CertificatePdfData {
   learnerName: string;
@@ -75,54 +76,6 @@ function drawField(
   });
 }
 
-function wrapVerifyUrl(
-  url: string,
-  font: PDFFont,
-  size: number,
-  maxWidth: number,
-): string[] {
-  if (font.widthOfTextAtSize(url, size) <= maxWidth) return [url];
-
-  try {
-    const parsed = new URL(url);
-    const origin = parsed.origin;
-    const rest = url.slice(origin.length);
-    if (
-      rest &&
-      font.widthOfTextAtSize(origin, size) <= maxWidth &&
-      font.widthOfTextAtSize(rest, size) <= maxWidth
-    ) {
-      return [origin, rest];
-    }
-  } catch {
-    // Fall through to character wrapping.
-  }
-
-  return wrapToWidth(url, font, size, maxWidth);
-}
-
-function wrapToWidth(
-  text: string,
-  font: PDFFont,
-  size: number,
-  maxWidth: number,
-): string[] {
-  const lines: string[] = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    let take = remaining.length;
-    while (
-      take > 1 &&
-      font.widthOfTextAtSize(remaining.slice(0, take), size) > maxWidth
-    ) {
-      take -= 1;
-    }
-    lines.push(remaining.slice(0, take));
-    remaining = remaining.slice(take);
-  }
-  return lines;
-}
-
 function addUriLink(page: PDFPage, uri: string, rect: PdfRect): void {
   const pad = 2;
   const link = page.doc.context.register(
@@ -146,55 +99,22 @@ function addUriLink(page: PDFPage, uri: string, rect: PdfRect): void {
   page.node.addAnnot(link);
 }
 
-async function drawVerifyQrAndUrl(
+async function drawVerifyQr(
   doc: PDFDocument,
   page: PDFPage,
   verifyUrl: string,
-  font: PDFFont,
-): Promise<PdfRect[]> {
+): Promise<PdfRect> {
   const png = await QRCode.toBuffer(verifyUrl, {
     type: 'png',
     width: 256,
     margin: 1,
     errorCorrectionLevel: 'M',
-    color: { dark: '#172852', light: '#FFFFFF' },
+    color: { dark: '#1B2420', light: '#FFFFFF' },
   });
   const qrImage = await doc.embedPng(png);
-
-  const { size, x, y, urlFontSize, urlGap, urlMaxWidth, urlColor } =
-    CERTIFICATE_LAYOUT.qr;
-
+  const { size, x, y } = CERTIFICATE_LAYOUT.qr;
   page.drawImage(qrImage, { x, y, width: size, height: size });
-
-  const lines = wrapVerifyUrl(verifyUrl, font, urlFontSize, urlMaxWidth);
-  const lineHeight = urlFontSize + 1.5;
-  const firstLineY = y - urlGap - urlFontSize;
-  let maxLineWidth = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const width = font.widthOfTextAtSize(line, urlFontSize);
-    maxLineWidth = Math.max(maxLineWidth, width);
-    page.drawText(line, {
-      x,
-      y: firstLineY - i * lineHeight,
-      size: urlFontSize,
-      font,
-      color: urlColor,
-    });
-  }
-
-  const urlHeight = lines.length * lineHeight;
-  const urlBottom = firstLineY - (lines.length - 1) * lineHeight;
-  return [
-    { x, y, width: size, height: size },
-    {
-      x,
-      y: urlBottom,
-      width: Math.max(size, maxLineWidth),
-      height: urlHeight,
-    },
-  ];
+  return { x, y, width: size, height: size };
 }
 
 function applyMetadata(doc: PDFDocument, data: CertificatePdfData): void {
@@ -225,9 +145,9 @@ function flattenTemplateForm(templateDoc: PDFDocument): void {
 }
 
 /**
- * Stamp learner/course/date/ID, a verification QR (near the ID), and the
- * public verify URL under the QR. Overlay is drawn into the page content
- * stream (not AcroForm fields). Template form fields, if any, are flattened.
+ * Stamp learner/course/date/ID and a verification QR inside the card.
+ * Overlay is drawn into the page content stream (not AcroForm fields).
+ * Template form fields, if any, are flattened.
  */
 export async function renderCertificatePdf(
   data: CertificatePdfData,
@@ -241,7 +161,8 @@ export async function renderCertificatePdf(
   const helvetica = await stamped.embedFont(StandardFonts.Helvetica);
   const helveticaBold = await stamped.embedFont(StandardFonts.HelveticaBold);
 
-  const learnerName = data.learnerName.trim() || 'Learner';
+  const learnerName =
+    formatCertificateTitle(data.learnerName) || 'Learner';
   drawField(
     page,
     learnerName,
@@ -252,7 +173,7 @@ export async function renderCertificatePdf(
     helveticaBold,
   );
 
-  const courseTitle = data.courseTitle.trim() || 'Course';
+  const courseTitle = formatCertificateTitle(data.courseTitle) || 'Course';
   drawField(
     page,
     courseTitle,
@@ -288,16 +209,8 @@ export async function renderCertificatePdf(
     helveticaBold,
   );
 
-  const linkRects = await drawVerifyQrAndUrl(
-    stamped,
-    page,
-    data.verifyUrl,
-    helvetica,
-  );
-
-  for (const rect of linkRects) {
-    addUriLink(page, data.verifyUrl, rect);
-  }
+  const qrRect = await drawVerifyQr(stamped, page, data.verifyUrl);
+  addUriLink(page, data.verifyUrl, qrRect);
 
   applyMetadata(stamped, data);
 
