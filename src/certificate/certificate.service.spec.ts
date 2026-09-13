@@ -20,6 +20,7 @@ describe('CertificateService.verifyCertificate', () => {
     prisma as never,
     mail as never,
     config as unknown as ConfigService,
+    { createNotification: jest.fn() } as never,
   );
 
   beforeEach(() => {

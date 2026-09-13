@@ -18,15 +18,17 @@ const crypto_1 = require("crypto");
 const prisma_service_1 = require("../prisma/prisma.service");
 const mail_service_1 = require("../mail/mail.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
+const notification_service_1 = require("../notifications/notification.service");
 const certificate_pdf_1 = require("./certificate-pdf");
 const certificate_cloudinary_1 = require("./certificate-cloudinary");
 const strip_trailing_slash_1 = require("../utils/strip-trailing-slash");
 const certificate_id_1 = require("./certificate-id");
 let CertificateService = CertificateService_1 = class CertificateService {
-    constructor(prisma, mail, config) {
+    constructor(prisma, mail, config, notificationService) {
         this.prisma = prisma;
         this.mail = mail;
         this.config = config;
+        this.notificationService = notificationService;
         this.cloudinaryReady = false;
     }
     async tryIssueCertificate(userId, courseId) {
@@ -183,6 +185,43 @@ let CertificateService = CertificateService_1 = class CertificateService {
             },
         };
     }
+    async listMine(userId) {
+        const rows = await this.prisma.courseCompletion.findMany({
+            where: {
+                userId,
+                certificateUrl: { not: null },
+                certificateIssuedAt: { not: null },
+            },
+            orderBy: [{ certificateIssuedAt: 'desc' }, { id: 'desc' }],
+            include: {
+                course: {
+                    select: {
+                        id: true,
+                        title: true,
+                        image: true,
+                        certificateIssueMode: true,
+                    },
+                },
+            },
+        });
+        return {
+            message: 'Certificates fetched',
+            statusCode: 200,
+            data: rows.map((r) => ({
+                courseId: r.courseId,
+                courseTitle: r.course?.title ?? null,
+                courseImage: r.course?.image ?? null,
+                certificateIssueMode: r.course?.certificateIssueMode ?? null,
+                certificateId: r.certificateId,
+                certificateUrl: r.certificateUrl,
+                certificateIssuedAt: r.certificateIssuedAt?.toISOString() ?? null,
+                certificateSource: r.certificateSource,
+                verifyUrl: r.certificateId
+                    ? this.buildVerifyUrl(r.certificateId)
+                    : null,
+            })),
+        };
+    }
     async verifyCertificate(certificateId) {
         const normalized = (0, certificate_id_1.normalizeCertificateId)(certificateId);
         if (!normalized) {
@@ -264,12 +303,13 @@ let CertificateService = CertificateService_1 = class CertificateService {
         }
         const completion = await this.prisma.courseCompletion.findUnique({
             where: { userId_courseId: { userId, courseId } },
-            select: { certificateId: true },
+            select: { certificateId: true, certificateUrl: true },
         });
         if (!completion) {
             throw new common_1.NotFoundException('Course completion record not found.');
         }
         const certificateId = completion.certificateId ?? (await this.allocateCertificateId());
+        const isFirstIssue = !completion.certificateUrl;
         const updated = await this.prisma.courseCompletion.update({
             where: { userId_courseId: { userId, courseId } },
             data: {
@@ -280,6 +320,44 @@ let CertificateService = CertificateService_1 = class CertificateService {
                 certificateIssuedByAdminId: adminId,
             },
         });
+        if (isFirstIssue) {
+            const [user, course] = await Promise.all([
+                this.prisma.user.findUnique({
+                    where: { id: userId },
+                    select: {
+                        firstName: true,
+                        lastName: true,
+                        email: true,
+                        deletedAt: true,
+                    },
+                }),
+                this.prisma.course.findUnique({
+                    where: { id: courseId },
+                    select: { title: true },
+                }),
+            ]);
+            if (user && !user.deletedAt && course) {
+                const verifyUrl = this.buildVerifyUrl(certificateId);
+                if (user.email) {
+                    await this.mail.sendCertificateIssued({
+                        to: user.email,
+                        userId,
+                        firstName: user.firstName,
+                        courseTitle: course.title,
+                        courseId,
+                        certificateUrl,
+                        certificateId,
+                        verifyUrl,
+                    });
+                }
+                await this.notifyLearnerCertificateIssued({
+                    userId,
+                    courseId,
+                    courseTitle: course.title,
+                    certificateId,
+                });
+            }
+        }
         return {
             message: 'Certificate URL saved',
             statusCode: 200,
@@ -498,6 +576,12 @@ let CertificateService = CertificateService_1 = class CertificateService {
             certificateUrl,
             verifyUrl,
         });
+        await this.notifyLearnerCertificateIssued({
+            userId,
+            courseId,
+            courseTitle: course.title,
+            certificateId,
+        });
     }
     canUseCloudinary() {
         const cloudName = this.config.get('CLOUDINARY_CLOUD_NAME');
@@ -547,6 +631,26 @@ let CertificateService = CertificateService_1 = class CertificateService {
     buildVerifyUrl(certificateId) {
         return `${this.getFrontendBase()}/certificates/verify/${encodeURIComponent(certificateId)}`;
     }
+    async notifyLearnerCertificateIssued(params) {
+        try {
+            await this.notificationService.createNotification({
+                userId: params.userId,
+                type: client_1.NotificationType.CERTIFICATE_ISSUED,
+                message: `Your certificate for "${params.courseTitle}" is ready.`,
+                payload: {
+                    courseId: params.courseId,
+                    courseTitle: params.courseTitle,
+                    certificateId: params.certificateId,
+                },
+                dedupeKey: `certificate-issued:${params.userId}:${params.courseId}`,
+                referenceId: params.courseId,
+            });
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            CertificateService_1.logger.warn(`Certificate notification failed for user ${params.userId}, course ${params.courseId}: ${message}`);
+        }
+    }
     async resolveCertificateScorePct(userId, courseId, bestAttemptPercentage) {
         if (bestAttemptPercentage != null) {
             return bestAttemptPercentage;
@@ -585,6 +689,7 @@ exports.CertificateService = CertificateService = CertificateService_1 = __decor
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         mail_service_1.MailService,
-        config_1.ConfigService])
+        config_1.ConfigService,
+        notification_service_1.NotificationService])
 ], CertificateService);
 //# sourceMappingURL=certificate.service.js.map

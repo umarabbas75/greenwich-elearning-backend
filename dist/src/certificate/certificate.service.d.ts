@@ -2,6 +2,7 @@ import { CertificateSource } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { NotificationService } from '../notifications/notification.service';
 import { ResponseDto } from '../dto';
 export interface CertificateVerifyResult {
     valid: boolean;
@@ -17,9 +18,10 @@ export declare class CertificateService {
     private readonly prisma;
     private readonly mail;
     private readonly config;
+    private readonly notificationService;
     private static readonly logger;
     private cloudinaryReady;
-    constructor(prisma: PrismaService, mail: MailService, config: ConfigService);
+    constructor(prisma: PrismaService, mail: MailService, config: ConfigService, notificationService: NotificationService);
     tryIssueCertificate(userId: string, courseId: string): Promise<void>;
     getStudentCertificate(userId: string, courseId: string): Promise<ResponseDto>;
     listIssuedCertificates(params: {
@@ -30,6 +32,7 @@ export declare class CertificateService {
         cursor?: string;
         limit: number;
     }): Promise<ResponseDto>;
+    listMine(userId: string): Promise<ResponseDto>;
     verifyCertificate(certificateId: string): Promise<CertificateVerifyResult>;
     buildVerifiedCertificatePdf(certificateId: string): Promise<{
         buffer: Uint8Array;
@@ -56,6 +59,7 @@ export declare class CertificateService {
     private persistCertificatePdf;
     private ensureCloudinaryConfigured;
     private buildVerifyUrl;
+    private notifyLearnerCertificateIssued;
     private resolveCertificateScorePct;
     allocateCertificateId(): Promise<string>;
 }

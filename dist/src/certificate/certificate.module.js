@@ -12,13 +12,14 @@ const jwt_1 = require("@nestjs/jwt");
 const certificate_controller_1 = require("./certificate.controller");
 const certificate_service_1 = require("./certificate.service");
 const mail_module_1 = require("../mail/mail.module");
+const notification_module_1 = require("../notifications/notification.module");
 const strategy_1 = require("../strategy");
 let CertificateModule = class CertificateModule {
 };
 exports.CertificateModule = CertificateModule;
 exports.CertificateModule = CertificateModule = __decorate([
     (0, common_1.Module)({
-        imports: [mail_module_1.MailModule, jwt_1.JwtModule.register({})],
+        imports: [mail_module_1.MailModule, notification_module_1.NotificationModule, jwt_1.JwtModule.register({})],
         controllers: [certificate_controller_1.CertificateController],
         providers: [
             certificate_service_1.CertificateService,

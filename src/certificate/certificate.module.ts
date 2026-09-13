@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { CertificateController } from './certificate.controller';
 import { CertificateService } from './certificate.service';
 import { MailModule } from '../mail/mail.module';
+import { NotificationModule } from '../notifications/notification.module';
 import {
   JwtAdminStrategy,
   JwtCombineStrategy,
@@ -10,7 +11,7 @@ import {
 } from '../strategy';
 
 @Module({
-  imports: [MailModule, JwtModule.register({})],
+  imports: [MailModule, NotificationModule, JwtModule.register({})],
   controllers: [CertificateController],
   providers: [
     CertificateService,

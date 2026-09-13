@@ -6,6 +6,7 @@ export declare class CertificateController {
     constructor(certificateService: CertificateService);
     downloadVerifiedCertificate(certificateId: string): Promise<StreamableFile>;
     verify(certificateId: string): Promise<import("./certificate.service").CertificateVerifyResult>;
+    listMine(user: User): Promise<import("../dto").ResponseDto>;
     getStudentCertificate(user: User, courseId: string): Promise<import("../dto").ResponseDto>;
     downloadStudentCertificate(user: User, courseId: string): Promise<StreamableFile>;
     listIssued(courseId?: string, source?: CertificateSource, from?: string, to?: string, cursor?: string, limit?: string): Promise<import("../dto").ResponseDto>;

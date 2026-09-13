@@ -1134,6 +1134,7 @@ enum NotificationType {
   ASSIGNMENT_GRADED // admin reviewed/graded a submission; recipient is the student
   REGISTRATION_SUBMITTED // learner submitted a v2 registration form; recipients are admins
   REGISTRATION_REVIEWED // advisor saved a registration review; recipient is the learner
+  CERTIFICATE_ISSUED // learner certificate PDF is ready (auto-generated or admin upload)
 }
 
 enum QuestionType {

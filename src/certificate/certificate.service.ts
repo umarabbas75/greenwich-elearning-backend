@@ -2,6 +2,7 @@ import {
   CertificateIssueMode,
   CertificateSource,
   CourseDeliveryMode,
+  NotificationType,
 } from '@prisma/client';
 import {
   ForbiddenException,
@@ -15,6 +16,7 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
+import { NotificationService } from '../notifications/notification.service';
 import { ResponseDto } from '../dto';
 import { renderCertificatePdf } from './certificate-pdf';
 import {
@@ -44,7 +46,8 @@ export class CertificateService {
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
-  ) {}
+    private readonly notificationService: NotificationService,
+  ) { }
 
   /**
    * Best-effort auto-issue when the course is in AUTO mode and all requirements
@@ -159,9 +162,9 @@ export class CertificateService {
       data: {
         certificateUrl: updated.certificateId
           ? this.resolvePublicDownloadUrl(
-              updated.certificateUrl!,
-              updated.certificateId,
-            )
+            updated.certificateUrl!,
+            updated.certificateId,
+          )
           : updated.certificateUrl,
         certificateId: updated.certificateId,
         certificateIssuedAt: updated.certificateIssuedAt?.toISOString() ?? null,
@@ -244,6 +247,46 @@ export class CertificateService {
         })),
         nextCursor: hasMore ? data[data.length - 1].id : null,
       },
+    };
+  }
+
+  /** Learner vault: every issued certificate for the signed-in student. */
+  async listMine(userId: string): Promise<ResponseDto> {
+    const rows = await this.prisma.courseCompletion.findMany({
+      where: {
+        userId,
+        certificateUrl: { not: null },
+        certificateIssuedAt: { not: null },
+      },
+      orderBy: [{ certificateIssuedAt: 'desc' }, { id: 'desc' }],
+      include: {
+        course: {
+          select: {
+            id: true,
+            title: true,
+            image: true,
+            certificateIssueMode: true,
+          },
+        },
+      },
+    });
+
+    return {
+      message: 'Certificates fetched',
+      statusCode: 200,
+      data: rows.map((r) => ({
+        courseId: r.courseId,
+        courseTitle: r.course?.title ?? null,
+        courseImage: r.course?.image ?? null,
+        certificateIssueMode: r.course?.certificateIssueMode ?? null,
+        certificateId: r.certificateId,
+        certificateUrl: r.certificateUrl,
+        certificateIssuedAt: r.certificateIssuedAt?.toISOString() ?? null,
+        certificateSource: r.certificateSource,
+        verifyUrl: r.certificateId
+          ? this.buildVerifyUrl(r.certificateId)
+          : null,
+      })),
     };
   }
 
@@ -373,7 +416,7 @@ export class CertificateService {
 
     const completion = await this.prisma.courseCompletion.findUnique({
       where: { userId_courseId: { userId, courseId } },
-      select: { certificateId: true },
+      select: { certificateId: true, certificateUrl: true },
     });
     if (!completion) {
       throw new NotFoundException('Course completion record not found.');
@@ -381,6 +424,7 @@ export class CertificateService {
 
     const certificateId =
       completion.certificateId ?? (await this.allocateCertificateId());
+    const isFirstIssue = !completion.certificateUrl;
 
     const updated = await this.prisma.courseCompletion.update({
       where: { userId_courseId: { userId, courseId } },
@@ -392,6 +436,45 @@ export class CertificateService {
         certificateIssuedByAdminId: adminId,
       },
     });
+
+    if (isFirstIssue) {
+      const [user, course] = await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+            deletedAt: true,
+          },
+        }),
+        this.prisma.course.findUnique({
+          where: { id: courseId },
+          select: { title: true },
+        }),
+      ]);
+      if (user && !user.deletedAt && course) {
+        const verifyUrl = this.buildVerifyUrl(certificateId);
+        if (user.email) {
+          await this.mail.sendCertificateIssued({
+            to: user.email,
+            userId,
+            firstName: user.firstName,
+            courseTitle: course.title,
+            courseId,
+            certificateUrl,
+            certificateId,
+            verifyUrl,
+          });
+        }
+        await this.notifyLearnerCertificateIssued({
+          userId,
+          courseId,
+          courseTitle: course.title,
+          certificateId,
+        });
+      }
+    }
 
     return {
       message: 'Certificate URL saved',
@@ -691,6 +774,13 @@ export class CertificateService {
       certificateUrl,
       verifyUrl,
     });
+
+    await this.notifyLearnerCertificateIssued({
+      userId,
+      courseId,
+      courseTitle: course.title,
+      certificateId,
+    });
   }
 
   private canUseCloudinary(): boolean {
@@ -770,6 +860,34 @@ export class CertificateService {
     return `${this.getFrontendBase()}/certificates/verify/${encodeURIComponent(
       certificateId,
     )}`;
+  }
+
+  /** In-app bell only — email is sent separately so we don't double-mail. */
+  private async notifyLearnerCertificateIssued(params: {
+    userId: string;
+    courseId: string;
+    courseTitle: string;
+    certificateId: string;
+  }): Promise<void> {
+    try {
+      await this.notificationService.createNotification({
+        userId: params.userId,
+        type: NotificationType.CERTIFICATE_ISSUED,
+        message: `Your certificate for "${params.courseTitle}" is ready.`,
+        payload: {
+          courseId: params.courseId,
+          courseTitle: params.courseTitle,
+          certificateId: params.certificateId,
+        },
+        dedupeKey: `certificate-issued:${params.userId}:${params.courseId}`,
+        referenceId: params.courseId,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      CertificateService.logger.warn(
+        `Certificate notification failed for user ${params.userId}, course ${params.courseId}: ${message}`,
+      );
+    }
   }
 
   /** SCORM courses have no AssessmentAttempt; fall back to registration scoreScaled (0–100). */

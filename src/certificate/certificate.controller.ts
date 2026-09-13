@@ -36,6 +36,13 @@ export class CertificateController {
     return this.certificateService.verifyCertificate(certificateId);
   }
 
+  /** Learner vault of issued certificates. Static path must sit above `student/:courseId`. */
+  @UseGuards(AuthGuard('uJwt'))
+  @Get('mine')
+  listMine(@GetUser() user: User) {
+    return this.certificateService.listMine(user.id);
+  }
+
   /** Student download — AUTO courses generate on first access; MANUAL returns admin URL. */
   @UseGuards(AuthGuard('uJwt'))
   @Get('student/:courseId')

@@ -4074,13 +4074,21 @@ let CourseService = CourseService_1 = class CourseService {
                 }),
                 this.prisma.courseCompletion.findMany({
                     where: { userId, courseId: { in: courseIds } },
-                    select: { courseId: true, courseCompletedAt: true },
+                    select: {
+                        courseId: true,
+                        courseCompletedAt: true,
+                        certificateId: true,
+                        certificateUrl: true,
+                        certificateIssuedAt: true,
+                        certificateSource: true,
+                    },
                 }),
             ]);
             const feedbackSubmittedIds = new Set(feedbackSubmissions.map((s) => s.courseId));
             const completedAtByCourse = new Map(completions
                 .filter((c) => c.courseCompletedAt)
                 .map((c) => [c.courseId, c.courseCompletedAt]));
+            const certificateByCourse = new Map(completions.map((c) => [c.courseId, c]));
             const learnerPercentages = await (0, learner_percentage_1.computeLearnerPercentages)(this.prisma, assignedCourses.map((uc) => ({
                 userId,
                 courseId: uc.courseId,
@@ -4140,6 +4148,7 @@ let CourseService = CourseService_1 = class CourseService {
                     allRequiredItemsCompleted &&
                     !registrationGate.blocked;
                 const completedAt = completedAtByCourse.get(course.id);
+                const issuedCertificate = certificateByCourse.get(course.id);
                 const isFrozen = !!completedAt;
                 if (completedAt &&
                     learnerProgress &&
@@ -4164,6 +4173,10 @@ let CourseService = CourseService_1 = class CourseService {
                     expiresAt,
                     isCompleted: isFrozen,
                     completedAt: completedAt ?? null,
+                    certificateId: issuedCertificate?.certificateId ?? null,
+                    certificateUrl: issuedCertificate?.certificateUrl ?? null,
+                    certificateIssuedAt: issuedCertificate?.certificateIssuedAt ?? null,
+                    certificateSource: issuedCertificate?.certificateSource ?? null,
                     feedbackForm: course.feedbackForm
                         ? {
                             isRequired: course.feedbackForm.isRequired,

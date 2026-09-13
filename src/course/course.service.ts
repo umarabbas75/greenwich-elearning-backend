@@ -5742,7 +5742,14 @@ export class CourseService {
         // list can flag expired courses without a per-course gate fetch.
         this.prisma.courseCompletion.findMany({
           where: { userId, courseId: { in: courseIds } },
-          select: { courseId: true, courseCompletedAt: true },
+          select: {
+            courseId: true,
+            courseCompletedAt: true,
+            certificateId: true,
+            certificateUrl: true,
+            certificateIssuedAt: true,
+            certificateSource: true,
+          },
         }),
       ]);
       const feedbackSubmittedIds = new Set(
@@ -5752,6 +5759,9 @@ export class CourseService {
         completions
           .filter((c) => c.courseCompletedAt)
           .map((c) => [c.courseId, c.courseCompletedAt as Date]),
+      );
+      const certificateByCourse = new Map(
+        completions.map((c) => [c.courseId, c]),
       );
 
       // Percentages via the shared engine. Batched across every assigned
@@ -5880,6 +5890,7 @@ export class CourseService {
         // mirrors the canAccessCourseContent gate so list CTAs can show an
         // "expired" state without a per-course gate fetch. Learners only.
         const completedAt = completedAtByCourse.get(course.id);
+        const issuedCertificate = certificateByCourse.get(course.id);
         const isFrozen = !!completedAt;
 
         // Invariant, not a fix: with numerator and denominator drawn from one
@@ -5915,6 +5926,10 @@ export class CourseService {
           expiresAt,
           isCompleted: isFrozen,
           completedAt: completedAt ?? null,
+          certificateId: issuedCertificate?.certificateId ?? null,
+          certificateUrl: issuedCertificate?.certificateUrl ?? null,
+          certificateIssuedAt: issuedCertificate?.certificateIssuedAt ?? null,
+          certificateSource: issuedCertificate?.certificateSource ?? null,
           feedbackForm: course.feedbackForm
             ? {
                 isRequired: course.feedbackForm.isRequired,
