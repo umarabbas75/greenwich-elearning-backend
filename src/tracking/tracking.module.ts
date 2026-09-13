@@ -6,12 +6,13 @@ import {
   JwtUserStrategy,
   JwtAdminStrategy,
   JwtCombineStrategy,
+  JwtHeartbeatStrategy,
 } from '../strategy';
 
 /**
  * Platform tracking: time-spent heartbeats + time/login reports. (Login events
  * themselves are written by AuthService on the login path.) PrismaModule is
- * global; the JWT strategies are registered here so the cJwt guard resolves.
+ * global; JWT strategies are registered here so the heartbeat / cJwt guards resolve.
  */
 @Module({
   imports: [JwtModule.register({})],
@@ -20,6 +21,7 @@ import {
     JwtUserStrategy,
     JwtAdminStrategy,
     JwtCombineStrategy,
+    JwtHeartbeatStrategy,
   ],
   controllers: [TrackingController],
   exports: [TrackingService],

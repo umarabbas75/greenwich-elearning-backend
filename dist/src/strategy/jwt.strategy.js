@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.JwtCombineStrategy = exports.JwtUserStrategy = exports.JwtAdminStrategy = void 0;
+exports.JwtHeartbeatStrategy = exports.JwtCombineStrategy = exports.JwtUserStrategy = exports.JwtAdminStrategy = void 0;
 const common_1 = require("@nestjs/common");
 const passport_1 = require("@nestjs/passport");
 const passport_jwt_1 = require("passport-jwt");
@@ -150,4 +150,27 @@ exports.JwtCombineStrategy = JwtCombineStrategy = __decorate([
     __metadata("design:paramtypes", [config_1.ConfigService,
         prisma_service_1.PrismaService])
 ], JwtCombineStrategy);
+let JwtHeartbeatStrategy = class JwtHeartbeatStrategy extends (0, passport_1.PassportStrategy)(passport_jwt_1.Strategy, 'cJwtHeartbeat') {
+    constructor(config) {
+        const jwt_secret = config.get('JWT_SECRET');
+        if (!jwt_secret) {
+            throw new Error('JWT_SECRET is not set');
+        }
+        super({
+            jwtFromRequest: passport_jwt_1.ExtractJwt.fromAuthHeaderAsBearerToken(),
+            secretOrKey: jwt_secret,
+        });
+    }
+    validate(payload) {
+        if (!payload?.sub) {
+            throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: 'UnAuthorized' }, common_1.HttpStatus.FORBIDDEN);
+        }
+        return { id: payload.sub };
+    }
+};
+exports.JwtHeartbeatStrategy = JwtHeartbeatStrategy;
+exports.JwtHeartbeatStrategy = JwtHeartbeatStrategy = __decorate([
+    (0, common_1.Injectable)(),
+    __metadata("design:paramtypes", [config_1.ConfigService])
+], JwtHeartbeatStrategy);
 //# sourceMappingURL=jwt.strategy.js.map

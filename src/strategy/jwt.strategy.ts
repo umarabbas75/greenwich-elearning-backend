@@ -160,3 +160,38 @@ export class JwtCombineStrategy extends PassportStrategy(Strategy, 'cJwt') {
     }
   }
 }
+
+/**
+ * High-frequency tracking pings only need `userId`. Passport already verified
+ * the JWT signature (and expiry); the signed `sub` is enough. Skipping the
+ * users-table round-trip is the single largest latency cut on `/heartbeat`.
+ *
+ * A deleted account can keep accruing until the token expires — acceptable for
+ * telemetry. Other tracking routes keep `cJwt` and still load the user row.
+ */
+@Injectable()
+export class JwtHeartbeatStrategy extends PassportStrategy(
+  Strategy,
+  'cJwtHeartbeat',
+) {
+  constructor(config: ConfigService) {
+    const jwt_secret = config.get('JWT_SECRET');
+    if (!jwt_secret) {
+      throw new Error('JWT_SECRET is not set');
+    }
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      secretOrKey: jwt_secret,
+    });
+  }
+
+  validate(payload: { sub?: string }) {
+    if (!payload?.sub) {
+      throw new HttpException(
+        { status: HttpStatus.FORBIDDEN, error: 'UnAuthorized' },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    return { id: payload.sub };
+  }
+}

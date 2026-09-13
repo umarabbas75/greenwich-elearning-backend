@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { CourseVersionService } from '../course-version/course-version.service';
+import { CertificateService } from '../certificate/certificate.service';
 import { CourseAssessmentService } from './course-assessment.service';
 
 /**
@@ -39,6 +40,7 @@ describe('CourseAssessmentService — version-aware content gate', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: NotificationService, useValue: {} },
         { provide: CourseVersionService, useValue: courseVersionService },
+        { provide: CertificateService, useValue: {} },
       ],
     }).compile();
 

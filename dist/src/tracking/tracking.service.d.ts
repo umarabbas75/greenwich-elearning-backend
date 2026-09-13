@@ -6,12 +6,22 @@ export declare class TrackingService {
     static readonly CAP_FACTOR = 3;
     static readonly GRACE_FACTOR = 1.5;
     static readonly ABSOLUTE_CAP = 90;
+    static readonly SECTION_PLACE_TTL_MS: number;
+    static readonly NOT_FROZEN_TTL_MS = 10000;
+    static readonly SECTION_PLACE_CACHE_MAX = 2048;
+    static readonly FROZEN_CACHE_MAX = 4096;
+    private readonly logger;
+    private readonly sectionPlaceCache;
+    private readonly frozenTotals;
+    private readonly notFrozenUntil;
     constructor(prisma: PrismaService);
     heartbeat(userId: string, sectionId: string, clientActiveSeconds?: number | null, clientIntervalSeconds?: number | null): Promise<{
         message: string;
         statusCode: number;
         data: {
             totalSeconds: number;
+            creditedSeconds: number;
+            frozen: boolean;
         };
     }>;
     recordSectionAttempt(userId: string, sectionId: string, _isCorrect: boolean): Promise<{
@@ -22,6 +32,12 @@ export declare class TrackingService {
             lastAttemptAt: Date;
         };
     }>;
+    private frozenKey;
+    private resolveSectionPlace;
+    private getFrozenTotal;
+    private isKnownNotFrozen;
+    private rememberFrozen;
+    private rememberNotFrozen;
     private utcDay;
     private accrueDailyTime;
     getLoginHistory(userId: string, limit?: number): Promise<{

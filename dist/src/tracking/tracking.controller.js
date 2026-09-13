@@ -22,25 +22,34 @@ let TrackingController = class TrackingController {
     constructor(tracking) {
         this.tracking = tracking;
     }
+    assertCanRead(requester, targetUserId) {
+        if (requester.role === 'admin')
+            return;
+        if (requester.id === targetUserId)
+            return;
+        throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: 'Forbidden' }, common_1.HttpStatus.FORBIDDEN);
+    }
     heartbeat(body, user) {
         return this.tracking.heartbeat(user.id, body.sectionId, body.activeSeconds, body.intervalSeconds);
     }
     sectionAttempt(body, user) {
         return this.tracking.recordSectionAttempt(user.id, body.sectionId, body.isCorrect);
     }
-    getLoginHistory(userId, limit) {
+    getLoginHistory(requester, userId, limit) {
+        this.assertCanRead(requester, userId);
         return this.tracking.getLoginHistory(userId, limit ? parseInt(limit, 10) : undefined);
     }
     getMyLoginHistory(user, limit) {
         return this.tracking.getLoginHistory(user.id, limit ? parseInt(limit, 10) : undefined);
     }
-    getUserCourseTimeSpent(userId, courseId) {
+    getUserCourseTimeSpent(requester, userId, courseId) {
+        this.assertCanRead(requester, userId);
         return this.tracking.getUserCourseTimeSpent(userId, courseId);
     }
 };
 exports.TrackingController = TrackingController;
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwtHeartbeat')),
     (0, common_1.Post)('heartbeat'),
     (0, common_1.HttpCode)(200),
     __param(0, (0, common_1.Body)()),
@@ -62,10 +71,11 @@ __decorate([
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('login-history/:userId'),
-    __param(0, (0, common_1.Param)('userId')),
-    __param(1, (0, common_1.Query)('limit')),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)('userId')),
+    __param(2, (0, common_1.Query)('limit')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:paramtypes", [Object, String, String]),
     __metadata("design:returntype", void 0)
 ], TrackingController.prototype, "getLoginHistory", null);
 __decorate([
@@ -80,10 +90,11 @@ __decorate([
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('time-spent/:userId/:courseId'),
-    __param(0, (0, common_1.Param)('userId')),
-    __param(1, (0, common_1.Param)('courseId')),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)('userId')),
+    __param(2, (0, common_1.Param)('courseId')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:paramtypes", [Object, String, String]),
     __metadata("design:returntype", void 0)
 ], TrackingController.prototype, "getUserCourseTimeSpent", null);
 exports.TrackingController = TrackingController = __decorate([

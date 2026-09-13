@@ -79,4 +79,13 @@ export declare class JwtCombineStrategy extends JwtCombineStrategy_base {
         passwordChangedAt: Date;
     }>;
 }
+declare const JwtHeartbeatStrategy_base: new (...args: any[]) => any;
+export declare class JwtHeartbeatStrategy extends JwtHeartbeatStrategy_base {
+    constructor(config: ConfigService);
+    validate(payload: {
+        sub?: string;
+    }): {
+        id: string;
+    };
+}
 export {};

@@ -277,6 +277,12 @@ describe('CourseService — course versioning', () => {
     it('archives when referenced by a published version', async () => {
       prisma.section.findUnique.mockResolvedValue({
         id: 'sec-1',
+        chapter: {
+          module: {
+            courseId: 'course-1',
+            course: { deliveryMode: 'NATIVE' },
+          },
+        },
         title: 'S',
         chapterId: 'ch-1',
         isArchived: false,
@@ -335,6 +341,12 @@ describe('CourseService — course versioning', () => {
     it('hard-deletes when already archived and not in any manifest', async () => {
       prisma.section.findUnique.mockResolvedValue({
         id: 'sec-1',
+        chapter: {
+          module: {
+            courseId: 'course-1',
+            course: { deliveryMode: 'NATIVE' },
+          },
+        },
         title: 'S',
         chapterId: 'ch-1',
         isArchived: true,
@@ -359,6 +371,12 @@ describe('CourseService — course versioning', () => {
     it('hard-deletes when never published', async () => {
       prisma.section.findUnique.mockResolvedValue({
         id: 'sec-1',
+        chapter: {
+          module: {
+            courseId: 'course-1',
+            course: { deliveryMode: 'NATIVE' },
+          },
+        },
         chapterId: 'ch-1',
         isArchived: false,
       });
@@ -384,6 +402,10 @@ describe('CourseService — course versioning', () => {
         id: 'ch-1',
         moduleId: 'mod-1',
         title: 'C',
+        module: {
+          courseId: 'course-1',
+          course: { deliveryMode: 'NATIVE' },
+        },
       });
       prisma.module.findUnique.mockResolvedValue({
         id: 'mod-1',

@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { isInteractiveSectionType } from '../utils/interactive-section-types';
 import { parseUserAgent } from '../utils/user-agent';
@@ -7,6 +7,29 @@ import { parseUserAgent } from '../utils/user-agent';
 function clamp(n: number, lo: number, hi: number): number {
   if (!Number.isFinite(n)) return lo;
   return Math.min(Math.max(n, lo), hi);
+}
+
+type SectionPlace = {
+  chapterId: string;
+  moduleId: string | null;
+  courseId: string;
+};
+
+type TtlEntry<T> = { value: T; expiresAt: number };
+
+/** Insert/refresh an LRU entry; drop the oldest when over `max`. */
+function lruSet<V>(
+  map: Map<string, V>,
+  key: string,
+  value: V,
+  max: number,
+): void {
+  map.delete(key);
+  map.set(key, value);
+  if (map.size > max) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
 }
 
 /**
@@ -32,6 +55,22 @@ export class TrackingService {
   /** Final backstop on any single ping's credit (seconds). */
   static readonly ABSOLUTE_CAP = 90;
 
+  /** Section → course mapping is stable; a short TTL covers rare moves. */
+  static readonly SECTION_PLACE_TTL_MS = 5 * 60 * 1000;
+  /** Negative completion cache: pick up a just-issued certificate within this. */
+  static readonly NOT_FROZEN_TTL_MS = 10_000;
+  static readonly SECTION_PLACE_CACHE_MAX = 2048;
+  static readonly FROZEN_CACHE_MAX = 4096;
+
+  private readonly logger = new Logger(TrackingService.name);
+  private readonly sectionPlaceCache = new Map<
+    string,
+    TtlEntry<SectionPlace>
+  >();
+  /** Completed courses never un-freeze; remember the last reported total. */
+  private readonly frozenTotals = new Map<string, number>();
+  private readonly notFrozenUntil = new Map<string, number>();
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -50,6 +89,18 @@ export class TrackingService {
    *
    * lastHeartbeatAt is ALWAYS advanced to the server receive time, even when
    * credit is 0 — a stale timestamp would inflate the next ping.
+   *
+   * COMPLETED COURSES DO NOT ACCRUE. Once `CourseCompletion.courseCompletedAt`
+   * is set, revisiting a lesson credits nothing: the learner's recorded study
+   * time is evidence attached to a certificate that has already been issued, so
+   * it must not keep moving afterwards. The response carries `frozen: true` so
+   * the client can stop pinging instead of sending requests we will ignore.
+   *
+   * CONCURRENCY: the read below is not authoritative on its own. The write is a
+   * compare-and-set guarded on the `lastHeartbeatAt` this call read, so two
+   * overlapping pings (two tabs, or a retry racing the original) can never
+   * credit the same wall-clock window twice. The CAS loser credits 0 — which is
+   * correct, because the winner already recorded that window.
    */
   async heartbeat(
     userId: string,
@@ -57,46 +108,60 @@ export class TrackingService {
     clientActiveSeconds?: number | null,
     clientIntervalSeconds?: number | null,
   ) {
-    // Resolve the section's place in the hierarchy (and validate it exists).
-    const section = await this.prisma.section.findUnique({
-      where: { id: sectionId },
-      select: {
-        id: true,
-        chapterId: true,
-        moduleId: true,
-        chapter: {
-          select: { moduleId: true, module: { select: { courseId: true } } },
-        },
-      },
-    });
-    if (!section) {
-      throw new HttpException(
-        { status: HttpStatus.NOT_FOUND, error: 'Section not found' },
-        HttpStatus.NOT_FOUND,
-      );
+    const place = await this.resolveSectionPlace(sectionId);
+
+    // Completed courses never un-freeze. After the first ping we can answer
+    // from memory and skip every DB round-trip on this path.
+    const frozenTotal = this.getFrozenTotal(userId, place.courseId);
+    if (frozenTotal !== undefined) {
+      return this.heartbeatResult(frozenTotal, 0, true);
     }
 
-    const moduleId = section.moduleId ?? section.chapter?.moduleId ?? null;
-    const courseId = section.chapter?.module?.courseId;
-    if (!courseId) {
-      // Orphaned section with no resolvable course — don't fabricate tracking.
-      throw new HttpException(
-        {
-          status: HttpStatus.BAD_REQUEST,
-          error: 'Section is not linked to a course',
-        },
-        HttpStatus.BAD_REQUEST,
-      );
+    const skipCompletionLookup = this.isKnownNotFrozen(userId, place.courseId);
+
+    // Completion + current total in one round-trip (independent reads).
+    const [completion, existing] = await Promise.all([
+      skipCompletionLookup
+        ? Promise.resolve(null)
+        : this.prisma.courseCompletion.findUnique({
+            where: { userId_courseId: { userId, courseId: place.courseId } },
+            select: { courseCompletedAt: true },
+          }),
+      this.prisma.sectionTimeSpent.findUnique({
+        where: { userId_sectionId: { userId, sectionId } },
+        select: { totalSeconds: true, lastHeartbeatAt: true },
+      }),
+    ]);
+
+    if (completion?.courseCompletedAt) {
+      this.rememberFrozen(userId, place.courseId, existing?.totalSeconds ?? 0);
+      return this.heartbeatResult(existing?.totalSeconds ?? 0, 0, true);
+    }
+    if (!skipCompletionLookup) {
+      this.rememberNotFrozen(userId, place.courseId);
     }
 
     const now = new Date();
-    // Read the prior ping. The WRITE below is an atomic upsert keyed on
-    // (userId, sectionId), so concurrent first-pings can't collide on the
-    // unique constraint — the create-race loser hits the update clause, where
-    // serverGap ≈ 0 clamps its credit to ~0 (no double count across tabs).
-    const existing = await this.prisma.sectionTimeSpent.findUnique({
-      where: { userId_sectionId: { userId, sectionId } },
-    });
+
+    if (!existing) {
+      // First ping for this section: open the books, credit nothing. `upsert`
+      // keeps the create race safe — the loser falls through to `update`, which
+      // only advances the timestamp and still credits 0.
+      const opened = await this.prisma.sectionTimeSpent.upsert({
+        where: { userId_sectionId: { userId, sectionId } },
+        create: {
+          userId,
+          sectionId,
+          chapterId: place.chapterId,
+          moduleId: place.moduleId,
+          courseId: place.courseId,
+          totalSeconds: 0,
+          lastHeartbeatAt: now,
+        },
+        update: { lastHeartbeatAt: now },
+      });
+      return this.heartbeatResult(opened.totalSeconds, 0);
+    }
 
     // Clamp the client-reported cadence; derive the per-ping cap from it.
     const interval = clamp(
@@ -111,15 +176,11 @@ export class TrackingService {
     );
 
     // serverGap uses the server receive-clock only — never a client timestamp.
-    const serverGap = existing
-      ? (now.getTime() - existing.lastHeartbeatAt.getTime()) / 1000
-      : null;
+    const serverGap =
+      (now.getTime() - existing.lastHeartbeatAt.getTime()) / 1000;
 
     let credit: number;
-    if (serverGap === null) {
-      // First ping for this section: just open the books, credit nothing.
-      credit = 0;
-    } else if (clientActiveSeconds != null) {
+    if (clientActiveSeconds != null) {
       // New client (preferred): the client can never claim more than real
       // elapsed server time — min(clientActive, serverGap) is the security
       // property — and a single ping is capped at perPingCap.
@@ -140,18 +201,12 @@ export class TrackingService {
     // Round to whole seconds for storage; the int column holds seconds.
     const creditSeconds = Math.round(credit);
 
-    const row = await this.prisma.sectionTimeSpent.upsert({
-      where: { userId_sectionId: { userId, sectionId } },
-      create: {
-        userId,
-        sectionId,
-        chapterId: section.chapterId,
-        moduleId,
-        courseId,
-        totalSeconds: creditSeconds, // 0 on a genuine first ping
-        lastHeartbeatAt: now,
-      },
-      update: {
+    // Compare-and-set on the timestamp we read. `lastHeartbeatAt` doubles as the
+    // row's version: if a concurrent ping advanced it, this matches 0 rows and
+    // we credit nothing rather than applying the same window twice.
+    const applied = await this.prisma.sectionTimeSpent.updateMany({
+      where: { userId, sectionId, lastHeartbeatAt: existing.lastHeartbeatAt },
+      data: {
         totalSeconds: { increment: creditSeconds },
         // ALWAYS advance, even when credit is 0 — a stale timestamp would
         // inflate the next ping's serverGap.
@@ -159,11 +214,38 @@ export class TrackingService {
       },
     });
 
-    if (creditSeconds > 0) {
-      await this.accrueDailyTime(userId, courseId, now, creditSeconds);
+    if (applied.count === 0) {
+      // Lost the race: another ping already credited this window. Report the
+      // current total without adding to it.
+      const current = await this.prisma.sectionTimeSpent.findUnique({
+        where: { userId_sectionId: { userId, sectionId } },
+        select: { totalSeconds: true },
+      });
+      return this.heartbeatResult(
+        current?.totalSeconds ?? existing.totalSeconds,
+        0,
+      );
     }
 
-    return this.heartbeatResult(row.totalSeconds);
+    // Winning the CAS proves no other write landed between the read and the
+    // update, so the new total is exactly what we read plus what we added.
+    const totalSeconds = existing.totalSeconds + creditSeconds;
+
+    if (creditSeconds > 0) {
+      // Daily roll-up is not on the response path — don't hold the ping for it.
+      void this.accrueDailyTime(
+        userId,
+        place.courseId,
+        now,
+        creditSeconds,
+      ).catch((err) =>
+        this.logger.warn(
+          `Daily time roll-up failed for user ${userId} course ${place.courseId}: ${err}`,
+        ),
+      );
+    }
+
+    return this.heartbeatResult(totalSeconds, creditSeconds);
   }
 
   /**
@@ -262,6 +344,111 @@ export class TrackingService {
         lastAttemptAt: row.lastAttemptAt,
       },
     };
+  }
+
+  private frozenKey(userId: string, courseId: string): string {
+    return `${userId}:${courseId}`;
+  }
+
+  /**
+   * Section → course/chapter/module. Cached because the hierarchy is stable
+   * and every ping used to re-join it. A short TTL covers rare admin moves.
+   */
+  private async resolveSectionPlace(sectionId: string): Promise<SectionPlace> {
+    const cached = this.sectionPlaceCache.get(sectionId);
+    if (cached && cached.expiresAt > Date.now()) {
+      lruSet(
+        this.sectionPlaceCache,
+        sectionId,
+        cached,
+        TrackingService.SECTION_PLACE_CACHE_MAX,
+      );
+      return cached.value;
+    }
+
+    const section = await this.prisma.section.findUnique({
+      where: { id: sectionId },
+      select: {
+        id: true,
+        chapterId: true,
+        moduleId: true,
+        chapter: {
+          select: { moduleId: true, module: { select: { courseId: true } } },
+        },
+      },
+    });
+    if (!section) {
+      throw new HttpException(
+        { status: HttpStatus.NOT_FOUND, error: 'Section not found' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const moduleId = section.moduleId ?? section.chapter?.moduleId ?? null;
+    const courseId = section.chapter?.module?.courseId;
+    if (!courseId) {
+      throw new HttpException(
+        {
+          status: HttpStatus.BAD_REQUEST,
+          error: 'Section is not linked to a course',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const place: SectionPlace = {
+      chapterId: section.chapterId,
+      moduleId,
+      courseId,
+    };
+    lruSet(
+      this.sectionPlaceCache,
+      sectionId,
+      {
+        value: place,
+        expiresAt: Date.now() + TrackingService.SECTION_PLACE_TTL_MS,
+      },
+      TrackingService.SECTION_PLACE_CACHE_MAX,
+    );
+    return place;
+  }
+
+  private getFrozenTotal(userId: string, courseId: string): number | undefined {
+    return this.frozenTotals.get(this.frozenKey(userId, courseId));
+  }
+
+  private isKnownNotFrozen(userId: string, courseId: string): boolean {
+    const until = this.notFrozenUntil.get(this.frozenKey(userId, courseId));
+    if (until === undefined) return false;
+    if (until < Date.now()) {
+      this.notFrozenUntil.delete(this.frozenKey(userId, courseId));
+      return false;
+    }
+    return true;
+  }
+
+  private rememberFrozen(
+    userId: string,
+    courseId: string,
+    totalSeconds: number,
+  ): void {
+    const key = this.frozenKey(userId, courseId);
+    this.notFrozenUntil.delete(key);
+    lruSet(
+      this.frozenTotals,
+      key,
+      totalSeconds,
+      TrackingService.FROZEN_CACHE_MAX,
+    );
+  }
+
+  private rememberNotFrozen(userId: string, courseId: string): void {
+    lruSet(
+      this.notFrozenUntil,
+      this.frozenKey(userId, courseId),
+      Date.now() + TrackingService.NOT_FROZEN_TTL_MS,
+      TrackingService.FROZEN_CACHE_MAX,
+    );
   }
 
   /** UTC calendar-day bucket for daily time roll-ups. */
@@ -439,11 +626,21 @@ export class TrackingService {
     };
   }
 
-  private heartbeatResult(totalSeconds: number) {
+  /**
+   * `creditedSeconds` is TELEMETRY ONLY. Clients must not subtract it from a
+   * local accumulator and retry the remainder: the clamp adjudicates between
+   * concurrent clients, so an uncredited remainder has usually already been
+   * recorded by another tab. Retrying it double-counts.
+   */
+  private heartbeatResult(
+    totalSeconds: number,
+    creditedSeconds: number,
+    frozen = false,
+  ) {
     return {
       message: 'Heartbeat recorded',
       statusCode: 200,
-      data: { totalSeconds },
+      data: { totalSeconds, creditedSeconds, frozen },
     };
   }
 }

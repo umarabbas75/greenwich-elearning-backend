@@ -23,6 +23,7 @@ exports.TrackingModule = TrackingModule = __decorate([
             strategy_1.JwtUserStrategy,
             strategy_1.JwtAdminStrategy,
             strategy_1.JwtCombineStrategy,
+            strategy_1.JwtHeartbeatStrategy,
         ],
         controllers: [tracking_controller_1.TrackingController],
         exports: [tracking_service_1.TrackingService],

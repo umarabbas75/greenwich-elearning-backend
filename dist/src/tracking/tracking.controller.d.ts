@@ -4,11 +4,16 @@ import { TrackingService } from './tracking.service';
 export declare class TrackingController {
     private readonly tracking;
     constructor(tracking: TrackingService);
-    heartbeat(body: TrackingHeartbeatDto, user: User): Promise<{
+    private assertCanRead;
+    heartbeat(body: TrackingHeartbeatDto, user: {
+        id: string;
+    }): Promise<{
         message: string;
         statusCode: number;
         data: {
             totalSeconds: number;
+            creditedSeconds: number;
+            frozen: boolean;
         };
     }>;
     sectionAttempt(body: SectionAttemptDto, user: User): Promise<{
@@ -19,7 +24,7 @@ export declare class TrackingController {
             lastAttemptAt: Date;
         };
     }>;
-    getLoginHistory(userId: string, limit?: string): Promise<{
+    getLoginHistory(requester: User, userId: string, limit?: string): Promise<{
         message: string;
         statusCode: number;
         data: {
@@ -47,7 +52,7 @@ export declare class TrackingController {
             userAgent: string;
         }[];
     }>;
-    getUserCourseTimeSpent(userId: string, courseId: string): Promise<{
+    getUserCourseTimeSpent(requester: User, userId: string, courseId: string): Promise<{
         message: string;
         statusCode: number;
         data: {

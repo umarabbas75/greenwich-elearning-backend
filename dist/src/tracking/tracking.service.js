@@ -20,73 +20,96 @@ function clamp(n, lo, hi) {
         return lo;
     return Math.min(Math.max(n, lo), hi);
 }
+function lruSet(map, key, value, max) {
+    map.delete(key);
+    map.set(key, value);
+    if (map.size > max) {
+        const oldest = map.keys().next().value;
+        if (oldest !== undefined)
+            map.delete(oldest);
+    }
+}
 let TrackingService = TrackingService_1 = class TrackingService {
     constructor(prisma) {
         this.prisma = prisma;
+        this.logger = new common_1.Logger(TrackingService_1.name);
+        this.sectionPlaceCache = new Map();
+        this.frozenTotals = new Map();
+        this.notFrozenUntil = new Map();
     }
     async heartbeat(userId, sectionId, clientActiveSeconds, clientIntervalSeconds) {
-        const section = await this.prisma.section.findUnique({
-            where: { id: sectionId },
-            select: {
-                id: true,
-                chapterId: true,
-                moduleId: true,
-                chapter: {
-                    select: { moduleId: true, module: { select: { courseId: true } } },
-                },
-            },
-        });
-        if (!section) {
-            throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Section not found' }, common_1.HttpStatus.NOT_FOUND);
+        const place = await this.resolveSectionPlace(sectionId);
+        const frozenTotal = this.getFrozenTotal(userId, place.courseId);
+        if (frozenTotal !== undefined) {
+            return this.heartbeatResult(frozenTotal, 0, true);
         }
-        const moduleId = section.moduleId ?? section.chapter?.moduleId ?? null;
-        const courseId = section.chapter?.module?.courseId;
-        if (!courseId) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.BAD_REQUEST,
-                error: 'Section is not linked to a course',
-            }, common_1.HttpStatus.BAD_REQUEST);
+        const skipCompletionLookup = this.isKnownNotFrozen(userId, place.courseId);
+        const [completion, existing] = await Promise.all([
+            skipCompletionLookup
+                ? Promise.resolve(null)
+                : this.prisma.courseCompletion.findUnique({
+                    where: { userId_courseId: { userId, courseId: place.courseId } },
+                    select: { courseCompletedAt: true },
+                }),
+            this.prisma.sectionTimeSpent.findUnique({
+                where: { userId_sectionId: { userId, sectionId } },
+                select: { totalSeconds: true, lastHeartbeatAt: true },
+            }),
+        ]);
+        if (completion?.courseCompletedAt) {
+            this.rememberFrozen(userId, place.courseId, existing?.totalSeconds ?? 0);
+            return this.heartbeatResult(existing?.totalSeconds ?? 0, 0, true);
+        }
+        if (!skipCompletionLookup) {
+            this.rememberNotFrozen(userId, place.courseId);
         }
         const now = new Date();
-        const existing = await this.prisma.sectionTimeSpent.findUnique({
-            where: { userId_sectionId: { userId, sectionId } },
-        });
+        if (!existing) {
+            const opened = await this.prisma.sectionTimeSpent.upsert({
+                where: { userId_sectionId: { userId, sectionId } },
+                create: {
+                    userId,
+                    sectionId,
+                    chapterId: place.chapterId,
+                    moduleId: place.moduleId,
+                    courseId: place.courseId,
+                    totalSeconds: 0,
+                    lastHeartbeatAt: now,
+                },
+                update: { lastHeartbeatAt: now },
+            });
+            return this.heartbeatResult(opened.totalSeconds, 0);
+        }
         const interval = clamp(clientIntervalSeconds ?? TrackingService_1.MAX_INTERVAL, TrackingService_1.MIN_INTERVAL, TrackingService_1.MAX_INTERVAL);
         const perPingCap = clamp(interval * TrackingService_1.CAP_FACTOR, TrackingService_1.MIN_INTERVAL, TrackingService_1.ABSOLUTE_CAP);
-        const serverGap = existing
-            ? (now.getTime() - existing.lastHeartbeatAt.getTime()) / 1000
-            : null;
+        const serverGap = (now.getTime() - existing.lastHeartbeatAt.getTime()) / 1000;
         let credit;
-        if (serverGap === null) {
-            credit = 0;
-        }
-        else if (clientActiveSeconds != null) {
+        if (clientActiveSeconds != null) {
             credit = Math.max(0, Math.min(clientActiveSeconds, serverGap, perPingCap));
         }
         else {
             credit = Math.max(0, Math.min(serverGap, interval * TrackingService_1.GRACE_FACTOR));
         }
         const creditSeconds = Math.round(credit);
-        const row = await this.prisma.sectionTimeSpent.upsert({
-            where: { userId_sectionId: { userId, sectionId } },
-            create: {
-                userId,
-                sectionId,
-                chapterId: section.chapterId,
-                moduleId,
-                courseId,
-                totalSeconds: creditSeconds,
-                lastHeartbeatAt: now,
-            },
-            update: {
+        const applied = await this.prisma.sectionTimeSpent.updateMany({
+            where: { userId, sectionId, lastHeartbeatAt: existing.lastHeartbeatAt },
+            data: {
                 totalSeconds: { increment: creditSeconds },
                 lastHeartbeatAt: now,
             },
         });
-        if (creditSeconds > 0) {
-            await this.accrueDailyTime(userId, courseId, now, creditSeconds);
+        if (applied.count === 0) {
+            const current = await this.prisma.sectionTimeSpent.findUnique({
+                where: { userId_sectionId: { userId, sectionId } },
+                select: { totalSeconds: true },
+            });
+            return this.heartbeatResult(current?.totalSeconds ?? existing.totalSeconds, 0);
         }
-        return this.heartbeatResult(row.totalSeconds);
+        const totalSeconds = existing.totalSeconds + creditSeconds;
+        if (creditSeconds > 0) {
+            void this.accrueDailyTime(userId, place.courseId, now, creditSeconds).catch((err) => this.logger.warn(`Daily time roll-up failed for user ${userId} course ${place.courseId}: ${err}`));
+        }
+        return this.heartbeatResult(totalSeconds, creditSeconds);
     }
     async recordSectionAttempt(userId, sectionId, _isCorrect) {
         const section = await this.prisma.section.findUnique({
@@ -156,6 +179,69 @@ let TrackingService = TrackingService_1 = class TrackingService {
                 lastAttemptAt: row.lastAttemptAt,
             },
         };
+    }
+    frozenKey(userId, courseId) {
+        return `${userId}:${courseId}`;
+    }
+    async resolveSectionPlace(sectionId) {
+        const cached = this.sectionPlaceCache.get(sectionId);
+        if (cached && cached.expiresAt > Date.now()) {
+            lruSet(this.sectionPlaceCache, sectionId, cached, TrackingService_1.SECTION_PLACE_CACHE_MAX);
+            return cached.value;
+        }
+        const section = await this.prisma.section.findUnique({
+            where: { id: sectionId },
+            select: {
+                id: true,
+                chapterId: true,
+                moduleId: true,
+                chapter: {
+                    select: { moduleId: true, module: { select: { courseId: true } } },
+                },
+            },
+        });
+        if (!section) {
+            throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Section not found' }, common_1.HttpStatus.NOT_FOUND);
+        }
+        const moduleId = section.moduleId ?? section.chapter?.moduleId ?? null;
+        const courseId = section.chapter?.module?.courseId;
+        if (!courseId) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.BAD_REQUEST,
+                error: 'Section is not linked to a course',
+            }, common_1.HttpStatus.BAD_REQUEST);
+        }
+        const place = {
+            chapterId: section.chapterId,
+            moduleId,
+            courseId,
+        };
+        lruSet(this.sectionPlaceCache, sectionId, {
+            value: place,
+            expiresAt: Date.now() + TrackingService_1.SECTION_PLACE_TTL_MS,
+        }, TrackingService_1.SECTION_PLACE_CACHE_MAX);
+        return place;
+    }
+    getFrozenTotal(userId, courseId) {
+        return this.frozenTotals.get(this.frozenKey(userId, courseId));
+    }
+    isKnownNotFrozen(userId, courseId) {
+        const until = this.notFrozenUntil.get(this.frozenKey(userId, courseId));
+        if (until === undefined)
+            return false;
+        if (until < Date.now()) {
+            this.notFrozenUntil.delete(this.frozenKey(userId, courseId));
+            return false;
+        }
+        return true;
+    }
+    rememberFrozen(userId, courseId, totalSeconds) {
+        const key = this.frozenKey(userId, courseId);
+        this.notFrozenUntil.delete(key);
+        lruSet(this.frozenTotals, key, totalSeconds, TrackingService_1.FROZEN_CACHE_MAX);
+    }
+    rememberNotFrozen(userId, courseId) {
+        lruSet(this.notFrozenUntil, this.frozenKey(userId, courseId), Date.now() + TrackingService_1.NOT_FROZEN_TTL_MS, TrackingService_1.FROZEN_CACHE_MAX);
     }
     utcDay(d) {
         return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -278,11 +364,11 @@ let TrackingService = TrackingService_1 = class TrackingService {
             },
         };
     }
-    heartbeatResult(totalSeconds) {
+    heartbeatResult(totalSeconds, creditedSeconds, frozen = false) {
         return {
             message: 'Heartbeat recorded',
             statusCode: 200,
-            data: { totalSeconds },
+            data: { totalSeconds, creditedSeconds, frozen },
         };
     }
 };
@@ -292,6 +378,10 @@ TrackingService.MAX_INTERVAL = 60;
 TrackingService.CAP_FACTOR = 3;
 TrackingService.GRACE_FACTOR = 1.5;
 TrackingService.ABSOLUTE_CAP = 90;
+TrackingService.SECTION_PLACE_TTL_MS = 5 * 60 * 1000;
+TrackingService.NOT_FROZEN_TTL_MS = 10000;
+TrackingService.SECTION_PLACE_CACHE_MAX = 2048;
+TrackingService.FROZEN_CACHE_MAX = 4096;
 exports.TrackingService = TrackingService = TrackingService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService])
