@@ -43,6 +43,13 @@ export class CertificateController {
     return this.certificateService.listMine(user.id);
   }
 
+  /** Whether the learner should see Certificates in the nav. */
+  @UseGuards(AuthGuard('uJwt'))
+  @Get('eligibility')
+  getEligibility(@GetUser() user: User) {
+    return this.certificateService.getLearnerEligibility(user.id);
+  }
+
   /** Student download — AUTO courses generate on first access; MANUAL returns admin URL. */
   @UseGuards(AuthGuard('uJwt'))
   @Get('student/:courseId')

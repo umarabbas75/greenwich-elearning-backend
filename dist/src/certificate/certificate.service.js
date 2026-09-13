@@ -222,6 +222,33 @@ let CertificateService = CertificateService_1 = class CertificateService {
             })),
         };
     }
+    async getLearnerEligibility(userId) {
+        const [row] = await this.prisma.$queryRaw(client_1.Prisma.sql `
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM "course_completions"
+          WHERE "userId" = ${userId}
+            AND "certificateUrl" IS NOT NULL
+            AND "certificateIssuedAt" IS NOT NULL
+        ) AS "hasIssued",
+        EXISTS (
+          SELECT 1
+          FROM "user_courses" uc
+          INNER JOIN "courses" c ON c.id = uc."courseId"
+          WHERE uc."userId" = ${userId}
+            AND uc."isActive" = true
+            AND c."certificateIssueMode" IN ('AUTO', 'MANUAL')
+        ) AS "hasIssuingEnrollment"
+    `);
+        return {
+            message: 'Certificate eligibility fetched',
+            statusCode: 200,
+            data: {
+                eligible: Boolean(row?.hasIssued || row?.hasIssuingEnrollment),
+            },
+        };
+    }
     async verifyCertificate(certificateId) {
         const normalized = (0, certificate_id_1.normalizeCertificateId)(certificateId);
         if (!normalized) {

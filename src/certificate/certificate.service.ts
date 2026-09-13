@@ -3,6 +3,7 @@ import {
   CertificateSource,
   CourseDeliveryMode,
   NotificationType,
+  Prisma,
 } from '@prisma/client';
 import {
   ForbiddenException,
@@ -287,6 +288,44 @@ export class CertificateService {
           ? this.buildVerifyUrl(r.certificateId)
           : null,
       })),
+    };
+  }
+
+  /**
+   * Sidebar / vault gate. One SQL round-trip, EXISTS (stops at first match).
+   * Eligible when the learner already has a certificate (even if later
+   * unassigned) or is enrolled on a course that issues one.
+   *
+   * Neon pool size is 1 — do not split this into parallel Prisma counts.
+   */
+  async getLearnerEligibility(userId: string): Promise<ResponseDto> {
+    const [row] = await this.prisma.$queryRaw<
+      Array<{ hasIssued: boolean; hasIssuingEnrollment: boolean }>
+    >(Prisma.sql`
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM "course_completions"
+          WHERE "userId" = ${userId}
+            AND "certificateUrl" IS NOT NULL
+            AND "certificateIssuedAt" IS NOT NULL
+        ) AS "hasIssued",
+        EXISTS (
+          SELECT 1
+          FROM "user_courses" uc
+          INNER JOIN "courses" c ON c.id = uc."courseId"
+          WHERE uc."userId" = ${userId}
+            AND uc."isActive" = true
+            AND c."certificateIssueMode" IN ('AUTO', 'MANUAL')
+        ) AS "hasIssuingEnrollment"
+    `);
+
+    return {
+      message: 'Certificate eligibility fetched',
+      statusCode: 200,
+      data: {
+        eligible: Boolean(row?.hasIssued || row?.hasIssuingEnrollment),
+      },
     };
   }
 

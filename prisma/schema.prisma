@@ -200,6 +200,7 @@ model UserCourse {
 
   @@unique([userId, courseId]) // Ensures a user can only have one entry per course
   @@index([enrolledVersionId])
+  @@index([userId, isActive])
   @@map("user_courses")
 }
 

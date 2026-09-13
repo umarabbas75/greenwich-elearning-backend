@@ -83,3 +83,55 @@ describe('CertificateService.verifyCertificate', () => {
     );
   });
 });
+
+describe('CertificateService.getLearnerEligibility', () => {
+  const prisma = {
+    courseCompletion: { findUnique: jest.fn() },
+    $queryRaw: jest.fn(),
+  };
+
+  const service = new CertificateService(
+    prisma as never,
+    {} as never,
+    { get: jest.fn() } as unknown as ConfigService,
+    { createNotification: jest.fn() } as never,
+  );
+
+  beforeEach(() => {
+    prisma.$queryRaw.mockReset();
+  });
+
+  it('uses one EXISTS round-trip and is true when a cert is issued', async () => {
+    prisma.$queryRaw.mockResolvedValue([
+      { hasIssued: true, hasIssuingEnrollment: false },
+    ]);
+
+    const result = await service.getLearnerEligibility('user-1');
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      statusCode: 200,
+      data: { eligible: true },
+    });
+  });
+
+  it('is true when enrolled on an issuing course with no cert yet', async () => {
+    prisma.$queryRaw.mockResolvedValue([
+      { hasIssued: false, hasIssuingEnrollment: true },
+    ]);
+
+    const result = await service.getLearnerEligibility('user-1');
+
+    expect(result.data).toEqual({ eligible: true });
+  });
+
+  it('is false when the learner cannot earn or already hold a cert', async () => {
+    prisma.$queryRaw.mockResolvedValue([
+      { hasIssued: false, hasIssuingEnrollment: false },
+    ]);
+
+    const result = await service.getLearnerEligibility('user-1');
+
+    expect(result.data).toEqual({ eligible: false });
+  });
+});

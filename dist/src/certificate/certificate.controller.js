@@ -35,6 +35,9 @@ let CertificateController = class CertificateController {
     listMine(user) {
         return this.certificateService.listMine(user.id);
     }
+    getEligibility(user) {
+        return this.certificateService.getLearnerEligibility(user.id);
+    }
     getStudentCertificate(user, courseId) {
         return this.certificateService.getStudentCertificate(user.id, courseId);
     }
@@ -81,6 +84,14 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], CertificateController.prototype, "listMine", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('uJwt')),
+    (0, common_1.Get)('eligibility'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], CertificateController.prototype, "getEligibility", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('uJwt')),
     (0, common_1.Get)('student/:courseId'),

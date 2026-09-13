@@ -33,6 +33,7 @@ export declare class CertificateService {
         limit: number;
     }): Promise<ResponseDto>;
     listMine(userId: string): Promise<ResponseDto>;
+    getLearnerEligibility(userId: string): Promise<ResponseDto>;
     verifyCertificate(certificateId: string): Promise<CertificateVerifyResult>;
     buildVerifiedCertificatePdf(certificateId: string): Promise<{
         buffer: Uint8Array;
