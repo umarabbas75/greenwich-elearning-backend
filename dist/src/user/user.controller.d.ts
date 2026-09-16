@@ -1,5 +1,5 @@
 import { UserService } from './user.service';
-import { BodyDto, ParamsDto, ResponseDto, ChangePasswordDto } from '../dto';
+import { BodyDto, BodyUpdateDto, ParamsDto, ResponseDto, ChangePasswordDto, AdminChangeUserEmailDto } from '../dto';
 import { User } from '@prisma/client';
 export declare class UserController {
     private readonly appService;
@@ -10,7 +10,8 @@ export declare class UserController {
     getDeletedUser(params: ParamsDto): Promise<ResponseDto>;
     getUser(params: ParamsDto): Promise<ResponseDto>;
     createUser(body: BodyDto): Promise<ResponseDto>;
-    updateUser(params: ParamsDto, body: any): Promise<ResponseDto>;
+    changeUserEmail(params: ParamsDto, body: AdminChangeUserEmailDto, admin: User): Promise<ResponseDto>;
+    updateUser(params: ParamsDto, body: BodyUpdateDto, requester: User): Promise<ResponseDto>;
     changePassword(params: ParamsDto, body: ChangePasswordDto): Promise<ResponseDto>;
     updatePassword(params: any, body: any): Promise<ResponseDto>;
     deleteUser(params: ParamsDto): Promise<ResponseDto>;

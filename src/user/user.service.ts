@@ -3,6 +3,7 @@ import { Prisma, SecurityEventType, User } from '@prisma/client';
 import { ResponseDto, BodyDto, BodyUpdateDto, ChangePasswordDto } from '../dto';
 import * as argon2 from 'argon2';
 import { constantTimeEqual } from '../utils/constant-time-equal';
+import { emailEqualsWhere, normalizeEmail } from '../utils/email';
 import { errorMessage } from '../utils/error-message';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
@@ -61,6 +62,69 @@ export class UserService {
    * Best-effort audit of an authenticated self-service password change. Never
    * throws — a logging failure must not fail the password update itself.
    */
+  /**
+   * Ensures `email` is not taken by another account. `excludeUserId` skips the
+   * user being updated (email change). Mirrors createUser conflict messages.
+   */
+  private async assertEmailAvailable(
+    email: string,
+    excludeUserId?: string,
+  ): Promise<void> {
+    const normalized = normalizeEmail(email);
+    if (!normalized) {
+      throw new Error('Email is required');
+    }
+
+    const existing = await this.prisma.user.findFirst({
+      where: {
+        ...emailEqualsWhere(normalized),
+        ...(excludeUserId ? { NOT: { id: excludeUserId } } : {}),
+      },
+    });
+
+    if (!existing) {
+      return;
+    }
+
+    if (existing.deletedAt) {
+      throw new Error(
+        'A previously deleted account is using this email. Restore that account or purge it before re-registering this email.',
+      );
+    }
+    throw new Error('User already exists in the system');
+  }
+
+  private async writeAdminAudit(entry: {
+    adminId: string;
+    action: string;
+    targetType: string;
+    targetId?: string | null;
+    userId?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<void> {
+    try {
+      const actor = await this.prisma.user.findUnique({
+        where: { id: entry.adminId },
+        select: { email: true },
+      });
+      await this.prisma.adminAuditLog.create({
+        data: {
+          adminId: entry.adminId,
+          adminEmail: actor?.email ?? null,
+          action: entry.action,
+          targetType: entry.targetType,
+          targetId: entry.targetId ?? null,
+          userId: entry.userId ?? null,
+          metadata: (entry.metadata as Prisma.InputJsonValue) ?? undefined,
+        },
+      });
+    } catch (err) {
+      UserService.logger.warn(
+        `AdminAuditLog write failed (${entry.action}, user=${entry.userId ?? '-'}): ${errorMessage(err)}`,
+      );
+    }
+  }
+
   private async recordPasswordChange(userId: string): Promise<void> {
     try {
       await this.prisma.securityEvent.create({
@@ -338,19 +402,7 @@ export class UserService {
 
   async createUser(body: BodyDto): Promise<ResponseDto> {
     try {
-      const isUserExist: User = await this.prisma.user.findUnique({
-        where: { email: body?.email },
-      });
-      if (isUserExist) {
-        if (isUserExist.deletedAt) {
-          // Email belongs to a soft-deleted user — it stays reserved until the
-          // account is purged or restored.
-          throw new Error(
-            'A previously deleted account is using this email. Restore that account or purge it before re-registering this email.',
-          );
-        }
-        throw new Error('User already exists in the system');
-      }
+      await this.assertEmailAvailable(body?.email);
       const password = await argon2.hash(body.password);
       const selfRegistered = body.selfRegistered === true;
       delete body.password;
@@ -359,7 +411,7 @@ export class UserService {
         data: {
           firstName: body?.firstName,
           lastName: body?.lastName,
-          email: body?.email,
+          email: normalizeEmail(body?.email),
           password,
           phone: body.phone,
           address: body.address ?? null,
@@ -410,8 +462,17 @@ export class UserService {
     }
   }
 
-  async updateUser(userId: string, body: BodyUpdateDto): Promise<ResponseDto> {
+  async updateUser(
+    requester: Pick<User, 'id' | 'role'>,
+    userId: string,
+    body: BodyUpdateDto,
+  ): Promise<ResponseDto> {
     try {
+      const isAdmin = requester.role === 'admin';
+      if (!isAdmin && requester.id !== userId) {
+        throw new Error('Forbidden');
+      }
+
       const existingUser: User = await this.prisma.user.findUnique({
         where: { id: userId },
       });
@@ -427,13 +488,11 @@ export class UserService {
       const allowedFields = new Set([
         'firstName',
         'lastName',
-        'email',
         'phone',
         'address',
         'photo',
         'timezone',
-        'role',
-        'status',
+        ...(isAdmin ? (['role', 'status'] as const) : []),
       ]);
       const updateUser: Record<string, unknown> = {};
 
@@ -459,18 +518,99 @@ export class UserService {
         data: updatedUser,
       };
     } catch (error) {
-      throw new HttpException(
-        {
-          status: HttpStatus.FORBIDDEN,
-          error: error?.message || 'Something went wrong',
-        },
-        HttpStatus.FORBIDDEN,
-        {
-          cause: error,
-        },
-      );
+      const message = error?.message || 'Something went wrong';
+      const status =
+        message === 'User not found'
+          ? HttpStatus.NOT_FOUND
+          : message === 'Forbidden'
+            ? HttpStatus.FORBIDDEN
+            : HttpStatus.BAD_REQUEST;
+      throw new HttpException({ status, error: message }, status, {
+        cause: error,
+      });
     }
   }
+
+  /**
+   * Admin-only: change a user's login email. All learner data stays on the same
+   * user id; the target must sign in again (JWT carries the old email until
+   * then). If they are on the FREE_ROAM_EMAILS allowlist, update that env var
+   * to the new address or free-roam bypass stops until they re-login.
+   */
+  async changeUserEmail(
+    adminId: string,
+    userId: string,
+    newEmail: string,
+  ): Promise<ResponseDto> {
+    try {
+      const existingUser = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+      if (!existingUser) {
+        throw new Error('User not found');
+      }
+
+      const email = normalizeEmail(newEmail);
+      if (normalizeEmail(existingUser.email) === email) {
+        const unchanged = { ...existingUser };
+        delete unchanged.password;
+        return {
+          message: 'Email unchanged',
+          statusCode: 200,
+          data: {
+            ...unchanged,
+            previousEmail: existingUser.email,
+            requiresReLogin: false,
+          },
+        };
+      }
+
+      await this.assertEmailAvailable(email, userId);
+
+      const previousEmail = existingUser.email;
+      const updatedUser = await this.prisma.user.update({
+        where: { id: userId },
+        data: { email },
+      });
+      delete updatedUser.password;
+
+      await this.writeAdminAudit({
+        adminId,
+        action: 'USER_EMAIL_CHANGED',
+        targetType: 'USER',
+        targetId: userId,
+        userId,
+        metadata: { previousEmail, newEmail: email },
+      });
+
+      return {
+        message: 'Successfully updated user email',
+        statusCode: 200,
+        data: {
+          ...updatedUser,
+          previousEmail,
+          requiresReLogin: true,
+        },
+      };
+    } catch (error) {
+      const message = error?.message || 'Something went wrong';
+      let status = HttpStatus.BAD_REQUEST;
+      if (message === 'User not found') {
+        status = HttpStatus.NOT_FOUND;
+      } else if (
+        message === 'User already exists in the system' ||
+        message.includes('previously deleted account')
+      ) {
+        status = HttpStatus.CONFLICT;
+      } else if (message === 'Email is required') {
+        status = HttpStatus.BAD_REQUEST;
+      }
+      throw new HttpException({ status, error: message }, status, {
+        cause: error,
+      });
+    }
+  }
+
   async changePassword(
     userId: string,
     body: ChangePasswordDto,

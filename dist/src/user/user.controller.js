@@ -40,8 +40,11 @@ let UserController = class UserController {
     createUser(body) {
         return this.appService.createUser(body);
     }
-    updateUser(params, body) {
-        return this.appService.updateUser(params.id, body);
+    changeUserEmail(params, body, admin) {
+        return this.appService.changeUserEmail(admin.id, params.id, body.email);
+    }
+    updateUser(params, body, requester) {
+        return this.appService.updateUser(requester, params.id, body);
     }
     changePassword(params, body) {
         return this.appService.changePassword(params.id, body);
@@ -111,12 +114,25 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], UserController.prototype, "createUser", null);
 __decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Put)('/:id/email'),
+    __param(0, (0, common_1.Param)()),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [dto_1.ParamsDto,
+        dto_1.AdminChangeUserEmailDto, Object]),
+    __metadata("design:returntype", Promise)
+], UserController.prototype, "changeUserEmail", null);
+__decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Put)('/:id'),
     __param(0, (0, common_1.Param)()),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.ParamsDto, Object]),
+    __metadata("design:paramtypes", [dto_1.ParamsDto,
+        dto_1.BodyUpdateDto, Object]),
     __metadata("design:returntype", Promise)
 ], UserController.prototype, "updateUser", null);
 __decorate([

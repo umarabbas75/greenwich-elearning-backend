@@ -17,6 +17,7 @@ const crypto_1 = require("crypto");
 const argon2 = require("argon2");
 const prisma_service_1 = require("../prisma/prisma.service");
 const mail_service_1 = require("../mail/mail.service");
+const email_1 = require("../utils/email");
 let PasswordResetService = PasswordResetService_1 = class PasswordResetService {
     constructor(prisma, mail) {
         this.prisma = prisma;
@@ -131,8 +132,8 @@ let PasswordResetService = PasswordResetService_1 = class PasswordResetService {
         };
     }
     async findActiveUser(email) {
-        const user = await this.prisma.user.findUnique({
-            where: { email },
+        const user = await this.prisma.user.findFirst({
+            where: (0, email_1.emailEqualsWhere)(email),
             select: {
                 id: true,
                 email: true,

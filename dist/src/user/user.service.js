@@ -14,6 +14,7 @@ exports.UserService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const argon2 = require("argon2");
+const email_1 = require("../utils/email");
 const error_message_1 = require("../utils/error-message");
 const prisma_service_1 = require("../prisma/prisma.service");
 const mail_service_1 = require("../mail/mail.service");
@@ -50,6 +51,47 @@ let UserService = UserService_1 = class UserService {
         }
         catch (err) {
             UserService_1.logger.warn(`Failed SCORM Cloud DeleteAllLearnerData for user ${userId}: ${(0, error_message_1.errorMessage)(err)}`);
+        }
+    }
+    async assertEmailAvailable(email, excludeUserId) {
+        const normalized = (0, email_1.normalizeEmail)(email);
+        if (!normalized) {
+            throw new Error('Email is required');
+        }
+        const existing = await this.prisma.user.findFirst({
+            where: {
+                ...(0, email_1.emailEqualsWhere)(normalized),
+                ...(excludeUserId ? { NOT: { id: excludeUserId } } : {}),
+            },
+        });
+        if (!existing) {
+            return;
+        }
+        if (existing.deletedAt) {
+            throw new Error('A previously deleted account is using this email. Restore that account or purge it before re-registering this email.');
+        }
+        throw new Error('User already exists in the system');
+    }
+    async writeAdminAudit(entry) {
+        try {
+            const actor = await this.prisma.user.findUnique({
+                where: { id: entry.adminId },
+                select: { email: true },
+            });
+            await this.prisma.adminAuditLog.create({
+                data: {
+                    adminId: entry.adminId,
+                    adminEmail: actor?.email ?? null,
+                    action: entry.action,
+                    targetType: entry.targetType,
+                    targetId: entry.targetId ?? null,
+                    userId: entry.userId ?? null,
+                    metadata: entry.metadata ?? undefined,
+                },
+            });
+        }
+        catch (err) {
+            UserService_1.logger.warn(`AdminAuditLog write failed (${entry.action}, user=${entry.userId ?? '-'}): ${(0, error_message_1.errorMessage)(err)}`);
         }
     }
     async recordPasswordChange(userId) {
@@ -273,15 +315,7 @@ let UserService = UserService_1 = class UserService {
     }
     async createUser(body) {
         try {
-            const isUserExist = await this.prisma.user.findUnique({
-                where: { email: body?.email },
-            });
-            if (isUserExist) {
-                if (isUserExist.deletedAt) {
-                    throw new Error('A previously deleted account is using this email. Restore that account or purge it before re-registering this email.');
-                }
-                throw new Error('User already exists in the system');
-            }
+            await this.assertEmailAvailable(body?.email);
             const password = await argon2.hash(body.password);
             const selfRegistered = body.selfRegistered === true;
             delete body.password;
@@ -289,7 +323,7 @@ let UserService = UserService_1 = class UserService {
                 data: {
                     firstName: body?.firstName,
                     lastName: body?.lastName,
-                    email: body?.email,
+                    email: (0, email_1.normalizeEmail)(body?.email),
                     password,
                     phone: body.phone,
                     address: body.address ?? null,
@@ -327,8 +361,12 @@ let UserService = UserService_1 = class UserService {
             });
         }
     }
-    async updateUser(userId, body) {
+    async updateUser(requester, userId, body) {
         try {
+            const isAdmin = requester.role === 'admin';
+            if (!isAdmin && requester.id !== userId) {
+                throw new Error('Forbidden');
+            }
             const existingUser = await this.prisma.user.findUnique({
                 where: { id: userId },
             });
@@ -341,13 +379,11 @@ let UserService = UserService_1 = class UserService {
             const allowedFields = new Set([
                 'firstName',
                 'lastName',
-                'email',
                 'phone',
                 'address',
                 'photo',
                 'timezone',
-                'role',
-                'status',
+                ...(isAdmin ? ['role', 'status'] : []),
             ]);
             const updateUser = {};
             for (const [key, value] of Object.entries(body)) {
@@ -369,10 +405,78 @@ let UserService = UserService_1 = class UserService {
             };
         }
         catch (error) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.FORBIDDEN,
-                error: error?.message || 'Something went wrong',
-            }, common_1.HttpStatus.FORBIDDEN, {
+            const message = error?.message || 'Something went wrong';
+            const status = message === 'User not found'
+                ? common_1.HttpStatus.NOT_FOUND
+                : message === 'Forbidden'
+                    ? common_1.HttpStatus.FORBIDDEN
+                    : common_1.HttpStatus.BAD_REQUEST;
+            throw new common_1.HttpException({ status, error: message }, status, {
+                cause: error,
+            });
+        }
+    }
+    async changeUserEmail(adminId, userId, newEmail) {
+        try {
+            const existingUser = await this.prisma.user.findUnique({
+                where: { id: userId },
+            });
+            if (!existingUser) {
+                throw new Error('User not found');
+            }
+            const email = (0, email_1.normalizeEmail)(newEmail);
+            if ((0, email_1.normalizeEmail)(existingUser.email) === email) {
+                const unchanged = { ...existingUser };
+                delete unchanged.password;
+                return {
+                    message: 'Email unchanged',
+                    statusCode: 200,
+                    data: {
+                        ...unchanged,
+                        previousEmail: existingUser.email,
+                        requiresReLogin: false,
+                    },
+                };
+            }
+            await this.assertEmailAvailable(email, userId);
+            const previousEmail = existingUser.email;
+            const updatedUser = await this.prisma.user.update({
+                where: { id: userId },
+                data: { email },
+            });
+            delete updatedUser.password;
+            await this.writeAdminAudit({
+                adminId,
+                action: 'USER_EMAIL_CHANGED',
+                targetType: 'USER',
+                targetId: userId,
+                userId,
+                metadata: { previousEmail, newEmail: email },
+            });
+            return {
+                message: 'Successfully updated user email',
+                statusCode: 200,
+                data: {
+                    ...updatedUser,
+                    previousEmail,
+                    requiresReLogin: true,
+                },
+            };
+        }
+        catch (error) {
+            const message = error?.message || 'Something went wrong';
+            let status = common_1.HttpStatus.BAD_REQUEST;
+            if (message === 'User not found') {
+                status = common_1.HttpStatus.NOT_FOUND;
+            }
+            else if (message === 'User already exists in the system' ||
+                message.includes('previously deleted account')) {
+                status = common_1.HttpStatus.CONFLICT;
+            }
+            else if (message === 'Email is required') {
+                status = common_1.HttpStatus.BAD_REQUEST;
+            }
+            throw new common_1.HttpException({ status, error: message }, status, {
                 cause: error,
             });
         }

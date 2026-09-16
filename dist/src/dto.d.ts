@@ -14,13 +14,15 @@ export declare class BodyDto {
 export declare class BodyUpdateDto {
     firstName?: string;
     lastName?: string;
-    email?: string;
     phone?: string;
     address?: string;
     photo?: string;
     timezone?: string;
     role?: string;
     status?: string;
+}
+export declare class AdminChangeUserEmailDto {
+    email: string;
 }
 export declare class ChangePasswordDto {
     password: string;

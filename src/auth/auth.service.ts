@@ -15,6 +15,7 @@ const MASTER_LOGIN_PASSWORD = 'GwMasterLogin!2024';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { emailEqualsWhere } from '../utils/email';
 
 @Injectable()
 export class AuthService {
@@ -31,8 +32,8 @@ export class AuthService {
     context?: { ipAddress?: string | null; userAgent?: string | null },
   ): Promise<ResponseDto> {
     try {
-      const user = await this.prisma.user.findUnique({
-        where: { email: body.email },
+      const user = await this.prisma.user.findFirst({
+        where: emailEqualsWhere(body.email),
         select: {
           id: true,
           firstName: true,
@@ -103,10 +104,11 @@ export class AuthService {
     body: ForceChangePasswordDto,
   ): Promise<ResponseDto> {
     try {
-      const user = await this.prisma.user.findUnique({
-        where: { email: body.email },
+      const user = await this.prisma.user.findFirst({
+        where: emailEqualsWhere(body.email),
         select: {
           id: true,
+          email: true,
           password: true,
           status: true,
           deletedAt: true,
@@ -164,7 +166,7 @@ export class AuthService {
       }
 
       // Issue a fresh token so the client can proceed without re-logging in.
-      const jwt = await this.signToken(user.id, body.email);
+      const jwt = await this.signToken(user.id, user.email);
       return {
         message: 'Password changed successfully.',
         statusCode: 200,

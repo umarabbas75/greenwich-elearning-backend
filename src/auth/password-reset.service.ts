@@ -10,6 +10,7 @@ import {
   ResetPasswordDto,
   VerifyOtpDto,
 } from '../dto';
+import { emailEqualsWhere } from '../utils/email';
 
 /**
  * Forgot-password flow. Security properties:
@@ -210,8 +211,8 @@ export class PasswordResetService {
   // ──────────────────────────────────────────────────────────────────────
 
   private async findActiveUser(email: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+    const user = await this.prisma.user.findFirst({
+      where: emailEqualsWhere(email),
       select: {
         id: true,
         email: true,

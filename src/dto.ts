@@ -83,10 +83,6 @@ export class BodyUpdateDto {
   lastName?: string;
 
   @IsOptional()
-  @IsEmail()
-  email?: string;
-
-  @IsOptional()
   @IsString()
   phone?: string;
 
@@ -110,6 +106,13 @@ export class BodyUpdateDto {
   @IsString()
   status?: string;
 }
+/** Admin-only: change a learner/admin login email (PUT /users/:id/email). */
+export class AdminChangeUserEmailDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+}
+
 export class ChangePasswordDto {
   @IsString()
   @IsNotEmpty()

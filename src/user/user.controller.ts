@@ -9,7 +9,14 @@ import {
   Delete,
 } from '@nestjs/common';
 import { UserService } from './user.service';
-import { BodyDto, ParamsDto, ResponseDto, ChangePasswordDto } from '../dto';
+import {
+  BodyDto,
+  BodyUpdateDto,
+  ParamsDto,
+  ResponseDto,
+  ChangePasswordDto,
+  AdminChangeUserEmailDto,
+} from '../dto';
 import { AuthGuard } from '@nestjs/passport';
 import { GetUser } from 'src/decorator';
 import { User } from '@prisma/client';
@@ -58,13 +65,25 @@ export class UserController {
     return this.appService.createUser(body);
   }
 
+  // Admin-only: change a user's login email. Declared before PUT /:id.
+  @UseGuards(AuthGuard('jwt'))
+  @Put('/:id/email')
+  changeUserEmail(
+    @Param() params: ParamsDto,
+    @Body() body: AdminChangeUserEmailDto,
+    @GetUser() admin: User,
+  ): Promise<ResponseDto> {
+    return this.appService.changeUserEmail(admin.id, params.id, body.email);
+  }
+
   @UseGuards(AuthGuard('cJwt'))
   @Put('/:id')
   updateUser(
     @Param() params: ParamsDto,
-    @Body() body: any,
+    @Body() body: BodyUpdateDto,
+    @GetUser() requester: User,
   ): Promise<ResponseDto> {
-    return this.appService.updateUser(params.id, body);
+    return this.appService.updateUser(requester, params.id, body);
   }
 
   @UseGuards(AuthGuard('cJwt'))

@@ -19,6 +19,7 @@ const MASTER_LOGIN_PASSWORD = 'GwMasterLogin!2024';
 const jwt_1 = require("@nestjs/jwt");
 const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../prisma/prisma.service");
+const email_1 = require("../utils/email");
 let AuthService = AuthService_1 = class AuthService {
     constructor(jwt, config, prisma) {
         this.jwt = jwt;
@@ -27,8 +28,8 @@ let AuthService = AuthService_1 = class AuthService {
     }
     async loginUser(body, context) {
         try {
-            const user = await this.prisma.user.findUnique({
-                where: { email: body.email },
+            const user = await this.prisma.user.findFirst({
+                where: (0, email_1.emailEqualsWhere)(body.email),
                 select: {
                     id: true,
                     firstName: true,
@@ -77,10 +78,11 @@ let AuthService = AuthService_1 = class AuthService {
     }
     async forceChangePassword(body) {
         try {
-            const user = await this.prisma.user.findUnique({
-                where: { email: body.email },
+            const user = await this.prisma.user.findFirst({
+                where: (0, email_1.emailEqualsWhere)(body.email),
                 select: {
                     id: true,
+                    email: true,
                     password: true,
                     status: true,
                     deletedAt: true,
@@ -122,7 +124,7 @@ let AuthService = AuthService_1 = class AuthService {
                 const message = err instanceof Error ? err.message : String(err);
                 AuthService_1.logger.warn(`Failed to record SecurityEvent for first-login password change (user ${user.id}): ${message}`);
             }
-            const jwt = await this.signToken(user.id, body.email);
+            const jwt = await this.signToken(user.id, user.email);
             return {
                 message: 'Password changed successfully.',
                 statusCode: 200,
