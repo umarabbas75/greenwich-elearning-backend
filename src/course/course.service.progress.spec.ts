@@ -8,6 +8,7 @@ import { FeedbackService } from '../feedback/feedback.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ScormCloudClient } from '../scorm-cloud/scorm-cloud.client';
 import {
   assertChapterAccessible,
   recordChapterAndModuleCompletionIfNeeded,
@@ -72,6 +73,13 @@ describe('CourseService.updateUserChapterProgress', () => {
         { provide: CourseVersionService, useValue: {} },
         { provide: CourseCompletionService, useValue: courseCompletion },
         { provide: NotificationService, useValue: {} },
+        {
+          provide: ScormCloudClient,
+          useValue: {
+            deleteRegistration: jest.fn().mockResolvedValue(undefined),
+            deleteCourse: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 

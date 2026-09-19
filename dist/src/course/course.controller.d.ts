@@ -57,7 +57,8 @@ export declare class CourseController {
     createModule(user: User, body: ModuleDto): Promise<ResponseDto>;
     createChapter(user: User, body: ModuleDto): Promise<ResponseDto>;
     createSection(user: User, body: any): Promise<ResponseDto>;
-    deleteCourse(params: ParamsDto): Promise<ResponseDto>;
+    getCourseDeletionPreview(params: ParamsDto): Promise<ResponseDto>;
+    deleteCourse(user: User, params: ParamsDto, force?: string): Promise<ResponseDto>;
     deleteModule(user: User, params: ParamsDto): Promise<ResponseDto>;
     deleteChapter(user: User, params: ParamsDto): Promise<ResponseDto>;
     deleteSection(user: User, params: ParamsDto): Promise<ResponseDto>;

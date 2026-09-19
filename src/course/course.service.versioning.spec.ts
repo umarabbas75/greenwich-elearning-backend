@@ -8,6 +8,7 @@ import { FeedbackService } from '../feedback/feedback.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ScormCloudClient } from '../scorm-cloud/scorm-cloud.client';
 import { CourseService } from './course.service';
 
 describe('CourseService — course versioning', () => {
@@ -168,6 +169,10 @@ describe('CourseService — course versioning', () => {
       assessment: {
         findMany: jest.fn().mockResolvedValue([]),
       },
+      scormRegistration: {
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
       chapter: {
         findUnique: jest.fn(),
         delete: jest.fn(),
@@ -222,6 +227,13 @@ describe('CourseService — course versioning', () => {
           useValue: {
             createNotification: jest.fn(),
             createNotificationForMany: jest.fn(),
+          },
+        },
+        {
+          provide: ScormCloudClient,
+          useValue: {
+            deleteRegistration: jest.fn().mockResolvedValue(undefined),
+            deleteCourse: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],

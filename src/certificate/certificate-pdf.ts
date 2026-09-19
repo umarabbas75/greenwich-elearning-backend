@@ -1,14 +1,15 @@
+import { PDFDocument, PDFPage, PDFString } from '@cantoo/pdf-lib';
 import {
-  PDFDocument,
-  PDFFont,
-  PDFPage,
-  PDFString,
-  StandardFonts,
-} from '@cantoo/pdf-lib';
-import QRCode = require('qrcode');
-import { CERTIFICATE_LAYOUT, CertificateFieldLayout } from './certificate-layout';
+  CERTIFICATE_ID_PREFIX,
+  COLUMN,
+  FIELDS,
+  QR as QR_LAYOUT,
+  toPdfY,
+} from './certificate-layout';
+import { drawBlock, embedCertificateFonts } from './certificate-draw';
 import { loadCertificateTemplateBytes } from './certificate-template';
 import { formatCertificateTitle } from './certificate-text';
+import QRCode = require('qrcode');
 
 export interface CertificatePdfData {
   learnerName: string;
@@ -24,56 +25,6 @@ interface PdfRect {
   y: number;
   width: number;
   height: number;
-}
-
-function fitFontSize(
-  text: string,
-  font: PDFFont,
-  startSize: number,
-  maxWidth: number,
-): number {
-  let size = startSize;
-  while (size > 7 && font.widthOfTextAtSize(text, size) > maxWidth) {
-    size -= 0.5;
-  }
-  return size;
-}
-
-function drawField(
-  page: PDFPage,
-  text: string,
-  pageWidth: number,
-  pageHeight: number,
-  layout: CertificateFieldLayout,
-  font: PDFFont,
-  boldFont: PDFFont,
-): void {
-  const activeFont = layout.bold ? boldFont : font;
-  const maxWidth = layout.maxWidth ?? pageWidth * 0.75;
-  const fontSize = fitFontSize(text, activeFont, layout.fontSize, maxWidth);
-  const textWidth = activeFont.widthOfTextAtSize(text, fontSize);
-  const y = pageHeight * layout.yRatio;
-
-  let x: number;
-  if (layout.x != null) {
-    if (layout.align === 'right') {
-      x = layout.x - textWidth;
-    } else if (layout.align === 'center') {
-      x = layout.x - textWidth / 2;
-    } else {
-      x = layout.x;
-    }
-  } else {
-    x = (pageWidth - textWidth) / 2;
-  }
-
-  page.drawText(text, {
-    x,
-    y,
-    size: fontSize,
-    font: activeFont,
-    color: layout.color,
-  });
 }
 
 function addUriLink(page: PDFPage, uri: string, rect: PdfRect): void {
@@ -99,21 +50,29 @@ function addUriLink(page: PDFPage, uri: string, rect: PdfRect): void {
   page.node.addAnnot(link);
 }
 
+/** Draws the verification QR into the slot the template outlines. */
 async function drawVerifyQr(
   doc: PDFDocument,
   page: PDFPage,
   verifyUrl: string,
 ): Promise<PdfRect> {
+  // 256px is ~2.6x the 92pt slot, past the point where more pixels show up in
+  // print, and a quarter the cost of rendering at 512.
   const png = await QRCode.toBuffer(verifyUrl, {
     type: 'png',
     width: 256,
-    margin: 1,
+    margin: 0,
     errorCorrectionLevel: 'M',
-    color: { dark: '#1B2420', light: '#FFFFFF' },
+    color: { dark: '#1D2739', light: '#FFFFFF' },
   });
-  const qrImage = await doc.embedPng(png);
-  const { size, x, y } = CERTIFICATE_LAYOUT.qr;
-  page.drawImage(qrImage, { x, y, width: size, height: size });
+  const image = await doc.embedPng(png);
+
+  // Inset so the code sits inside the slot's gold keyline.
+  const pad = 6;
+  const size = QR_LAYOUT.size - pad * 2;
+  const x = QR_LAYOUT.x + pad;
+  const y = toPdfY(QR_LAYOUT.y + QR_LAYOUT.size - pad);
+  page.drawImage(image, { x, y, width: size, height: size });
   return { x, y, width: size, height: size };
 }
 
@@ -145,9 +104,13 @@ function flattenTemplateForm(templateDoc: PDFDocument): void {
 }
 
 /**
- * Stamp learner/course/date/ID and a verification QR inside the card.
- * Overlay is drawn into the page content stream (not AcroForm fields).
- * Template form fields, if any, are flattened.
+ * Stamps learner, course, date, certificate id and the verification QR onto
+ * the designed template.
+ *
+ * Positions and type come from certificate-layout.ts, the same module the
+ * template builder draws from, so the stamped values land exactly where the
+ * artwork leaves room for them. Long course titles wrap to a second line
+ * rather than shrinking away to nothing.
  */
 export async function renderCertificatePdf(
   data: CertificatePdfData,
@@ -156,32 +119,26 @@ export async function renderCertificatePdf(
   const stamped = await PDFDocument.load(templateBytes);
   flattenTemplateForm(stamped);
   const page = stamped.getPages()[0];
-  const { width: pageWidth, height: pageHeight } = page.getSize();
+  // Only the faces the four stamped fields use — the rest are already drawn
+  // into the template, so re-embedding them would just bloat every download.
+  const fonts = await embedCertificateFonts(stamped, [
+    'script',
+    'serifBold',
+    'serif',
+    'sans',
+  ] as const);
 
-  const helvetica = await stamped.embedFont(StandardFonts.Helvetica);
-  const helveticaBold = await stamped.embedFont(StandardFonts.HelveticaBold);
-
-  const learnerName =
-    formatCertificateTitle(data.learnerName) || 'Learner';
-  drawField(
-    page,
-    learnerName,
-    pageWidth,
-    pageHeight,
-    CERTIFICATE_LAYOUT.learnerName,
-    helvetica,
-    helveticaBold,
-  );
+  const learnerName = formatCertificateTitle(data.learnerName) || 'Learner';
+  drawBlock(page, learnerName, FIELDS.learnerName, fonts.script, COLUMN.center);
 
   const courseTitle = formatCertificateTitle(data.courseTitle) || 'Course';
-  drawField(
+  drawBlock(
     page,
     courseTitle,
-    pageWidth,
-    pageHeight,
-    CERTIFICATE_LAYOUT.courseTitle,
-    helvetica,
-    helveticaBold,
+    FIELDS.courseTitle,
+    fonts.serifBold,
+    COLUMN.center,
+    2,
   );
 
   const dateStr = data.issuedAt.toLocaleDateString('en-GB', {
@@ -189,24 +146,14 @@ export async function renderCertificatePdf(
     month: 'long',
     year: 'numeric',
   });
-  drawField(
-    page,
-    dateStr,
-    pageWidth,
-    pageHeight,
-    CERTIFICATE_LAYOUT.issuedDate,
-    helvetica,
-    helveticaBold,
-  );
+  drawBlock(page, dateStr, FIELDS.issuedDate, fonts.serif, COLUMN.center);
 
-  drawField(
+  drawBlock(
     page,
-    data.certificateId,
-    pageWidth,
-    pageHeight,
-    CERTIFICATE_LAYOUT.certificateId,
-    helvetica,
-    helveticaBold,
+    `${CERTIFICATE_ID_PREFIX}${data.certificateId}`,
+    FIELDS.certificateId,
+    fonts.sans,
+    COLUMN.center,
   );
 
   const qrRect = await drawVerifyQr(stamped, page, data.verifyUrl);

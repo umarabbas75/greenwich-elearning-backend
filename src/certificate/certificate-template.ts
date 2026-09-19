@@ -7,12 +7,26 @@ let cachedTemplateBytes: Uint8Array | null = null;
 export function loadCertificateTemplateBytes(): Uint8Array {
   if (cachedTemplateBytes) return cachedTemplateBytes;
 
+  // Only the shipped asset — the stamped field positions come from
+  // certificate-layout.ts and are meaningless against any other artwork, so
+  // falling back to an older PDF would silently produce a broken certificate.
   const candidates = [
     join(__dirname, 'assets', 'certificate-of-completion.pdf'),
-    join(process.cwd(), 'dist', 'src', 'certificate', 'assets', 'certificate-of-completion.pdf'),
-    join(process.cwd(), 'src', 'certificate', 'assets', 'certificate-of-completion.pdf'),
-    join(process.cwd(), 'docs', 'certificate-of-completion-updated.pdf'),
-    join(process.cwd(), 'docs', 'certificate-of-completion.pdf'),
+    join(
+      process.cwd(),
+      'dist',
+      'src',
+      'certificate',
+      'assets',
+      'certificate-of-completion.pdf',
+    ),
+    join(
+      process.cwd(),
+      'src',
+      'certificate',
+      'assets',
+      'certificate-of-completion.pdf',
+    ),
   ];
 
   for (const path of candidates) {

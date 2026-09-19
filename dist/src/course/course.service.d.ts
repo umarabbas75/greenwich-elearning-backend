@@ -2,6 +2,7 @@ import { Prisma, Role } from '@prisma/client';
 import { CourseDto, ModuleDto, ResponseDto, UpdateCourseDto, CreateSectionDto, CreateMatchAndLearnSectionDto, CreateVisualActivitySectionDto, CreateOrderingSectionDto, CreateMatchingSectionDto, CreateFlashcardsSectionDto, UpdateSectionDto, UpdateMatchAndLearnSectionDto, UpdateVisualActivitySectionDto, UpdateOrderingSectionDto, UpdateMatchingSectionDto, UpdateFlashcardsSectionDto, UpdateSectionOrderDto } from '../dto';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { ScormCloudClient } from '../scorm-cloud/scorm-cloud.client';
 import { MailService } from '../mail/mail.service';
 import { FeedbackService } from '../feedback/feedback.service';
 import { CourseVersionService } from '../course-version/course-version.service';
@@ -15,8 +16,9 @@ export declare class CourseService {
     private courseVersionService;
     private courseCompletion;
     private notifications;
+    private scormCloud;
     private static readonly completionLogger;
-    constructor(prisma: PrismaService, config: ConfigService, mail: MailService, feedbackService: FeedbackService, courseVersionService: CourseVersionService, courseCompletion: CourseCompletionService, notifications: NotificationService);
+    constructor(prisma: PrismaService, config: ConfigService, mail: MailService, feedbackService: FeedbackService, courseVersionService: CourseVersionService, courseCompletion: CourseCompletionService, notifications: NotificationService, scormCloud: ScormCloudClient);
     private isCourseFrozen;
     private shuffleArray;
     private autoPublishAfterStructureChange;
@@ -105,7 +107,14 @@ export declare class CourseService {
     updateChapter(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateSection(id: string, body: UpdateSectionDto | UpdateMatchAndLearnSectionDto | UpdateVisualActivitySectionDto | UpdateOrderingSectionDto | UpdateMatchingSectionDto | UpdateFlashcardsSectionDto | any): Promise<ResponseDto>;
     updateSectionOrder(body: UpdateSectionOrderDto): Promise<ResponseDto>;
-    deleteCourse(id: string): Promise<ResponseDto>;
+    private gatherCourseDeletionImpact;
+    getCourseDeletionPreview(id: string): Promise<ResponseDto>;
+    private purgeScormCloudForCourse;
+    private destroyImportedScormCourse;
+    deleteCourse(id: string, options?: {
+        force?: boolean;
+        adminId?: string;
+    }): Promise<ResponseDto>;
     deleteModule(id: string, adminId?: string): Promise<ResponseDto>;
     deleteChapter(id: string, adminId?: string): Promise<ResponseDto>;
     deleteSection(id: string, adminId?: string): Promise<ResponseDto>;

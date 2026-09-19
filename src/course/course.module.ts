@@ -13,6 +13,7 @@ import { FeedbackModule } from '../feedback/feedback.module';
 import { CourseVersionModule } from '../course-version/course-version.module';
 import { CourseCompletionModule } from '../course-completion/course-completion.module';
 import { NotificationModule } from '../notifications/notification.module';
+import { ScormCloudModule } from '../scorm-cloud/scorm-cloud.module';
 
 @Module({
   imports: [
@@ -22,6 +23,9 @@ import { NotificationModule } from '../notifications/notification.module';
     CourseVersionModule,
     CourseCompletionModule,
     NotificationModule,
+    // Leaf module (Cloud HTTP only) — safe to import here: it pulls in no
+    // feature module, so CourseModule ↔ ScormModule stays acyclic.
+    ScormCloudModule,
   ],
   providers: [
     CourseService,

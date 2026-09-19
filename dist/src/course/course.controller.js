@@ -180,8 +180,14 @@ let CourseController = class CourseController {
     createSection(user, body) {
         return this.appService.createSection(body, user.id);
     }
-    deleteCourse(params) {
-        return this.appService.deleteCourse(params.id);
+    getCourseDeletionPreview(params) {
+        return this.appService.getCourseDeletionPreview(params.id);
+    }
+    deleteCourse(user, params, force) {
+        return this.appService.deleteCourse(params.id, {
+            force: force === 'true' || force === '1',
+            adminId: user?.id,
+        });
     }
     deleteModule(user, params) {
         return this.appService.deleteModule(params.id, user.id);
@@ -653,10 +659,20 @@ __decorate([
 ], CourseController.prototype, "createSection", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
-    (0, common_1.Delete)('/:id'),
+    (0, common_1.Get)('/:id/deletion-preview'),
     __param(0, (0, common_1.Param)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [dto_1.ParamsDto]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "getCourseDeletionPreview", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Delete)('/:id'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)()),
+    __param(2, (0, common_1.Query)('force')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, dto_1.ParamsDto, String]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "deleteCourse", null);
 __decorate([

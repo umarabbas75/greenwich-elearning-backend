@@ -17,6 +17,8 @@ const dto_1 = require("../dto");
 const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../prisma/prisma.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
+const scorm_cloud_client_1 = require("../scorm-cloud/scorm-cloud.client");
+const error_message_1 = require("../utils/error-message");
 const assert_enrollment_usable_1 = require("../utils/assert-enrollment-usable");
 const assert_imported_course_tree_locked_1 = require("../utils/assert-imported-course-tree-locked");
 const course_report_1 = require("../utils/course-report");
@@ -34,7 +36,7 @@ const course_completion_service_1 = require("../course-completion/course-complet
 const notification_service_1 = require("../notifications/notification.service");
 const learner_percentage_1 = require("../course-version/learner-percentage");
 let CourseService = CourseService_1 = class CourseService {
-    constructor(prisma, config, mail, feedbackService, courseVersionService, courseCompletion, notifications) {
+    constructor(prisma, config, mail, feedbackService, courseVersionService, courseCompletion, notifications, scormCloud) {
         this.prisma = prisma;
         this.config = config;
         this.mail = mail;
@@ -42,6 +44,7 @@ let CourseService = CourseService_1 = class CourseService {
         this.courseVersionService = courseVersionService;
         this.courseCompletion = courseCompletion;
         this.notifications = notifications;
+        this.scormCloud = scormCloud;
     }
     async isCourseFrozen(userId, courseId) {
         const completion = await this.prisma.courseCompletion.findUnique({
@@ -104,7 +107,7 @@ let CourseService = CourseService_1 = class CourseService {
         ]);
         const chapterIds = chapters.map((c) => c.id);
         const assessmentIds = assessments.map((a) => a.id);
-        const [progressRows, chapterCompletions, moduleCompletions, courseCompletion, timeSpentRows, lastSeenRows, quizProgressRows, quizAnswerRows, formCompletionRows, policyCompletionRows, policyItemCompletionRows, feedbackSubmissionRows, assessmentAttemptRows,] = await Promise.all([
+        const [progressRows, chapterCompletions, moduleCompletions, courseCompletion, timeSpentRows, lastSeenRows, quizProgressRows, quizAnswerRows, formCompletionRows, policyCompletionRows, policyItemCompletionRows, feedbackSubmissionRows, assessmentAttemptRows, scormRegistrationRows,] = await Promise.all([
             this.prisma.userCourseProgress.count({ where: { userId, courseId } }),
             this.prisma.userChapterCompletion.count({ where: { userId, courseId } }),
             this.prisma.userModuleCompletion.count({ where: { userId, courseId } }),
@@ -137,6 +140,7 @@ let CourseService = CourseService_1 = class CourseService {
                     where: { userId, assessmentId: { in: assessmentIds } },
                 })
                 : Promise.resolve(0),
+            this.prisma.scormRegistration.count({ where: { userId, courseId } }),
         ]);
         const counts = {
             progressRows,
@@ -153,6 +157,7 @@ let CourseService = CourseService_1 = class CourseService {
             policyItemCompletionRows,
             feedbackSubmissionRows,
             assessmentAttemptRows,
+            scormRegistrationRows,
         };
         const hasAny = progressRows > 0 ||
             chapterCompletions > 0 ||
@@ -166,7 +171,8 @@ let CourseService = CourseService_1 = class CourseService {
             policyCompletionRows > 0 ||
             policyItemCompletionRows > 0 ||
             feedbackSubmissionRows > 0 ||
-            assessmentAttemptRows > 0;
+            assessmentAttemptRows > 0 ||
+            scormRegistrationRows > 0;
         return { hasAny, counts, chapterIds, assessmentIds };
     }
     async wipeUserCourseState(tx, userId, courseId, options) {
@@ -2931,7 +2937,360 @@ let CourseService = CourseService_1 = class CourseService {
             });
         }
     }
-    async deleteCourse(id) {
+    async gatherCourseDeletionImpact(courseId) {
+        const [packages, chapters, assessments, policies] = await Promise.all([
+            this.prisma.scormPackage.findMany({
+                where: { courseId },
+                select: {
+                    id: true,
+                    versionNumber: true,
+                    status: true,
+                    scormCloudCourseId: true,
+                },
+            }),
+            this.prisma.chapter.findMany({
+                where: { module: { courseId } },
+                select: { id: true },
+            }),
+            this.prisma.assessment.findMany({
+                where: { courseId },
+                select: { id: true },
+            }),
+            this.prisma.policy.findMany({
+                where: { courseId },
+                select: { id: true },
+            }),
+        ]);
+        const chapterIds = chapters.map((c) => c.id);
+        const assessmentIds = assessments.map((a) => a.id);
+        const [enrollments, scormRegistrations, courseCompletions, certificatesIssued, progressRows, chapterCompletions, moduleCompletions, timeSpentRows, lastSeenRows, quizProgressRows, quizAnswerRows, formCompletionRows, policyCompletionRows, policyItemCompletionRows, feedbackSubmissionRows, assessmentAttemptRows, assignmentSubmissionRows, versions, modules, sections, quizzes, courseForms, assignments, questions, posts, forumThreads,] = await Promise.all([
+            this.prisma.userCourse.count({ where: { courseId } }),
+            this.prisma.scormRegistration.count({ where: { courseId } }),
+            this.prisma.courseCompletion.count({ where: { courseId } }),
+            this.prisma.courseCompletion.count({
+                where: { courseId, certificateIssuedAt: { not: null } },
+            }),
+            this.prisma.userCourseProgress.count({ where: { courseId } }),
+            this.prisma.userChapterCompletion.count({ where: { courseId } }),
+            this.prisma.userModuleCompletion.count({ where: { courseId } }),
+            this.prisma.sectionTimeSpent.count({ where: { courseId } }),
+            this.prisma.lastSeenSection.count({ where: { courseId } }),
+            chapterIds.length > 0
+                ? this.prisma.quizProgress.count({
+                    where: { chapterId: { in: chapterIds } },
+                })
+                : Promise.resolve(0),
+            chapterIds.length > 0
+                ? this.prisma.quizAnswer.count({
+                    where: { chapterId: { in: chapterIds } },
+                })
+                : Promise.resolve(0),
+            this.prisma.userFormCompletion.count({ where: { courseId } }),
+            this.prisma.userPolicyCompletion.count({ where: { courseId } }),
+            this.prisma.userPolicyItemCompletion.count({
+                where: { item: { policy: { courseId } } },
+            }),
+            this.prisma.courseFeedbackSubmission.count({ where: { courseId } }),
+            assessmentIds.length > 0
+                ? this.prisma.assessmentAttempt.count({
+                    where: { assessmentId: { in: assessmentIds } },
+                })
+                : Promise.resolve(0),
+            this.prisma.assignmentSubmission.count({
+                where: { assignment: { courseId } },
+            }),
+            this.prisma.courseVersion.count({ where: { courseId } }),
+            this.prisma.module.count({ where: { courseId } }),
+            chapterIds.length > 0
+                ? this.prisma.section.count({
+                    where: { chapterId: { in: chapterIds } },
+                })
+                : Promise.resolve(0),
+            chapterIds.length > 0
+                ? this.prisma.quiz.count({ where: { chapterId: { in: chapterIds } } })
+                : Promise.resolve(0),
+            this.prisma.courseForm.count({ where: { courseId } }),
+            this.prisma.assignment.count({ where: { courseId } }),
+            this.prisma.question.count({ where: { courseId } }),
+            this.prisma.post.count({ where: { courseId } }),
+            this.prisma.forumThread.count({ where: { courseId } }),
+        ]);
+        const learnerState = {
+            enrollments,
+            scormRegistrations,
+            courseCompletions,
+            certificatesIssued,
+            progressRows,
+            chapterCompletions,
+            moduleCompletions,
+            timeSpentRows,
+            lastSeenRows,
+            quizProgressRows,
+            quizAnswerRows,
+            formCompletionRows,
+            policyCompletionRows,
+            policyItemCompletionRows,
+            feedbackSubmissionRows,
+            assessmentAttemptRows,
+            assignmentSubmissionRows,
+        };
+        const learnerStateTotal = Object.entries(learnerState)
+            .filter(([key]) => key !== 'certificatesIssued')
+            .reduce((sum, [, value]) => sum + value, 0);
+        const content = {
+            scormPackages: packages.length,
+            scormCloudCourses: new Set(packages
+                .filter((p) => p.status !== client_1.ScormPackageStatus.PRUNED)
+                .map((p) => p.scormCloudCourseId)).size,
+            versions,
+            modules,
+            chapters: chapterIds.length,
+            sections,
+            quizzes,
+            policies: policies.length,
+            courseForms,
+            assessments: assessmentIds.length,
+            questions,
+            assignments,
+            posts,
+            forumThreads,
+        };
+        return {
+            packages,
+            chapterIds,
+            assessmentIds,
+            learnerState,
+            learnerStateTotal,
+            hasLearnerState: learnerStateTotal > 0,
+            content,
+        };
+    }
+    async getCourseDeletionPreview(id) {
+        try {
+            const course = await this.prisma.course.findUnique({
+                where: { id },
+                select: {
+                    id: true,
+                    title: true,
+                    isActive: true,
+                    deliveryMode: true,
+                },
+            });
+            if (!course?.id) {
+                throw new Error('Course not found');
+            }
+            const impact = await this.gatherCourseDeletionImpact(id);
+            return {
+                message: 'Successfully fetched course deletion preview',
+                statusCode: 200,
+                data: {
+                    course,
+                    learnerState: impact.learnerState,
+                    learnerStateTotal: impact.learnerStateTotal,
+                    content: impact.content,
+                    canDeleteWithoutForce: !impact.hasLearnerState,
+                },
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.FORBIDDEN,
+                error: error?.message || 'Something went wrong',
+            }, common_1.HttpStatus.FORBIDDEN, { cause: error });
+        }
+    }
+    async purgeScormCloudForCourse(courseId, packages) {
+        const failures = [];
+        const seen = new Set();
+        let registrationsDeleted = 0;
+        for (let pass = 0; pass < 2; pass += 1) {
+            let rows = [];
+            try {
+                rows = await this.prisma.scormRegistration.findMany({
+                    where: { courseId },
+                    select: { scormCloudRegistrationId: true },
+                });
+            }
+            catch (err) {
+                CourseService_1.completionLogger.warn(`Failed to list ScormRegistration rows for course destroy ${courseId}: ${(0, error_message_1.errorMessage)(err)}`);
+                break;
+            }
+            for (const reg of rows) {
+                if (seen.has(reg.scormCloudRegistrationId))
+                    continue;
+                seen.add(reg.scormCloudRegistrationId);
+                try {
+                    await this.scormCloud.deleteRegistration(reg.scormCloudRegistrationId);
+                    registrationsDeleted += 1;
+                }
+                catch (err) {
+                    failures.push(`registration:${reg.scormCloudRegistrationId}`);
+                    CourseService_1.completionLogger.warn(`Failed SCORM Cloud DeleteRegistration ${reg.scormCloudRegistrationId} (course ${courseId}): ${(0, error_message_1.errorMessage)(err)}`);
+                }
+            }
+        }
+        const cloudCourseIds = [
+            ...new Set(packages
+                .filter((p) => p.status !== client_1.ScormPackageStatus.PRUNED)
+                .map((p) => p.scormCloudCourseId)
+                .filter(Boolean)),
+        ];
+        let cloudCoursesDeleted = 0;
+        for (const cloudCourseId of cloudCourseIds) {
+            try {
+                await this.scormCloud.deleteCourse(cloudCourseId);
+                cloudCoursesDeleted += 1;
+            }
+            catch (err) {
+                failures.push(`course:${cloudCourseId}`);
+                CourseService_1.completionLogger.warn(`Failed SCORM Cloud DeleteCourse ${cloudCourseId} (course ${courseId}): ${(0, error_message_1.errorMessage)(err)}`);
+            }
+        }
+        return {
+            registrations: seen.size,
+            registrationsDeleted,
+            cloudCourses: cloudCourseIds.length,
+            cloudCoursesDeleted,
+            failures,
+        };
+    }
+    async destroyImportedScormCourse(course, options) {
+        const courseId = course.id;
+        const impact = await this.gatherCourseDeletionImpact(courseId);
+        if (impact.hasLearnerState && !options?.force) {
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.CONFLICT,
+                error: 'Refusing to delete: this SCORM course has learner data. ' +
+                    'Deleting it permanently removes every enrollment, progress ' +
+                    'record, completion and certificate for this course, and deletes ' +
+                    'the package and all learner registrations from SCORM Cloud. ' +
+                    'This cannot be undone. Re-send with { force: true } to destroy ' +
+                    'it anyway, or deactivate the course instead to hide it while ' +
+                    'keeping learner records.',
+                details: {
+                    learnerState: impact.learnerState,
+                    content: impact.content,
+                },
+            }, common_1.HttpStatus.CONFLICT);
+        }
+        if (course.isActive) {
+            await this.prisma.course.update({
+                where: { id: courseId },
+                data: { isActive: false },
+            });
+        }
+        const cloud = await this.purgeScormCloudForCourse(courseId, impact.packages);
+        const deleted = await this.prisma.$transaction(async (tx) => {
+            const { chapterIds, assessmentIds } = impact;
+            const counts = {};
+            counts.forumThreadsDetached = (await tx.forumThread.updateMany({
+                where: { courseId },
+                data: { courseId: null, status: 'inActive' },
+            })).count;
+            const posts = await tx.post.findMany({
+                where: { courseId },
+                select: { id: true },
+            });
+            counts.postComments =
+                posts.length > 0
+                    ? (await tx.comment.deleteMany({
+                        where: { postId: { in: posts.map((p) => p.id) } },
+                    })).count
+                    : 0;
+            counts.posts = (await tx.post.deleteMany({ where: { courseId } })).count;
+            counts.courseCompletions = (await tx.courseCompletion.deleteMany({ where: { courseId } })).count;
+            if (assessmentIds.length > 0) {
+                counts.assessmentAttempts = (await tx.assessmentAttempt.deleteMany({
+                    where: { assessmentId: { in: assessmentIds } },
+                })).count;
+            }
+            counts.assessmentQuestions = (await tx.assessmentQuestion.deleteMany({
+                where: {
+                    OR: [
+                        ...(assessmentIds.length > 0
+                            ? [{ assessmentId: { in: assessmentIds } }]
+                            : []),
+                        { question: { courseId } },
+                    ],
+                },
+            })).count;
+            counts.assessments = (await tx.assessment.deleteMany({ where: { courseId } })).count;
+            counts.questions = (await tx.question.deleteMany({ where: { courseId } })).count;
+            counts.questionCategories = (await tx.questionCategory.deleteMany({ where: { courseId } })).count;
+            counts.assignmentSubmissions = (await tx.assignmentSubmission.deleteMany({
+                where: { assignment: { courseId } },
+            })).count;
+            counts.assignments = (await tx.assignment.deleteMany({ where: { courseId } })).count;
+            counts.feedbackSubmissions = (await tx.courseFeedbackSubmission.deleteMany({ where: { courseId } })).count;
+            counts.feedbackForms = (await tx.courseFeedbackForm.deleteMany({ where: { courseId } })).count;
+            counts.formCompletions = (await tx.userFormCompletion.deleteMany({ where: { courseId } })).count;
+            counts.courseForms = (await tx.courseForm.deleteMany({ where: { courseId } })).count;
+            counts.policyItemCompletions = (await tx.userPolicyItemCompletion.deleteMany({
+                where: { item: { policy: { courseId } } },
+            })).count;
+            counts.policyCompletions = (await tx.userPolicyCompletion.deleteMany({ where: { courseId } })).count;
+            counts.policyItems = (await tx.policyItem.deleteMany({
+                where: { policy: { courseId } },
+            })).count;
+            counts.policies = (await tx.policy.deleteMany({ where: { courseId } })).count;
+            counts.progressRows = (await tx.userCourseProgress.deleteMany({ where: { courseId } })).count;
+            counts.lastSeenRows = (await tx.lastSeenSection.deleteMany({ where: { courseId } })).count;
+            counts.chapterCompletions = (await tx.userChapterCompletion.deleteMany({ where: { courseId } })).count;
+            counts.moduleCompletions = (await tx.userModuleCompletion.deleteMany({ where: { courseId } })).count;
+            counts.timeSpentRows = (await tx.sectionTimeSpent.deleteMany({ where: { courseId } })).count;
+            counts.timeSpentDailyRows = (await tx.sectionTimeSpentDaily.deleteMany({ where: { courseId } })).count;
+            if (chapterIds.length > 0) {
+                counts.quizProgressRows = (await tx.quizProgress.deleteMany({
+                    where: { chapterId: { in: chapterIds } },
+                })).count;
+                counts.quizAnswerRows = (await tx.quizAnswer.deleteMany({
+                    where: { chapterId: { in: chapterIds } },
+                })).count;
+            }
+            counts.scormRegistrations = (await tx.scormRegistration.deleteMany({ where: { courseId } })).count;
+            counts.scormPackages = (await tx.scormPackage.deleteMany({ where: { courseId } })).count;
+            counts.enrollments = (await tx.userCourse.deleteMany({ where: { courseId } })).count;
+            counts.versions = (await tx.courseVersion.deleteMany({ where: { courseId } })).count;
+            if (chapterIds.length > 0) {
+                counts.quizzes = (await tx.quiz.deleteMany({
+                    where: { chapterId: { in: chapterIds } },
+                })).count;
+                counts.sections = (await tx.section.deleteMany({
+                    where: { chapterId: { in: chapterIds } },
+                })).count;
+                counts.chapters = (await tx.chapter.deleteMany({ where: { id: { in: chapterIds } } })).count;
+            }
+            counts.modules = (await tx.module.deleteMany({ where: { courseId } })).count;
+            await tx.course.delete({ where: { id: courseId } });
+            return counts;
+        }, { timeout: 30000, maxWait: 8000 });
+        if (options?.adminId) {
+            await this.courseVersionService.writeAudit({
+                adminId: options.adminId,
+                action: impact.hasLearnerState
+                    ? 'DELETE_SCORM_COURSE_FORCE'
+                    : 'DELETE_SCORM_COURSE',
+                targetType: 'Course',
+                targetId: courseId,
+                courseId,
+                metadata: {
+                    title: course.title,
+                    learnerState: impact.learnerState,
+                    content: impact.content,
+                    deleted,
+                    cloud,
+                },
+            });
+        }
+        return {
+            message: cloud.failures.length
+                ? 'Deleted the SCORM course, but some SCORM Cloud objects could not be removed — delete them from the Cloud console'
+                : 'Successfully deleted SCORM course, its packages and all SCORM Cloud assets',
+            statusCode: 200,
+            data: { course, deleted, cloud },
+        };
+    }
+    async deleteCourse(id, options) {
         try {
             const course = await this.prisma.course.findUnique({
                 where: { id },
@@ -2940,7 +3299,7 @@ let CourseService = CourseService_1 = class CourseService {
                 throw new Error('Course not found');
             }
             if (course.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM) {
-                throw new Error('Imported SCORM courses cannot be deleted in v1. Deactivate the course instead.');
+                return await this.destroyImportedScormCourse(course, options);
             }
             await this.prisma.course.delete({
                 where: { id },
@@ -2952,6 +3311,9 @@ let CourseService = CourseService_1 = class CourseService {
             };
         }
         catch (error) {
+            if (error instanceof common_1.HttpException) {
+                throw error;
+            }
             if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
                 error.code === 'P2003') {
                 throw new common_1.HttpException({
@@ -4624,6 +4986,7 @@ exports.CourseService = CourseService = CourseService_1 = __decorate([
         feedback_service_1.FeedbackService,
         course_version_service_1.CourseVersionService,
         course_completion_service_1.CourseCompletionService,
-        notification_service_1.NotificationService])
+        notification_service_1.NotificationService,
+        scorm_cloud_client_1.ScormCloudClient])
 ], CourseService);
 //# sourceMappingURL=course.service.js.map

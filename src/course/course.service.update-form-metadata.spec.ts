@@ -8,6 +8,7 @@ import { FeedbackService } from '../feedback/feedback.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ScormCloudClient } from '../scorm-cloud/scorm-cloud.client';
 import { COURSE_BOOKING_DOC_REF_V2 } from '../utils/advisor-review-metadata';
 import { CourseService } from './course.service';
 
@@ -79,6 +80,13 @@ describe('CourseService.updateFormMetadata', () => {
           useValue: {
             createNotification: jest.fn().mockResolvedValue(undefined),
             createNotificationForMany: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: ScormCloudClient,
+          useValue: {
+            deleteRegistration: jest.fn().mockResolvedValue(undefined),
+            deleteCourse: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],

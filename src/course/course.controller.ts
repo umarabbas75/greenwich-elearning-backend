@@ -425,10 +425,32 @@ export class CourseController {
     return this.appService.createSection(body, user.id);
   }
 
+  /**
+   * What a delete would destroy, without destroying anything. For an imported
+   * SCORM course this also covers the SCORM Cloud package and registrations.
+   */
+  @UseGuards(AuthGuard('jwt'))
+  @Get('/:id/deletion-preview')
+  getCourseDeletionPreview(@Param() params: ParamsDto): Promise<ResponseDto> {
+    return this.appService.getCourseDeletionPreview(params.id);
+  }
+
+  /**
+   * Safe by default: an imported SCORM course with learner data is refused
+   * with a 409 listing what would be lost. `?force=true` performs the full
+   * destroy (local rows + SCORM Cloud course and registrations).
+   */
   @UseGuards(AuthGuard('jwt'))
   @Delete('/:id')
-  deleteCourse(@Param() params: ParamsDto): Promise<ResponseDto> {
-    return this.appService.deleteCourse(params.id);
+  deleteCourse(
+    @GetUser() user: User,
+    @Param() params: ParamsDto,
+    @Query('force') force?: string,
+  ): Promise<ResponseDto> {
+    return this.appService.deleteCourse(params.id, {
+      force: force === 'true' || force === '1',
+      adminId: user?.id,
+    });
   }
 
   @UseGuards(AuthGuard('jwt'))

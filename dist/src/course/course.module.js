@@ -17,6 +17,7 @@ const feedback_module_1 = require("../feedback/feedback.module");
 const course_version_module_1 = require("../course-version/course-version.module");
 const course_completion_module_1 = require("../course-completion/course-completion.module");
 const notification_module_1 = require("../notifications/notification.module");
+const scorm_cloud_module_1 = require("../scorm-cloud/scorm-cloud.module");
 let CourseModule = class CourseModule {
 };
 exports.CourseModule = CourseModule;
@@ -29,6 +30,7 @@ exports.CourseModule = CourseModule = __decorate([
             course_version_module_1.CourseVersionModule,
             course_completion_module_1.CourseCompletionModule,
             notification_module_1.NotificationModule,
+            scorm_cloud_module_1.ScormCloudModule,
         ],
         providers: [
             course_service_1.CourseService,

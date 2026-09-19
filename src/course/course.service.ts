@@ -6,7 +6,7 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { Course, Module, Chapter, Section, Prisma, Role, NotificationType, CourseDeliveryMode, SectionType as PrismaSectionType } from '@prisma/client';
+import { Course, Module, Chapter, Section, Prisma, Role, NotificationType, CourseDeliveryMode, ScormPackageStatus, SectionType as PrismaSectionType } from '@prisma/client';
 import {
   // AssignCourseDto,
   CourseDto,
@@ -34,6 +34,8 @@ import {
   assertChapterAccessible,
   recordChapterAndModuleCompletionIfNeeded,
 } from '../utils/chapter-progression';
+import { ScormCloudClient } from '../scorm-cloud/scorm-cloud.client';
+import { errorMessage } from '../utils/error-message';
 import { assertEnrollmentUsable } from '../utils/assert-enrollment-usable';
 import { assertImportedCourseTreeLocked } from '../utils/assert-imported-course-tree-locked';
 import {
@@ -73,6 +75,7 @@ export class CourseService {
     private courseVersionService: CourseVersionService,
     private courseCompletion: CourseCompletionService,
     private notifications: NotificationService,
+    private scormCloud: ScormCloudClient,
   ) {}
 
   /** True iff the learner has been certified-complete on this course. */
@@ -189,6 +192,7 @@ export class CourseService {
       policyItemCompletionRows: number;
       feedbackSubmissionRows: number;
       assessmentAttemptRows: number;
+      scormRegistrationRows: number;
     };
     // Returned so the caller can forward them to wipeUserCourseState and avoid
     // the same two findMany round-trips being made twice per force-unassign.
@@ -226,6 +230,7 @@ export class CourseService {
       policyItemCompletionRows,
       feedbackSubmissionRows,
       assessmentAttemptRows,
+      scormRegistrationRows,
     ] = await Promise.all([
       this.prisma.userCourseProgress.count({ where: { userId, courseId } }),
       this.prisma.userChapterCompletion.count({ where: { userId, courseId } }),
@@ -259,6 +264,11 @@ export class CourseService {
             where: { userId, assessmentId: { in: assessmentIds } },
           })
         : Promise.resolve(0),
+      // SCORM learner state lives outside the native tables above: a learner
+      // can have a Cloud registration (and a launch history) with zero rows
+      // anywhere else. Counted here so every force path sees the same picture
+      // the SCORM course destroy does.
+      this.prisma.scormRegistration.count({ where: { userId, courseId } }),
     ]);
 
     const counts = {
@@ -276,6 +286,7 @@ export class CourseService {
       policyItemCompletionRows,
       feedbackSubmissionRows,
       assessmentAttemptRows,
+      scormRegistrationRows,
     };
 
     const hasAny =
@@ -291,7 +302,8 @@ export class CourseService {
       policyCompletionRows > 0 ||
       policyItemCompletionRows > 0 ||
       feedbackSubmissionRows > 0 ||
-      assessmentAttemptRows > 0;
+      assessmentAttemptRows > 0 ||
+      scormRegistrationRows > 0;
 
     return { hasAny, counts, chapterIds, assessmentIds };
   }
@@ -3989,7 +4001,629 @@ export class CourseService {
     }
   }
 
-  async deleteCourse(id: string): Promise<ResponseDto> {
+  /**
+   * Blast radius of permanently deleting a course: every table that would be
+   * destroyed with it, split into
+   *
+   *   - learnerState: rows a learner produced (enrollments, SCORM Cloud
+   *     registrations, progress, completions, certificates, submissions).
+   *     Non-zero ⇒ a plain delete is refused; the admin must confirm with
+   *     `force` (same contract as unAssignCourse and purgeUser).
+   *   - content: admin-authored structure that always goes with the course
+   *     (packages, versions, curriculum tree, policies, forms, assessments).
+   *
+   * `packages` / `chapterIds` / `assessmentIds` are returned so the destroy
+   * path can reuse them for the Cloud teardown and the chapter/assessment
+   * scoped deletes without re-querying.
+   */
+  private async gatherCourseDeletionImpact(courseId: string) {
+    const [packages, chapters, assessments, policies] = await Promise.all([
+      this.prisma.scormPackage.findMany({
+        where: { courseId },
+        select: {
+          id: true,
+          versionNumber: true,
+          status: true,
+          scormCloudCourseId: true,
+        },
+      }),
+      this.prisma.chapter.findMany({
+        where: { module: { courseId } },
+        select: { id: true },
+      }),
+      this.prisma.assessment.findMany({
+        where: { courseId },
+        select: { id: true },
+      }),
+      this.prisma.policy.findMany({
+        where: { courseId },
+        select: { id: true },
+      }),
+    ]);
+    const chapterIds = chapters.map((c) => c.id);
+    const assessmentIds = assessments.map((a) => a.id);
+
+    const [
+      enrollments,
+      scormRegistrations,
+      courseCompletions,
+      certificatesIssued,
+      progressRows,
+      chapterCompletions,
+      moduleCompletions,
+      timeSpentRows,
+      lastSeenRows,
+      quizProgressRows,
+      quizAnswerRows,
+      formCompletionRows,
+      policyCompletionRows,
+      policyItemCompletionRows,
+      feedbackSubmissionRows,
+      assessmentAttemptRows,
+      assignmentSubmissionRows,
+      versions,
+      modules,
+      sections,
+      quizzes,
+      courseForms,
+      assignments,
+      questions,
+      posts,
+      forumThreads,
+    ] = await Promise.all([
+      this.prisma.userCourse.count({ where: { courseId } }),
+      this.prisma.scormRegistration.count({ where: { courseId } }),
+      this.prisma.courseCompletion.count({ where: { courseId } }),
+      this.prisma.courseCompletion.count({
+        where: { courseId, certificateIssuedAt: { not: null } },
+      }),
+      this.prisma.userCourseProgress.count({ where: { courseId } }),
+      this.prisma.userChapterCompletion.count({ where: { courseId } }),
+      this.prisma.userModuleCompletion.count({ where: { courseId } }),
+      this.prisma.sectionTimeSpent.count({ where: { courseId } }),
+      this.prisma.lastSeenSection.count({ where: { courseId } }),
+      chapterIds.length > 0
+        ? this.prisma.quizProgress.count({
+            where: { chapterId: { in: chapterIds } },
+          })
+        : Promise.resolve(0),
+      chapterIds.length > 0
+        ? this.prisma.quizAnswer.count({
+            where: { chapterId: { in: chapterIds } },
+          })
+        : Promise.resolve(0),
+      this.prisma.userFormCompletion.count({ where: { courseId } }),
+      this.prisma.userPolicyCompletion.count({ where: { courseId } }),
+      this.prisma.userPolicyItemCompletion.count({
+        where: { item: { policy: { courseId } } },
+      }),
+      this.prisma.courseFeedbackSubmission.count({ where: { courseId } }),
+      assessmentIds.length > 0
+        ? this.prisma.assessmentAttempt.count({
+            where: { assessmentId: { in: assessmentIds } },
+          })
+        : Promise.resolve(0),
+      this.prisma.assignmentSubmission.count({
+        where: { assignment: { courseId } },
+      }),
+      this.prisma.courseVersion.count({ where: { courseId } }),
+      this.prisma.module.count({ where: { courseId } }),
+      chapterIds.length > 0
+        ? this.prisma.section.count({
+            where: { chapterId: { in: chapterIds } },
+          })
+        : Promise.resolve(0),
+      chapterIds.length > 0
+        ? this.prisma.quiz.count({ where: { chapterId: { in: chapterIds } } })
+        : Promise.resolve(0),
+      this.prisma.courseForm.count({ where: { courseId } }),
+      this.prisma.assignment.count({ where: { courseId } }),
+      this.prisma.question.count({ where: { courseId } }),
+      this.prisma.post.count({ where: { courseId } }),
+      this.prisma.forumThread.count({ where: { courseId } }),
+    ]);
+
+    const learnerState = {
+      enrollments,
+      scormRegistrations,
+      courseCompletions,
+      certificatesIssued,
+      progressRows,
+      chapterCompletions,
+      moduleCompletions,
+      timeSpentRows,
+      lastSeenRows,
+      quizProgressRows,
+      quizAnswerRows,
+      formCompletionRows,
+      policyCompletionRows,
+      policyItemCompletionRows,
+      feedbackSubmissionRows,
+      assessmentAttemptRows,
+      assignmentSubmissionRows,
+    };
+    // certificatesIssued is a subset of courseCompletions — it is reported for
+    // the confirmation dialog but must not be double-counted in the total.
+    const learnerStateTotal = Object.entries(learnerState)
+      .filter(([key]) => key !== 'certificatesIssued')
+      .reduce((sum, [, value]) => sum + value, 0);
+
+    const content = {
+      scormPackages: packages.length,
+      scormCloudCourses: new Set(
+        packages
+          .filter((p) => p.status !== ScormPackageStatus.PRUNED)
+          .map((p) => p.scormCloudCourseId),
+      ).size,
+      versions,
+      modules,
+      chapters: chapterIds.length,
+      sections,
+      quizzes,
+      policies: policies.length,
+      courseForms,
+      assessments: assessmentIds.length,
+      questions,
+      assignments,
+      posts,
+      forumThreads,
+    };
+
+    return {
+      packages,
+      chapterIds,
+      assessmentIds,
+      learnerState,
+      learnerStateTotal,
+      hasLearnerState: learnerStateTotal > 0,
+      content,
+    };
+  }
+
+  /**
+   * Read-only preview of what `DELETE /courses/:id` would destroy. The admin
+   * dashboard shows this in the confirmation dialog so "delete course" is
+   * never a blind action — especially for an imported SCORM course, where the
+   * destroy also reaches into SCORM Cloud and cannot be undone.
+   */
+  async getCourseDeletionPreview(id: string): Promise<ResponseDto> {
+    try {
+      const course = await this.prisma.course.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          title: true,
+          isActive: true,
+          deliveryMode: true,
+        },
+      });
+      if (!course?.id) {
+        throw new Error('Course not found');
+      }
+
+      const impact = await this.gatherCourseDeletionImpact(id);
+
+      return {
+        message: 'Successfully fetched course deletion preview',
+        statusCode: 200,
+        data: {
+          course,
+          learnerState: impact.learnerState,
+          learnerStateTotal: impact.learnerStateTotal,
+          content: impact.content,
+          // false ⇒ the admin must re-send the delete with force:true.
+          canDeleteWithoutForce: !impact.hasLearnerState,
+        },
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          status: HttpStatus.FORBIDDEN,
+          error: error?.message || 'Something went wrong',
+        },
+        HttpStatus.FORBIDDEN,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * SCORM Cloud teardown for a course being destroyed. HTTP cannot live
+   * inside a Prisma transaction, so this runs first and is best-effort: a
+   * Cloud failure is logged and reported back with the offending ids (the
+   * admin can remove them from the Cloud console) but never blocks the local
+   * delete — leaving the local rows behind would only strand the course in a
+   * half-deleted state with no UI to finish the job.
+   *
+   * Mirrors the ordering in `pruneSupersededPackagesCron`: registrations
+   * first, then the Cloud course they belong to.
+   */
+  private async purgeScormCloudForCourse(
+    courseId: string,
+    packages: Array<{ scormCloudCourseId: string; status: ScormPackageStatus }>,
+  ): Promise<{
+    registrations: number;
+    registrationsDeleted: number;
+    cloudCourses: number;
+    cloudCoursesDeleted: number;
+    failures: string[];
+  }> {
+    const failures: string[] = [];
+
+    // Two passes, skipping ids already handled: the caller deactivates the
+    // course first so no NEW launch can start, but a launch that was already
+    // in flight can still land a registration after the first sweep. Same
+    // belt-and-braces as UserService.purgeUser, minus its duplicate deletes.
+    const seen = new Set<string>();
+    let registrationsDeleted = 0;
+    for (let pass = 0; pass < 2; pass += 1) {
+      let rows: Array<{ scormCloudRegistrationId: string }> = [];
+      try {
+        rows = await this.prisma.scormRegistration.findMany({
+          where: { courseId },
+          select: { scormCloudRegistrationId: true },
+        });
+      } catch (err) {
+        CourseService.completionLogger.warn(
+          `Failed to list ScormRegistration rows for course destroy ${courseId}: ${errorMessage(
+            err,
+          )}`,
+        );
+        break;
+      }
+
+      for (const reg of rows) {
+        if (seen.has(reg.scormCloudRegistrationId)) continue;
+        seen.add(reg.scormCloudRegistrationId);
+        try {
+          await this.scormCloud.deleteRegistration(
+            reg.scormCloudRegistrationId,
+          );
+          registrationsDeleted += 1;
+        } catch (err) {
+          failures.push(`registration:${reg.scormCloudRegistrationId}`);
+          CourseService.completionLogger.warn(
+            `Failed SCORM Cloud DeleteRegistration ${
+              reg.scormCloudRegistrationId
+            } (course ${courseId}): ${errorMessage(err)}`,
+          );
+        }
+      }
+    }
+
+    // PRUNED packages already had their Cloud course deleted by the prune
+    // cron — re-issuing the DELETE would only log a 404.
+    const cloudCourseIds = [
+      ...new Set(
+        packages
+          .filter((p) => p.status !== ScormPackageStatus.PRUNED)
+          .map((p) => p.scormCloudCourseId)
+          .filter(Boolean),
+      ),
+    ];
+    let cloudCoursesDeleted = 0;
+    for (const cloudCourseId of cloudCourseIds) {
+      try {
+        await this.scormCloud.deleteCourse(cloudCourseId);
+        cloudCoursesDeleted += 1;
+      } catch (err) {
+        failures.push(`course:${cloudCourseId}`);
+        CourseService.completionLogger.warn(
+          `Failed SCORM Cloud DeleteCourse ${cloudCourseId} (course ${courseId}): ${errorMessage(
+            err,
+          )}`,
+        );
+      }
+    }
+
+    return {
+      registrations: seen.size,
+      registrationsDeleted,
+      cloudCourses: cloudCourseIds.length,
+      cloudCoursesDeleted,
+      failures,
+    };
+  }
+
+  /**
+   * Permanently destroys an imported SCORM course: SCORM Cloud assets first,
+   * then every local row, then the Course itself.
+   *
+   * Why this can't be `prisma.course.delete()`:
+   *  - Most course-scoped tables (UserCourse, progress, Module/Chapter/Section,
+   *    policies, forms, assessments…) have NO `onDelete: Cascade` on Course, so
+   *    a bare delete returns P2003 → the generic "associated with other
+   *    records" 403 as soon as the import created its module tree.
+   *  - ScormPackage/ScormRegistration DO cascade locally, which is exactly the
+   *    danger: the rows holding the Cloud ids vanish and the Cloud course and
+   *    every learner registration are orphaned with no way to find them again.
+   *    So Cloud teardown must happen BEFORE the local delete.
+   *
+   * Safe by default: with any learner state present the delete is refused with
+   * a 409 listing what would be destroyed. `force: true` performs the full
+   * destroy — this is the same contract as unAssignCourse.
+   */
+  private async destroyImportedScormCourse(
+    course: Course,
+    options?: { force?: boolean; adminId?: string },
+  ): Promise<ResponseDto> {
+    const courseId = course.id;
+    const impact = await this.gatherCourseDeletionImpact(courseId);
+
+    if (impact.hasLearnerState && !options?.force) {
+      throw new HttpException(
+        {
+          status: HttpStatus.CONFLICT,
+          error:
+            'Refusing to delete: this SCORM course has learner data. ' +
+            'Deleting it permanently removes every enrollment, progress ' +
+            'record, completion and certificate for this course, and deletes ' +
+            'the package and all learner registrations from SCORM Cloud. ' +
+            'This cannot be undone. Re-send with { force: true } to destroy ' +
+            'it anyway, or deactivate the course instead to hide it while ' +
+            'keeping learner records.',
+          details: {
+            learnerState: impact.learnerState,
+            content: impact.content,
+          },
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    // ── 1. Close the door ─────────────────────────────────────────────────
+    // An inactive course refuses learner launches (ScormRuntimeService: "This
+    // course is not published yet"), so no new SCORM Cloud registration can be
+    // created in the window between the Cloud purge and the local delete —
+    // such a registration would survive on Cloud with no local row naming it.
+    // If anything below fails the course is left deactivated: a safe state.
+    if (course.isActive) {
+      await this.prisma.course.update({
+        where: { id: courseId },
+        data: { isActive: false },
+      });
+    }
+
+    // ── 2. SCORM Cloud (outside the transaction — it's HTTP) ───────────────
+    const cloud = await this.purgeScormCloudForCourse(
+      courseId,
+      impact.packages,
+    );
+
+    // ── 3. Local teardown, children → parents ─────────────────────────────
+    // Timeout sized like the 13-table unassign wipe: this runs ~30 sequential
+    // statements, and Prisma's 5s default would surface a partial-looking
+    // "Transaction already closed" on a Neon cold start.
+    const deleted = await this.prisma.$transaction(
+      async (tx) => {
+        const { chapterIds, assessmentIds } = impact;
+        const counts: Record<string, number> = {};
+
+        // Forum threads outlive the course they were asked in — detach rather
+        // than delete so the community history (and its comments/votes)
+        // survives. ForumViewEvent.courseId is already ON DELETE SET NULL.
+        //
+        // They are also moved to 'inActive': getAllForumThreads shows every
+        // `courseId: null` thread to EVERY learner, so a bare detach would
+        // take discussions private to this course's cohort and publish them
+        // platform-wide. 'inActive' is the existing moderation state (see
+        // resolveNewThreadStatus) — hidden from learners, visible to admins,
+        // and restorable one field at a time.
+        counts.forumThreadsDetached = (
+          await tx.forumThread.updateMany({
+            where: { courseId },
+            data: { courseId: null, status: 'inActive' },
+          })
+        ).count;
+
+        // In-course discussion posts + their comments.
+        const posts = await tx.post.findMany({
+          where: { courseId },
+          select: { id: true },
+        });
+        counts.postComments =
+          posts.length > 0
+            ? (
+                await tx.comment.deleteMany({
+                  where: { postId: { in: posts.map((p) => p.id) } },
+                })
+              ).count
+            : 0;
+        counts.posts = (
+          await tx.post.deleteMany({ where: { courseId } })
+        ).count;
+
+        // Assessment stack. CourseCompletion.bestAttemptId points at an
+        // attempt, so completions must go before attempts.
+        counts.courseCompletions = (
+          await tx.courseCompletion.deleteMany({ where: { courseId } })
+        ).count;
+        if (assessmentIds.length > 0) {
+          // AttemptQuestionSnapshot cascades from the attempt.
+          counts.assessmentAttempts = (
+            await tx.assessmentAttempt.deleteMany({
+              where: { assessmentId: { in: assessmentIds } },
+            })
+          ).count;
+        }
+        // Junction rows reference Question with a RESTRICT FK — clear them
+        // before the question bank below. The second arm matters when a
+        // question from THIS course was pulled into another course's
+        // assessment: that row would otherwise P2003 and roll the whole
+        // teardown back as the generic "associated with other records".
+        counts.assessmentQuestions = (
+          await tx.assessmentQuestion.deleteMany({
+            where: {
+              OR: [
+                ...(assessmentIds.length > 0
+                  ? [{ assessmentId: { in: assessmentIds } }]
+                  : []),
+                { question: { courseId } },
+              ],
+            },
+          })
+        ).count;
+        counts.assessments = (
+          await tx.assessment.deleteMany({ where: { courseId } })
+        ).count;
+        counts.questions = (
+          await tx.question.deleteMany({ where: { courseId } })
+        ).count;
+        counts.questionCategories = (
+          await tx.questionCategory.deleteMany({ where: { courseId } })
+        ).count;
+
+        // Assignments + student submissions (attachments cascade from both).
+        counts.assignmentSubmissions = (
+          await tx.assignmentSubmission.deleteMany({
+            where: { assignment: { courseId } },
+          })
+        ).count;
+        counts.assignments = (
+          await tx.assignment.deleteMany({ where: { courseId } })
+        ).count;
+
+        // Feedback, registration forms, policies.
+        counts.feedbackSubmissions = (
+          await tx.courseFeedbackSubmission.deleteMany({ where: { courseId } })
+        ).count;
+        counts.feedbackForms = (
+          await tx.courseFeedbackForm.deleteMany({ where: { courseId } })
+        ).count;
+        counts.formCompletions = (
+          await tx.userFormCompletion.deleteMany({ where: { courseId } })
+        ).count;
+        counts.courseForms = (
+          await tx.courseForm.deleteMany({ where: { courseId } })
+        ).count;
+        counts.policyItemCompletions = (
+          await tx.userPolicyItemCompletion.deleteMany({
+            where: { item: { policy: { courseId } } },
+          })
+        ).count;
+        counts.policyCompletions = (
+          await tx.userPolicyCompletion.deleteMany({ where: { courseId } })
+        ).count;
+        counts.policyItems = (
+          await tx.policyItem.deleteMany({
+            where: { policy: { courseId } },
+          })
+        ).count;
+        counts.policies = (
+          await tx.policy.deleteMany({ where: { courseId } })
+        ).count;
+
+        // Learner progress / time tracking.
+        counts.progressRows = (
+          await tx.userCourseProgress.deleteMany({ where: { courseId } })
+        ).count;
+        counts.lastSeenRows = (
+          await tx.lastSeenSection.deleteMany({ where: { courseId } })
+        ).count;
+        counts.chapterCompletions = (
+          await tx.userChapterCompletion.deleteMany({ where: { courseId } })
+        ).count;
+        counts.moduleCompletions = (
+          await tx.userModuleCompletion.deleteMany({ where: { courseId } })
+        ).count;
+        counts.timeSpentRows = (
+          await tx.sectionTimeSpent.deleteMany({ where: { courseId } })
+        ).count;
+        counts.timeSpentDailyRows = (
+          await tx.sectionTimeSpentDaily.deleteMany({ where: { courseId } })
+        ).count;
+        if (chapterIds.length > 0) {
+          counts.quizProgressRows = (
+            await tx.quizProgress.deleteMany({
+              where: { chapterId: { in: chapterIds } },
+            })
+          ).count;
+          counts.quizAnswerRows = (
+            await tx.quizAnswer.deleteMany({
+              where: { chapterId: { in: chapterIds } },
+            })
+          ).count;
+        }
+
+        // SCORM rows. These would cascade with the Course, but deleting them
+        // explicitly keeps the reported counts honest and the order auditable.
+        counts.scormRegistrations = (
+          await tx.scormRegistration.deleteMany({ where: { courseId } })
+        ).count;
+        counts.scormPackages = (
+          await tx.scormPackage.deleteMany({ where: { courseId } })
+        ).count;
+
+        // Enrollments before versions: UserCourse.enrolledVersionId is a
+        // RESTRICT FK onto CourseVersion.
+        counts.enrollments = (
+          await tx.userCourse.deleteMany({ where: { courseId } })
+        ).count;
+        counts.versions = (
+          await tx.courseVersion.deleteMany({ where: { courseId } })
+        ).count;
+
+        // Curriculum tree, leaf → root.
+        if (chapterIds.length > 0) {
+          counts.quizzes = (
+            await tx.quiz.deleteMany({
+              where: { chapterId: { in: chapterIds } },
+            })
+          ).count;
+          counts.sections = (
+            await tx.section.deleteMany({
+              where: { chapterId: { in: chapterIds } },
+            })
+          ).count;
+          counts.chapters = (
+            await tx.chapter.deleteMany({ where: { id: { in: chapterIds } } })
+          ).count;
+        }
+        counts.modules = (
+          await tx.module.deleteMany({ where: { courseId } })
+        ).count;
+
+        await tx.course.delete({ where: { id: courseId } });
+
+        return counts;
+      },
+      { timeout: 30000, maxWait: 8000 },
+    );
+
+    // Audit after commit — a failed audit write must not roll the destroy back
+    // (see CourseVersionService.writeAudit's note on passing `tx`).
+    if (options?.adminId) {
+      await this.courseVersionService.writeAudit({
+        adminId: options.adminId,
+        action: impact.hasLearnerState
+          ? 'DELETE_SCORM_COURSE_FORCE'
+          : 'DELETE_SCORM_COURSE',
+        targetType: 'Course',
+        targetId: courseId,
+        courseId,
+        metadata: {
+          title: course.title,
+          learnerState: impact.learnerState,
+          content: impact.content,
+          deleted,
+          cloud,
+        },
+      });
+    }
+
+    return {
+      message: cloud.failures.length
+        ? 'Deleted the SCORM course, but some SCORM Cloud objects could not be removed — delete them from the Cloud console'
+        : 'Successfully deleted SCORM course, its packages and all SCORM Cloud assets',
+      statusCode: 200,
+      data: { course, deleted, cloud },
+    };
+  }
+
+  async deleteCourse(
+    id: string,
+    options?: { force?: boolean; adminId?: string },
+  ): Promise<ResponseDto> {
     try {
       const course = await this.prisma.course.findUnique({
         where: { id },
@@ -3998,9 +4632,10 @@ export class CourseService {
         throw new Error('Course not found');
       }
       if (course.deliveryMode === CourseDeliveryMode.IMPORTED_SCORM) {
-        throw new Error(
-          'Imported SCORM courses cannot be deleted in v1. Deactivate the course instead.',
-        );
+        // Imported courses need SCORM Cloud teardown plus an ordered local
+        // delete — a bare course.delete() would orphan the Cloud course and
+        // every learner registration.
+        return await this.destroyImportedScormCourse(course, options);
       }
 
       await this.prisma.course.delete({
@@ -4013,6 +4648,9 @@ export class CourseService {
         data: course,
       };
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2003'

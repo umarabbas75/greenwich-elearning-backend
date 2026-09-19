@@ -7,6 +7,7 @@ import { FeedbackService } from '../feedback/feedback.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ScormCloudClient } from '../scorm-cloud/scorm-cloud.client';
 import { CourseService } from './course.service';
 
 /**
@@ -107,6 +108,13 @@ describe('CourseService — restore + archive inventory (PR 1)', () => {
           useValue: {
             createNotification: jest.fn(),
             createNotificationForMany: jest.fn(),
+          },
+        },
+        {
+          provide: ScormCloudClient,
+          useValue: {
+            deleteRegistration: jest.fn().mockResolvedValue(undefined),
+            deleteCourse: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],

@@ -11,8 +11,6 @@ function loadCertificateTemplateBytes() {
         (0, path_1.join)(__dirname, 'assets', 'certificate-of-completion.pdf'),
         (0, path_1.join)(process.cwd(), 'dist', 'src', 'certificate', 'assets', 'certificate-of-completion.pdf'),
         (0, path_1.join)(process.cwd(), 'src', 'certificate', 'assets', 'certificate-of-completion.pdf'),
-        (0, path_1.join)(process.cwd(), 'docs', 'certificate-of-completion-updated.pdf'),
-        (0, path_1.join)(process.cwd(), 'docs', 'certificate-of-completion.pdf'),
     ];
     for (const path of candidates) {
         if ((0, fs_1.existsSync)(path)) {

@@ -133,6 +133,73 @@ To actually replace: call **4.1** again with the same `courseId` and the new `co
 
 ---
 
+### 4.6 Delete a SCORM course — `GET /courses/:id/deletion-preview` + `DELETE /courses/:id` (admin, `jwt`)
+
+Imported SCORM courses **can be deleted** (this used to be refused in v1). The delete is a real destroy: it removes the SCORM Cloud course and every learner registration on Cloud, then every local row — enrollments, progress, completions, **certificates**, versions, the generated curriculum tree, and the packages. It cannot be undone. If the admin only wants the course out of the catalogue, use **deactivate** (`PATCH /courses/admin/:id/active` with `isActive: false`) instead.
+
+**Step 1 — preview (read-only).** Call this to fill the confirmation dialog:
+
+```ts
+GET /courses/:id/deletion-preview
+{
+  message: 'ok', statusCode: 200,
+  data: {
+    course: { id, title, isActive, deliveryMode };
+    learnerState: {
+      enrollments: number; scormRegistrations: number;
+      courseCompletions: number; certificatesIssued: number;
+      progressRows: number; chapterCompletions: number; moduleCompletions: number;
+      timeSpentRows: number; lastSeenRows: number;
+      quizProgressRows: number; quizAnswerRows: number;
+      formCompletionRows: number; policyCompletionRows: number;
+      policyItemCompletionRows: number; feedbackSubmissionRows: number;
+      assessmentAttemptRows: number; assignmentSubmissionRows: number;
+    };
+    learnerStateTotal: number;
+    content: {
+      scormPackages, scormCloudCourses, versions, modules, chapters, sections,
+      quizzes, policies, courseForms, assessments, questions, assignments,
+      posts, forumThreads: number;
+    };
+    canDeleteWithoutForce: boolean;   // false ⇒ the plain DELETE will 409
+  }
+}
+```
+
+**Step 2 — delete.**
+
+- `DELETE /courses/:id` — succeeds only when there is no learner state. With any learner state it returns **409** and deletes nothing; the body carries `details.learnerState` and `details.content` (same shapes as above) so you can show exactly what would be lost.
+- `DELETE /courses/:id?force=true` (`?force=1` also accepted) — performs the destroy regardless. Gate this behind a second, explicit confirmation (type-the-course-title is appropriate when `certificatesIssued > 0`).
+
+Success response:
+
+```ts
+{
+  message: string,        // mentions the Cloud console when some Cloud objects survived
+  statusCode: 200,
+  data: {
+    course: { … },        // the deleted course
+    deleted: Record<string, number>,   // rows removed, per table
+    cloud: {
+      registrations: number; registrationsDeleted: number;
+      cloudCourses: number; cloudCoursesDeleted: number;
+      failures: string[];   // e.g. ['registration:abc', 'course:xyz']
+    }
+  }
+}
+```
+
+**`cloud.failures` is not an error.** The local delete always completes; a non-empty array means those SCORM Cloud objects are now orphaned and have to be removed from the Cloud console by hand. Surface it as a warning with the ids, not as a failed delete.
+
+Two side effects worth knowing:
+
+- **The course is deactivated first.** Before anything is destroyed, the backend sets `isActive: false` so no learner can launch (and create a new Cloud registration) mid-delete. If the destroy then fails for any reason, you'll get the error **and** the course will be inactive — refresh the course list rather than assuming it's unchanged.
+- **Forum threads survive, hidden.** Threads asked against this course are detached (`courseId: null`) and set to `status: 'inActive'` rather than deleted, so learner discussion isn't destroyed but a deleted course's private threads don't become visible platform-wide. They show up in the admin forum moderation view; an admin can flip one back to `active`. Count is in `deleted.forumThreadsDetached`.
+
+Native (`NATIVE`) courses are unaffected by all of this — their `DELETE /courses/:id` behaves exactly as before (403 "associated with other records" when anything references them).
+
+---
+
 ## 5. Learner flow: launching & playing SCORM content
 
 ### 5.1 Detecting a SCORM course
@@ -202,6 +269,7 @@ Course completion and certificate issuance for SCORM courses go through the **sa
 - No curriculum editor (add/edit/delete module/chapter/section/quiz/assessment) for `IMPORTED_SCORM` courses — every one of those calls now 403s server-side; the only supported edit is replacing the whole package (§4.5).
 - No file upload for the SCORM zip itself through this API — you need your own "upload to storage, get a public HTTPS URL" step first, then pass that URL as `contentUrl`. If there's no existing asset-upload flow for large zips, that's a prerequisite to sort out before this can ship, not something this API provides.
 - No caching/reuse of `launchLink` — it's single-use-ish and expires in 2 minutes.
+- Deleting the **course** itself is a different thing and *is* supported — see §4.6. Only the curriculum tree inside it is locked.
 
 ---
 
@@ -214,6 +282,7 @@ Course completion and certificate issuance for SCORM courses go through the **sa
 | 403 (launch) | Not enrolled, course unpublished, package not ready | "This course isn't available right now" |
 | 404 | Course/package not found | Standard not-found handling |
 | 409 (import in progress) | Second import attempt while one is `PROCESSING` | Disable import button, show current progress instead |
+| 409 (course delete refused) | `DELETE /courses/:id` on a SCORM course that has learner data | Show `details.learnerState` in a confirm dialog, then retry with `?force=true` (§4.6) |
 | 409 (version race) | Rare concurrent-import collision | Silent retry once |
 | 502 | SCORM Cloud unreachable/rejected the job | Show `failureReason`, offer retry |
 
