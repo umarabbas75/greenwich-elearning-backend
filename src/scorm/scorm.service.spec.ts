@@ -61,6 +61,72 @@ describe('ScormService', () => {
     service = moduleRef.get(ScormService);
   });
 
+  it('rolls back a course it created when Cloud rejects the import job', async () => {
+    // Without this, a rejected import leaves a permanently broken catalogue
+    // row: no tree, no version, "0 units", and setCourseActive refuses it
+    // forever — with nothing on screen saying why.
+    prisma.course.create.mockResolvedValue({ id: 'course-1', title: 'New' });
+    prisma.course.findUnique.mockResolvedValue(null);
+    prisma.scormPackage.findFirst.mockResolvedValue(null);
+    prisma.scormPackage.create.mockResolvedValue({ id: 'pkg-1' });
+    prisma.scormPackage.delete = jest.fn().mockResolvedValue({});
+    prisma.course.delete = jest.fn().mockResolvedValue({});
+    cloud.createFetchAndImportCourseJob.mockRejectedValue(
+      new Error(
+        'The maximum number of courses for this account type has been reached.',
+      ),
+    );
+
+    await expect(
+      service.createPackage('admin-1', {
+        contentUrl: 'https://example.com/course.zip',
+        completeOn: 'completed',
+        title: 'New',
+      } as any),
+    ).rejects.toThrow();
+
+    expect(prisma.scormPackage.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: ScormPackageStatus.FAILED }),
+      }),
+    );
+    expect(prisma.scormPackage.delete).toHaveBeenCalledWith({
+      where: { id: 'pkg-1' },
+    });
+    expect(prisma.course.delete).toHaveBeenCalledWith({
+      where: { id: 'course-1' },
+    });
+  });
+
+  it('keeps an existing course when Cloud rejects the import job', async () => {
+    prisma.course.findUnique.mockResolvedValue({
+      id: 'course-9',
+      title: 'Existing',
+      deliveryMode: 'IMPORTED_SCORM',
+    });
+    prisma.course.update.mockResolvedValue({
+      id: 'course-9',
+      title: 'Existing',
+    });
+    prisma.scormPackage.findFirst.mockResolvedValue(null);
+    prisma.scormPackage.create.mockResolvedValue({ id: 'pkg-9' });
+    prisma.scormPackage.delete = jest.fn().mockResolvedValue({});
+    prisma.course.delete = jest.fn().mockResolvedValue({});
+    cloud.createFetchAndImportCourseJob.mockRejectedValue(new Error('nope'));
+
+    await expect(
+      service.createPackage('admin-1', {
+        courseId: 'course-9',
+        contentUrl: 'https://example.com/course.zip',
+        completeOn: 'completed',
+      } as any),
+    ).rejects.toThrow();
+
+    // The FAILED package stays as history and the course is untouched.
+    expect(prisma.course.delete).not.toHaveBeenCalled();
+    expect(prisma.scormPackage.delete).not.toHaveBeenCalled();
+  });
+
   it('surfaces a Cloud ERROR job as FAILED', async () => {
     prisma.scormPackage.findUnique.mockResolvedValue({
       id: 'pkg-1',

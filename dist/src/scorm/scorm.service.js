@@ -35,6 +35,7 @@ let ScormService = ScormService_1 = class ScormService {
         if (!contentUrl.startsWith('https://')) {
             throw new common_1.BadRequestException('contentUrl must be a durable public HTTPS URL (the zip never enters this API)');
         }
+        const createdCourseHere = !body.courseId;
         const course = body.courseId
             ? await this.prepareExistingCourse(body.courseId)
             : await this.createImportedCourse(body);
@@ -95,6 +96,16 @@ let ScormService = ScormService_1 = class ScormService {
                 where: { id: pkg.id },
                 data: { status: client_1.ScormPackageStatus.FAILED, failureReason: reason },
             });
+            if (createdCourseHere) {
+                try {
+                    await this.prisma.scormPackage.delete({ where: { id: pkg.id } });
+                    await this.prisma.course.delete({ where: { id: course.id } });
+                }
+                catch (cleanupErr) {
+                    this.logger.warn(`Failed to roll back course ${course.id} after a rejected SCORM ` +
+                        `import: ${(0, error_message_1.errorMessage)(cleanupErr)}`);
+                }
+            }
             throw err instanceof common_1.HttpException
                 ? err
                 : new common_1.HttpException(reason, common_1.HttpStatus.BAD_GATEWAY);

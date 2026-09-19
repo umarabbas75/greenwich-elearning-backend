@@ -7,7 +7,11 @@ let cachedTemplateBytes = null;
 function loadCertificateTemplateBytes() {
     if (cachedTemplateBytes)
         return cachedTemplateBytes;
+    const override = process.env.CERTIFICATE_TEMPLATE;
     const candidates = [
+        ...(override
+            ? [(0, path_1.isAbsolute)(override) ? override : (0, path_1.join)(process.cwd(), override)]
+            : []),
         (0, path_1.join)(__dirname, 'assets', 'certificate-of-completion.pdf'),
         (0, path_1.join)(process.cwd(), 'dist', 'src', 'certificate', 'assets', 'certificate-of-completion.pdf'),
         (0, path_1.join)(process.cwd(), 'src', 'certificate', 'assets', 'certificate-of-completion.pdf'),

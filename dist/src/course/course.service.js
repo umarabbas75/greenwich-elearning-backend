@@ -2079,6 +2079,37 @@ let CourseService = CourseService_1 = class CourseService {
                 _count: { _all: true },
             });
             const activeByCourse = new Map(activeEnrollments.map((row) => [row.courseId, row._count._all]));
+            const scormCourseIds = courses
+                .filter((c) => c.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM)
+                .map((c) => c.id);
+            const latestPackageByCourse = new Map();
+            if (scormCourseIds.length > 0) {
+                const packages = await this.prisma.scormPackage.findMany({
+                    where: { courseId: { in: scormCourseIds } },
+                    orderBy: [{ courseId: 'asc' }, { versionNumber: 'desc' }],
+                    select: {
+                        id: true,
+                        courseId: true,
+                        versionNumber: true,
+                        status: true,
+                        failureReason: true,
+                        importWarning: true,
+                        sectionId: true,
+                    },
+                });
+                for (const pkg of packages) {
+                    if (latestPackageByCourse.has(pkg.courseId))
+                        continue;
+                    latestPackageByCourse.set(pkg.courseId, {
+                        packageId: pkg.id,
+                        versionNumber: pkg.versionNumber,
+                        status: pkg.status,
+                        failureReason: pkg.failureReason,
+                        importWarning: pkg.importWarning,
+                        hasSection: !!pkg.sectionId,
+                    });
+                }
+            }
             const data = courses.map((course) => {
                 const { courseVersions, ...rest } = course;
                 const latest = courseVersions?.[0] ?? null;
@@ -2096,6 +2127,9 @@ let CourseService = CourseService_1 = class CourseService {
                         : null,
                     enrollmentCount: course._count?.users ?? 0,
                     activeEnrollmentCount: activeByCourse.get(course.id) ?? 0,
+                    scormImport: course.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM
+                        ? latestPackageByCourse.get(course.id) ?? null
+                        : null,
                 };
             });
             return {
@@ -3099,6 +3133,9 @@ let CourseService = CourseService_1 = class CourseService {
             }, common_1.HttpStatus.FORBIDDEN, { cause: error });
         }
     }
+    static isAlreadyGoneOnCloud(err) {
+        return err instanceof scorm_cloud_client_1.ScormCloudHttpError && err.cloudStatus === 404;
+    }
     async purgeScormCloudForCourse(courseId, packages) {
         const failures = [];
         const seen = new Set();
@@ -3124,6 +3161,10 @@ let CourseService = CourseService_1 = class CourseService {
                     registrationsDeleted += 1;
                 }
                 catch (err) {
+                    if (CourseService_1.isAlreadyGoneOnCloud(err)) {
+                        registrationsDeleted += 1;
+                        continue;
+                    }
                     failures.push(`registration:${reg.scormCloudRegistrationId}`);
                     CourseService_1.completionLogger.warn(`Failed SCORM Cloud DeleteRegistration ${reg.scormCloudRegistrationId} (course ${courseId}): ${(0, error_message_1.errorMessage)(err)}`);
                 }
@@ -3142,6 +3183,10 @@ let CourseService = CourseService_1 = class CourseService {
                 cloudCoursesDeleted += 1;
             }
             catch (err) {
+                if (CourseService_1.isAlreadyGoneOnCloud(err)) {
+                    cloudCoursesDeleted += 1;
+                    continue;
+                }
                 failures.push(`course:${cloudCourseId}`);
                 CourseService_1.completionLogger.warn(`Failed SCORM Cloud DeleteCourse ${cloudCourseId} (course ${courseId}): ${(0, error_message_1.errorMessage)(err)}`);
             }

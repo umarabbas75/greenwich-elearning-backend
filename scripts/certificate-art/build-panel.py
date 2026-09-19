@@ -15,12 +15,12 @@ from __future__ import annotations
 import os
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ART = os.path.join(HERE, 'source')
 
-SCALE = 3           # px per artboard point
+SCALE = 2           # px per artboard point (~288 DPI on the printed page)
 PANEL_W = 700       # panel box in artboard points
 PANEL_H = 1098
 SLOPE = 0.22        # every diagonal shares this angle
@@ -86,69 +86,89 @@ def tint(im: Image.Image, rgb: tuple[int, int, int], amount: float) -> Image.Ima
     return Image.blend(im, Image.composite(layer, im, Image.new('L', im.size, 255)), amount)
 
 
+def cover_anchored(path: str, box_w: int, box_h: int, anchor: float) -> Image.Image:
+    """Cover the box, choosing the vertical crop window with `anchor`.
+
+    0.0 keeps the top of the frame, 1.0 the bottom. The construction shot has
+    its subject high in frame, so the panel anchors near the top.
+    """
+    im = Image.open(path).convert('RGB')
+    scale = max(box_w / im.width, box_h / im.height)
+    im = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))),
+                   Image.LANCZOS)
+    left = (im.width - box_w) // 2
+    top = int((im.height - box_h) * anchor)
+    return im.crop((left, top, left + box_w, top + box_h))
+
+
+def smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
+    t = np.clip((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+    return t * t * (3 - 2 * t)
+
+
 def build() -> Image.Image:
+    """Photograph up top melting into deep green, cut by one clean diagonal.
+
+    The earlier version stacked five translucent ribbons over a hard-edged
+    photo block, which muddied both and left a visible cut. This keeps the same
+    idea — photograph, green, diagonal, tagline — but resolves it the way a
+    hero banner does: a wide image, a gradient that dissolves it into the green
+    with no seam, and crisp accent bands kept outside the photograph.
+    """
     canvas = Image.new('RGB', (W, H), (255, 255, 255))
 
-    # 1. Graded green base, bounded on the right by the outermost diagonal
-    base_poly = [(0, 0), (s(614), 0), (s(614 - DX), H), (0, H)]
-    base = vertical_gradient([
-        (0.00, (35, 76, 53)),
-        (0.55, (22, 52, 35)),
-        (1.00, (12, 32, 20)),
-    ])
-    canvas.paste(base, (0, 0), mask_from(base_poly))
+    rows = np.arange(H)[:, None, None]
+    cols = np.arange(W)[None, :, None]
 
-    # 2. Foliage ribbon
-    foliage = cover(os.path.join(ART, 'foliage.png'), W, H)
-    foliage = tint(foliage, (15, 47, 28), 0.26)
-    canvas.paste(foliage, (0, 0), mask_from(band_poly(392, 176)))
+    # 1. Deep green field across the whole panel.
+    base = np.zeros((H, W, 3), dtype=float)
+    t = rows / float(H)
+    top_green = np.array([30, 70, 46], dtype=float)
+    bot_green = np.array([10, 30, 19], dtype=float)
+    base[:] = top_green + (bot_green - top_green) * smoothstep(0.30, 1.0, t)
 
-    # 3. Soft mid-green ribbon for depth
-    mid = Image.new('RGB', (W, H), (46, 102, 66))
-    mid_mask = mask_from(band_poly(296, 104)).point(lambda v: int(v * 0.5))
-    canvas.paste(mid, (0, 0), mid_mask)
-
-    # 4. Gold foil stripe
-    foil = diagonal_gradient([
-        (0.00, (138, 106, 34)),
-        (0.32, (242, 221, 146)),
-        (0.62, (198, 150, 62)),
-        (1.00, (152, 113, 40)),
-    ])
-    canvas.paste(foil, (0, 0), mask_from(band_poly(574, 22)))
-
-    # 5. Light green outer ribbon
-    light = vertical_gradient([
-        (0.0, (77, 139, 93)),
-        (1.0, (47, 102, 66)),
-    ])
-    canvas.paste(light, (0, 0), mask_from(band_poly(600, 64)))
-
-    # 6. Construction photo block, diagonal right edge. The photo is scaled to
-    #    cover its own block, not the whole panel, so the framing stays wide.
-    photo_h = s(518)
-    photo_poly = [(0, 0), (s(470), 0), (s(356), photo_h), (0, photo_h)]
-    photo = cover(os.path.join(ART, 'construction.png'), s(470), photo_h)
-
-    # Fade the bottom edge into the green so the block doesn't cut abruptly
-    fade_px = s(70)
-    fade = np.ones((photo_h, 1))
-    fade[photo_h - fade_px:, 0] = np.linspace(1.0, 0.0, fade_px)
+    # 2. Photograph across the top. A short box means a gentle scale factor, so
+    #    the frame stays wide instead of zooming into the helmet.
+    photo_h = s(660)
+    photo = cover_anchored(os.path.join(ART, 'construction.png'), W, photo_h, 0.30)
     photo_arr = np.asarray(photo).astype(float)
-    green = np.array([22, 52, 35], dtype=float)
-    blended = photo_arr * fade[:, :, None] + green[None, None, :] * (1 - fade[:, :, None])
-    photo = Image.fromarray(blended.astype(np.uint8), 'RGB')
 
-    photo_layer = Image.new('RGB', (W, H), (255, 255, 255))
-    photo_layer.paste(photo, (0, 0))
-    canvas.paste(photo_layer, (0, 0), mask_from(photo_poly))
+    # Green scrim over the photo, deepening as it descends.
+    pt = np.arange(photo_h)[:, None, None] / float(photo_h)
+    scrim = 0.04 + 0.58 * smoothstep(0.18, 1.0, pt) ** 1.2
+    photo_arr = photo_arr * (1 - scrim) + np.array([16, 44, 28], dtype=float) * scrim
 
-    # 7. Gold hairline along the photo's diagonal edge, plus an inner keyline
+    # 3. Dissolve the photo into the green over a long ramp — no visible edge.
+    blend = 1.0 - smoothstep(0.62, 1.0, pt)
+    base[:photo_h] = base[:photo_h] * (1 - blend) + photo_arr * blend
+
+    # 4. Soft vignette so the artwork settles into the border.
+    edge = np.minimum(smoothstep(0, s(40), cols), smoothstep(0, s(32), rows))
+    base *= 0.86 + 0.14 * edge
+
+    canvas.paste(Image.fromarray(np.clip(base, 0, 255).astype(np.uint8), 'RGB'), (0, 0))
+
+    # 5. Everything right of the diagonal returns to page white.
+    edge_top = 560.0
+    white = Image.new('RGB', (W, H), (255, 255, 255))
+    canvas.paste(white, (0, 0), mask_from(
+        [(s(edge_top), 0), (W, 0), (W, H), (s(edge_top - DX), H)]))
+
+    # 6. Accent band and gold hairlines, clear of the photograph.
+    band_w = 52.0
+    accent = vertical_gradient([(0.0, (86, 148, 102)), (1.0, (38, 88, 56))])
+    canvas.paste(accent, (0, 0), mask_from([
+        (s(edge_top + 7), 0), (s(edge_top + 7 + band_w), 0),
+        (s(edge_top + 7 + band_w - DX), H), (s(edge_top + 7 - DX), H),
+    ]))
+
     draw = ImageDraw.Draw(canvas)
-    draw.line([(s(470), 0), (s(356), photo_h)], fill=(226, 200, 121), width=s(2))
-    inset = s(16)
-    draw.line([(inset, inset), (s(470) - inset - s(6), inset)], fill=(226, 200, 121), width=s(1))
-    draw.line([(inset, inset), (inset, s(300))], fill=(226, 200, 121), width=s(1))
+    for offset, width, colour in (
+        (0.0, s(3.0), (216, 187, 112)),
+        (band_w + 7.0, s(1.6), (198, 166, 92)),
+    ):
+        draw.line([(s(edge_top + offset), 0), (s(edge_top + offset - DX), H)],
+                  fill=colour, width=width)
 
     return canvas
 
@@ -163,8 +183,11 @@ def build_gold_mark() -> Image.Image:
     dark = np.array([104, 74, 18], dtype=float)
     light = np.array([250, 231, 168], dtype=float)
     gold = dark + (light - dark) * lum
-    return Image.fromarray(
+    mark = Image.fromarray(
         np.concatenate([gold, alpha], axis=2).astype(np.uint8), 'RGBA')
+    # Placed at 66x58pt, so anything past ~220px is wasted bytes.
+    mark.thumbnail((220, 220), Image.LANCZOS)
+    return mark
 
 
 if __name__ == '__main__':

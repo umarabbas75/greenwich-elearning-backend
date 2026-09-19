@@ -3,7 +3,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const fs_1 = require("fs");
 const path_1 = require("path");
 const certificate_pdf_1 = require("../../src/certificate/certificate-pdf");
-const OUT = (0, path_1.join)(__dirname, '..', '..', 'docs', 'certificate-previews');
+const VARIANT = (() => {
+    const i = process.argv.indexOf('--variant');
+    return i >= 0 ? process.argv[i + 1] : 'a';
+})();
+const TEMPLATES = {
+    a: 'certificate-of-completion.pdf',
+    b: 'certificate-of-completion-variant-b.pdf',
+};
+const OUT = (0, path_1.join)(__dirname, '..', '..', 'docs', 'certificate-previews', VARIANT === 'a' ? '.' : `variant-${VARIANT}`);
 const SAMPLES = [
     {
         file: 'typical.pdf',
@@ -27,6 +35,11 @@ const SAMPLES = [
 async function main() {
     const { mkdirSync } = await Promise.resolve().then(() => require('fs'));
     mkdirSync(OUT, { recursive: true });
+    const template = TEMPLATES[VARIANT];
+    if (!template) {
+        throw new Error(`Unknown variant "${VARIANT}". Expected: ${Object.keys(TEMPLATES).join(', ')}`);
+    }
+    process.env.CERTIFICATE_TEMPLATE = (0, path_1.join)(__dirname, '..', '..', 'src', 'certificate', 'assets', template);
     for (const sample of SAMPLES) {
         const bytes = await (0, certificate_pdf_1.renderCertificatePdf)({
             learnerName: sample.learnerName,

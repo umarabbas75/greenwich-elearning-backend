@@ -47,6 +47,36 @@ Two extra fields worth surfacing in the admin UI:
 
 ---
 
+### 3.1 Import state on the admin course list — `GET /courses` (admin, `jwt`)
+
+Every course row now carries `scormImport`, so the list can explain an imported course that isn't live instead of just showing "Unpublished / 0 units":
+
+```ts
+scormImport: {
+  packageId: string;
+  versionNumber: number;
+  status: 'PROCESSING' | 'READY' | 'FAILED' | 'SUPERSEDED' | 'PRUNED';
+  failureReason: string | null;
+  importWarning: string | null;
+  hasSection: boolean;      // false ⇒ no curriculum was built yet
+} | null                    // null for NATIVE courses (and if no package exists)
+```
+
+Render it on the row:
+
+| `scormImport.status` | Row should show |
+|---|---|
+| `PROCESSING` | "Importing…" + keep polling §4.2 — **not** "Unpublished" |
+| `READY` + `latestVersion` | normal course |
+| `FAILED` | **"Import failed — `failureReason`"** with Retry (re-import) and Delete (§4.6) actions |
+| `READY` + `importWarning` | warning badge (§3) |
+
+This is the missing signal behind a real support case: two imports failed on SCORM Cloud with *"The maximum number of courses for this account type has been reached"*, and because the list showed nothing, they looked like ordinary unpublished courses. The admin then hit Activate and got *"Imported SCORM course cannot be published without exactly one live SCORM section on a READY package"* — which describes the symptom, not the cause. With `scormImport` the row says the real reason up front.
+
+Related: **a rejected import no longer leaves a ghost course.** If SCORM Cloud refuses the import job outright and the same request created the catalogue course, the backend now deletes that course again, so the admin sees only the error. (A failure that arrives *later*, from the async import job, still leaves the course — there's a package to poll and a `failureReason` to show, which is what `scormImport` is for.)
+
+---
+
 ## 4. Admin flow: import & manage SCORM packages
 
 ### 4.1 Import a package — `POST /scorm/packages` (admin, `jwt`)
@@ -90,7 +120,9 @@ Possible errors:
 
 ### 4.2 Poll import status — `GET /scorm/packages/:id/import-status` (admin, `jwt`)
 
-Call this on an interval (suggest every 3-5s) while a package is `PROCESSING`, and stop once you get `READY`, `FAILED`, or `SUPERSEDED`. This endpoint is what actually **drives** the import forward server-side (it checks the Cloud job, runs the policy gate, builds the tree, and publishes the course version) — there's also a background cron doing the same thing every 5 minutes as a safety net, so polling isn't strictly required for correctness, but without it admins will wait up to 5 minutes to see `READY`.
+Call this on an interval (suggest every 3-5s) while a package is `PROCESSING`, and stop once you get `READY`, `FAILED`, or `SUPERSEDED`. This endpoint is what actually **drives** the import forward server-side (it checks the Cloud job, runs the policy gate, builds the tree, and publishes the course version).
+
+⚠️ **Polling is effectively required.** The only scheduled fallback is the daily cron (`vercel.json` → `/api/v1/internal/cron/daily`, 09:00 UTC), which runs the same sweep. So if the admin submits an import and navigates away before the package leaves `PROCESSING`, the course sits half-imported — **0 units, no version, cannot be activated** — until that daily sweep. Keep polling until a terminal state, and if the admin leaves the page, resume polling for any `PROCESSING` package when they return to the course/package list.
 
 Response:
 ```ts

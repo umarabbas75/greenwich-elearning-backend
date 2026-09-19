@@ -8,7 +8,24 @@ import { writeFileSync } from 'fs';
 import { join } from 'path';
 import { renderCertificatePdf } from '../../src/certificate/certificate-pdf';
 
-const OUT = join(__dirname, '..', '..', 'docs', 'certificate-previews');
+const VARIANT = (() => {
+  const i = process.argv.indexOf('--variant');
+  return i >= 0 ? process.argv[i + 1] : 'a';
+})();
+
+const TEMPLATES: Record<string, string> = {
+  a: 'certificate-of-completion.pdf',
+  b: 'certificate-of-completion-variant-b.pdf',
+};
+
+const OUT = join(
+  __dirname,
+  '..',
+  '..',
+  'docs',
+  'certificate-previews',
+  VARIANT === 'a' ? '.' : `variant-${VARIANT}`,
+);
 
 const SAMPLES = [
   {
@@ -35,6 +52,24 @@ const SAMPLES = [
 async function main(): Promise<void> {
   const { mkdirSync } = await import('fs');
   mkdirSync(OUT, { recursive: true });
+
+  const template = TEMPLATES[VARIANT];
+  if (!template) {
+    throw new Error(
+      `Unknown variant "${VARIANT}". Expected: ${Object.keys(TEMPLATES).join(
+        ', ',
+      )}`,
+    );
+  }
+  process.env.CERTIFICATE_TEMPLATE = join(
+    __dirname,
+    '..',
+    '..',
+    'src',
+    'certificate',
+    'assets',
+    template,
+  );
 
   for (const sample of SAMPLES) {
     const bytes = await renderCertificatePdf({

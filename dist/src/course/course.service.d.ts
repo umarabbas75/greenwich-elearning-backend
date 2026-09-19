@@ -109,6 +109,7 @@ export declare class CourseService {
     updateSectionOrder(body: UpdateSectionOrderDto): Promise<ResponseDto>;
     private gatherCourseDeletionImpact;
     getCourseDeletionPreview(id: string): Promise<ResponseDto>;
+    private static isAlreadyGoneOnCloud;
     private purgeScormCloudForCourse;
     private destroyImportedScormCourse;
     deleteCourse(id: string, options?: {

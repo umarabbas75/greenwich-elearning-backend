@@ -8,7 +8,10 @@ import { FeedbackService } from '../feedback/feedback.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { ScormCloudClient } from '../scorm-cloud/scorm-cloud.client';
+import {
+  ScormCloudClient,
+  ScormCloudHttpError,
+} from '../scorm-cloud/scorm-cloud.client';
 import { CourseService } from './course.service';
 
 /**
@@ -296,6 +299,19 @@ describe('CourseService — deleting an imported SCORM course', () => {
       'course:cloud-1',
     ]);
     expect(res.message).toContain('Cloud console');
+  });
+
+  it('treats a Cloud 404 as already-gone, not an orphan', async () => {
+    // Real case: a package whose import job errored (SCORM Cloud course limit
+    // reached) never created a Cloud course, so DELETE returns 404.
+    givenCleanScormCourse();
+    cloud.deleteCourse.mockRejectedValue(new ScormCloudHttpError(404, 'gone'));
+
+    const res = await service.deleteCourse('course-1');
+
+    expect((res.data as any).cloud.failures).toEqual([]);
+    expect((res.data as any).cloud.cloudCoursesDeleted).toBe(1);
+    expect(res.message).not.toContain('Cloud console');
   });
 
   it('leaves the native course delete path untouched', async () => {

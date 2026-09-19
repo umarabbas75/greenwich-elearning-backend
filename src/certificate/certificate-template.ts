@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { isAbsolute, join } from 'path';
 
 let cachedTemplateBytes: Uint8Array | null = null;
 
@@ -7,10 +7,18 @@ let cachedTemplateBytes: Uint8Array | null = null;
 export function loadCertificateTemplateBytes(): Uint8Array {
   if (cachedTemplateBytes) return cachedTemplateBytes;
 
+  // An explicit override lets a variant template be rendered for comparison
+  // without touching the shipped asset. Field positions are shared, so any
+  // override must be built from the same layout module.
+  const override = process.env.CERTIFICATE_TEMPLATE;
+
   // Only the shipped asset — the stamped field positions come from
   // certificate-layout.ts and are meaningless against any other artwork, so
   // falling back to an older PDF would silently produce a broken certificate.
   const candidates = [
+    ...(override
+      ? [isAbsolute(override) ? override : join(process.cwd(), override)]
+      : []),
     join(__dirname, 'assets', 'certificate-of-completion.pdf'),
     join(
       process.cwd(),

@@ -237,7 +237,7 @@ export declare const ORNAMENTS: {
     };
     readonly emblemRule: {
         readonly x: 1466;
-        readonly y: 776;
+        readonly y: 596;
         readonly width: 74;
         readonly height: 2;
     };
@@ -253,20 +253,20 @@ export declare const ORNAMENTS: {
         readonly radius: 76;
     };
     readonly globe: {
-        readonly x: 1326;
-        readonly y: 150;
-        readonly size: 308;
+        readonly x: 1364;
+        readonly y: 116;
+        readonly size: 268;
     };
     readonly leafBase: {
-        readonly x: 1480;
-        readonly y: 424;
+        readonly x: 1498;
+        readonly y: 372;
         readonly height: 210;
     };
     readonly logoMark: {
-        readonly x: 836;
-        readonly y: 74;
-        readonly width: 92;
-        readonly height: 76;
+        readonly x: 840;
+        readonly y: 70;
+        readonly width: 88;
+        readonly height: 86;
     };
     readonly signature: {
         readonly x: 762;
@@ -275,8 +275,8 @@ export declare const ORNAMENTS: {
         readonly height: 69;
     };
     readonly emblemWords: {
-        readonly x: 1470;
-        readonly y: 648;
+        readonly x: 1466;
+        readonly y: 458;
         readonly size: 26;
         readonly lineGap: 38;
     };

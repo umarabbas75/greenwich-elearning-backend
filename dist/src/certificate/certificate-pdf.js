@@ -92,6 +92,7 @@ async function renderCertificatePdf(data) {
     (0, certificate_draw_1.drawBlock)(page, `${certificate_layout_1.CERTIFICATE_ID_PREFIX}${data.certificateId}`, certificate_layout_1.FIELDS.certificateId, fonts.sans, certificate_layout_1.COLUMN.center);
     const qrRect = await drawVerifyQr(stamped, page, data.verifyUrl);
     addUriLink(page, data.verifyUrl, qrRect);
+    page.scale(certificate_layout_1.OUTPUT_SCALE, certificate_layout_1.OUTPUT_SCALE);
     applyMetadata(stamped, data);
     return stamped.save();
 }

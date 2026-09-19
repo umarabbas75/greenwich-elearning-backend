@@ -17,7 +17,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ART = os.path.join(HERE, 'source')
 
 SIZE_PT = 320        # artboard points
-SCALE = 3            # px per point
+SCALE = 2            # px per point (~344 DPI at the printed size)
 N = SIZE_PT * SCALE
 
 # Pale green-greys: the globe sits behind the title, so it stays light.

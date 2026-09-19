@@ -183,13 +183,13 @@ exports.ORNAMENTS = {
     signatureRule: { x: 740, y: 950, width: 260, height: 1.4 },
     dateRule: { x: 1160, y: 950, width: 260, height: 1.4 },
     taglineRule: { x: 110, y: 1020, width: 110, height: 2 },
-    emblemRule: { x: 1466, y: 776, width: 74, height: 2 },
+    emblemRule: { x: 1466, y: 596, width: 74, height: 2 },
     divider: { center: 1080, y: 394, armLength: 274, gap: 66 },
     seal: { center: 1080, y: 940, radius: 76 },
-    globe: { x: 1326, y: 150, size: 308 },
-    leafBase: { x: 1480, y: 424, height: 210 },
-    logoMark: { x: 836, y: 74, width: 92, height: 76 },
+    globe: { x: 1364, y: 116, size: 268 },
+    leafBase: { x: 1498, y: 372, height: 210 },
+    logoMark: { x: 840, y: 70, width: 88, height: 86 },
     signature: { x: 762, y: 875, width: 216, height: 69 },
-    emblemWords: { x: 1470, y: 648, size: 26, lineGap: 38 },
+    emblemWords: { x: 1466, y: 458, size: 26, lineGap: 38 },
 };
 //# sourceMappingURL=certificate-layout.js.map

@@ -3,6 +3,7 @@ import {
   CERTIFICATE_ID_PREFIX,
   COLUMN,
   FIELDS,
+  OUTPUT_SCALE,
   QR as QR_LAYOUT,
   toPdfY,
 } from './certificate-layout';
@@ -158,6 +159,12 @@ export async function renderCertificatePdf(
 
   const qrRect = await drawVerifyQr(stamped, page, data.verifyUrl);
   addUriLink(page, data.verifyUrl, qrRect);
+
+  // Everything above is drawn on the 1684x1190 artboard; scale the finished
+  // page down to A4 landscape, which is the standard certificate size. This
+  // scales content, annotations and the page box together, so the embedded
+  // artwork ends up at twice the density of the printed page.
+  page.scale(OUTPUT_SCALE, OUTPUT_SCALE);
 
   applyMetadata(stamped, data);
 

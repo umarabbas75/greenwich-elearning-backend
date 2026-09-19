@@ -9,7 +9,7 @@
  *
  * Run: yarn script:certificate:template
  */
-import { PDFDocument, PDFPage, RGB, rgb } from '@cantoo/pdf-lib';
+import { PDFDocument, PDFPage, RGB, degrees, rgb } from '@cantoo/pdf-lib';
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import {
@@ -32,6 +32,67 @@ import {
 
 const ASSETS = join(__dirname, '..', '..', 'src', 'certificate', 'assets');
 const ART = join(__dirname, 'source');
+
+/**
+ * Variant A is the shipped design. Variant B matches the client's inspiration
+ * artwork on the two graphics they called out: the layered-ribbon left panel,
+ * and a continent globe large enough to run under the border — which is what
+ * makes it read as embedded rather than pasted on.
+ */
+interface Variant {
+  panel: string;
+  globeArt: string;
+  globe: { x: number; y: number; size: number };
+  leafBase: { x: number; y: number };
+  leafScale: number;
+  /** Globe drawn before the border, so the border frames over it. */
+  globeUnderBorder: boolean;
+  emblemWords: { x: number; y: number; size: number; lineGap: number };
+  emblemRule: { x: number; y: number };
+  output: string;
+}
+
+const VARIANTS: Record<string, Variant> = {
+  a: {
+    panel: 'panel.jpg',
+    globeArt: 'emblem-globe.png',
+    globe: ORNAMENTS.globe,
+    leafBase: { x: ORNAMENTS.leafBase.x, y: ORNAMENTS.leafBase.y },
+    leafScale: 1,
+    globeUnderBorder: false,
+    emblemWords: ORNAMENTS.emblemWords,
+    emblemRule: ORNAMENTS.emblemRule,
+    output: 'certificate-of-completion.pdf',
+  },
+  b: {
+    panel: 'panel-ribbons.jpg',
+    globeArt: 'emblem-globe-world.png',
+    globe: { x: 1292, y: 118, size: 384 },
+    // Smaller, shifted right onto the globe's centre, and lifted clear of the
+    // name band (y 470-597) — the longest names reach x 1433, so the fan sits
+    // above them rather than beside them.
+    leafBase: { x: 1480, y: 455 },
+    leafScale: 1.2,
+    globeUnderBorder: true,
+    emblemWords: { x: 1466, y: 560, size: 26, lineGap: 38 },
+    emblemRule: { x: 1466, y: 690 },
+    output: 'certificate-of-completion-variant-b.pdf',
+  },
+};
+
+function selectedVariant(): Variant {
+  const i = process.argv.indexOf('--variant');
+  const key = i >= 0 ? process.argv[i + 1] : 'a';
+  const variant = VARIANTS[key];
+  if (!variant) {
+    throw new Error(
+      `Unknown variant "${key}". Expected one of: ${Object.keys(VARIANTS).join(
+        ', ',
+      )}`,
+    );
+  }
+  return variant;
+}
 
 /** Filled rectangle in artboard (top-down) coordinates. */
 function rect(
@@ -126,8 +187,12 @@ function drawBorders(page: PDFPage): void {
   }
 }
 
-async function drawPanel(doc: PDFDocument, page: PDFPage): Promise<void> {
-  const image = await doc.embedJpg(readFileSync(join(ART, 'panel.jpg')));
+async function drawPanel(
+  doc: PDFDocument,
+  page: PDFPage,
+  art: string,
+): Promise<void> {
+  const image = await doc.embedJpg(readFileSync(join(ART, art)));
   page.drawImage(image, {
     x: PANEL.x,
     y: toPdfY(PANEL.y + PANEL.height),
@@ -243,99 +308,108 @@ function drawDivider(page: PDFPage): void {
 }
 
 /**
- * Halftone dot-sphere watermark.
+ * PEOPLE PLANET PROGRESS emblem, drawn as one entity.
  *
- * Dots sit on a lat/long grid projected orthographically; only the front
- * hemisphere is drawn, with size and opacity falling off towards the limb so
- * the sphere reads without needing an outline. Reads far more modern than a
- * wireframe and holds up when printed at low contrast.
+ * The globe is a pre-shaded raster (radial shading and a feathered limb are
+ * beyond pdf-lib), and the plant is vector so it stays crisp. The leaves fan
+ * from a base point inside the globe's lower half, so the two read as a single
+ * mark — a plant growing out of the planet — rather than two stacked graphics.
  */
-function drawGlobe(page: PDFPage): void {
-  const g = ORNAMENTS.globe;
-  const r = g.size / 2;
-  const cx = g.x + r;
-  const cy = g.y + r;
-  const rad = (deg: number) => (deg * Math.PI) / 180;
-
-  for (let lat = -78; lat <= 78; lat += 9) {
-    const ring = Math.cos(rad(lat));
-    // Fewer dots near the poles keeps spacing even across the surface.
-    const count = Math.max(6, Math.round(40 * ring));
-    for (let i = 0; i < count; i++) {
-      const lon = (360 / count) * i;
-      const depth = ring * Math.cos(rad(lon));
-      if (depth <= 0.02) continue; // back hemisphere
-
-      page.drawEllipse({
-        x: cx + r * ring * Math.sin(rad(lon)),
-        y: toPdfY(cy - r * Math.sin(rad(lat))),
-        xScale: 0.85 + 1.45 * depth,
-        yScale: 0.85 + 1.45 * depth,
-        color: COLORS.line,
-        opacity: g.opacity * (0.3 + 0.7 * depth),
-      });
-    }
-  }
+async function drawEmblemGlobe(
+  doc: PDFDocument,
+  page: PDFPage,
+  v: Variant,
+): Promise<void> {
+  const globe = await doc.embedPng(readFileSync(join(ART, v.globeArt)));
+  page.drawImage(globe, {
+    x: v.globe.x,
+    y: toPdfY(v.globe.y + v.globe.size),
+    width: v.globe.size,
+    height: v.globe.size,
+  });
 }
 
-/**
- * Brand emblem for PEOPLE PLANET PROGRESS: a monoline planet ring with orbit
- * lines, a growth leaf breaking out past the ring at the top right, and a gold
- * progress arc sweeping beneath. Replaces the generic botanical sprig with a
- * mark that says what the company actually does.
- *
- * Paths are written in emblem-local coordinates and anchored at the emblem's
- * origin, so the composition can be read straight off the numbers.
- */
-function drawEmblem(page: PDFPage): void {
-  const e = ORNAMENTS.emblem;
-  const origin = { x: e.x, y: toPdfY(e.y) };
-  const c = e.size / 2; // 75
-  const ring = 58;
+function drawEmblemLeaves(page: PDFPage, v: Variant): void {
+  const anchor = { x: v.leafBase.x, y: toPdfY(v.leafBase.y) };
 
-  const centre = { x: e.x + c, y: toPdfY(e.y + c) };
+  // One leaf, pointing up from the anchor; negative y is up once drawSvgPath
+  // flips the path into PDF space.
+  // Two mirrored silhouettes with a slight sickle bend. Rotated clones of one
+  // straight oval read as clip art; bending them outwards makes the fan sit
+  // like a real plant.
+  const LEAF_R = 'M 0 0 C 36 -48 50 -118 17 -194 C -19 -126 -37 -52 0 0 Z';
+  const LEAF_L = 'M 0 0 C -36 -48 -50 -118 -17 -194 C 19 -126 37 -52 0 0 Z';
+  const VEIN_R = 'M 0 -16 C 13 -64 19 -122 10 -176';
+  const VEIN_L = 'M 0 -16 C -13 -64 -19 -122 -10 -176';
 
-  // Planet ring plus two orbit lines
-  page.drawEllipse({
-    ...centre,
-    xScale: ring,
-    yScale: ring,
-    borderColor: COLORS.line,
-    borderWidth: 2.2,
-  });
-  page.drawEllipse({
-    ...centre,
-    xScale: 23,
-    yScale: ring,
-    borderColor: COLORS.line,
-    borderWidth: 1,
-    borderOpacity: 0.55,
-  });
-  page.drawEllipse({
-    ...centre,
-    xScale: ring,
-    yScale: 18,
-    borderColor: COLORS.line,
-    borderWidth: 1,
-    borderOpacity: 0.55,
-  });
+  // Outer leaves first so the central pair sits on top.
+  const fan = [
+    {
+      d: LEAF_L,
+      v: VEIN_L,
+      rot: -40,
+      scale: 0.62,
+      color: rgb(0.435, 0.655, 0.471),
+    },
+    {
+      d: LEAF_R,
+      v: VEIN_R,
+      rot: 40,
+      scale: 0.62,
+      color: rgb(0.435, 0.655, 0.471),
+    },
+    {
+      d: LEAF_L,
+      v: VEIN_L,
+      rot: -20,
+      scale: 0.83,
+      color: rgb(0.286, 0.529, 0.345),
+    },
+    {
+      d: LEAF_R,
+      v: VEIN_R,
+      rot: 20,
+      scale: 0.83,
+      color: rgb(0.286, 0.529, 0.345),
+    },
+    {
+      d: LEAF_L,
+      v: VEIN_L,
+      rot: -5,
+      scale: 0.96,
+      color: rgb(0.196, 0.424, 0.259),
+    },
+    {
+      d: LEAF_R,
+      v: VEIN_R,
+      rot: 7,
+      scale: 1.0,
+      color: rgb(0.161, 0.376, 0.227),
+    },
+  ];
 
-  // Growth leaf: base inside the ring, tip breaking past its upper-right edge
-  page.drawSvgPath('M 62 100 C 58 66 78 34 128 28 C 132 68 106 96 62 100 Z', {
-    ...origin,
-    color: rgb(0.176, 0.396, 0.239),
-  });
-  page.drawSvgPath('M 66 96 C 82 72 102 48 124 32', {
-    ...origin,
-    borderColor: COLORS.white,
-    borderWidth: 1.6,
-    opacity: 0.9,
-  });
+  for (const leaf of fan) {
+    page.drawSvgPath(leaf.d, {
+      ...anchor,
+      scale: leaf.scale * v.leafScale,
+      rotate: degrees(leaf.rot),
+      color: leaf.color,
+    });
+    page.drawSvgPath(leaf.v, {
+      ...anchor,
+      scale: leaf.scale * v.leafScale,
+      rotate: degrees(leaf.rot),
+      borderColor: COLORS.white,
+      borderWidth: 1.3,
+      opacity: 0.34,
+    });
+  }
 
-  // Gold progress arc sweeping clear of the planet's underside
-  page.drawSvgPath('M 24 120 C 48 166 104 166 128 120', {
-    ...origin,
-    borderColor: COLORS.gold,
+  // Short stem tying the fan into the globe.
+  page.drawSvgPath('M 0 0 C -2 -14 -2 -26 0 -38', {
+    ...anchor,
+    scale: v.leafScale,
+    borderColor: rgb(0.161, 0.376, 0.216),
     borderWidth: 3,
   });
 }
@@ -397,8 +471,12 @@ async function drawSignature(doc: PDFDocument, page: PDFPage): Promise<void> {
   });
 }
 
-function drawEmblemWords(page: PDFPage, fonts: CertificateFonts): void {
-  const e = ORNAMENTS.emblemWords;
+function drawEmblemWords(
+  page: PDFPage,
+  fonts: CertificateFonts,
+  v: Variant,
+): void {
+  const e = v.emblemWords;
   ['PEOPLE', 'PLANET', 'PROGRESS'].forEach((word, i) => {
     drawLine(page, {
       text: word,
@@ -411,7 +489,7 @@ function drawEmblemWords(page: PDFPage, fonts: CertificateFonts): void {
     });
   });
   const r = ORNAMENTS.emblemRule;
-  rect(page, r.x, r.y, r.width, r.height, COLORS.gold);
+  rect(page, v.emblemRule.x, v.emblemRule.y, r.width, r.height, COLORS.gold);
 }
 
 function drawQrSlot(page: PDFPage, fonts: CertificateFonts): void {
@@ -427,7 +505,7 @@ function drawQrSlot(page: PDFPage, fonts: CertificateFonts): void {
   drawCentred(page, fonts, { ...STATIC_TEXT.qrLabel, font: 'sans' });
 }
 
-export async function buildTemplate(): Promise<Uint8Array> {
+export async function buildTemplate(v: Variant): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const page = doc.addPage([PAGE.width, PAGE.height]);
   const fonts = await embedCertificateFonts(doc);
@@ -440,9 +518,12 @@ export async function buildTemplate(): Promise<Uint8Array> {
     color: COLORS.white,
   });
 
-  await drawPanel(doc, page);
+  await drawPanel(doc, page, v.panel);
+  // Variant B's globe runs under the border, so it is laid down first and the
+  // border frames over it; variant A's sits clear and is drawn on top later.
+  if (v.globeUnderBorder) await drawEmblemGlobe(doc, page, v);
   drawBorders(page);
-  drawGlobe(page);
+  if (!v.globeUnderBorder) await drawEmblemGlobe(doc, page, v);
   await drawLogo(doc, page, fonts);
 
   drawCentred(page, fonts, STATIC_TEXT.title);
@@ -482,8 +563,8 @@ export async function buildTemplate(): Promise<Uint8Array> {
   drawCentred(page, fonts, STATIC_TEXT.dateLabel);
   await drawSeal(doc, page);
 
-  drawEmblem(page);
-  drawEmblemWords(page, fonts);
+  drawEmblemLeaves(page, v);
+  drawEmblemWords(page, fonts, v);
   drawQrSlot(page, fonts);
   drawTagline(page, fonts);
 
@@ -496,9 +577,10 @@ export async function buildTemplate(): Promise<Uint8Array> {
 }
 
 if (require.main === module) {
-  buildTemplate()
+  const variant = selectedVariant();
+  buildTemplate(variant)
     .then((bytes) => {
-      const out = join(ASSETS, 'certificate-of-completion.pdf');
+      const out = join(ASSETS, variant.output);
       writeFileSync(out, bytes);
       console.log(`template ${out} ${Math.round(bytes.length / 1024)} KB`);
     })

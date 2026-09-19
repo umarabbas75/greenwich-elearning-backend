@@ -54,6 +54,9 @@ export class ScormService {
       );
     }
 
+    // Tracked so a failed hand-off to Cloud can undo a course this call
+    // created. An import onto an EXISTING course must never delete it.
+    const createdCourseHere = !body.courseId;
     const course = body.courseId
       ? await this.prepareExistingCourse(body.courseId)
       : await this.createImportedCourse(body);
@@ -122,6 +125,25 @@ export class ScormService {
         where: { id: pkg.id },
         data: { status: ScormPackageStatus.FAILED, failureReason: reason },
       });
+
+      // Cloud never accepted the job, so nothing was created on their side and
+      // the admin is about to see an error. If this call also created the
+      // catalogue course, leaving it behind puts a permanently broken row in
+      // the admin list — no tree, no version, "0 units", and setCourseActive
+      // refuses it forever — with nothing on screen saying why. Undo it. An
+      // import onto an existing course keeps the FAILED package as history.
+      if (createdCourseHere) {
+        try {
+          await this.prisma.scormPackage.delete({ where: { id: pkg.id } });
+          await this.prisma.course.delete({ where: { id: course.id } });
+        } catch (cleanupErr) {
+          this.logger.warn(
+            `Failed to roll back course ${course.id} after a rejected SCORM ` +
+              `import: ${errorMessage(cleanupErr)}`,
+          );
+        }
+      }
+
       throw err instanceof HttpException
         ? err
         : new HttpException(reason, HttpStatus.BAD_GATEWAY);

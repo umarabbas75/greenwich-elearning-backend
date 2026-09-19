@@ -34,7 +34,10 @@ import {
   assertChapterAccessible,
   recordChapterAndModuleCompletionIfNeeded,
 } from '../utils/chapter-progression';
-import { ScormCloudClient } from '../scorm-cloud/scorm-cloud.client';
+import {
+  ScormCloudClient,
+  ScormCloudHttpError,
+} from '../scorm-cloud/scorm-cloud.client';
 import { errorMessage } from '../utils/error-message';
 import { assertEnrollmentUsable } from '../utils/assert-enrollment-usable';
 import { assertImportedCourseTreeLocked } from '../utils/assert-imported-course-tree-locked';
@@ -2862,6 +2865,56 @@ export class CourseService {
         activeEnrollments.map((row) => [row.courseId, row._count._all]),
       );
 
+      // SCORM import state for the admin list. Without it an IMPORTED_SCORM
+      // course whose Cloud import died (account course-limit reached, bad zip,
+      // policy-gate refusal) is indistinguishable from one that is merely
+      // unpublished: both render as "Unpublished / 0 units" with no reason and
+      // no way to act. The admin then tries to activate it and gets the
+      // "exactly one live SCORM section on a READY package" refusal, which
+      // explains the symptom rather than the cause. Carry the latest package's
+      // status + failureReason so the list can say what actually happened.
+      const scormCourseIds = courses
+        .filter((c) => c.deliveryMode === CourseDeliveryMode.IMPORTED_SCORM)
+        .map((c) => c.id);
+      const latestPackageByCourse = new Map<
+        string,
+        {
+          packageId: string;
+          versionNumber: number;
+          status: string;
+          failureReason: string | null;
+          importWarning: string | null;
+          hasSection: boolean;
+        }
+      >();
+      if (scormCourseIds.length > 0) {
+        const packages = await this.prisma.scormPackage.findMany({
+          where: { courseId: { in: scormCourseIds } },
+          // Highest version first, so the first row seen per course wins.
+          orderBy: [{ courseId: 'asc' }, { versionNumber: 'desc' }],
+          select: {
+            id: true,
+            courseId: true,
+            versionNumber: true,
+            status: true,
+            failureReason: true,
+            importWarning: true,
+            sectionId: true,
+          },
+        });
+        for (const pkg of packages) {
+          if (latestPackageByCourse.has(pkg.courseId)) continue;
+          latestPackageByCourse.set(pkg.courseId, {
+            packageId: pkg.id,
+            versionNumber: pkg.versionNumber,
+            status: pkg.status,
+            failureReason: pkg.failureReason,
+            importWarning: pkg.importWarning,
+            hasSection: !!pkg.sectionId,
+          });
+        }
+      }
+
       const data = courses.map((course) => {
         const { courseVersions, ...rest } = course;
         const latest = courseVersions?.[0] ?? null;
@@ -2879,6 +2932,12 @@ export class CourseService {
             : null,
           enrollmentCount: course._count?.users ?? 0,
           activeEnrollmentCount: activeByCourse.get(course.id) ?? 0,
+          // null for NATIVE courses, and for an imported course that somehow
+          // has no package row at all (nothing was ever submitted).
+          scormImport:
+            course.deliveryMode === CourseDeliveryMode.IMPORTED_SCORM
+              ? latestPackageByCourse.get(course.id) ?? null
+              : null,
         };
       });
 
@@ -4238,6 +4297,18 @@ export class CourseService {
    * Mirrors the ordering in `pruneSupersededPackagesCron`: registrations
    * first, then the Cloud course they belong to.
    */
+  /**
+   * A 404 from SCORM Cloud on a delete means the object is already gone —
+   * that is the desired end state, not an orphan. It happens routinely here:
+   * a FAILED package whose import job errored (e.g. the account's course
+   * limit was hit) never created a Cloud course at all, so deleting it 404s.
+   * Counting that as a failure would tell the admin to go clean up something
+   * in the Cloud console that does not exist.
+   */
+  private static isAlreadyGoneOnCloud(err: unknown): boolean {
+    return err instanceof ScormCloudHttpError && err.cloudStatus === 404;
+  }
+
   private async purgeScormCloudForCourse(
     courseId: string,
     packages: Array<{ scormCloudCourseId: string; status: ScormPackageStatus }>,
@@ -4281,6 +4352,10 @@ export class CourseService {
           );
           registrationsDeleted += 1;
         } catch (err) {
+          if (CourseService.isAlreadyGoneOnCloud(err)) {
+            registrationsDeleted += 1;
+            continue;
+          }
           failures.push(`registration:${reg.scormCloudRegistrationId}`);
           CourseService.completionLogger.warn(
             `Failed SCORM Cloud DeleteRegistration ${
@@ -4307,6 +4382,10 @@ export class CourseService {
         await this.scormCloud.deleteCourse(cloudCourseId);
         cloudCoursesDeleted += 1;
       } catch (err) {
+        if (CourseService.isAlreadyGoneOnCloud(err)) {
+          cloudCoursesDeleted += 1;
+          continue;
+        }
         failures.push(`course:${cloudCourseId}`);
         CourseService.completionLogger.warn(
           `Failed SCORM Cloud DeleteCourse ${cloudCourseId} (course ${courseId}): ${errorMessage(

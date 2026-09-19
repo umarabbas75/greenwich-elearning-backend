@@ -8,6 +8,39 @@ const certificate_layout_1 = require("../../src/certificate/certificate-layout")
 const certificate_draw_1 = require("../../src/certificate/certificate-draw");
 const ASSETS = (0, path_1.join)(__dirname, '..', '..', 'src', 'certificate', 'assets');
 const ART = (0, path_1.join)(__dirname, 'source');
+const VARIANTS = {
+    a: {
+        panel: 'panel.jpg',
+        globeArt: 'emblem-globe.png',
+        globe: certificate_layout_1.ORNAMENTS.globe,
+        leafBase: { x: certificate_layout_1.ORNAMENTS.leafBase.x, y: certificate_layout_1.ORNAMENTS.leafBase.y },
+        leafScale: 1,
+        globeUnderBorder: false,
+        emblemWords: certificate_layout_1.ORNAMENTS.emblemWords,
+        emblemRule: certificate_layout_1.ORNAMENTS.emblemRule,
+        output: 'certificate-of-completion.pdf',
+    },
+    b: {
+        panel: 'panel-ribbons.jpg',
+        globeArt: 'emblem-globe-world.png',
+        globe: { x: 1292, y: 118, size: 384 },
+        leafBase: { x: 1480, y: 455 },
+        leafScale: 1.2,
+        globeUnderBorder: true,
+        emblemWords: { x: 1466, y: 560, size: 26, lineGap: 38 },
+        emblemRule: { x: 1466, y: 690 },
+        output: 'certificate-of-completion-variant-b.pdf',
+    },
+};
+function selectedVariant() {
+    const i = process.argv.indexOf('--variant');
+    const key = i >= 0 ? process.argv[i + 1] : 'a';
+    const variant = VARIANTS[key];
+    if (!variant) {
+        throw new Error(`Unknown variant "${key}". Expected one of: ${Object.keys(VARIANTS).join(', ')}`);
+    }
+    return variant;
+}
 function rect(page, x, y, width, height, color, opacity = 1) {
     page.drawRectangle({
         x,
@@ -63,8 +96,8 @@ function drawBorders(page) {
         rect(page, c.vx, c.vy, weight, arm, certificate_layout_1.COLORS.gold);
     }
 }
-async function drawPanel(doc, page) {
-    const image = await doc.embedJpg((0, fs_1.readFileSync)((0, path_1.join)(ART, 'panel.jpg')));
+async function drawPanel(doc, page, art) {
+    const image = await doc.embedJpg((0, fs_1.readFileSync)((0, path_1.join)(ART, art)));
     page.drawImage(image, {
         x: certificate_layout_1.PANEL.x,
         y: (0, certificate_layout_1.toPdfY)(certificate_layout_1.PANEL.y + certificate_layout_1.PANEL.height),
@@ -153,73 +186,85 @@ function drawDivider(page) {
         });
     }
 }
-function drawGlobe(page) {
-    const g = certificate_layout_1.ORNAMENTS.globe;
-    const r = g.size / 2;
-    const cx = g.x + r;
-    const cy = g.y + r;
-    const rad = (deg) => (deg * Math.PI) / 180;
-    for (let lat = -78; lat <= 78; lat += 9) {
-        const ring = Math.cos(rad(lat));
-        const count = Math.max(6, Math.round(40 * ring));
-        for (let i = 0; i < count; i++) {
-            const lon = (360 / count) * i;
-            const depth = ring * Math.cos(rad(lon));
-            if (depth <= 0.02)
-                continue;
-            page.drawEllipse({
-                x: cx + r * ring * Math.sin(rad(lon)),
-                y: (0, certificate_layout_1.toPdfY)(cy - r * Math.sin(rad(lat))),
-                xScale: 0.85 + 1.45 * depth,
-                yScale: 0.85 + 1.45 * depth,
-                color: certificate_layout_1.COLORS.line,
-                opacity: g.opacity * (0.3 + 0.7 * depth),
-            });
-        }
-    }
+async function drawEmblemGlobe(doc, page, v) {
+    const globe = await doc.embedPng((0, fs_1.readFileSync)((0, path_1.join)(ART, v.globeArt)));
+    page.drawImage(globe, {
+        x: v.globe.x,
+        y: (0, certificate_layout_1.toPdfY)(v.globe.y + v.globe.size),
+        width: v.globe.size,
+        height: v.globe.size,
+    });
 }
-function drawEmblem(page) {
-    const e = certificate_layout_1.ORNAMENTS.emblem;
-    const origin = { x: e.x, y: (0, certificate_layout_1.toPdfY)(e.y) };
-    const c = e.size / 2;
-    const ring = 58;
-    const centre = { x: e.x + c, y: (0, certificate_layout_1.toPdfY)(e.y + c) };
-    page.drawEllipse({
-        ...centre,
-        xScale: ring,
-        yScale: ring,
-        borderColor: certificate_layout_1.COLORS.line,
-        borderWidth: 2.2,
-    });
-    page.drawEllipse({
-        ...centre,
-        xScale: 23,
-        yScale: ring,
-        borderColor: certificate_layout_1.COLORS.line,
-        borderWidth: 1,
-        borderOpacity: 0.55,
-    });
-    page.drawEllipse({
-        ...centre,
-        xScale: ring,
-        yScale: 18,
-        borderColor: certificate_layout_1.COLORS.line,
-        borderWidth: 1,
-        borderOpacity: 0.55,
-    });
-    page.drawSvgPath('M 62 100 C 58 66 78 34 128 28 C 132 68 106 96 62 100 Z', {
-        ...origin,
-        color: (0, pdf_lib_1.rgb)(0.176, 0.396, 0.239),
-    });
-    page.drawSvgPath('M 66 96 C 82 72 102 48 124 32', {
-        ...origin,
-        borderColor: certificate_layout_1.COLORS.white,
-        borderWidth: 1.6,
-        opacity: 0.9,
-    });
-    page.drawSvgPath('M 24 120 C 48 166 104 166 128 120', {
-        ...origin,
-        borderColor: certificate_layout_1.COLORS.gold,
+function drawEmblemLeaves(page, v) {
+    const anchor = { x: v.leafBase.x, y: (0, certificate_layout_1.toPdfY)(v.leafBase.y) };
+    const LEAF_R = 'M 0 0 C 36 -48 50 -118 17 -194 C -19 -126 -37 -52 0 0 Z';
+    const LEAF_L = 'M 0 0 C -36 -48 -50 -118 -17 -194 C 19 -126 37 -52 0 0 Z';
+    const VEIN_R = 'M 0 -16 C 13 -64 19 -122 10 -176';
+    const VEIN_L = 'M 0 -16 C -13 -64 -19 -122 -10 -176';
+    const fan = [
+        {
+            d: LEAF_L,
+            v: VEIN_L,
+            rot: -40,
+            scale: 0.62,
+            color: (0, pdf_lib_1.rgb)(0.435, 0.655, 0.471),
+        },
+        {
+            d: LEAF_R,
+            v: VEIN_R,
+            rot: 40,
+            scale: 0.62,
+            color: (0, pdf_lib_1.rgb)(0.435, 0.655, 0.471),
+        },
+        {
+            d: LEAF_L,
+            v: VEIN_L,
+            rot: -20,
+            scale: 0.83,
+            color: (0, pdf_lib_1.rgb)(0.286, 0.529, 0.345),
+        },
+        {
+            d: LEAF_R,
+            v: VEIN_R,
+            rot: 20,
+            scale: 0.83,
+            color: (0, pdf_lib_1.rgb)(0.286, 0.529, 0.345),
+        },
+        {
+            d: LEAF_L,
+            v: VEIN_L,
+            rot: -5,
+            scale: 0.96,
+            color: (0, pdf_lib_1.rgb)(0.196, 0.424, 0.259),
+        },
+        {
+            d: LEAF_R,
+            v: VEIN_R,
+            rot: 7,
+            scale: 1.0,
+            color: (0, pdf_lib_1.rgb)(0.161, 0.376, 0.227),
+        },
+    ];
+    for (const leaf of fan) {
+        page.drawSvgPath(leaf.d, {
+            ...anchor,
+            scale: leaf.scale * v.leafScale,
+            rotate: (0, pdf_lib_1.degrees)(leaf.rot),
+            color: leaf.color,
+        });
+        page.drawSvgPath(leaf.v, {
+            ...anchor,
+            scale: leaf.scale * v.leafScale,
+            rotate: (0, pdf_lib_1.degrees)(leaf.rot),
+            borderColor: certificate_layout_1.COLORS.white,
+            borderWidth: 1.3,
+            opacity: 0.34,
+        });
+    }
+    page.drawSvgPath('M 0 0 C -2 -14 -2 -26 0 -38', {
+        ...anchor,
+        scale: v.leafScale,
+        borderColor: (0, pdf_lib_1.rgb)(0.161, 0.376, 0.216),
         borderWidth: 3,
     });
 }
@@ -265,8 +310,8 @@ async function drawSignature(doc, page) {
         height: s.height,
     });
 }
-function drawEmblemWords(page, fonts) {
-    const e = certificate_layout_1.ORNAMENTS.emblemWords;
+function drawEmblemWords(page, fonts, v) {
+    const e = v.emblemWords;
     ['PEOPLE', 'PLANET', 'PROGRESS'].forEach((word, i) => {
         (0, certificate_draw_1.drawLine)(page, {
             text: word,
@@ -279,7 +324,7 @@ function drawEmblemWords(page, fonts) {
         });
     });
     const r = certificate_layout_1.ORNAMENTS.emblemRule;
-    rect(page, r.x, r.y, r.width, r.height, certificate_layout_1.COLORS.gold);
+    rect(page, v.emblemRule.x, v.emblemRule.y, r.width, r.height, certificate_layout_1.COLORS.gold);
 }
 function drawQrSlot(page, fonts) {
     page.drawRectangle({
@@ -293,7 +338,7 @@ function drawQrSlot(page, fonts) {
     });
     drawCentred(page, fonts, { ...certificate_layout_1.STATIC_TEXT.qrLabel, font: 'sans' });
 }
-async function buildTemplate() {
+async function buildTemplate(v) {
     const doc = await pdf_lib_1.PDFDocument.create();
     const page = doc.addPage([certificate_layout_1.PAGE.width, certificate_layout_1.PAGE.height]);
     const fonts = await (0, certificate_draw_1.embedCertificateFonts)(doc);
@@ -304,9 +349,12 @@ async function buildTemplate() {
         height: certificate_layout_1.PAGE.height,
         color: certificate_layout_1.COLORS.white,
     });
-    await drawPanel(doc, page);
+    await drawPanel(doc, page, v.panel);
+    if (v.globeUnderBorder)
+        await drawEmblemGlobe(doc, page, v);
     drawBorders(page);
-    drawGlobe(page);
+    if (!v.globeUnderBorder)
+        await drawEmblemGlobe(doc, page, v);
     await drawLogo(doc, page, fonts);
     drawCentred(page, fonts, certificate_layout_1.STATIC_TEXT.title);
     drawCentred(page, fonts, certificate_layout_1.STATIC_TEXT.subtitle);
@@ -338,8 +386,8 @@ async function buildTemplate() {
     drawCentred(page, fonts, certificate_layout_1.STATIC_TEXT.signatureOrg);
     drawCentred(page, fonts, certificate_layout_1.STATIC_TEXT.dateLabel);
     await drawSeal(doc, page);
-    drawEmblem(page);
-    drawEmblemWords(page, fonts);
+    drawEmblemLeaves(page, v);
+    drawEmblemWords(page, fonts, v);
     drawQrSlot(page, fonts);
     drawTagline(page, fonts);
     doc.setTitle('Certificate of Completion');
@@ -350,9 +398,10 @@ async function buildTemplate() {
 }
 exports.buildTemplate = buildTemplate;
 if (require.main === module) {
-    buildTemplate()
+    const variant = selectedVariant();
+    buildTemplate(variant)
         .then((bytes) => {
-        const out = (0, path_1.join)(ASSETS, 'certificate-of-completion.pdf');
+        const out = (0, path_1.join)(ASSETS, variant.output);
         (0, fs_1.writeFileSync)(out, bytes);
         console.log(`template ${out} ${Math.round(bytes.length / 1024)} KB`);
     })
