@@ -57,12 +57,14 @@ instance PlayfairDisplay-VF.ttf     700 PlayfairDisplay-Bold.raw.ttf
 instance CormorantGaramond-VF.ttf   500 CormorantGaramond-Medium.raw.ttf
 instance Montserrat-VF.ttf          500 Montserrat-Medium.raw.ttf
 instance Montserrat-VF.ttf          600 Montserrat-SemiBold.raw.ttf
+instance Montserrat-VF.ttf          700 Montserrat-Bold.raw.ttf
 
 echo "Subsetting to Latin..."
 subset PlayfairDisplay-Bold.raw.ttf     PlayfairDisplay-Bold.ttf
 subset CormorantGaramond-Medium.raw.ttf CormorantGaramond-Medium.ttf
 subset Montserrat-Medium.raw.ttf        Montserrat-Medium.ttf
 subset Montserrat-SemiBold.raw.ttf      Montserrat-SemiBold.ttf
+subset Montserrat-Bold.raw.ttf          Montserrat-Bold.ttf
 subset PinyonScript-Regular.ttf         PinyonScript-Regular.ttf
 
 echo "Done. Fonts are OFL licensed — see https://fonts.google.com"

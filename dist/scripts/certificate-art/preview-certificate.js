@@ -10,6 +10,7 @@ const VARIANT = (() => {
 const TEMPLATES = {
     a: 'certificate-of-completion.pdf',
     b: 'certificate-of-completion-variant-b.pdf',
+    c: 'certificate-of-completion-variant-c.pdf',
 };
 const OUT = (0, path_1.join)(__dirname, '..', '..', 'docs', 'certificate-previews', VARIANT === 'a' ? '.' : `variant-${VARIANT}`);
 const SAMPLES = [

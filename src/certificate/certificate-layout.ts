@@ -65,7 +65,13 @@ export const PANEL = { x: 46, y: 46, width: 700, height: 1098 } as const;
 /** Centre column that every stamped field is centred on. */
 export const COLUMN = { center: 1080, width: 780 } as const;
 
-export type FontKey = 'script' | 'serifBold' | 'serif' | 'sans' | 'sansBold';
+export type FontKey =
+  | 'script'
+  | 'serifBold'
+  | 'serif'
+  | 'sans'
+  | 'sansBold'
+  | 'sansHeavy';
 
 export interface TextBlock {
   /** Baseline-independent: y is the TOP of the text box, as in Figma. */
@@ -272,3 +278,116 @@ export const ORNAMENTS = {
   signature: { x: 762, y: 875, width: 216, height: 69 },
   emblemWords: { x: 1466, y: 458, size: 26, lineGap: 38 },
 } as const;
+
+// ── Client template ────────────────────────────────────────────────────────
+/**
+ * The certificate the client signed off on, supplied as a print-ready PDF.
+ *
+ * That file is a single flattened 300 DPI raster — no live text, no form
+ * fields — so its placeholders are erased from the artwork
+ * (scripts/certificate-art/build-client-template.py) and the real values are
+ * stamped into the gaps. Every number below was measured off the supplied
+ * artwork at 3508px wide (4.1668 px per point) rather than estimated, which is
+ * why they are not round.
+ *
+ * Fields here are positioned by BASELINE, matching how the measurements were
+ * taken (the bottom of the capitals in the original placeholder).
+ */
+export const CLIENT_PAGE = { width: 841.89, height: 595.28 } as const;
+
+export interface FieldSpec {
+  /** Distance from the top of the page to the text baseline, in points. */
+  baseline: number;
+  size: number;
+  font: FontKey;
+  color: RGB;
+  tracking?: number;
+  /** Centre x when align is 'center', left edge when 'left'. */
+  x: number;
+  align: 'center' | 'left';
+  maxWidth: number;
+  /** Wrap up to this many lines before shrinking (default 1). */
+  maxLines?: number;
+  /**
+   * Baseline to centre on when the value wraps. A wrapped block centred on the
+   * single-line baseline would push its last line into whatever sits below.
+   */
+  baselineWhenWrapped?: number;
+  /**
+   * Size to drop to when the value wraps. Two lines need roughly 1.96x the
+   * font size of vertical room, so a size that is right for one line can be
+   * too tall for two.
+   */
+  sizeWhenWrapped?: number;
+  /** Line spacing as a multiple of font size. */
+  leading?: number;
+  /** Floor for shrink-to-fit. */
+  minSize?: number;
+}
+
+export const CLIENT_FIELDS = {
+  learnerName: {
+    baseline: 146.9,
+    size: 26,
+    font: 'sansHeavy' as FontKey,
+    color: rgb(0.098, 0.2, 0.118),
+    tracking: 0.02,
+    x: 540.5,
+    align: 'center' as const,
+    maxWidth: 428,
+    minSize: 13,
+  },
+  courseTitle: {
+    baseline: 216,
+    size: 23,
+    font: 'sansHeavy' as FontKey,
+    color: rgb(0.078, 0.188, 0.11),
+    tracking: 0.01,
+    x: 540.5,
+    align: 'center' as const,
+    // The gold rule under the learner name spans x 324..758, so the column is
+    // 433pt wide; stay just inside it.
+    maxWidth: 428,
+    // Only 49pt separates the static lines above (bottom y 177) and below
+    // (top y 226), so a wrapped pair is centred higher and set tighter.
+    maxLines: 2,
+    // 43pt of clear space between those lines; at 1.06 leading two lines need
+    // ~1.96x the size, so 19pt is the largest that fits with margin.
+    baselineWhenWrapped: 206,
+    sizeWhenWrapped: 19,
+    leading: 1.06,
+    minSize: 11,
+  },
+  issuedDate: {
+    baseline: 401.5,
+    size: 8.2,
+    font: 'sans' as FontKey,
+    color: rgb(0.349, 0.349, 0.353),
+    x: 360,
+    align: 'left' as const,
+    maxWidth: 150,
+    minSize: 6,
+  },
+  certificateId: {
+    baseline: 370.3,
+    size: 7.9,
+    font: 'sans' as FontKey,
+    color: rgb(0.337, 0.337, 0.337),
+    x: 360,
+    align: 'left' as const,
+    maxWidth: 150,
+    minSize: 6,
+  },
+} satisfies Record<string, FieldSpec>;
+
+/**
+ * Verification QR, centred on the square the client's artwork reserved.
+ *
+ * The supplied frame is 42pt, which cannot carry the production verify URL:
+ * that URL is 70 characters, so the code needs 37 modules, and at 42pt each
+ * module is 0.40mm — below what scanners resolve. Measured against two
+ * decoders, 42pt never reads and 48pt is the floor; 52pt is used for headroom
+ * and still clears the divider above (y 338), the VERIFY caption below (y 403)
+ * and the certificate-number column to the right (x 360).
+ */
+export const CLIENT_QR = { x: 292.5, y: 345, size: 52 } as const;

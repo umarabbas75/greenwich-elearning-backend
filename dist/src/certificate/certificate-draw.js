@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.drawBlock = exports.drawLine = exports.wrap = exports.fitSize = exports.measure = exports.embedCertificateFonts = void 0;
+exports.drawField = exports.drawBlock = exports.drawLine = exports.wrap = exports.fitSize = exports.measure = exports.embedCertificateFonts = void 0;
 const pdf_lib_1 = require("@cantoo/pdf-lib");
 const fs_1 = require("fs");
 const path_1 = require("path");
@@ -12,6 +12,7 @@ const FONT_FILES = {
     serif: 'CormorantGaramond-Medium.ttf',
     sans: 'Montserrat-Medium.ttf',
     sansBold: 'Montserrat-SemiBold.ttf',
+    sansHeavy: 'Montserrat-Bold.ttf',
 };
 function fontDir() {
     const candidates = [
@@ -87,7 +88,9 @@ function drawLine(page, opts) {
         return;
     const width = measure(text, font, size, tracking);
     const x = opts.center != null ? opts.center - width / 2 : opts.left ?? 0;
-    const ascent = font.heightAtSize(size, { descender: false });
+    const ascent = opts.anchor === 'baseline'
+        ? 0
+        : font.heightAtSize(size, { descender: false });
     if (tracking)
         page.pushOperators((0, pdf_lib_1.setCharacterSpacing)(tracking * size));
     page.drawText(text, {
@@ -133,4 +136,48 @@ function drawBlock(page, text, block, font, fallbackCenter, maxLines = 1) {
     });
 }
 exports.drawBlock = drawBlock;
+function drawField(page, text, spec, font, pageHeight) {
+    if (!text)
+        return;
+    const tracking = spec.tracking ?? 0;
+    const maxLines = spec.maxLines ?? 1;
+    const floor = spec.minSize ?? 8;
+    let size = spec.size;
+    let lines = [text];
+    const fitsOnOneLine = measure(text, font, size, tracking) <= spec.maxWidth;
+    if (!fitsOnOneLine && maxLines > 1) {
+        size = spec.sizeWhenWrapped ?? size;
+        lines = wrap(text, font, size, spec.maxWidth, tracking, maxLines);
+        const longest = lines.reduce((w, l) => Math.max(w, measure(l, font, size, tracking)), 0);
+        if (longest > spec.maxWidth) {
+            const widest = lines.reduce((a, b) => (a.length > b.length ? a : b), '');
+            size = fitSize(widest, font, size, spec.maxWidth, tracking, floor);
+        }
+    }
+    else if (!fitsOnOneLine) {
+        size = fitSize(text, font, size, spec.maxWidth, tracking, floor);
+    }
+    const leading = (spec.leading ?? 1.15) * size;
+    const anchor = lines.length > 1
+        ? spec.baselineWhenWrapped ?? spec.baseline
+        : spec.baseline;
+    const startBaseline = anchor - ((lines.length - 1) * leading) / 2;
+    lines.forEach((line, i) => {
+        const baseline = startBaseline + i * leading;
+        const width = measure(line, font, size, tracking);
+        const x = spec.align === 'center' ? spec.x - width / 2 : spec.x;
+        if (tracking)
+            page.pushOperators((0, pdf_lib_1.setCharacterSpacing)(tracking * size));
+        page.drawText(line, {
+            x,
+            y: pageHeight - baseline,
+            size,
+            font,
+            color: spec.color,
+        });
+        if (tracking)
+            page.pushOperators((0, pdf_lib_1.setCharacterSpacing)(0));
+    });
+}
+exports.drawField = drawField;
 //# sourceMappingURL=certificate-draw.js.map

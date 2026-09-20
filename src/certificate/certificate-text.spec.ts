@@ -6,9 +6,9 @@ describe('formatCertificateTitle', () => {
   });
 
   it('title-cases a lowercase course title', () => {
-    expect(formatCertificateTitle('occupational health & safety management')).toBe(
-      'Occupational Health & Safety Management',
-    );
+    expect(
+      formatCertificateTitle('occupational health & safety management'),
+    ).toBe('Occupational Health & Safety Management');
   });
 
   it('keeps short all-caps tokens such as ISO', () => {

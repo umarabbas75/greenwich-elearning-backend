@@ -11,6 +11,7 @@ const ART = (0, path_1.join)(__dirname, 'source');
 const VARIANTS = {
     a: {
         panel: 'panel.jpg',
+        panelBox: certificate_layout_1.PANEL,
         globeArt: 'emblem-globe.png',
         globe: certificate_layout_1.ORNAMENTS.globe,
         leafBase: { x: certificate_layout_1.ORNAMENTS.leafBase.x, y: certificate_layout_1.ORNAMENTS.leafBase.y },
@@ -22,6 +23,7 @@ const VARIANTS = {
     },
     b: {
         panel: 'panel-ribbons.jpg',
+        panelBox: certificate_layout_1.PANEL,
         globeArt: 'emblem-globe-world.png',
         globe: { x: 1292, y: 118, size: 384 },
         leafBase: { x: 1480, y: 455 },
@@ -30,6 +32,18 @@ const VARIANTS = {
         emblemWords: { x: 1466, y: 560, size: 26, lineGap: 38 },
         emblemRule: { x: 1466, y: 690 },
         output: 'certificate-of-completion-variant-b.pdf',
+    },
+    c: {
+        panel: 'panel-classic.jpg',
+        panelBox: { x: 46, y: 46, width: 560, height: 1098 },
+        globeArt: 'emblem-globe-world.png',
+        globe: { x: 1292, y: 118, size: 384 },
+        leafBase: { x: 1480, y: 455 },
+        leafScale: 1.2,
+        globeUnderBorder: true,
+        emblemWords: { x: 1466, y: 560, size: 26, lineGap: 38 },
+        emblemRule: { x: 1466, y: 690 },
+        output: 'certificate-of-completion-variant-c.pdf',
     },
 };
 function selectedVariant() {
@@ -96,13 +110,14 @@ function drawBorders(page) {
         rect(page, c.vx, c.vy, weight, arm, certificate_layout_1.COLORS.gold);
     }
 }
-async function drawPanel(doc, page, art) {
-    const image = await doc.embedJpg((0, fs_1.readFileSync)((0, path_1.join)(ART, art)));
+async function drawPanel(doc, page, v) {
+    const image = await doc.embedJpg((0, fs_1.readFileSync)((0, path_1.join)(ART, v.panel)));
+    const box = v.panelBox;
     page.drawImage(image, {
-        x: certificate_layout_1.PANEL.x,
-        y: (0, certificate_layout_1.toPdfY)(certificate_layout_1.PANEL.y + certificate_layout_1.PANEL.height),
-        width: certificate_layout_1.PANEL.width,
-        height: certificate_layout_1.PANEL.height,
+        x: box.x,
+        y: (0, certificate_layout_1.toPdfY)(box.y + box.height),
+        width: box.width,
+        height: box.height,
     });
 }
 function drawTagline(page, fonts) {
@@ -349,7 +364,7 @@ async function buildTemplate(v) {
         height: certificate_layout_1.PAGE.height,
         color: certificate_layout_1.COLORS.white,
     });
-    await drawPanel(doc, page, v.panel);
+    await drawPanel(doc, page, v);
     if (v.globeUnderBorder)
         await drawEmblemGlobe(doc, page, v);
     drawBorders(page);

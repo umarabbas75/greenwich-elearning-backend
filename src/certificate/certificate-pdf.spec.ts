@@ -6,6 +6,7 @@ import {
   PDFNumber,
 } from '@cantoo/pdf-lib';
 import { renderCertificatePdf } from './certificate-pdf';
+import { CLIENT_PAGE, CLIENT_QR } from './certificate-layout';
 
 const VERIFY_URL =
   'https://www.greenwichtc-elearning.com/certificates/verify/GTC-ABCD1234';
@@ -40,7 +41,7 @@ describe('renderCertificatePdf', () => {
     expect(annots!.size()).toBeGreaterThanOrEqual(1);
   });
 
-  it('outputs an A4 landscape page', async () => {
+  it('outputs an A4 landscape page matching the client artwork', async () => {
     const bytes = await renderCertificatePdf({
       learnerName: 'Jane Doe',
       courseTitle: 'Working at Height',
@@ -51,15 +52,15 @@ describe('renderCertificatePdf', () => {
 
     const page = (await PDFDocument.load(bytes)).getPages()[0];
     const { width, height } = page.getSize();
-    expect(Math.round(width)).toBe(842);
-    expect(Math.round(height)).toBe(595);
+    expect(width).toBeCloseTo(CLIENT_PAGE.width, 1);
+    expect(height).toBeCloseTo(CLIENT_PAGE.height, 1);
 
-    // Within half a millimetre of 297 x 210mm.
+    // Exact A4: 297 x 210mm.
     expect((width * 25.4) / 72).toBeCloseTo(297, 0);
     expect((height * 25.4) / 72).toBeCloseTo(210, 0);
   });
 
-  it('scales the verify link annotation onto the A4 page', async () => {
+  it('puts the verify link exactly over the QR the artwork reserves', async () => {
     const bytes = await renderCertificatePdf({
       learnerName: 'Jane Doe',
       courseTitle: 'Working at Height',
@@ -81,16 +82,27 @@ describe('renderCertificatePdf', () => {
       .asArray()
       .map((n) => (n as PDFNumber).asNumber());
 
-    // If the annotation had not been scaled with the page it would still be
-    // out on the 1684x1190 artboard, far outside these bounds.
+    // Inside the page...
     expect(x1).toBeGreaterThanOrEqual(0);
     expect(y1).toBeGreaterThanOrEqual(0);
     expect(x2).toBeLessThanOrEqual(width);
     expect(y2).toBeLessThanOrEqual(height);
 
-    // And it should land in the lower-right quadrant, where the QR sits.
-    expect(x1).toBeGreaterThan(width / 2);
-    expect(y2).toBeLessThan(height / 2);
+    // ...and covering the reserved square (the link carries a 2pt pad).
+    const expectedY = CLIENT_PAGE.height - CLIENT_QR.y - CLIENT_QR.size;
+    expect(x1).toBeCloseTo(CLIENT_QR.x - 2, 1);
+    expect(y1).toBeCloseTo(expectedY - 2, 1);
+    expect(x2 - x1).toBeCloseTo(CLIENT_QR.size + 4, 1);
+    expect(y2 - y1).toBeCloseTo(CLIENT_QR.size + 4, 1);
+  });
+
+  it('keeps the QR large enough to carry a production verify URL', async () => {
+    // 70-character production URL needs 37 modules; below ~48pt each module
+    // falls under 0.4mm and scanners stop reading it.
+    const PRODUCTION_URL =
+      'https://www.greenwichtc-elearning.com/certificates/verify/GTC-7QK2M9XB';
+    expect(PRODUCTION_URL.length).toBeGreaterThan(60);
+    expect(CLIENT_QR.size).toBeGreaterThanOrEqual(48);
   });
 
   it('renders a very long course title without failing', async () => {

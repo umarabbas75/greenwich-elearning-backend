@@ -49,7 +49,7 @@ export declare const COLUMN: {
     readonly center: 1080;
     readonly width: 780;
 };
-export type FontKey = 'script' | 'serifBold' | 'serif' | 'sans' | 'sansBold';
+export type FontKey = 'script' | 'serifBold' | 'serif' | 'sans' | 'sansBold' | 'sansHeavy';
 export interface TextBlock {
     y: number;
     size: number;
@@ -280,4 +280,76 @@ export declare const ORNAMENTS: {
         readonly size: 26;
         readonly lineGap: 38;
     };
+};
+export declare const CLIENT_PAGE: {
+    readonly width: 841.89;
+    readonly height: 595.28;
+};
+export interface FieldSpec {
+    baseline: number;
+    size: number;
+    font: FontKey;
+    color: RGB;
+    tracking?: number;
+    x: number;
+    align: 'center' | 'left';
+    maxWidth: number;
+    maxLines?: number;
+    baselineWhenWrapped?: number;
+    sizeWhenWrapped?: number;
+    leading?: number;
+    minSize?: number;
+}
+export declare const CLIENT_FIELDS: {
+    learnerName: {
+        baseline: number;
+        size: number;
+        font: FontKey;
+        color: RGB;
+        tracking: number;
+        x: number;
+        align: "center";
+        maxWidth: number;
+        minSize: number;
+    };
+    courseTitle: {
+        baseline: number;
+        size: number;
+        font: FontKey;
+        color: RGB;
+        tracking: number;
+        x: number;
+        align: "center";
+        maxWidth: number;
+        maxLines: number;
+        baselineWhenWrapped: number;
+        sizeWhenWrapped: number;
+        leading: number;
+        minSize: number;
+    };
+    issuedDate: {
+        baseline: number;
+        size: number;
+        font: FontKey;
+        color: RGB;
+        x: number;
+        align: "left";
+        maxWidth: number;
+        minSize: number;
+    };
+    certificateId: {
+        baseline: number;
+        size: number;
+        font: FontKey;
+        color: RGB;
+        x: number;
+        align: "left";
+        maxWidth: number;
+        minSize: number;
+    };
+};
+export declare const CLIENT_QR: {
+    readonly x: 292.5;
+    readonly y: 345;
+    readonly size: 52;
 };

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ORNAMENTS = exports.TAGLINE_LINES = exports.STATIC_TEXT = exports.CERTIFICATE_ID_PREFIX = exports.QR = exports.FIELDS = exports.COLUMN = exports.PANEL = exports.BORDER = exports.COLORS = exports.toPdfY = exports.OUTPUT_SCALE = exports.OUTPUT_PAGE = exports.PAGE = void 0;
+exports.CLIENT_QR = exports.CLIENT_FIELDS = exports.CLIENT_PAGE = exports.ORNAMENTS = exports.TAGLINE_LINES = exports.STATIC_TEXT = exports.CERTIFICATE_ID_PREFIX = exports.QR = exports.FIELDS = exports.COLUMN = exports.PANEL = exports.BORDER = exports.COLORS = exports.toPdfY = exports.OUTPUT_SCALE = exports.OUTPUT_PAGE = exports.PAGE = void 0;
 const pdf_lib_1 = require("@cantoo/pdf-lib");
 exports.PAGE = { width: 1684, height: 1190 };
 exports.OUTPUT_PAGE = { width: 842, height: 595 };
@@ -192,4 +192,54 @@ exports.ORNAMENTS = {
     signature: { x: 762, y: 875, width: 216, height: 69 },
     emblemWords: { x: 1466, y: 458, size: 26, lineGap: 38 },
 };
+exports.CLIENT_PAGE = { width: 841.89, height: 595.28 };
+exports.CLIENT_FIELDS = {
+    learnerName: {
+        baseline: 146.9,
+        size: 26,
+        font: 'sansHeavy',
+        color: (0, pdf_lib_1.rgb)(0.098, 0.2, 0.118),
+        tracking: 0.02,
+        x: 540.5,
+        align: 'center',
+        maxWidth: 428,
+        minSize: 13,
+    },
+    courseTitle: {
+        baseline: 216,
+        size: 23,
+        font: 'sansHeavy',
+        color: (0, pdf_lib_1.rgb)(0.078, 0.188, 0.11),
+        tracking: 0.01,
+        x: 540.5,
+        align: 'center',
+        maxWidth: 428,
+        maxLines: 2,
+        baselineWhenWrapped: 206,
+        sizeWhenWrapped: 19,
+        leading: 1.06,
+        minSize: 11,
+    },
+    issuedDate: {
+        baseline: 401.5,
+        size: 8.2,
+        font: 'sans',
+        color: (0, pdf_lib_1.rgb)(0.349, 0.349, 0.353),
+        x: 360,
+        align: 'left',
+        maxWidth: 150,
+        minSize: 6,
+    },
+    certificateId: {
+        baseline: 370.3,
+        size: 7.9,
+        font: 'sans',
+        color: (0, pdf_lib_1.rgb)(0.337, 0.337, 0.337),
+        x: 360,
+        align: 'left',
+        maxWidth: 150,
+        minSize: 6,
+    },
+};
+exports.CLIENT_QR = { x: 292.5, y: 345, size: 52 };
 //# sourceMappingURL=certificate-layout.js.map

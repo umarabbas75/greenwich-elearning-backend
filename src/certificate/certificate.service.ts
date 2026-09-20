@@ -48,7 +48,7 @@ export class CertificateService {
     private readonly mail: MailService,
     private readonly config: ConfigService,
     private readonly notificationService: NotificationService,
-  ) { }
+  ) {}
 
   /**
    * Best-effort auto-issue when the course is in AUTO mode and all requirements
@@ -163,9 +163,9 @@ export class CertificateService {
       data: {
         certificateUrl: updated.certificateId
           ? this.resolvePublicDownloadUrl(
-            updated.certificateUrl!,
-            updated.certificateId,
-          )
+              updated.certificateUrl!,
+              updated.certificateId,
+            )
           : updated.certificateUrl,
         certificateId: updated.certificateId,
         certificateIssuedAt: updated.certificateIssuedAt?.toISOString() ?? null,
@@ -358,7 +358,8 @@ export class CertificateService {
       throw new NotFoundException('Certificate not found.');
     }
 
-    const learnerName = `${completion.user.firstName} ${completion.user.lastName}`.trim();
+    const learnerName =
+      `${completion.user.firstName} ${completion.user.lastName}`.trim();
 
     return {
       valid: true,
@@ -666,7 +667,9 @@ export class CertificateService {
       ),
     });
 
-    const safeTitle = course.title.replace(/[^a-zA-Z0-9-_]+/g, '-').slice(0, 60);
+    const safeTitle = course.title
+      .replace(/[^a-zA-Z0-9-_]+/g, '-')
+      .slice(0, 60);
     return {
       buffer,
       filename: `${safeTitle || 'certificate'}-${certificateId}.pdf`,

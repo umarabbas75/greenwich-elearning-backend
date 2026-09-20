@@ -16,6 +16,7 @@ const VARIANT = (() => {
 const TEMPLATES: Record<string, string> = {
   a: 'certificate-of-completion.pdf',
   b: 'certificate-of-completion-variant-b.pdf',
+  c: 'certificate-of-completion-variant-c.pdf',
 };
 
 const OUT = join(

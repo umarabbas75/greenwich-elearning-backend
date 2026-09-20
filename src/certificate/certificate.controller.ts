@@ -68,7 +68,10 @@ export class CertificateController {
     @Param('courseId') courseId: string,
   ): Promise<StreamableFile> {
     const { buffer, filename } =
-      await this.certificateService.buildStudentCertificatePdf(user.id, courseId);
+      await this.certificateService.buildStudentCertificatePdf(
+        user.id,
+        courseId,
+      );
     return new StreamableFile(Buffer.from(buffer), {
       type: 'application/pdf',
       disposition: `attachment; filename="${filename}"`,

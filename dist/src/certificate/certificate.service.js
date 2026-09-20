@@ -495,7 +495,9 @@ let CertificateService = CertificateService_1 = class CertificateService {
             verifyUrl,
             scorePct: await this.resolveCertificateScorePct(userId, courseId, completion.bestAttempt?.percentage),
         });
-        const safeTitle = course.title.replace(/[^a-zA-Z0-9-_]+/g, '-').slice(0, 60);
+        const safeTitle = course.title
+            .replace(/[^a-zA-Z0-9-_]+/g, '-')
+            .slice(0, 60);
         return {
             buffer,
             filename: `${safeTitle || 'certificate'}-${certificateId}.pdf`,

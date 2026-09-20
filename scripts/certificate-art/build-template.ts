@@ -41,6 +41,8 @@ const ART = join(__dirname, 'source');
  */
 interface Variant {
   panel: string;
+  /** Panel artwork box; variant C uses a narrower, straight-edged band. */
+  panelBox: { x: number; y: number; width: number; height: number };
   globeArt: string;
   globe: { x: number; y: number; size: number };
   leafBase: { x: number; y: number };
@@ -55,6 +57,7 @@ interface Variant {
 const VARIANTS: Record<string, Variant> = {
   a: {
     panel: 'panel.jpg',
+    panelBox: PANEL,
     globeArt: 'emblem-globe.png',
     globe: ORNAMENTS.globe,
     leafBase: { x: ORNAMENTS.leafBase.x, y: ORNAMENTS.leafBase.y },
@@ -66,6 +69,7 @@ const VARIANTS: Record<string, Variant> = {
   },
   b: {
     panel: 'panel-ribbons.jpg',
+    panelBox: PANEL,
     globeArt: 'emblem-globe-world.png',
     globe: { x: 1292, y: 118, size: 384 },
     // Smaller, shifted right onto the globe's centre, and lifted clear of the
@@ -77,6 +81,19 @@ const VARIANTS: Record<string, Variant> = {
     emblemWords: { x: 1466, y: 560, size: 26, lineGap: 38 },
     emblemRule: { x: 1466, y: 690 },
     output: 'certificate-of-completion-variant-b.pdf',
+  },
+  c: {
+    // Classic treatment: straight-edged band, framed photo window, double rule.
+    panel: 'panel-classic.jpg',
+    panelBox: { x: 46, y: 46, width: 560, height: 1098 },
+    globeArt: 'emblem-globe-world.png',
+    globe: { x: 1292, y: 118, size: 384 },
+    leafBase: { x: 1480, y: 455 },
+    leafScale: 1.2,
+    globeUnderBorder: true,
+    emblemWords: { x: 1466, y: 560, size: 26, lineGap: 38 },
+    emblemRule: { x: 1466, y: 690 },
+    output: 'certificate-of-completion-variant-c.pdf',
   },
 };
 
@@ -190,14 +207,15 @@ function drawBorders(page: PDFPage): void {
 async function drawPanel(
   doc: PDFDocument,
   page: PDFPage,
-  art: string,
+  v: Variant,
 ): Promise<void> {
-  const image = await doc.embedJpg(readFileSync(join(ART, art)));
+  const image = await doc.embedJpg(readFileSync(join(ART, v.panel)));
+  const box = v.panelBox;
   page.drawImage(image, {
-    x: PANEL.x,
-    y: toPdfY(PANEL.y + PANEL.height),
-    width: PANEL.width,
-    height: PANEL.height,
+    x: box.x,
+    y: toPdfY(box.y + box.height),
+    width: box.width,
+    height: box.height,
   });
 }
 
@@ -518,7 +536,7 @@ export async function buildTemplate(v: Variant): Promise<Uint8Array> {
     color: COLORS.white,
   });
 
-  await drawPanel(doc, page, v.panel);
+  await drawPanel(doc, page, v);
   // Variant B's globe runs under the border, so it is laid down first and the
   // border frames over it; variant A's sits clear and is drawn on top later.
   if (v.globeUnderBorder) await drawEmblemGlobe(doc, page, v);

@@ -4,7 +4,10 @@ import { CertificateController } from './certificate.controller';
 describe('CertificateController public verify contract', () => {
   it('exposes GET verify/:certificateId without an auth guard', () => {
     expect(
-      Reflect.getMetadata(PATH_METADATA, CertificateController.prototype.verify),
+      Reflect.getMetadata(
+        PATH_METADATA,
+        CertificateController.prototype.verify,
+      ),
     ).toBe('verify/:certificateId');
     expect(
       Reflect.getMetadata(

@@ -1,5 +1,11 @@
 interface Variant {
     panel: string;
+    panelBox: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
     globeArt: string;
     globe: {
         x: number;

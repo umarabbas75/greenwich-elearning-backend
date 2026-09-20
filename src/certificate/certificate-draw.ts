@@ -7,7 +7,7 @@ import {
 } from '@cantoo/pdf-lib';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { FontKey, TextBlock, toPdfY } from './certificate-layout';
+import { FieldSpec, FontKey, TextBlock, toPdfY } from './certificate-layout';
 import fontkit = require('@pdf-lib/fontkit');
 
 export type CertificateFonts = Record<FontKey, PDFFont>;
@@ -18,6 +18,7 @@ const FONT_FILES: Record<FontKey, string> = {
   serif: 'CormorantGaramond-Medium.ttf',
   sans: 'Montserrat-Medium.ttf',
   sansBold: 'Montserrat-SemiBold.ttf',
+  sansHeavy: 'Montserrat-Bold.ttf',
 };
 
 /** Resolves the vendored font directory in both src and dist layouts. */
@@ -126,6 +127,8 @@ export function wrap(
 }
 
 interface DrawOptions {
+  /** When set, `y` is the text baseline rather than the top of the box. */
+  anchor?: 'top' | 'baseline';
   text: string;
   font: PDFFont;
   size: number;
@@ -152,7 +155,10 @@ export function drawLine(page: PDFPage, opts: DrawOptions): void {
   const x = opts.center != null ? opts.center - width / 2 : opts.left ?? 0;
 
   // heightAtSize(size, { descender: false }) is the ascent above the baseline.
-  const ascent = font.heightAtSize(size, { descender: false });
+  const ascent =
+    opts.anchor === 'baseline'
+      ? 0
+      : font.heightAtSize(size, { descender: false });
 
   if (tracking) page.pushOperators(setCharacterSpacing(tracking * size));
   page.drawText(text, {
@@ -218,5 +224,70 @@ export function drawBlock(
       center,
       y: startY + i * leading,
     });
+  });
+}
+
+/**
+ * Draws a baseline-anchored field onto a template whose geometry was measured
+ * rather than authored — the client artwork, where every placeholder position
+ * came off the supplied raster.
+ *
+ * Wraps to `maxLines` before shrinking, and centres a wrapped block on the
+ * single-line baseline so short and long values sit in the same optical place.
+ */
+export function drawField(
+  page: PDFPage,
+  text: string,
+  spec: FieldSpec,
+  font: PDFFont,
+  pageHeight: number,
+): void {
+  if (!text) return;
+
+  const tracking = spec.tracking ?? 0;
+  const maxLines = spec.maxLines ?? 1;
+  const floor = spec.minSize ?? 8;
+
+  let size = spec.size;
+  let lines = [text];
+
+  const fitsOnOneLine = measure(text, font, size, tracking) <= spec.maxWidth;
+  if (!fitsOnOneLine && maxLines > 1) {
+    // Wrapping costs vertical room, so drop to the size the slot can take.
+    size = spec.sizeWhenWrapped ?? size;
+    lines = wrap(text, font, size, spec.maxWidth, tracking, maxLines);
+    const longest = lines.reduce(
+      (w, l) => Math.max(w, measure(l, font, size, tracking)),
+      0,
+    );
+    if (longest > spec.maxWidth) {
+      const widest = lines.reduce((a, b) => (a.length > b.length ? a : b), '');
+      size = fitSize(widest, font, size, spec.maxWidth, tracking, floor);
+    }
+  } else if (!fitsOnOneLine) {
+    size = fitSize(text, font, size, spec.maxWidth, tracking, floor);
+  }
+
+  const leading = (spec.leading ?? 1.15) * size;
+  const anchor =
+    lines.length > 1
+      ? spec.baselineWhenWrapped ?? spec.baseline
+      : spec.baseline;
+  const startBaseline = anchor - ((lines.length - 1) * leading) / 2;
+
+  lines.forEach((line, i) => {
+    const baseline = startBaseline + i * leading;
+    const width = measure(line, font, size, tracking);
+    const x = spec.align === 'center' ? spec.x - width / 2 : spec.x;
+
+    if (tracking) page.pushOperators(setCharacterSpacing(tracking * size));
+    page.drawText(line, {
+      x,
+      y: pageHeight - baseline,
+      size,
+      font,
+      color: spec.color,
+    });
+    if (tracking) page.pushOperators(setCharacterSpacing(0));
   });
 }

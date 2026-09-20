@@ -27,21 +27,42 @@ function addUriLink(page, uri, rect) {
     }));
     page.node.addAnnot(link);
 }
-async function drawVerifyQr(doc, page, verifyUrl) {
-    const png = await QRCode.toBuffer(verifyUrl, {
-        type: 'png',
-        width: 256,
-        margin: 0,
-        errorCorrectionLevel: 'M',
-        color: { dark: '#1D2739', light: '#FFFFFF' },
+function drawVerifyQr(page, verifyUrl) {
+    const qr = QRCode.create(verifyUrl, { errorCorrectionLevel: 'M' });
+    const modules = qr.modules;
+    const count = modules.size;
+    const QUIET = 0;
+    const unit = certificate_layout_1.CLIENT_QR.size / (count + QUIET * 2);
+    const originX = certificate_layout_1.CLIENT_QR.x;
+    const originTop = certificate_layout_1.CLIENT_QR.y;
+    page.drawRectangle({
+        x: originX,
+        y: certificate_layout_1.CLIENT_PAGE.height - originTop - certificate_layout_1.CLIENT_QR.size,
+        width: certificate_layout_1.CLIENT_QR.size,
+        height: certificate_layout_1.CLIENT_QR.size,
+        color: (0, pdf_lib_1.rgb)(1, 1, 1),
     });
-    const image = await doc.embedPng(png);
-    const pad = 6;
-    const size = certificate_layout_1.QR.size - pad * 2;
-    const x = certificate_layout_1.QR.x + pad;
-    const y = (0, certificate_layout_1.toPdfY)(certificate_layout_1.QR.y + certificate_layout_1.QR.size - pad);
-    page.drawImage(image, { x, y, width: size, height: size });
-    return { x, y, width: size, height: size };
+    for (let row = 0; row < count; row++) {
+        for (let col = 0; col < count; col++) {
+            if (!modules.get(row, col))
+                continue;
+            const x = originX + (col + QUIET) * unit;
+            const top = originTop + (row + QUIET) * unit;
+            page.drawRectangle({
+                x,
+                y: certificate_layout_1.CLIENT_PAGE.height - top - unit,
+                width: unit + 0.03,
+                height: unit + 0.03,
+                color: (0, pdf_lib_1.rgb)(0.102, 0.227, 0.141),
+            });
+        }
+    }
+    return {
+        x: originX,
+        y: certificate_layout_1.CLIENT_PAGE.height - originTop - certificate_layout_1.CLIENT_QR.size,
+        width: certificate_layout_1.CLIENT_QR.size,
+        height: certificate_layout_1.CLIENT_QR.size,
+    };
 }
 function applyMetadata(doc, data) {
     doc.setTitle(`Certificate of Completion — ${data.certificateId}`);
@@ -74,25 +95,20 @@ async function renderCertificatePdf(data) {
     flattenTemplateForm(stamped);
     const page = stamped.getPages()[0];
     const fonts = await (0, certificate_draw_1.embedCertificateFonts)(stamped, [
-        'script',
-        'serifBold',
-        'serif',
+        'sansHeavy',
         'sans',
     ]);
-    const learnerName = (0, certificate_text_1.formatCertificateTitle)(data.learnerName) || 'Learner';
-    (0, certificate_draw_1.drawBlock)(page, learnerName, certificate_layout_1.FIELDS.learnerName, fonts.script, certificate_layout_1.COLUMN.center);
-    const courseTitle = (0, certificate_text_1.formatCertificateTitle)(data.courseTitle) || 'Course';
-    (0, certificate_draw_1.drawBlock)(page, courseTitle, certificate_layout_1.FIELDS.courseTitle, fonts.serifBold, certificate_layout_1.COLUMN.center, 2);
-    const dateStr = data.issuedAt.toLocaleDateString('en-GB', {
-        day: 'numeric',
+    const pageHeight = page.getSize().height;
+    (0, certificate_draw_1.drawField)(page, (0, certificate_text_1.formatCertificateTitle)(data.learnerName) || 'Learner', certificate_layout_1.CLIENT_FIELDS.learnerName, fonts.sansHeavy, pageHeight);
+    (0, certificate_draw_1.drawField)(page, (0, certificate_text_1.formatCertificateTitle)(data.courseTitle) || 'Course', certificate_layout_1.CLIENT_FIELDS.courseTitle, fonts.sansHeavy, pageHeight);
+    (0, certificate_draw_1.drawField)(page, data.certificateId, certificate_layout_1.CLIENT_FIELDS.certificateId, fonts.sans, pageHeight);
+    (0, certificate_draw_1.drawField)(page, data.issuedAt.toLocaleDateString('en-GB', {
+        day: '2-digit',
         month: 'long',
         year: 'numeric',
-    });
-    (0, certificate_draw_1.drawBlock)(page, dateStr, certificate_layout_1.FIELDS.issuedDate, fonts.serif, certificate_layout_1.COLUMN.center);
-    (0, certificate_draw_1.drawBlock)(page, `${certificate_layout_1.CERTIFICATE_ID_PREFIX}${data.certificateId}`, certificate_layout_1.FIELDS.certificateId, fonts.sans, certificate_layout_1.COLUMN.center);
-    const qrRect = await drawVerifyQr(stamped, page, data.verifyUrl);
+    }), certificate_layout_1.CLIENT_FIELDS.issuedDate, fonts.sans, pageHeight);
+    const qrRect = drawVerifyQr(page, data.verifyUrl);
     addUriLink(page, data.verifyUrl, qrRect);
-    page.scale(certificate_layout_1.OUTPUT_SCALE, certificate_layout_1.OUTPUT_SCALE);
     applyMetadata(stamped, data);
     return stamped.save();
 }
