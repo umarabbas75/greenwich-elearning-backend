@@ -19,6 +19,10 @@ const FONT_FILES: Record<FontKey, string> = {
   sans: 'Montserrat-Medium.ttf',
   sansBold: 'Montserrat-SemiBold.ttf',
   sansHeavy: 'Montserrat-Bold.ttf',
+  sansRegular: 'Arimo-Regular.ttf',
+  sansBoldAlt: 'Arimo-Bold.ttf',
+  serifRegular: 'Lora-Regular.ttf',
+  serifBoldAlt: 'Lora-Bold.ttf',
 };
 
 /** Resolves the vendored font directory in both src and dist layouts. */

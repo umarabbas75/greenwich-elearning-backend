@@ -49,7 +49,7 @@ export declare const COLUMN: {
     readonly center: 1080;
     readonly width: 780;
 };
-export type FontKey = 'script' | 'serifBold' | 'serif' | 'sans' | 'sansBold' | 'sansHeavy';
+export type FontKey = 'script' | 'serifBold' | 'serif' | 'sans' | 'sansBold' | 'sansHeavy' | 'sansRegular' | 'sansBoldAlt' | 'serifRegular' | 'serifBoldAlt';
 export interface TextBlock {
     y: number;
     size: number;
@@ -327,7 +327,7 @@ export declare const CLIENT_FIELDS: {
         leading: number;
         minSize: number;
     };
-    issuedDate: {
+    certificateId: {
         baseline: number;
         size: number;
         font: FontKey;
@@ -337,7 +337,7 @@ export declare const CLIENT_FIELDS: {
         maxWidth: number;
         minSize: number;
     };
-    certificateId: {
+    issuedDate: {
         baseline: number;
         size: number;
         font: FontKey;
@@ -350,6 +350,6 @@ export declare const CLIENT_FIELDS: {
 };
 export declare const CLIENT_QR: {
     readonly x: 292.5;
-    readonly y: 345;
+    readonly y: 347;
     readonly size: 52;
 };

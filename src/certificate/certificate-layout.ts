@@ -71,7 +71,14 @@ export type FontKey =
   | 'serif'
   | 'sans'
   | 'sansBold'
-  | 'sansHeavy';
+  | 'sansHeavy'
+  // The client master's own faces. Arimo is metrically identical to the Arial
+  // it asks for; Lora stands in for Georgia. Used by the SVG-built template so
+  // the PDF and the Figma master render the same.
+  | 'sansRegular'
+  | 'sansBoldAlt'
+  | 'serifRegular'
+  | 'serifBoldAlt';
 
 export interface TextBlock {
   /** Baseline-independent: y is the TOP of the text box, as in Figma. */
@@ -283,12 +290,11 @@ export const ORNAMENTS = {
 /**
  * The certificate the client signed off on, supplied as a print-ready PDF.
  *
- * That file is a single flattened 300 DPI raster — no live text, no form
- * fields — so its placeholders are erased from the artwork
- * (scripts/certificate-art/build-client-template.py) and the real values are
- * stamped into the gaps. Every number below was measured off the supplied
- * artwork at 3508px wide (4.1668 px per point) rather than estimated, which is
- * why they are not round.
+ * The template is built from the Figma master SVG
+ * (scripts/certificate-art/build-template-from-svg.ts), so it is vectors and
+ * live text rather than the flattened 300 DPI raster the client first sent.
+ * Every number below is read straight out of that master and scaled to A4,
+ * which is why they are not round — they are exact, not estimated.
  *
  * Fields here are positioned by BASELINE, matching how the measurements were
  * taken (the bottom of the capitals in the original placeholder).
@@ -327,53 +333,50 @@ export interface FieldSpec {
 
 export const CLIENT_FIELDS = {
   learnerName: {
-    baseline: 146.9,
-    size: 26,
-    font: 'sansHeavy' as FontKey,
-    color: rgb(0.098, 0.2, 0.118),
-    tracking: 0.02,
-    x: 540.5,
+    baseline: 147.83,
+    size: 27.08,
+    font: 'serifRegular' as FontKey,
+    color: rgb(0, 0.29, 0.208),
+    tracking: 0.0417,
+    x: 540.85,
     align: 'center' as const,
+    // The gold rule under the name runs x 323..759, so the column is 435pt.
     maxWidth: 428,
     minSize: 13,
   },
   courseTitle: {
-    baseline: 216,
-    size: 23,
-    font: 'sansHeavy' as FontKey,
-    color: rgb(0.078, 0.188, 0.11),
-    tracking: 0.01,
-    x: 540.5,
+    baseline: 217.8,
+    size: 23.7,
+    font: 'serifBoldAlt' as FontKey,
+    color: rgb(0, 0.29, 0.208),
+    tracking: 0.0333,
+    x: 540.85,
     align: 'center' as const,
-    // The gold rule under the learner name spans x 324..758, so the column is
-    // 433pt wide; stay just inside it.
     maxWidth: 428,
-    // Only 49pt separates the static lines above (bottom y 177) and below
-    // (top y 226), so a wrapped pair is centred higher and set tighter.
+    // 53pt of clear space between the captions above (baseline 178) and below
+    // (baseline 231); two lines need ~1.96x the size, so 19pt fits with margin.
     maxLines: 2,
-    // 43pt of clear space between those lines; at 1.06 leading two lines need
-    // ~1.96x the size, so 19pt is the largest that fits with margin.
-    baselineWhenWrapped: 206,
+    baselineWhenWrapped: 207,
     sizeWhenWrapped: 19,
     leading: 1.06,
     minSize: 11,
   },
-  issuedDate: {
-    baseline: 401.5,
-    size: 8.2,
-    font: 'sans' as FontKey,
-    color: rgb(0.349, 0.349, 0.353),
-    x: 360,
+  certificateId: {
+    baseline: 370.71,
+    size: 7.34,
+    font: 'sansRegular' as FontKey,
+    color: rgb(0.129, 0.145, 0.161),
+    x: 359.72,
     align: 'left' as const,
     maxWidth: 150,
     minSize: 6,
   },
-  certificateId: {
-    baseline: 370.3,
-    size: 7.9,
-    font: 'sans' as FontKey,
-    color: rgb(0.337, 0.337, 0.337),
-    x: 360,
+  issuedDate: {
+    baseline: 402.31,
+    size: 7.34,
+    font: 'sansRegular' as FontKey,
+    color: rgb(0.129, 0.145, 0.161),
+    x: 359.72,
     align: 'left' as const,
     maxWidth: 150,
     minSize: 6,
@@ -390,4 +393,4 @@ export const CLIENT_FIELDS = {
  * and still clears the divider above (y 338), the VERIFY caption below (y 403)
  * and the certificate-number column to the right (x 360).
  */
-export const CLIENT_QR = { x: 292.5, y: 345, size: 52 } as const;
+export const CLIENT_QR = { x: 292.5, y: 347, size: 52 } as const;

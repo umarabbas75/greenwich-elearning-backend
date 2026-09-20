@@ -26,7 +26,13 @@ RAW="https://raw.githubusercontent.com/google/fonts/main/ofl"
 
 mkdir -p "$DEST"
 
-fetch() { curl -sSL --fail -o "$WORK/$2" "$RAW/$1"; }
+RAWROOT="https://raw.githubusercontent.com/nvkelso/../"
+fetch() {
+  local path="$1"
+  # entries already starting with ofl/ are repo-root relative
+  case "$path" in ofl/*) url="${RAW%/ofl}/$path" ;; *) url="$RAW/$path" ;; esac
+  curl -sSL --fail -o "$WORK/$2" "$url"
+}
 
 instance() { # <src vf> <weight> <out>
   "$PYTHON" - "$WORK/$1" "$2" "$WORK/$3" <<'PY'
@@ -51,6 +57,12 @@ fetch "playfairdisplay/PlayfairDisplay%5Bwght%5D.ttf"     PlayfairDisplay-VF.ttf
 fetch "cormorantgaramond/CormorantGaramond%5Bwght%5D.ttf" CormorantGaramond-VF.ttf
 fetch "montserrat/Montserrat%5Bwght%5D.ttf"               Montserrat-VF.ttf
 fetch "pinyonscript/PinyonScript-Regular.ttf"             PinyonScript-Regular.ttf
+# The client master specifies Georgia + Arial. Those resolve only where they
+# happen to be installed, so the Figma master and this PDF both use the
+# Google equivalents: Arimo is metrically identical to Arial, Lora matches
+# Georgia's colour and x-height.
+fetch "ofl/arimo/Arimo%5Bwght%5D.ttf"                     Arimo-VF.ttf
+fetch "ofl/lora/Lora%5Bwght%5D.ttf"                       Lora-VF.ttf
 
 echo "Instancing weights..."
 instance PlayfairDisplay-VF.ttf     700 PlayfairDisplay-Bold.raw.ttf
@@ -58,6 +70,10 @@ instance CormorantGaramond-VF.ttf   500 CormorantGaramond-Medium.raw.ttf
 instance Montserrat-VF.ttf          500 Montserrat-Medium.raw.ttf
 instance Montserrat-VF.ttf          600 Montserrat-SemiBold.raw.ttf
 instance Montserrat-VF.ttf          700 Montserrat-Bold.raw.ttf
+instance Arimo-VF.ttf               400 Arimo-Regular.raw.ttf
+instance Arimo-VF.ttf               700 Arimo-Bold.raw.ttf
+instance Lora-VF.ttf                400 Lora-Regular.raw.ttf
+instance Lora-VF.ttf                700 Lora-Bold.raw.ttf
 
 echo "Subsetting to Latin..."
 subset PlayfairDisplay-Bold.raw.ttf     PlayfairDisplay-Bold.ttf
@@ -65,6 +81,10 @@ subset CormorantGaramond-Medium.raw.ttf CormorantGaramond-Medium.ttf
 subset Montserrat-Medium.raw.ttf        Montserrat-Medium.ttf
 subset Montserrat-SemiBold.raw.ttf      Montserrat-SemiBold.ttf
 subset Montserrat-Bold.raw.ttf          Montserrat-Bold.ttf
+subset Arimo-Regular.raw.ttf            Arimo-Regular.ttf
+subset Arimo-Bold.raw.ttf               Arimo-Bold.ttf
+subset Lora-Regular.raw.ttf             Lora-Regular.ttf
+subset Lora-Bold.raw.ttf                Lora-Bold.ttf
 subset PinyonScript-Regular.ttf         PinyonScript-Regular.ttf
 
 echo "Done. Fonts are OFL licensed — see https://fonts.google.com"

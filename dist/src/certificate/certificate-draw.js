@@ -13,6 +13,10 @@ const FONT_FILES = {
     sans: 'Montserrat-Medium.ttf',
     sansBold: 'Montserrat-SemiBold.ttf',
     sansHeavy: 'Montserrat-Bold.ttf',
+    sansRegular: 'Arimo-Regular.ttf',
+    sansBoldAlt: 'Arimo-Bold.ttf',
+    serifRegular: 'Lora-Regular.ttf',
+    serifBoldAlt: 'Lora-Bold.ttf',
 };
 function fontDir() {
     const candidates = [

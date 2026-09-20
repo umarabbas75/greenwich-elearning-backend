@@ -95,18 +95,19 @@ async function renderCertificatePdf(data) {
     flattenTemplateForm(stamped);
     const page = stamped.getPages()[0];
     const fonts = await (0, certificate_draw_1.embedCertificateFonts)(stamped, [
-        'sansHeavy',
-        'sans',
+        'serifRegular',
+        'serifBoldAlt',
+        'sansRegular',
     ]);
     const pageHeight = page.getSize().height;
-    (0, certificate_draw_1.drawField)(page, (0, certificate_text_1.formatCertificateTitle)(data.learnerName) || 'Learner', certificate_layout_1.CLIENT_FIELDS.learnerName, fonts.sansHeavy, pageHeight);
-    (0, certificate_draw_1.drawField)(page, (0, certificate_text_1.formatCertificateTitle)(data.courseTitle) || 'Course', certificate_layout_1.CLIENT_FIELDS.courseTitle, fonts.sansHeavy, pageHeight);
-    (0, certificate_draw_1.drawField)(page, data.certificateId, certificate_layout_1.CLIENT_FIELDS.certificateId, fonts.sans, pageHeight);
+    (0, certificate_draw_1.drawField)(page, (0, certificate_text_1.formatCertificateTitle)(data.learnerName) || 'Learner', certificate_layout_1.CLIENT_FIELDS.learnerName, fonts.serifRegular, pageHeight);
+    (0, certificate_draw_1.drawField)(page, (0, certificate_text_1.formatCertificateTitle)(data.courseTitle) || 'Course', certificate_layout_1.CLIENT_FIELDS.courseTitle, fonts.serifBoldAlt, pageHeight);
+    (0, certificate_draw_1.drawField)(page, data.certificateId, certificate_layout_1.CLIENT_FIELDS.certificateId, fonts.sansRegular, pageHeight);
     (0, certificate_draw_1.drawField)(page, data.issuedAt.toLocaleDateString('en-GB', {
         day: '2-digit',
         month: 'long',
         year: 'numeric',
-    }), certificate_layout_1.CLIENT_FIELDS.issuedDate, fonts.sans, pageHeight);
+    }), certificate_layout_1.CLIENT_FIELDS.issuedDate, fonts.sansRegular, pageHeight);
     const qrRect = drawVerifyQr(page, data.verifyUrl);
     addUriLink(page, data.verifyUrl, qrRect);
     applyMetadata(stamped, data);

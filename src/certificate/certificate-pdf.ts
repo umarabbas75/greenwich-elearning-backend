@@ -145,9 +145,13 @@ export async function renderCertificatePdf(
   flattenTemplateForm(stamped);
   const page = stamped.getPages()[0];
 
+  // The master's own faces: Lora for the two display lines, Arimo for the
+  // small print. Matching it exactly is what keeps stamped values and printed
+  // artwork looking like one document.
   const fonts = await embedCertificateFonts(stamped, [
-    'sansHeavy',
-    'sans',
+    'serifRegular',
+    'serifBoldAlt',
+    'sansRegular',
   ] as const);
 
   const pageHeight = page.getSize().height;
@@ -156,7 +160,7 @@ export async function renderCertificatePdf(
     page,
     formatCertificateTitle(data.learnerName) || 'Learner',
     CLIENT_FIELDS.learnerName,
-    fonts.sansHeavy,
+    fonts.serifRegular,
     pageHeight,
   );
 
@@ -164,7 +168,7 @@ export async function renderCertificatePdf(
     page,
     formatCertificateTitle(data.courseTitle) || 'Course',
     CLIENT_FIELDS.courseTitle,
-    fonts.sansHeavy,
+    fonts.serifBoldAlt,
     pageHeight,
   );
 
@@ -172,7 +176,7 @@ export async function renderCertificatePdf(
     page,
     data.certificateId,
     CLIENT_FIELDS.certificateId,
-    fonts.sans,
+    fonts.sansRegular,
     pageHeight,
   );
 
@@ -184,7 +188,7 @@ export async function renderCertificatePdf(
       year: 'numeric',
     }),
     CLIENT_FIELDS.issuedDate,
-    fonts.sans,
+    fonts.sansRegular,
     pageHeight,
   );
 
