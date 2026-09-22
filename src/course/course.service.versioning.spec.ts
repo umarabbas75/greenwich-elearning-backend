@@ -171,6 +171,7 @@ describe('CourseService — course versioning', () => {
       },
       scormRegistration: {
         count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       chapter: {
@@ -818,6 +819,10 @@ describe('CourseService — course versioning', () => {
       // sectionTimeSpent is hard-deleted (not just counter-reset) on the
       // unassign path — the enrollment is going away.
       expect(prisma.sectionTimeSpent.deleteMany).toHaveBeenCalled();
+      // SCORM registrations go too. A native course simply has none, but the
+      // delete has to be issued unconditionally — skipping it for "native"
+      // courses would depend on a deliveryMode read the wipe doesn't do.
+      expect(prisma.scormRegistration.deleteMany).toHaveBeenCalled();
       expect(prisma.userCourse.delete).toHaveBeenCalled();
 
       expect(courseVersionService.writeAudit).toHaveBeenCalledWith(

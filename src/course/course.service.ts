@@ -320,6 +320,20 @@ export class CourseService {
    *   - true → hard-delete SectionTimeSpent rows (unassign: enrollment gone).
    *   - false → only reset attempt counters, preserving totalSeconds
    *     (resetUserCourseProgress: the enrollment survives).
+   *
+   * `options.deleteScormRegistrations`:
+   *   - true → delete the learner's ScormRegistration rows and return the
+   *     Cloud ids they carried, so the caller can tear those down over HTTP
+   *     once the transaction has committed (unassign).
+   *   - false → leave them alone (resetUserCourseProgress).
+   *
+   * Deleting the local row is what actually closes the re-assign loophole for
+   * SCORM: `ensureCloudRegistration` keys on `@@unique([userId, packageId])`
+   * and mints a fresh registration id when it finds nothing, so a learner who
+   * is re-assigned starts clean even if the Cloud-side delete later fails.
+   * This is an explicit option rather than unconditional because a caller that
+   * wipes the rows without tearing down Cloud leaks registrations silently —
+   * the flag makes each caller say which it is doing.
    */
   private async wipeUserCourseState(
     tx: Prisma.TransactionClient,
@@ -327,6 +341,7 @@ export class CourseService {
     courseId: string,
     options: {
       deleteSectionTimeSpent: boolean;
+      deleteScormRegistrations: boolean;
       // Pre-resolved by probeUserCourseResidualState in the force-unassign
       // path so the same findMany pair isn't run again inside the interactive
       // transaction. Callers that don't have them (resetUserCourseProgress)
@@ -348,6 +363,9 @@ export class CourseService {
     moduleCompletions: number;
     sectionTimeSpent: number;
     assessmentAttempts: number;
+    scormRegistrations: number;
+    /** Cloud ids the deleted rows pointed at. Empty unless the option is set. */
+    scormCloudRegistrationIds: string[];
   }> {
     let chapterIds = options.chapterIds;
     let assessmentIds = options.assessmentIds;
@@ -431,7 +449,28 @@ export class CourseService {
           })
         : { count: 0 };
 
+    // Read the Cloud ids and delete the rows in the same transaction. The
+    // caller's residual probe ran outside it, so a launch that landed in
+    // between would have created a registration the probe never saw — reading
+    // here rather than reusing the probe's list is what stops that row's Cloud
+    // registration from being orphaned with nobody holding its id.
+    let scormCloudRegistrationIds: string[] = [];
+    let scormRegistrationCount = 0;
+    if (options.deleteScormRegistrations) {
+      const rows = await tx.scormRegistration.findMany({
+        where: { userId, courseId },
+        select: { scormCloudRegistrationId: true },
+      });
+      scormCloudRegistrationIds = rows.map((r) => r.scormCloudRegistrationId);
+      const deleted = await tx.scormRegistration.deleteMany({
+        where: { userId, courseId },
+      });
+      scormRegistrationCount = deleted.count;
+    }
+
     return {
+      scormRegistrations: scormRegistrationCount,
+      scormCloudRegistrationIds,
       sectionProgress: sectionProgress.count,
       lastSeen: lastSeen.count,
       quizProgress: quizProgress.count,
@@ -4309,6 +4348,65 @@ export class CourseService {
     return err instanceof ScormCloudHttpError && err.cloudStatus === 404;
   }
 
+  /**
+   * SCORM Cloud teardown for ONE learner's enrollment being removed.
+   *
+   * Runs AFTER the local wipe — the opposite order to
+   * `purgeScormCloudForCourse`, and deliberately so. Deleting on Cloud first
+   * opens a window where the local ScormRegistration row still points at an id
+   * Cloud no longer has: `ensureCloudRegistration` returns that row on the next
+   * launch and `buildRegistrationLaunchLink` 404s, stranding a learner who is
+   * still enrolled with no way to start. Local-first cannot produce that state
+   * — once the UserCourse row is gone the launch path 403s in
+   * `assertEnrollmentUsable` long before it reaches Cloud.
+   *
+   * The course-scoped sibling can afford Cloud-first because it is destroying
+   * the course outright: there is no learner left to strand.
+   *
+   * Best-effort, and safe to be so. Resurrection on re-assign needs the LOCAL
+   * row (see `wipeUserCourseState`), which the transaction has already
+   * removed; a Cloud registration left behind is an orphaned record in the
+   * Cloud console — worth reporting so an admin can clear it, but it cannot
+   * re-attach to a future enrollment. So failures are logged with their ids
+   * and returned, never thrown.
+   */
+  private async purgeScormCloudForLearner(
+    userId: string,
+    courseId: string,
+    scormCloudRegistrationIds: string[],
+  ): Promise<{
+    registrations: number;
+    registrationsDeleted: number;
+    failures: string[];
+  }> {
+    const failures: string[] = [];
+    let registrationsDeleted = 0;
+
+    for (const registrationId of scormCloudRegistrationIds) {
+      try {
+        await this.scormCloud.deleteRegistration(registrationId);
+        registrationsDeleted += 1;
+      } catch (err) {
+        if (CourseService.isAlreadyGoneOnCloud(err)) {
+          registrationsDeleted += 1;
+          continue;
+        }
+        failures.push(`registration:${registrationId}`);
+        CourseService.completionLogger.warn(
+          `Failed SCORM Cloud DeleteRegistration ${registrationId} (unassign user ${userId} from course ${courseId}): ${errorMessage(
+            err,
+          )}`,
+        );
+      }
+    }
+
+    return {
+      registrations: scormCloudRegistrationIds.length,
+      registrationsDeleted,
+      failures,
+    };
+  }
+
   private async purgeScormCloudForCourse(
     courseId: string,
     packages: Array<{ scormCloudCourseId: string; status: ScormPackageStatus }>,
@@ -6075,16 +6173,17 @@ export class CourseService {
       if (!course) {
         throw new Error('Course not found');
       }
-      if (course.deliveryMode === CourseDeliveryMode.IMPORTED_SCORM) {
-        throw new HttpException(
-          {
-            status: HttpStatus.CONFLICT,
-            error:
-              'Cannot unassign an imported SCORM course in v1. Cloud registrations are only removed by GDPR purge.',
-          },
-          HttpStatus.CONFLICT,
-        );
-      }
+      // IMPORTED_SCORM was refused outright in v1: unassigning deleted the
+      // UserCourse row but nothing removed the learner's ScormRegistration, so
+      // the next launch after a re-assign resumed their old Cloud progress —
+      // exactly the loophole the residual guard below exists to close. It is
+      // supported now because the wipe deletes that row inside the transaction
+      // and tears the Cloud registration down after it.
+      //
+      // No deliveryMode branch is needed to do it: the wipe deletes by
+      // (userId, courseId) and a native course simply has no rows, so the
+      // teardown keys off what actually came back rather than off a flag that
+      // could disagree with the data. See purgeScormCloudForLearner.
 
       // Check if the user-course relation exists
       const userCourse = await this.prisma.userCourse.findFirst({
@@ -6150,6 +6249,10 @@ export class CourseService {
             // go too — resetUserCourseProgress preserves totalSeconds
             // intentionally (it's a "reset progress" not "erase enrollment").
             deleteSectionTimeSpent: true,
+            // Same reasoning for SCORM: the enrollment is going, so the
+            // learner's registration goes with it. No-op on a native course
+            // (no rows match); the Cloud teardown below is skipped too.
+            deleteScormRegistrations: true,
             // Forward the ids we already resolved in the probe so we don't
             // re-run the same two findMany inside the interactive tx.
             chapterIds: residual.chapterIds,
@@ -6160,6 +6263,17 @@ export class CourseService {
         },
         { timeout: 15000, maxWait: 5000 },
       );
+
+      // SCORM Cloud teardown, once the local state is committed. HTTP cannot
+      // run inside the transaction, and this order is the safe one — see
+      // purgeScormCloudForLearner for why it inverts the course-destroy path.
+      const scormCloud = wiped.scormCloudRegistrationIds.length
+        ? await this.purgeScormCloudForLearner(
+            userId,
+            courseId,
+            wiped.scormCloudRegistrationIds,
+          )
+        : null;
 
       // Audit trail — write for every force-wipe (not just "hadResidualState")
       // so a clean unassign of a learner who just happened to have completed
@@ -6176,18 +6290,31 @@ export class CourseService {
           metadata: {
             ...residual.counts,
             wiped,
+            scormCloud: scormCloud ?? undefined,
             priorEnrolledVersionId: userCourse.enrolledVersionId,
           },
         });
       }
 
+      // A Cloud failure does not fail the request: the enrollment and every
+      // local row are already gone, so the learner IS unassigned. Say so, and
+      // name the leftovers rather than reporting an unqualified success —
+      // those ids are what an admin needs to clear them from the Cloud console.
+      const cloudFailed = scormCloud?.failures.length
+        ? ` ${scormCloud.failures.length} SCORM Cloud registration(s) could ` +
+          `not be removed — delete them from the Cloud console: ` +
+          scormCloud.failures.join(', ')
+        : '';
+
       return {
-        message: residual.hasAny
-          ? 'Successfully unassigned course and wiped all learner state (force)'
-          : 'Successfully unassigned course from user',
+        message:
+          (residual.hasAny
+            ? 'Successfully unassigned course and wiped all learner state (force)'
+            : 'Successfully unassigned course from user') + cloudFailed,
         statusCode: 200,
         data: {
           wiped: residual.hasAny ? wiped : undefined,
+          scormCloud: scormCloud ?? undefined,
         },
       };
     } catch (error) {
@@ -7246,6 +7373,13 @@ export class CourseService {
         (tx) =>
           this.wipeUserCourseState(tx, userId, courseId, {
             deleteSectionTimeSpent: false,
+            // Reset still refuses IMPORTED_SCORM above, so there is never a
+            // registration here to delete. Kept explicit rather than relying
+            // on that: this path does no Cloud teardown, so wiping the rows
+            // would strand the learner — their local row would be gone while
+            // the Cloud registration lived on, and the next launch would mint
+            // a second one against the same package.
+            deleteScormRegistrations: false,
           }),
         { timeout: 15000, maxWait: 5000 },
       );

@@ -110,6 +110,7 @@ export declare class CourseService {
     private gatherCourseDeletionImpact;
     getCourseDeletionPreview(id: string): Promise<ResponseDto>;
     private static isAlreadyGoneOnCloud;
+    private purgeScormCloudForLearner;
     private purgeScormCloudForCourse;
     private destroyImportedScormCourse;
     deleteCourse(id: string, options?: {

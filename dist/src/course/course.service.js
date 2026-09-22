@@ -252,7 +252,22 @@ let CourseService = CourseService_1 = class CourseService {
                 where: { userId, assessmentId: { in: assessmentIds } },
             })
             : { count: 0 };
+        let scormCloudRegistrationIds = [];
+        let scormRegistrationCount = 0;
+        if (options.deleteScormRegistrations) {
+            const rows = await tx.scormRegistration.findMany({
+                where: { userId, courseId },
+                select: { scormCloudRegistrationId: true },
+            });
+            scormCloudRegistrationIds = rows.map((r) => r.scormCloudRegistrationId);
+            const deleted = await tx.scormRegistration.deleteMany({
+                where: { userId, courseId },
+            });
+            scormRegistrationCount = deleted.count;
+        }
         return {
+            scormRegistrations: scormRegistrationCount,
+            scormCloudRegistrationIds,
             sectionProgress: sectionProgress.count,
             lastSeen: lastSeen.count,
             quizProgress: quizProgress.count,
@@ -3136,6 +3151,29 @@ let CourseService = CourseService_1 = class CourseService {
     static isAlreadyGoneOnCloud(err) {
         return err instanceof scorm_cloud_client_1.ScormCloudHttpError && err.cloudStatus === 404;
     }
+    async purgeScormCloudForLearner(userId, courseId, scormCloudRegistrationIds) {
+        const failures = [];
+        let registrationsDeleted = 0;
+        for (const registrationId of scormCloudRegistrationIds) {
+            try {
+                await this.scormCloud.deleteRegistration(registrationId);
+                registrationsDeleted += 1;
+            }
+            catch (err) {
+                if (CourseService_1.isAlreadyGoneOnCloud(err)) {
+                    registrationsDeleted += 1;
+                    continue;
+                }
+                failures.push(`registration:${registrationId}`);
+                CourseService_1.completionLogger.warn(`Failed SCORM Cloud DeleteRegistration ${registrationId} (unassign user ${userId} from course ${courseId}): ${(0, error_message_1.errorMessage)(err)}`);
+            }
+        }
+        return {
+            registrations: scormCloudRegistrationIds.length,
+            registrationsDeleted,
+            failures,
+        };
+    }
     async purgeScormCloudForCourse(courseId, packages) {
         const failures = [];
         const seen = new Set();
@@ -4229,12 +4267,6 @@ let CourseService = CourseService_1 = class CourseService {
             if (!course) {
                 throw new Error('Course not found');
             }
-            if (course.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM) {
-                throw new common_1.HttpException({
-                    status: common_1.HttpStatus.CONFLICT,
-                    error: 'Cannot unassign an imported SCORM course in v1. Cloud registrations are only removed by GDPR purge.',
-                }, common_1.HttpStatus.CONFLICT);
-            }
             const userCourse = await this.prisma.userCourse.findFirst({
                 where: { userId, courseId },
             });
@@ -4258,12 +4290,16 @@ let CourseService = CourseService_1 = class CourseService {
             const wiped = await this.prisma.$transaction(async (tx) => {
                 const counts = await this.wipeUserCourseState(tx, userId, courseId, {
                     deleteSectionTimeSpent: true,
+                    deleteScormRegistrations: true,
                     chapterIds: residual.chapterIds,
                     assessmentIds: residual.assessmentIds,
                 });
                 await tx.userCourse.delete({ where: { id: userCourse.id } });
                 return counts;
             }, { timeout: 15000, maxWait: 5000 });
+            const scormCloud = wiped.scormCloudRegistrationIds.length
+                ? await this.purgeScormCloudForLearner(userId, courseId, wiped.scormCloudRegistrationIds)
+                : null;
             if (options?.adminId && (residual.hasAny || options.force)) {
                 await this.courseVersionService.writeAudit({
                     adminId: options.adminId,
@@ -4275,17 +4311,24 @@ let CourseService = CourseService_1 = class CourseService {
                     metadata: {
                         ...residual.counts,
                         wiped,
+                        scormCloud: scormCloud ?? undefined,
                         priorEnrolledVersionId: userCourse.enrolledVersionId,
                     },
                 });
             }
+            const cloudFailed = scormCloud?.failures.length
+                ? ` ${scormCloud.failures.length} SCORM Cloud registration(s) could ` +
+                    `not be removed — delete them from the Cloud console: ` +
+                    scormCloud.failures.join(', ')
+                : '';
             return {
-                message: residual.hasAny
+                message: (residual.hasAny
                     ? 'Successfully unassigned course and wiped all learner state (force)'
-                    : 'Successfully unassigned course from user',
+                    : 'Successfully unassigned course from user') + cloudFailed,
                 statusCode: 200,
                 data: {
                     wiped: residual.hasAny ? wiped : undefined,
+                    scormCloud: scormCloud ?? undefined,
                 },
             };
         }
@@ -4988,6 +5031,7 @@ let CourseService = CourseService_1 = class CourseService {
             }
             const wiped = await this.prisma.$transaction((tx) => this.wipeUserCourseState(tx, userId, courseId, {
                 deleteSectionTimeSpent: false,
+                deleteScormRegistrations: false,
             }), { timeout: 15000, maxWait: 5000 });
             const deleted = {
                 sectionProgress: wiped.sectionProgress,
