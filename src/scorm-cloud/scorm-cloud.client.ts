@@ -90,6 +90,66 @@ export class ScormCloudClient {
       `/courses/importJobs?${qs.toString()}`,
       { url: args.url },
     );
+    return this.parseImportJobId(json);
+  }
+
+  /**
+   * CreateUploadAndImportCourseJob — multipart zip upload (no public URL).
+   * Use when the package exceeds third-party host limits (e.g. Cloudinary 10MB).
+   */
+  async createUploadAndImportCourseJob(args: {
+    courseId: string;
+    file: Buffer;
+    filename?: string;
+  }): Promise<string> {
+    const qs = new URLSearchParams({
+      courseId: args.courseId,
+      mayCreateNewVersion: 'false',
+    });
+    const form = new FormData();
+    const name = args.filename?.trim() || 'package.zip';
+    form.append(
+      'file',
+      new Blob([args.file], { type: 'application/zip' }),
+      name,
+    );
+    const url = `${this.apiBase()}/courses/importJobs/upload?${qs.toString()}`;
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: this.authHeader(),
+          Accept: 'application/json, text/plain, */*',
+        },
+        body: form,
+      });
+    } catch (err) {
+      this.logger.error(
+        `SCORM Cloud upload import network error: ${errorMessage(err)}`,
+      );
+      throw new HttpException(
+        'SCORM Cloud is unreachable',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    const text = await response.text();
+    if (!response.ok) {
+      throw new ScormCloudHttpError(response.status, text);
+    }
+    let json: { result?: string };
+    try {
+      json = text ? (JSON.parse(text) as { result?: string }) : {};
+    } catch {
+      throw new HttpException(
+        'SCORM Cloud upload import returned non-JSON',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    return this.parseImportJobId(json);
+  }
+
+  private parseImportJobId(json: { result?: string } | undefined): string {
     const jobId = json && typeof json === 'object' ? json.result : undefined;
     if (!jobId || typeof jobId !== 'string') {
       throw new HttpException(

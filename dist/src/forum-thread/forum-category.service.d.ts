@@ -16,16 +16,16 @@ export declare class ForumCategoryService {
             isActive: boolean;
             name: string;
             sortOrder: number;
+            allowAcceptedAnswer: boolean;
+            allowVotes: boolean;
+            allowMentions: boolean;
+            allowAttachments: boolean;
             slug: string;
             icon: string;
             courseScope: import(".prisma/client").$Enums.ForumCourseScope;
             studentCreatePolicy: import(".prisma/client").$Enums.ForumStudentCreatePolicy;
             notifyOnCreate: import(".prisma/client").$Enums.ForumNotifyOnCreate;
-            allowAcceptedAnswer: boolean;
-            allowVotes: boolean;
-            allowMentions: boolean;
             tagPolicy: import(".prisma/client").$Enums.ForumTagPolicy;
-            allowAttachments: boolean;
         }[];
     }>;
     create(user: User, body: any): Promise<{
@@ -39,16 +39,16 @@ export declare class ForumCategoryService {
             isActive: boolean;
             name: string;
             sortOrder: number;
+            allowAcceptedAnswer: boolean;
+            allowVotes: boolean;
+            allowMentions: boolean;
+            allowAttachments: boolean;
             slug: string;
             icon: string;
             courseScope: import(".prisma/client").$Enums.ForumCourseScope;
             studentCreatePolicy: import(".prisma/client").$Enums.ForumStudentCreatePolicy;
             notifyOnCreate: import(".prisma/client").$Enums.ForumNotifyOnCreate;
-            allowAcceptedAnswer: boolean;
-            allowVotes: boolean;
-            allowMentions: boolean;
             tagPolicy: import(".prisma/client").$Enums.ForumTagPolicy;
-            allowAttachments: boolean;
         };
     }>;
     update(user: User, id: string, body: any): Promise<{
@@ -62,16 +62,16 @@ export declare class ForumCategoryService {
             isActive: boolean;
             name: string;
             sortOrder: number;
+            allowAcceptedAnswer: boolean;
+            allowVotes: boolean;
+            allowMentions: boolean;
+            allowAttachments: boolean;
             slug: string;
             icon: string;
             courseScope: import(".prisma/client").$Enums.ForumCourseScope;
             studentCreatePolicy: import(".prisma/client").$Enums.ForumStudentCreatePolicy;
             notifyOnCreate: import(".prisma/client").$Enums.ForumNotifyOnCreate;
-            allowAcceptedAnswer: boolean;
-            allowVotes: boolean;
-            allowMentions: boolean;
             tagPolicy: import(".prisma/client").$Enums.ForumTagPolicy;
-            allowAttachments: boolean;
         };
     }>;
     remove(user: User, id: string): Promise<{

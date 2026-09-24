@@ -1,4 +1,68 @@
-import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUrl, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Max,
+  Min,
+} from 'class-validator';
+
+/** Metadata for multipart POST /scorm/packages/upload (zip in `file` field). */
+export class CreateScormPackageUploadDto {
+  @IsOptional()
+  @IsString()
+  courseId?: string;
+
+  @IsOptional()
+  @IsString()
+  zipSha256?: string;
+
+  @IsIn(['completed', 'passed'])
+  completeOn: 'completed' | 'passed';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  passingScore?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  image?: string;
+
+  @IsOptional()
+  @IsString()
+  overview?: string;
+
+  @IsOptional()
+  @IsString()
+  duration?: string;
+
+  @IsOptional()
+  @IsString()
+  assessment?: string;
+
+  @IsOptional()
+  @IsString()
+  syllabusOverview?: string;
+
+  @IsOptional()
+  @IsString()
+  resourcesOverview?: string;
+}
 
 export class CreateScormPackageDto {
   /** Existing catalogue course. Omit to create one from the fields below. */

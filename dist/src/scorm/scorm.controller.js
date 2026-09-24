@@ -13,17 +13,43 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ScormController = void 0;
+const crypto_1 = require("crypto");
 const common_1 = require("@nestjs/common");
 const passport_1 = require("@nestjs/passport");
+const platform_express_1 = require("@nestjs/platform-express");
 const decorator_1 = require("../decorator");
 const dto_1 = require("./dto");
 const scorm_service_1 = require("./scorm.service");
+const MAX_SCORM_ZIP_BYTES = 50 * 1024 * 1024;
+const ZIP_MIME_TYPES = new Set([
+    'application/zip',
+    'application/x-zip-compressed',
+    'multipart/x-zip',
+    'application/octet-stream',
+]);
 let ScormController = class ScormController {
     constructor(scorm) {
         this.scorm = scorm;
     }
     createPackage(admin, body) {
         return this.scorm.createPackage(admin.id, body);
+    }
+    createPackageUpload(admin, file, body) {
+        if (!file?.buffer?.length) {
+            throw new common_1.BadRequestException('Multipart field "file" is required (SCORM .zip package)');
+        }
+        const name = file.originalname?.toLowerCase() ?? '';
+        const mimeOk = file.mimetype ? ZIP_MIME_TYPES.has(file.mimetype) : false;
+        if (!mimeOk && !name.endsWith('.zip')) {
+            throw new common_1.BadRequestException('Upload must be a .zip SCORM package (application/zip)');
+        }
+        const zipSha256 = body.zipSha256?.trim() ||
+            (0, crypto_1.createHash)('sha256').update(file.buffer).digest('hex');
+        return this.scorm.createPackageFromUpload(admin.id, file.buffer, {
+            ...body,
+            zipSha256,
+            filename: file.originalname || 'package.zip',
+        });
     }
     getPackage(id) {
         return this.scorm.getPackage(id);
@@ -49,6 +75,23 @@ __decorate([
     __metadata("design:paramtypes", [Object, dto_1.CreateScormPackageDto]),
     __metadata("design:returntype", void 0)
 ], ScormController.prototype, "createPackage", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Post)('packages/upload'),
+    (0, common_1.HttpCode)(200),
+    (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('file', { limits: { fileSize: MAX_SCORM_ZIP_BYTES } })),
+    (0, common_1.UsePipes)(new common_1.ValidationPipe({
+        whitelist: true,
+        transform: true,
+        transformOptions: { enableImplicitConversion: true },
+    })),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.UploadedFile)()),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object, dto_1.CreateScormPackageUploadDto]),
+    __metadata("design:returntype", void 0)
+], ScormController.prototype, "createPackageUpload", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Get)('packages/:id'),

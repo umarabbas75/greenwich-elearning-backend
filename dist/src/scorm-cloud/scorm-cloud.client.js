@@ -42,6 +42,46 @@ let ScormCloudClient = ScormCloudClient_1 = class ScormCloudClient {
             mayCreateNewVersion: 'false',
         });
         const json = await this.request('POST', `/courses/importJobs?${qs.toString()}`, { url: args.url });
+        return this.parseImportJobId(json);
+    }
+    async createUploadAndImportCourseJob(args) {
+        const qs = new URLSearchParams({
+            courseId: args.courseId,
+            mayCreateNewVersion: 'false',
+        });
+        const form = new FormData();
+        const name = args.filename?.trim() || 'package.zip';
+        form.append('file', new Blob([args.file], { type: 'application/zip' }), name);
+        const url = `${this.apiBase()}/courses/importJobs/upload?${qs.toString()}`;
+        let response;
+        try {
+            response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    Authorization: this.authHeader(),
+                    Accept: 'application/json, text/plain, */*',
+                },
+                body: form,
+            });
+        }
+        catch (err) {
+            this.logger.error(`SCORM Cloud upload import network error: ${(0, error_message_1.errorMessage)(err)}`);
+            throw new common_1.HttpException('SCORM Cloud is unreachable', common_1.HttpStatus.BAD_GATEWAY);
+        }
+        const text = await response.text();
+        if (!response.ok) {
+            throw new ScormCloudHttpError(response.status, text);
+        }
+        let json;
+        try {
+            json = text ? JSON.parse(text) : {};
+        }
+        catch {
+            throw new common_1.HttpException('SCORM Cloud upload import returned non-JSON', common_1.HttpStatus.BAD_GATEWAY);
+        }
+        return this.parseImportJobId(json);
+    }
+    parseImportJobId(json) {
         const jobId = json && typeof json === 'object' ? json.result : undefined;
         if (!jobId || typeof jobId !== 'string') {
             throw new common_1.HttpException('SCORM Cloud import job did not return a result id', common_1.HttpStatus.BAD_GATEWAY);

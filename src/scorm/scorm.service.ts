@@ -54,12 +54,44 @@ export class ScormService {
       );
     }
 
+    return this.startPackageImport(adminId, body, async (scormCloudCourseId) =>
+      this.cloud.createFetchAndImportCourseJob({
+        courseId: scormCloudCourseId,
+        url: contentUrl,
+      }),
+    );
+  }
+
+  /** Import via SCORM Cloud multipart upload (packages too large for Cloudinary, etc.). */
+  async createPackageFromUpload(
+    adminId: string,
+    file: Buffer,
+    body: Omit<CreateScormPackageDto, 'contentUrl'> & { filename?: string },
+  ) {
+    if (!file.length) {
+      throw new BadRequestException('SCORM zip file is empty');
+    }
+    const filename = body.filename?.trim() || 'package.zip';
+    return this.startPackageImport(adminId, body, async (scormCloudCourseId) =>
+      this.cloud.createUploadAndImportCourseJob({
+        courseId: scormCloudCourseId,
+        file,
+        filename,
+      }),
+    );
+  }
+
+  private async startPackageImport(
+    _adminId: string,
+    body: Omit<CreateScormPackageDto, 'contentUrl'>,
+    startCloudJob: (scormCloudCourseId: string) => Promise<string>,
+  ) {
     // Tracked so a failed hand-off to Cloud can undo a course this call
     // created. An import onto an EXISTING course must never delete it.
     const createdCourseHere = !body.courseId;
     const course = body.courseId
       ? await this.prepareExistingCourse(body.courseId)
-      : await this.createImportedCourse(body);
+      : await this.createImportedCourse(body as CreateScormPackageDto);
 
     const inFlight = await this.prisma.scormPackage.findFirst({
       where: { courseId: course.id, status: ScormPackageStatus.PROCESSING },
@@ -106,10 +138,7 @@ export class ScormService {
     }
 
     try {
-      const jobId = await this.cloud.createFetchAndImportCourseJob({
-        courseId: scormCloudCourseId,
-        url: contentUrl,
-      });
+      const jobId = await startCloudJob(scormCloudCourseId);
       const updated = await this.prisma.scormPackage.update({
         where: { id: pkg.id },
         data: { cloudImportJobId: jobId },

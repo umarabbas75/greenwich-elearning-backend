@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 export declare class ScormCloudHttpError extends HttpException {
@@ -49,6 +50,12 @@ export declare class ScormCloudClient {
         courseId: string;
         url: string;
     }): Promise<string>;
+    createUploadAndImportCourseJob(args: {
+        courseId: string;
+        file: Buffer;
+        filename?: string;
+    }): Promise<string>;
+    private parseImportJobId;
     setCourseConfiguration(courseId: string, settings: ScormCloudConfigurationSetting[]): Promise<void>;
     getImportJobStatus(jobId: string): Promise<ScormCloudImportJobStatus>;
     getCourseAsset(scormCloudCourseId: string, relativePath: string): Promise<string>;

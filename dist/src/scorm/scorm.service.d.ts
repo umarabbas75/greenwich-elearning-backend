@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { Prisma } from '@prisma/client';
 import { CourseVersionService } from '../course-version/course-version.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -30,6 +31,30 @@ export declare class ScormService {
             createdAt: Date;
         };
     }>;
+    createPackageFromUpload(adminId: string, file: Buffer, body: Omit<CreateScormPackageDto, 'contentUrl'> & {
+        filename?: string;
+    }): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            id: string;
+            courseId: string;
+            versionNumber: number;
+            sectionId: string;
+            title: string;
+            scormCloudCourseId: string;
+            cloudImportJobId: string;
+            zipSha256: string;
+            riseProbeJson: Prisma.JsonValue;
+            completeOn: string;
+            passingScore: number;
+            status: import(".prisma/client").$Enums.ScormPackageStatus;
+            failureReason: string;
+            importWarning: string;
+            createdAt: Date;
+        };
+    }>;
+    private startPackageImport;
     getPackage(id: string): Promise<{
         message: string;
         statusCode: number;

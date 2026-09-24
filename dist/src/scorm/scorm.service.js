@@ -35,6 +35,23 @@ let ScormService = ScormService_1 = class ScormService {
         if (!contentUrl.startsWith('https://')) {
             throw new common_1.BadRequestException('contentUrl must be a durable public HTTPS URL (the zip never enters this API)');
         }
+        return this.startPackageImport(adminId, body, async (scormCloudCourseId) => this.cloud.createFetchAndImportCourseJob({
+            courseId: scormCloudCourseId,
+            url: contentUrl,
+        }));
+    }
+    async createPackageFromUpload(adminId, file, body) {
+        if (!file.length) {
+            throw new common_1.BadRequestException('SCORM zip file is empty');
+        }
+        const filename = body.filename?.trim() || 'package.zip';
+        return this.startPackageImport(adminId, body, async (scormCloudCourseId) => this.cloud.createUploadAndImportCourseJob({
+            courseId: scormCloudCourseId,
+            file,
+            filename,
+        }));
+    }
+    async startPackageImport(_adminId, body, startCloudJob) {
         const createdCourseHere = !body.courseId;
         const course = body.courseId
             ? await this.prepareExistingCourse(body.courseId)
@@ -76,10 +93,7 @@ let ScormService = ScormService_1 = class ScormService {
             throw err;
         }
         try {
-            const jobId = await this.cloud.createFetchAndImportCourseJob({
-                courseId: scormCloudCourseId,
-                url: contentUrl,
-            });
+            const jobId = await startCloudJob(scormCloudCourseId);
             const updated = await this.prisma.scormPackage.update({
                 where: { id: pkg.id },
                 data: { cloudImportJobId: jobId },

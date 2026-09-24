@@ -36,6 +36,7 @@ describe('ScormService', () => {
 
     cloud = {
       createFetchAndImportCourseJob: jest.fn().mockResolvedValue('job-1'),
+      createUploadAndImportCourseJob: jest.fn().mockResolvedValue('job-upload-1'),
       getImportJobStatus: jest.fn(),
       getCourseAsset: jest.fn(),
       setCourseConfiguration: jest.fn().mockResolvedValue(undefined),
@@ -96,6 +97,34 @@ describe('ScormService', () => {
     expect(prisma.course.delete).toHaveBeenCalledWith({
       where: { id: 'course-1' },
     });
+  });
+
+  it('starts upload import via SCORM Cloud multipart', async () => {
+    prisma.course.create.mockResolvedValue({ id: 'course-up', title: 'Upload' });
+    prisma.course.findUnique.mockResolvedValue(null);
+    prisma.scormPackage.findFirst.mockResolvedValue(null);
+    prisma.scormPackage.create.mockResolvedValue({
+      id: 'pkg-up',
+      courseId: 'course-up',
+      status: ScormPackageStatus.PROCESSING,
+    });
+    prisma.scormPackage.update.mockResolvedValue({
+      id: 'pkg-up',
+      cloudImportJobId: 'job-upload-1',
+    });
+
+    const res = await service.createPackageFromUpload(
+      'admin-1',
+      Buffer.from('fake-zip'),
+      {
+        completeOn: 'completed',
+        title: 'Upload',
+        filename: 'test.zip',
+      },
+    );
+
+    expect(cloud.createUploadAndImportCourseJob).toHaveBeenCalled();
+    expect(res.data).toMatchObject({ id: 'pkg-up' });
   });
 
   it('keeps an existing course when Cloud rejects the import job', async () => {
