@@ -37,8 +37,15 @@ import {
 import {
   ScormCloudClient,
   ScormCloudHttpError,
+  ScormCloudNetworkError,
+  ScormCloudTimeoutError,
 } from '../scorm-cloud/scorm-cloud.client';
 import { errorMessage } from '../utils/error-message';
+import {
+  evaluateScormPublishGate,
+  scormGateCandidateSectionsWhere,
+  scormPackageSectionIds,
+} from '../utils/scorm-publish-gate';
 import { assertEnrollmentUsable } from '../utils/assert-enrollment-usable';
 import { assertImportedCourseTreeLocked } from '../utils/assert-imported-course-tree-locked';
 import {
@@ -3043,6 +3050,67 @@ export class CourseService {
     }
   }
 
+  /**
+   * Publish gate for an imported SCORM course: the live SCORM sections must be
+   * EXACTLY the sections the newest READY package produced — not a count.
+   *
+   * A Rise package whose manifest parsed materialises one section per lesson
+   * (package.lessons[].sectionId); without a manifest it is the single
+   * synthetic `package.sectionId`. Both halves of "exactly" matter:
+   *  - missing ⇒ countCompletionDenominator has fewer sections than the
+   *    package reports progress for; either an admin deactivated some (fixable
+   *    in place) or they were archived / never built (re-import).
+   *  - extra ⇒ a leftover from a previous package is still live, and the
+   *    denominator would demand progress on a section no learner can reach,
+   *    so certification could never clear.
+   *
+   * Also refuses a course whose destroy stopped part-way (a
+   * DELETE_SCORM_COURSE_PARTIAL audit newer than the READY package): its Cloud
+   * registrations — and possibly Cloud courses — may already be gone.
+   * Importing a package afresh clears it, as does finishing the delete. A
+   * destroy also marks each package whose Cloud course it deleted PRUNED, so
+   * the READY lookup alone already refuses those (no reliance on the audit).
+   */
+  private async assertScormCoursePublishable(courseId: string): Promise<void> {
+    const ready = await this.prisma.scormPackage.findFirst({
+      where: { courseId, status: 'READY' },
+      orderBy: { versionNumber: 'desc' },
+      select: { id: true, sectionId: true, lessons: true, createdAt: true },
+    });
+    const expected = scormPackageSectionIds(ready);
+    if (!ready || expected.size === 0) {
+      throw new Error(
+        'Imported SCORM course cannot be published without a READY package — import the package first',
+      );
+    }
+
+    const unfinishedDelete = await this.prisma.adminAuditLog.findFirst({
+      where: {
+        courseId,
+        action: CourseService.PARTIAL_SCORM_DELETE_ACTION,
+        createdAt: { gt: ready.createdAt },
+      },
+      select: { id: true },
+    });
+    if (unfinishedDelete) {
+      throw new Error(
+        'Imported SCORM course cannot be published: a delete of this course stopped part-way and its SCORM Cloud content may already be gone — finish the delete, or import the package again',
+      );
+    }
+
+    // isActive is split out inside evaluateScormPublishGate, not filtered
+    // here — see scormGateCandidateSectionsWhere.
+    const candidates = await this.prisma.section.findMany({
+      where: scormGateCandidateSectionsWhere(courseId),
+      select: { id: true, isActive: true },
+    });
+    const { problems } = evaluateScormPublishGate(expected, candidates);
+    if (problems.length === 0) return;
+    throw new Error(
+      `Imported SCORM course cannot be published: ${problems.join('; ')}`,
+    );
+  }
+
   async setCourseActive(
     courseId: string,
     isActive: boolean,
@@ -3055,35 +3123,7 @@ export class CourseService {
         throw new Error('Course not found');
       }
       if (isActive && existing.deliveryMode === CourseDeliveryMode.IMPORTED_SCORM) {
-        const live = await this.prisma.section.findMany({
-          where: {
-            type: PrismaSectionType.SCORM,
-            isArchived: false,
-            chapter: {
-              isArchived: false,
-              module: { courseId, isArchived: false },
-            },
-          },
-          select: { id: true },
-        });
-        if (live.length !== 1) {
-          throw new Error(
-            'Imported SCORM course cannot be published without exactly one live SCORM section on a READY package',
-          );
-        }
-        const ready = await this.prisma.scormPackage.findFirst({
-          where: {
-            courseId,
-            status: 'READY',
-            sectionId: live[0].id,
-          },
-          select: { id: true },
-        });
-        if (!ready) {
-          throw new Error(
-            'Imported SCORM course cannot be published without exactly one live SCORM section on a READY package',
-          );
-        }
+        await this.assertScormCoursePublishable(courseId);
       }
       const course = await this.prisma.course.update({
         where: { id: courseId },
@@ -4104,11 +4144,17 @@ export class CourseService {
    * destroyed with it, split into
    *
    *   - learnerState: rows a learner produced (enrollments, SCORM Cloud
-   *     registrations, progress, completions, certificates, submissions).
+   *     registrations, progress, time tracking, completions, certificates,
+   *     submissions, in-course posts/comments by role 'user').
    *     Non-zero ⇒ a plain delete is refused; the admin must confirm with
    *     `force` (same contract as unAssignCourse and purgeUser).
    *   - content: admin-authored structure that always goes with the course
-   *     (packages, versions, curriculum tree, policies, forms, assessments).
+   *     (packages, versions, curriculum tree, policies, forms, assessments,
+   *     admin-authored posts).
+   *   - sharedQuestionUses: this course's questions sitting in OTHER courses'
+   *     assessments. The teardown must unlink them (Question is RESTRICT on
+   *     AssessmentQuestion), which silently changes those courses' quizzes —
+   *     so it also requires `force`, and the affected assessments are listed.
    *
    * `packages` / `chapterIds` / `assessmentIds` are returned so the destroy
    * path can reuse them for the Cloud teardown and the chapter/assessment
@@ -4123,6 +4169,7 @@ export class CourseService {
           versionNumber: true,
           status: true,
           scormCloudCourseId: true,
+          createdAt: true,
         },
       }),
       this.prisma.chapter.findMany({
@@ -4150,6 +4197,7 @@ export class CourseService {
       chapterCompletions,
       moduleCompletions,
       timeSpentRows,
+      timeSpentDailyRows,
       lastSeenRows,
       quizProgressRows,
       quizAnswerRows,
@@ -4159,6 +4207,10 @@ export class CourseService {
       feedbackSubmissionRows,
       assessmentAttemptRows,
       assignmentSubmissionRows,
+      learnerPostRows,
+      learnerPostCommentRows,
+      sharedQuestionUses,
+      sharedQuestionAssessmentRows,
       versions,
       modules,
       sections,
@@ -4179,6 +4231,7 @@ export class CourseService {
       this.prisma.userChapterCompletion.count({ where: { courseId } }),
       this.prisma.userModuleCompletion.count({ where: { courseId } }),
       this.prisma.sectionTimeSpent.count({ where: { courseId } }),
+      this.prisma.sectionTimeSpentDaily.count({ where: { courseId } }),
       this.prisma.lastSeenSection.count({ where: { courseId } }),
       chapterIds.length > 0
         ? this.prisma.quizProgress.count({
@@ -4204,6 +4257,30 @@ export class CourseService {
       this.prisma.assignmentSubmission.count({
         where: { assignment: { courseId } },
       }),
+      // Role is the only authorship signal on Post/Comment: 'user' rows are a
+      // learner's own writing, admin rows are course content.
+      this.prisma.post.count({
+        where: { courseId, user: { role: Role.user } },
+      }),
+      // Comments go with their post, so a learner's reply on an ADMIN post
+      // is learner state too — key on the post's course, not its author.
+      this.prisma.comment.count({
+        where: { post: { courseId }, user: { role: Role.user } },
+      }),
+      this.prisma.assessmentQuestion.count({
+        where: CourseService.sharedQuestionUseWhere(courseId),
+      }),
+      // Bounded: the 409 / preview names the affected assessments, it does not
+      // need to enumerate a pathological question bank. groupBy, not
+      // findMany+distinct — Prisma applies `distinct` in memory, so that
+      // fetched every use row before taking 20. One past the cap tells the
+      // message whether to add "…".
+      this.prisma.assessmentQuestion.groupBy({
+        by: ['assessmentId'],
+        where: CourseService.sharedQuestionUseWhere(courseId),
+        orderBy: { assessmentId: 'asc' },
+        take: CourseService.SHARED_QUESTION_ASSESSMENTS_CAP + 1,
+      }),
       this.prisma.courseVersion.count({ where: { courseId } }),
       this.prisma.module.count({ where: { courseId } }),
       chapterIds.length > 0
@@ -4217,7 +4294,9 @@ export class CourseService {
       this.prisma.courseForm.count({ where: { courseId } }),
       this.prisma.assignment.count({ where: { courseId } }),
       this.prisma.question.count({ where: { courseId } }),
-      this.prisma.post.count({ where: { courseId } }),
+      this.prisma.post.count({
+        where: { courseId, user: { role: { not: Role.user } } },
+      }),
       this.prisma.forumThread.count({ where: { courseId } }),
     ]);
 
@@ -4230,6 +4309,7 @@ export class CourseService {
       chapterCompletions,
       moduleCompletions,
       timeSpentRows,
+      timeSpentDailyRows,
       lastSeenRows,
       quizProgressRows,
       quizAnswerRows,
@@ -4239,6 +4319,8 @@ export class CourseService {
       feedbackSubmissionRows,
       assessmentAttemptRows,
       assignmentSubmissionRows,
+      learnerPostRows,
+      learnerPostCommentRows,
     };
     // certificatesIssued is a subset of courseCompletions — it is reported for
     // the confirmation dialog but must not be double-counted in the total.
@@ -4267,6 +4349,39 @@ export class CourseService {
       forumThreads,
     };
 
+    const sharedAssessmentIds = (sharedQuestionAssessmentRows ?? []).map(
+      (row) => row.assessmentId,
+    );
+    const sharedQuestionAssessmentsTruncated =
+      sharedAssessmentIds.length >
+      CourseService.SHARED_QUESTION_ASSESSMENTS_CAP;
+    const sharedAssessmentRows =
+      sharedAssessmentIds.length > 0
+        ? await this.prisma.assessment.findMany({
+            where: {
+              id: {
+                in: sharedAssessmentIds.slice(
+                  0,
+                  CourseService.SHARED_QUESTION_ASSESSMENTS_CAP,
+                ),
+              },
+            },
+            select: {
+              id: true,
+              title: true,
+              courseId: true,
+              course: { select: { title: true } },
+            },
+            orderBy: { id: 'asc' },
+          })
+        : [];
+    const sharedQuestionAssessments = sharedAssessmentRows.map((a) => ({
+      assessmentId: a.id,
+      assessmentTitle: a.title,
+      courseId: a.courseId,
+      courseTitle: a.course?.title ?? null,
+    }));
+
     return {
       packages,
       chapterIds,
@@ -4275,14 +4390,32 @@ export class CourseService {
       learnerStateTotal,
       hasLearnerState: learnerStateTotal > 0,
       content,
+      sharedQuestionUses,
+      sharedQuestionAssessments,
+      sharedQuestionAssessmentsTruncated,
+    };
+  }
+
+  private static readonly SHARED_QUESTION_ASSESSMENTS_CAP = 20;
+
+  /**
+   * AssessmentQuestion rows linking THIS course's questions into another
+   * course's assessment. Assessment.courseId is non-null, so `not` is exact.
+   */
+  private static sharedQuestionUseWhere(
+    courseId: string,
+  ): Prisma.AssessmentQuestionWhereInput {
+    return {
+      question: { courseId },
+      assessment: { courseId: { not: courseId } },
     };
   }
 
   /**
    * Read-only preview of what `DELETE /courses/:id` would destroy. The admin
    * dashboard shows this in the confirmation dialog so "delete course" is
-   * never a blind action — especially for an imported SCORM course, where the
-   * destroy also reaches into SCORM Cloud and cannot be undone.
+   * never a blind action — for imported SCORM courses the destroy also reaches
+   * into SCORM Cloud and cannot be undone.
    */
   async getCourseDeletionPreview(id: string): Promise<ResponseDto> {
     try {
@@ -4309,8 +4442,13 @@ export class CourseService {
           learnerState: impact.learnerState,
           learnerStateTotal: impact.learnerStateTotal,
           content: impact.content,
+          sharedQuestionUses: impact.sharedQuestionUses,
+          sharedQuestionAssessments: impact.sharedQuestionAssessments,
+          sharedQuestionAssessmentsTruncated:
+            impact.sharedQuestionAssessmentsTruncated,
           // false ⇒ the admin must re-send the delete with force:true.
-          canDeleteWithoutForce: !impact.hasLearnerState,
+          canDeleteWithoutForce:
+            !impact.hasLearnerState && impact.sharedQuestionUses === 0,
         },
       };
     } catch (error) {
@@ -4326,17 +4464,6 @@ export class CourseService {
   }
 
   /**
-   * SCORM Cloud teardown for a course being destroyed. HTTP cannot live
-   * inside a Prisma transaction, so this runs first and is best-effort: a
-   * Cloud failure is logged and reported back with the offending ids (the
-   * admin can remove them from the Cloud console) but never blocks the local
-   * delete — leaving the local rows behind would only strand the course in a
-   * half-deleted state with no UI to finish the job.
-   *
-   * Mirrors the ordering in `pruneSupersededPackagesCron`: registrations
-   * first, then the Cloud course they belong to.
-   */
-  /**
    * A 404 from SCORM Cloud on a delete means the object is already gone —
    * that is the desired end state, not an orphan. It happens routinely here:
    * a FAILED package whose import job errored (e.g. the account's course
@@ -4346,6 +4473,21 @@ export class CourseService {
    */
   private static isAlreadyGoneOnCloud(err: unknown): boolean {
     return err instanceof ScormCloudHttpError && err.cloudStatus === 404;
+  }
+
+  /**
+   * Timeouts, 5xx and network failures (no HTTP answer at all) say nothing
+   * about whether the object is gone. During a
+   * course destroy they make the purge stop and ask for a retry: reporting
+   * them as orphans and tearing down locally would drop the only rows that
+   * still name the Cloud ids.
+   */
+  private static isTransientCloudError(err: unknown): boolean {
+    return (
+      err instanceof ScormCloudTimeoutError ||
+      err instanceof ScormCloudNetworkError ||
+      (err instanceof ScormCloudHttpError && err.cloudStatus >= 500)
+    );
   }
 
   /**
@@ -4407,17 +4549,66 @@ export class CourseService {
     };
   }
 
+  /**
+   * SCORM Cloud teardown for a course being destroyed. HTTP cannot live
+   * inside a Prisma transaction, so this runs first. A definitive Cloud
+   * refusal (4xx other than 404) is logged and reported back with the
+   * offending ids (the admin can remove them from the Cloud console) but
+   * never blocks the local delete — leaving the local rows behind would only
+   * strand the course in a half-deleted state with no UI to finish the job.
+   * A transient one (timeout / 5xx) is different: it may well succeed on a
+   * retry, so it ends the purge as `incomplete` instead of orphaning it.
+   *
+   * Mirrors the ordering in `pruneSupersededPackagesCron`: registrations
+   * first, then the Cloud course they belong to.
+   *
+   * Without `force` the caller's gather saw no registration, so finding one
+   * here means a launch landed after it: refuse (409) before deleting
+   * anything rather than irreversibly purge a learner the admin never saw.
+   *
+   * Resumable, because one DeleteRegistration is a round-trip of up to 10s
+   * and the function has 60s: a big course cannot be purged in one request.
+   *  - Each registration Cloud confirms gone (deleted or 404) has its LOCAL
+   *    row deleted at once, so a retry re-lists only what is left instead of
+   *    re-paying a round-trip per row. Safe outside the teardown transaction:
+   *    the caller has already passed the force gate and deactivated the
+   *    course, and a ScormRegistration whose Cloud side is gone is useless.
+   *    The learner's other rows stay for the transaction.
+   *  - Registration deletes run SCORM_PURGE_CONCURRENCY at a time, and no
+   *    new Cloud delete (registration or course) starts after `deadline`.
+   *    Out of time ⇒ `incomplete: true`; no Cloud course is deleted until
+   *    every registration is (registrations must go first); the caller then
+   *    skips the local teardown and asks for a retry.
+   *  - The deadline is measured from request start and so includes the
+   *    gather; the first Cloud delete of a request is started regardless, so
+   *    a gather that alone eats the budget (cold DB, huge course) still
+   *    advances the purge by one object per retry instead of never.
+   *
+   * `purgedCloudCourseIds`: Cloud courses confirmed gone (deleted or 404) —
+   * the caller marks their packages PRUNED.
+   */
   private async purgeScormCloudForCourse(
     courseId: string,
     packages: Array<{ scormCloudCourseId: string; status: ScormPackageStatus }>,
+    deadline: number,
+    force: boolean,
   ): Promise<{
     registrations: number;
     registrationsDeleted: number;
+    registrationsRemaining: number;
     cloudCourses: number;
     cloudCoursesDeleted: number;
+    purgedCloudCourseIds: string[];
     failures: string[];
+    retryableFailures: string[];
+    incomplete: boolean;
   }> {
     const failures: string[] = [];
+    // Timeouts / 5xx: not counted as orphans, they make the request retryable.
+    const retryableFailures: string[] = [];
+    // Guarantees progress past the deadline — see the doc above.
+    let cloudDeletesStarted = 0;
+    const outOfTime = () => cloudDeletesStarted > 0 && Date.now() >= deadline;
 
     // Two passes, skipping ids already handled: the caller deactivates the
     // course first so no NEW launch can start, but a launch that was already
@@ -4425,12 +4616,15 @@ export class CourseService {
     // belt-and-braces as UserService.purgeUser, minus its duplicate deletes.
     const seen = new Set<string>();
     let registrationsDeleted = 0;
-    for (let pass = 0; pass < 2; pass += 1) {
-      let rows: Array<{ scormCloudRegistrationId: string }> = [];
+    let registrationsRemaining = 0;
+    let retryableRegistrations = 0;
+    let incomplete = false;
+    for (let pass = 0; pass < 2 && !incomplete; pass += 1) {
+      let rows: Array<{ id: string; scormCloudRegistrationId: string }> = [];
       try {
         rows = await this.prisma.scormRegistration.findMany({
           where: { courseId },
-          select: { scormCloudRegistrationId: true },
+          select: { id: true, scormCloudRegistrationId: true },
         });
       } catch (err) {
         CourseService.completionLogger.warn(
@@ -4438,30 +4632,103 @@ export class CourseService {
             err,
           )}`,
         );
+        // Unknown registrations must not be orphaned by the Cloud course
+        // delete below — stop here and let a retry re-list.
+        incomplete = true;
         break;
       }
 
-      for (const reg of rows) {
-        if (seen.has(reg.scormCloudRegistrationId)) continue;
-        seen.add(reg.scormCloudRegistrationId);
+      if (!force && rows.length > 0) {
+        throw new HttpException(
+          {
+            status: HttpStatus.CONFLICT,
+            error:
+              `Refusing to delete: ${rows.length} SCORM Cloud registration(s) ` +
+              'were created for this course while the delete was running. ' +
+              'Nothing was removed from SCORM Cloud and no local record was ' +
+              'deleted; the course was left deactivated. Review the deletion ' +
+              'preview again, then re-send with { force: true } to proceed.',
+            details: { learnerState: { scormRegistrations: rows.length } },
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      const queue = rows.filter((r) => !seen.has(r.scormCloudRegistrationId));
+      const purgeOne = async (reg: (typeof rows)[number]) => {
         try {
           await this.scormCloud.deleteRegistration(
             reg.scormCloudRegistrationId,
           );
-          registrationsDeleted += 1;
         } catch (err) {
-          if (CourseService.isAlreadyGoneOnCloud(err)) {
-            registrationsDeleted += 1;
-            continue;
+          if (CourseService.isTransientCloudError(err)) {
+            retryableFailures.push(
+              `registration:${reg.scormCloudRegistrationId}`,
+            );
+            retryableRegistrations += 1;
+            incomplete = true;
+            CourseService.completionLogger.warn(
+              `Transient SCORM Cloud DeleteRegistration failure ${
+                reg.scormCloudRegistrationId
+              } (course ${courseId}) — will retry: ${errorMessage(err)}`,
+            );
+            return;
           }
-          failures.push(`registration:${reg.scormCloudRegistrationId}`);
+          if (!CourseService.isAlreadyGoneOnCloud(err)) {
+            failures.push(`registration:${reg.scormCloudRegistrationId}`);
+            CourseService.completionLogger.warn(
+              `Failed SCORM Cloud DeleteRegistration ${
+                reg.scormCloudRegistrationId
+              } (course ${courseId}): ${errorMessage(err)}`,
+            );
+            return;
+          }
+        }
+        registrationsDeleted += 1;
+        // deleteMany: a concurrent purge may already have removed it.
+        try {
+          await this.prisma.scormRegistration.deleteMany({
+            where: { id: reg.id },
+          });
+        } catch (err) {
+          // Not fatal: the teardown deletes it, a retry only re-pays a 404.
           CourseService.completionLogger.warn(
-            `Failed SCORM Cloud DeleteRegistration ${
+            `Purged SCORM Cloud registration ${
               reg.scormCloudRegistrationId
-            } (course ${courseId}): ${errorMessage(err)}`,
+            } but could not delete its local row (course ${courseId}): ${errorMessage(
+              err,
+            )}`,
           );
         }
-      }
+      };
+      const worker = async () => {
+        while (queue.length > 0) {
+          // A transient failure stops new starts too: Cloud is struggling,
+          // and the request is going to be retried anyway.
+          if (incomplete || outOfTime()) {
+            incomplete = true;
+            return;
+          }
+          const reg = queue.shift()!;
+          if (seen.has(reg.scormCloudRegistrationId)) continue;
+          seen.add(reg.scormCloudRegistrationId);
+          // Counted before the await so the sibling workers see it.
+          cloudDeletesStarted += 1;
+          await purgeOne(reg);
+        }
+      };
+      await Promise.all(
+        Array.from(
+          {
+            length: Math.min(
+              CourseService.SCORM_PURGE_CONCURRENCY,
+              queue.length,
+            ),
+          },
+          worker,
+        ),
+      );
+      registrationsRemaining = queue.length + retryableRegistrations;
     }
 
     // PRUNED packages already had their Cloud course deleted by the prune
@@ -4475,106 +4742,384 @@ export class CourseService {
       ),
     ];
     let cloudCoursesDeleted = 0;
-    for (const cloudCourseId of cloudCourseIds) {
-      try {
-        await this.scormCloud.deleteCourse(cloudCourseId);
-        cloudCoursesDeleted += 1;
-      } catch (err) {
-        if (CourseService.isAlreadyGoneOnCloud(err)) {
-          cloudCoursesDeleted += 1;
-          continue;
+    const purgedCloudCourseIds: string[] = [];
+    if (!incomplete) {
+      for (const cloudCourseId of cloudCourseIds) {
+        // Checked per course, not once: each DeleteCourse can take the full
+        // client timeout, and the local teardown still has to fit after it.
+        if (outOfTime()) {
+          incomplete = true;
+          break;
         }
-        failures.push(`course:${cloudCourseId}`);
-        CourseService.completionLogger.warn(
-          `Failed SCORM Cloud DeleteCourse ${cloudCourseId} (course ${courseId}): ${errorMessage(
-            err,
-          )}`,
-        );
+        cloudDeletesStarted += 1;
+        try {
+          await this.scormCloud.deleteCourse(cloudCourseId);
+          cloudCoursesDeleted += 1;
+          purgedCloudCourseIds.push(cloudCourseId);
+        } catch (err) {
+          if (CourseService.isAlreadyGoneOnCloud(err)) {
+            cloudCoursesDeleted += 1;
+            purgedCloudCourseIds.push(cloudCourseId);
+            continue;
+          }
+          if (CourseService.isTransientCloudError(err)) {
+            retryableFailures.push(`course:${cloudCourseId}`);
+            incomplete = true;
+            CourseService.completionLogger.warn(
+              `Transient SCORM Cloud DeleteCourse failure ${cloudCourseId} (course ${courseId}) — will retry: ${errorMessage(
+                err,
+              )}`,
+            );
+            break;
+          }
+          failures.push(`course:${cloudCourseId}`);
+          CourseService.completionLogger.warn(
+            `Failed SCORM Cloud DeleteCourse ${cloudCourseId} (course ${courseId}): ${errorMessage(
+              err,
+            )}`,
+          );
+        }
       }
     }
 
     return {
       registrations: seen.size,
       registrationsDeleted,
+      registrationsRemaining,
       cloudCourses: cloudCourseIds.length,
       cloudCoursesDeleted,
+      purgedCloudCourseIds,
       failures,
+      retryableFailures,
+      incomplete,
+    };
+  }
+
+  /** Parallel DeleteRegistration calls per course purge (see purge doc). */
+  private static readonly SCORM_PURGE_CONCURRENCY = 8;
+  /**
+   * Stop starting Cloud deletes this long after the request began. Vercel
+   * kills the function at 60s; the worst case after the budget is
+   *   25s budget (includes the gather; one Cloud delete may still start
+   *   past it — see purgeScormCloudForCourse)
+   *   + 10s for a Cloud call started just before it (SCORM_CLOUD_TIMEOUT_MS)
+   *   + 4s maxWait + 15s timeout for the teardown transaction
+   *   = 54s, leaving ~6s for the post-commit audit.
+   * Raising SCORM_CLOUD_TIMEOUT_MS above its 10s default eats that margin.
+   */
+  private static readonly SCORM_PURGE_BUDGET_MS = 25_000;
+  /** Teardown transaction limits on the SCORM path — see the budget above. */
+  private static readonly SCORM_TEARDOWN_TX = {
+    timeout: 15_000,
+    maxWait: 4_000,
+  };
+
+  /**
+   * Refuses a course destroy that would take anything beyond this course's
+   * own structure — learner rows, or this course's questions inside OTHER
+   * courses' assessments — unless the caller opted in with `force`.
+   * Structure-only courses (modules, assessments, no enrollments) are allowed
+   * through; the teardown deletes those too.
+   */
+  private assertCourseDeleteForceIfLearnerState(
+    impact: Awaited<ReturnType<CourseService['gatherCourseDeletionImpact']>>,
+    options: { force?: boolean } | undefined,
+    learnerStateError: string,
+  ): void {
+    if (options?.force) return;
+    const reasons: string[] = [];
+    if (impact.hasLearnerState) reasons.push(learnerStateError);
+    if (impact.sharedQuestionUses > 0) {
+      const courses = [
+        ...new Set(
+          impact.sharedQuestionAssessments.map(
+            (a) => a.courseTitle ?? a.courseId,
+          ),
+        ),
+      ];
+      reasons.push(
+        `Refusing to delete: ${impact.sharedQuestionUses} question use(s) from ` +
+          "this course's question bank are in assessments of other courses " +
+          `(${courses.join(', ')}${
+            impact.sharedQuestionAssessmentsTruncated ? ', …' : ''
+          }). Deleting the course removes those questions from those ` +
+          'assessments, changing quizzes in courses you are not deleting. ' +
+          'Remove them from those assessments first, or re-send with ' +
+          '{ force: true } to proceed anyway.',
+      );
+    }
+    if (reasons.length === 0) return;
+    throw new HttpException(
+      {
+        status: HttpStatus.CONFLICT,
+        error: reasons.join(' '),
+        details: {
+          learnerState: impact.learnerState,
+          content: impact.content,
+          sharedQuestionUses: impact.sharedQuestionUses,
+          sharedQuestionAssessments: impact.sharedQuestionAssessments,
+        },
+      },
+      HttpStatus.CONFLICT,
+    );
+  }
+
+  /** Teardown counts that are learner rows (see teardownCourseLocalRows). */
+  private static readonly LEARNER_DELETED_KEYS = [
+    'enrollments',
+    'scormRegistrations',
+    'courseCompletions',
+    'progressRows',
+    'chapterCompletions',
+    'moduleCompletions',
+    'timeSpentRows',
+    'timeSpentDailyRows',
+    'lastSeenRows',
+    'quizProgressRows',
+    'quizAnswerRows',
+    'formCompletions',
+    'policyCompletions',
+    'policyItemCompletions',
+    'feedbackSubmissions',
+    'assessmentAttempts',
+    'assignmentSubmissions',
+    'learnerPosts',
+    'learnerPostComments',
+  ] as const;
+
+  /**
+   * Learner rows the destroy actually removed. `purgedRegistrations` covers
+   * the SCORM purge, which deletes ScormRegistration rows before the
+   * transaction (so the teardown's own count can be 0 for them).
+   */
+  private static deletedLearnerRowCount(
+    deleted: Record<string, number>,
+    purgedRegistrations = 0,
+  ): number {
+    return (
+      CourseService.LEARNER_DELETED_KEYS.reduce(
+        (sum, key) => sum + (deleted[key] ?? 0),
+        0,
+      ) + purgedRegistrations
+    );
+  }
+
+  /**
+   * Anything a plain (non-force) delete would refuse — drives the audit
+   * action. Reads the gather AND what was actually deleted: a forced delete
+   * can remove rows written after the gather, and a forced retry of a
+   * half-purged SCORM course can gather less than the first attempt saw.
+   */
+  private static isForcedCourseDelete(
+    impact: Awaited<ReturnType<CourseService['gatherCourseDeletionImpact']>>,
+    deleted: Record<string, number>,
+    purgedRegistrations = 0,
+  ): boolean {
+    return (
+      impact.hasLearnerState ||
+      impact.sharedQuestionUses > 0 ||
+      (deleted.sharedQuestionUses ?? 0) > 0 ||
+      CourseService.deletedLearnerRowCount(deleted, purgedRegistrations) > 0
+    );
+  }
+
+  /** Readable FK name for a P2003, which otherwise surfaces as a generic 403. */
+  private static foreignKeyViolationTarget(
+    err: Prisma.PrismaClientKnownRequestError,
+  ): string | null {
+    const meta = (err.meta ?? {}) as Record<string, unknown>;
+    const target = meta.field_name ?? meta.constraint ?? meta.modelName;
+    return typeof target === 'string' && target ? target : null;
+  }
+
+  /**
+   * Close the door before the SCORM Cloud purge so no new launch can create a
+   * Cloud registration mid-purge. Committed outside any transaction on
+   * purpose — see destroyImportedScormCourse. The native path deactivates
+   * inside the teardown transaction instead.
+   */
+  private async deactivateCourseBeforeDestroy(course: Course): Promise<void> {
+    if (course.isActive) {
+      await this.prisma.course.update({
+        where: { id: course.id },
+        data: { isActive: false },
+      });
+    }
+  }
+
+  /**
+   * In-transaction re-count of the learner tables a no-force destroy must not
+   * touch. Keyed like the gather (learner posts/comments by role), but limited
+   * to the tables a learner writes to directly — derived rows (time-spent,
+   * chapter completions…) cannot appear without one of these.
+   */
+  private async countLearnerRowsForDestroy(
+    tx: Prisma.TransactionClient,
+    courseId: string,
+  ): Promise<Record<string, number>> {
+    const [
+      enrollments,
+      scormRegistrations,
+      courseCompletions,
+      progressRows,
+      learnerPostRows,
+      learnerPostCommentRows,
+      assessmentAttemptRows,
+      assignmentSubmissionRows,
+      formCompletionRows,
+      policyCompletionRows,
+    ] = await Promise.all([
+      tx.userCourse.count({ where: { courseId } }),
+      tx.scormRegistration.count({ where: { courseId } }),
+      tx.courseCompletion.count({ where: { courseId } }),
+      tx.userCourseProgress.count({ where: { courseId } }),
+      tx.post.count({ where: { courseId, user: { role: Role.user } } }),
+      tx.comment.count({
+        where: { post: { courseId }, user: { role: Role.user } },
+      }),
+      tx.assessmentAttempt.count({ where: { assessment: { courseId } } }),
+      tx.assignmentSubmission.count({ where: { assignment: { courseId } } }),
+      tx.userFormCompletion.count({ where: { courseId } }),
+      tx.userPolicyCompletion.count({ where: { courseId } }),
+    ]);
+    return {
+      enrollments,
+      scormRegistrations,
+      courseCompletions,
+      progressRows,
+      learnerPostRows,
+      learnerPostCommentRows,
+      assessmentAttemptRows,
+      assignmentSubmissionRows,
+      formCompletionRows,
+      policyCompletionRows,
     };
   }
 
   /**
-   * Permanently destroys an imported SCORM course: SCORM Cloud assets first,
-   * then every local row, then the Course itself.
+   * Ordered local delete for every row scoped to a course, children →
+   * parents. Shared by native and imported SCORM destroys — most course FKs
+   * have no `onDelete: Cascade`, so a bare course.delete() P2003s.
    *
-   * Why this can't be `prisma.course.delete()`:
-   *  - Most course-scoped tables (UserCourse, progress, Module/Chapter/Section,
-   *    policies, forms, assessments…) have NO `onDelete: Cascade` on Course, so
-   *    a bare delete returns P2003 → the generic "associated with other
-   *    records" 403 as soon as the import created its module tree.
-   *  - ScormPackage/ScormRegistration DO cascade locally, which is exactly the
-   *    danger: the rows holding the Cloud ids vanish and the Cloud course and
-   *    every learner registration are orphaned with no way to find them again.
-   *    So Cloud teardown must happen BEFORE the local delete.
+   * Chapter/assessment ids are re-read inside the transaction rather than
+   * taken from the preview gather: a chapter or assessment added in between
+   * would otherwise be missed by the scoped deletes and P2003 the Course row.
    *
-   * Safe by default: with any learner state present the delete is refused with
-   * a 409 listing what would be destroyed. `force: true` performs the full
-   * destroy — this is the same contract as unAssignCourse.
+   * Timeout: this runs ~35 sequential statements, and Prisma's 5s default
+   * would surface a partial-looking "Transaction already closed" on a Neon
+   * cold start. The native path gets 30s; the SCORM path passes the tighter
+   * SCORM_TEARDOWN_TX because the Cloud purge already spent part of the 60s.
+   *
+   * P2025 on the Course row means a concurrent delete of the same course
+   * committed first — reported as "already deleted", not a teardown failure.
+   *
+   * `deactivate` (native path) makes the isActive flip the transaction's first
+   * statement: a rollback — or the function being killed — restores it with
+   * everything else, and nothing in JS has to guess the prior state.
+   * `afterCloudPurge` (SCORM path) only changes how refusals are worded: by
+   * then the Cloud side is already gone. Its registration count says whether
+   * learner registrations went too — a no-force purge never deletes any.
    */
-  private async destroyImportedScormCourse(
-    course: Course,
-    options?: { force?: boolean; adminId?: string },
-  ): Promise<ResponseDto> {
-    const courseId = course.id;
-    const impact = await this.gatherCourseDeletionImpact(courseId);
-
-    if (impact.hasLearnerState && !options?.force) {
-      throw new HttpException(
-        {
-          status: HttpStatus.CONFLICT,
-          error:
-            'Refusing to delete: this SCORM course has learner data. ' +
-            'Deleting it permanently removes every enrollment, progress ' +
-            'record, completion and certificate for this course, and deletes ' +
-            'the package and all learner registrations from SCORM Cloud. ' +
-            'This cannot be undone. Re-send with { force: true } to destroy ' +
-            'it anyway, or deactivate the course instead to hide it while ' +
-            'keeping learner records.',
-          details: {
-            learnerState: impact.learnerState,
-            content: impact.content,
-          },
-        },
-        HttpStatus.CONFLICT,
-      );
-    }
-
-    // ── 1. Close the door ─────────────────────────────────────────────────
-    // An inactive course refuses learner launches (ScormRuntimeService: "This
-    // course is not published yet"), so no new SCORM Cloud registration can be
-    // created in the window between the Cloud purge and the local delete —
-    // such a registration would survive on Cloud with no local row naming it.
-    // If anything below fails the course is left deactivated: a safe state.
-    if (course.isActive) {
-      await this.prisma.course.update({
-        where: { id: courseId },
-        data: { isActive: false },
-      });
-    }
-
-    // ── 2. SCORM Cloud (outside the transaction — it's HTTP) ───────────────
-    const cloud = await this.purgeScormCloudForCourse(
-      courseId,
-      impact.packages,
-    );
-
-    // ── 3. Local teardown, children → parents ─────────────────────────────
-    // Timeout sized like the 13-table unassign wipe: this runs ~30 sequential
-    // statements, and Prisma's 5s default would surface a partial-looking
-    // "Transaction already closed" on a Neon cold start.
-    const deleted = await this.prisma.$transaction(
+  private async teardownCourseLocalRows(
+    courseId: string,
+    options: {
+      force?: boolean;
+      deactivate?: boolean;
+      afterCloudPurge?: { registrationsDeleted: number };
+      tx?: { timeout: number; maxWait: number };
+    },
+  ): Promise<Record<string, number>> {
+    const purged = options.afterCloudPurge;
+    const refusalSuffix = purged
+      ? (purged.registrationsDeleted > 0
+          ? ' SCORM Cloud content and learner registrations were already removed'
+          : ' SCORM Cloud content was already removed (this request deleted no ' +
+            'learner registrations)') +
+        ' and the course stays deactivated; no other local record was ' +
+        'deleted. Review the deletion preview again, then re-send with ' +
+        '{ force: true } to finish the delete.'
+      : ' Nothing was deleted. Review the deletion preview again, then ' +
+        're-send with { force: true } to proceed.';
+    const teardown = this.prisma.$transaction(
       async (tx) => {
-        const { chapterIds, assessmentIds } = impact;
+        if (options.deactivate) {
+          await tx.course.update({
+            where: { id: courseId },
+            data: { isActive: false },
+          });
+        }
+
+        // Without force the pre-flight saw no learner rows, but it ran before
+        // this transaction — re-count so a learner who enrolled, launched or
+        // submitted in between is refused, not silently wiped (throwing rolls
+        // everything back).
+        if (!options.force) {
+          const recount = await this.countLearnerRowsForDestroy(tx, courseId);
+          const total = Object.values(recount).reduce((a, b) => a + b, 0);
+          if (total > 0) {
+            throw new HttpException(
+              {
+                status: HttpStatus.CONFLICT,
+                error:
+                  `Refusing to delete: ${total} learner record(s) were written ` +
+                  'to this course while the delete was running.' +
+                  refusalSuffix,
+                details: { learnerState: recount },
+              },
+              HttpStatus.CONFLICT,
+            );
+          }
+        }
+
+        const [chapters, assessments] = await Promise.all([
+          tx.chapter.findMany({
+            where: { module: { courseId } },
+            select: { id: true },
+          }),
+          tx.assessment.findMany({
+            where: { courseId },
+            select: { id: true },
+          }),
+        ]);
+        const chapterIds = chapters.map((c) => c.id);
+        const assessmentIds = assessments.map((a) => a.id);
         const counts: Record<string, number> = {};
+
+        // Bell rows have a polymorphic `referenceId` with no FK, so nothing
+        // cascades them: drop the ones naming this course or one of its
+        // attempts / assignments / submissions (see the notify call sites),
+        // which would otherwise link to a 404. Must run before those rows go.
+        // Ids are UUIDs, so matching across entity types cannot collide.
+        // Forum notifications key on the thread, which survives (detached).
+        // Ids are resolved first so the delete is one `= ANY` probe of
+        // notifications_referenceId_idx — an OR of subplans seq-scans it.
+        const [attemptRefs, assignmentRefs, submissionRefs] = await Promise.all(
+          [
+            assessmentIds.length > 0
+              ? tx.assessmentAttempt.findMany({
+                  where: { assessmentId: { in: assessmentIds } },
+                  select: { id: true },
+                })
+              : Promise.resolve([] as Array<{ id: string }>),
+            tx.assignment.findMany({
+              where: { courseId },
+              select: { id: true },
+            }),
+            tx.assignmentSubmission.findMany({
+              where: { assignment: { courseId } },
+              select: { id: true },
+            }),
+          ],
+        );
+        const notificationRefIds = [
+          courseId,
+          ...[...attemptRefs, ...assignmentRefs, ...submissionRefs].map(
+            (r) => r.id,
+          ),
+        ];
+        counts.notifications = await tx.$executeRaw`
+          DELETE FROM "notifications"
+          WHERE "referenceId" = ANY(${notificationRefIds})`;
 
         // Forum threads outlive the course they were asked in — detach rather
         // than delete so the community history (and its comments/votes)
@@ -4593,7 +5138,16 @@ export class CourseService {
           })
         ).count;
 
-        // In-course discussion posts + their comments.
+        // In-course discussion posts + their comments. Learner-authored ones
+        // are counted as learnerState by the gather, so reaching here with
+        // any means the caller forced. Counted separately so the audit can
+        // tell learner writing from admin content (same rule as the gather).
+        [counts.learnerPosts, counts.learnerPostComments] = await Promise.all([
+          tx.post.count({ where: { courseId, user: { role: Role.user } } }),
+          tx.comment.count({
+            where: { post: { courseId }, user: { role: Role.user } },
+          }),
+        ]);
         const posts = await tx.post.findMany({
           where: { courseId },
           select: { id: true },
@@ -4624,22 +5178,41 @@ export class CourseService {
           ).count;
         }
         // Junction rows reference Question with a RESTRICT FK — clear them
-        // before the question bank below. The second arm matters when a
-        // question from THIS course was pulled into another course's
-        // assessment: that row would otherwise P2003 and roll the whole
-        // teardown back as the generic "associated with other records".
-        counts.assessmentQuestions = (
+        // before the question bank below.
+        //
+        // Cross-course arm first: a question from THIS course pulled into
+        // another course's assessment would otherwise P2003 the question
+        // delete and roll the whole teardown back. Unlinking it changes that
+        // other course's quiz, so the pre-flight refuses it without `force`;
+        // re-checking the count here closes the gap where a link was added
+        // after the gather (throwing rolls the transaction back).
+        counts.sharedQuestionUses = (
           await tx.assessmentQuestion.deleteMany({
-            where: {
-              OR: [
-                ...(assessmentIds.length > 0
-                  ? [{ assessmentId: { in: assessmentIds } }]
-                  : []),
-                { question: { courseId } },
-              ],
-            },
+            where: CourseService.sharedQuestionUseWhere(courseId),
           })
         ).count;
+        // The pre-flight assert already refused known uses before anything
+        // (including the SCORM Cloud purge) ran; this only catches a race.
+        if (counts.sharedQuestionUses > 0 && !options.force) {
+          throw new HttpException(
+            {
+              status: HttpStatus.CONFLICT,
+              error:
+                "Refusing to delete: this course's questions were added to " +
+                "another course's assessment while the delete was running." +
+                refusalSuffix,
+            },
+            HttpStatus.CONFLICT,
+          );
+        }
+        counts.assessmentQuestions =
+          assessmentIds.length > 0
+            ? (
+                await tx.assessmentQuestion.deleteMany({
+                  where: { assessmentId: { in: assessmentIds } },
+                })
+              ).count
+            : 0;
         counts.assessments = (
           await tx.assessment.deleteMany({ where: { courseId } })
         ).count;
@@ -4724,6 +5297,7 @@ export class CourseService {
 
         // SCORM rows. These would cascade with the Course, but deleting them
         // explicitly keeps the reported counts honest and the order auditable.
+        // Native courses normally have none; the deletes are then no-ops.
         counts.scormRegistrations = (
           await tx.scormRegistration.deleteMany({ where: { courseId } })
         ).count;
@@ -4764,17 +5338,441 @@ export class CourseService {
 
         return counts;
       },
-      { timeout: 30000, maxWait: 8000 },
+      options.tx ?? { timeout: 30000, maxWait: 8000 },
     );
+    return teardown.catch((err: unknown) => {
+      throw CourseService.isCourseRowMissing(err)
+        ? CourseService.courseAlreadyDeletedError(err)
+        : err;
+    });
+  }
+
+  /**
+   * A concurrent delete of the same course won the race. Same 403 + "Course
+   * not found" every other lookup in this service answers for a missing
+   * course (see deleteCourse), with a `code` so a client can treat it as done.
+   */
+  private static courseAlreadyDeletedError(
+    cause: unknown,
+    error = 'Course not found — it was deleted by another request while ' +
+      'this one was running.',
+  ): HttpException {
+    return new HttpException(
+      {
+        status: HttpStatus.FORBIDDEN,
+        code: 'COURSE_ALREADY_DELETED',
+        error,
+      },
+      HttpStatus.FORBIDDEN,
+      { cause },
+    );
+  }
+
+  /** Best-effort: a failed lookup falls back to the plain "not found". */
+  private async hasCompletedCourseDelete(courseId: string): Promise<boolean> {
+    try {
+      const row = await this.prisma.adminAuditLog.findFirst({
+        where: {
+          courseId,
+          action: { in: CourseService.COMPLETED_DELETE_ACTIONS },
+        },
+        select: { id: true },
+      });
+      return Boolean(row);
+    } catch {
+      return false;
+    }
+  }
+
+  /** P2025: the only required-record ops in the teardown are on the Course. */
+  private static isCourseRowMissing(err: unknown): boolean {
+    return (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === 'P2025'
+    );
+  }
+
+  private static isCourseAlreadyDeletedError(err: unknown): boolean {
+    return (
+      err instanceof HttpException &&
+      (err.getResponse() as Record<string, unknown>)?.code ===
+        'COURSE_ALREADY_DELETED'
+    );
+  }
+
+  /**
+   * Permanently destroys a native (non-SCORM) course and every local row scoped
+   * to it. Same safety contract as imported SCORM, minus SCORM Cloud teardown.
+   *
+   * Unlike the SCORM path nothing irreversible happens outside the
+   * transaction, so the deactivation lives inside it too: a refused or failed
+   * delete (or a killed function) rolls back to whatever isActive was —
+   * including another admin's deactivation, which a JS-side "restore" would
+   * have overwritten.
+   */
+  private async destroyNativeCourse(
+    course: Course,
+    options?: { force?: boolean; adminId?: string },
+  ): Promise<ResponseDto> {
+    const courseId = course.id;
+    const impact = await this.gatherCourseDeletionImpact(courseId);
+
+    this.assertCourseDeleteForceIfLearnerState(
+      impact,
+      options,
+      'Refusing to delete: this course has learner data. ' +
+        'Deleting it permanently removes every enrollment, progress record, ' +
+        'completion, certificate and learner post/comment for this course. ' +
+        'This cannot be undone. Re-send with { force: true } to destroy it ' +
+        'anyway, or deactivate the course instead to hide it while keeping ' +
+        'learner records.',
+    );
+
+    const deleted = await this.teardownCourseLocalRows(courseId, {
+      force: options?.force,
+      deactivate: course.isActive,
+    });
+    const learnerRowsDeleted = CourseService.deletedLearnerRowCount(deleted);
+
+    if (options?.adminId) {
+      await this.courseVersionService.writeAudit({
+        adminId: options.adminId,
+        action: CourseService.isForcedCourseDelete(impact, deleted)
+          ? 'DELETE_COURSE_FORCE'
+          : 'DELETE_COURSE',
+        targetType: 'Course',
+        targetId: courseId,
+        courseId,
+        metadata: {
+          title: course.title,
+          deliveryMode: course.deliveryMode,
+          learnerState: impact.learnerState,
+          content: impact.content,
+          sharedQuestionUses: impact.sharedQuestionUses,
+          sharedQuestionAssessments: impact.sharedQuestionAssessments,
+          deleted,
+        },
+      });
+    }
+
+    return {
+      message:
+        impact.hasLearnerState || learnerRowsDeleted > 0
+          ? 'Successfully deleted course and all learner records'
+          : 'Successfully deleted course',
+      statusCode: 200,
+      data: { course, deleted },
+    };
+  }
+
+  private static readonly PARTIAL_SCORM_DELETE_ACTION =
+    'DELETE_SCORM_COURSE_PARTIAL';
+
+  /** Audit actions of a destroy that committed (native or SCORM). */
+  private static readonly COMPLETED_DELETE_ACTIONS = [
+    'DELETE_COURSE',
+    'DELETE_COURSE_FORCE',
+    'DELETE_SCORM_COURSE',
+    'DELETE_SCORM_COURSE_FORCE',
+  ];
+
+  private static latestPackageCreatedAt(
+    packages: Array<{ createdAt?: Date | null }>,
+  ): Date | undefined {
+    let latest: Date | undefined;
+    for (const p of packages) {
+      if (p.createdAt && (!latest || p.createdAt > latest)) latest = p.createdAt;
+    }
+    return latest;
+  }
+
+  /**
+   * Earlier SCORM_PURGE_INCOMPLETE attempts at destroying this course (see
+   * destroyImportedScormCourse). `forced`: that attempt ran with force, or
+   * purged registrations (which only a forced attempt can). Best-effort like
+   * the audit itself — a failed lookup must not fail a committed destroy.
+   * `since` (newest READY or PRUNED package): a re-import starts a new course life,
+   * so partial attempts from before it are not part of this destroy.
+   */
+  private async findPriorPartialScormDeletes(
+    courseId: string,
+    since?: Date,
+  ): Promise<Array<{ id: string; forced: boolean }>> {
+    try {
+      const rows = await this.prisma.adminAuditLog.findMany({
+        where: {
+          courseId,
+          action: CourseService.PARTIAL_SCORM_DELETE_ACTION,
+          ...(since ? { createdAt: { gt: since } } : {}),
+        },
+        select: { id: true, metadata: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      return rows.map((r) => {
+        const meta = (r.metadata ?? {}) as Record<string, any>;
+        return {
+          id: r.id,
+          forced:
+            meta.force === true || (meta.cloud?.registrationsDeleted ?? 0) > 0,
+        };
+      });
+    } catch (err) {
+      CourseService.completionLogger.warn(
+        `Could not read prior partial-delete audits for course ${courseId}: ${errorMessage(
+          err,
+        )}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Permanently destroys an imported SCORM course: SCORM Cloud assets first,
+   * then every local row, then the Course itself.
+   *
+   * Why this can't be `prisma.course.delete()`:
+   *  - Most course-scoped tables (UserCourse, progress, Module/Chapter/Section,
+   *    policies, forms, assessments…) have NO `onDelete: Cascade` on Course, so
+   *    a bare delete returns P2003 → the generic "associated with other
+   *    records" 403 as soon as the import created its module tree.
+   *  - ScormPackage/ScormRegistration DO cascade locally, which is exactly the
+   *    danger: the rows holding the Cloud ids vanish and the Cloud course and
+   *    every learner registration are orphaned with no way to find them again.
+   *    So Cloud teardown must happen BEFORE the local delete.
+   *
+   * Safe by default: with any learner state (or cross-course question use)
+   * present the delete is refused with a 409 listing what would be destroyed.
+   * `force: true` performs the full destroy — same contract as unAssignCourse.
+   * Both refusals happen here, before the Cloud purge; the teardown's own
+   * re-checks only catch rows that appear mid-delete.
+   *
+   * A course with many registrations may not purge within one request, and a
+   * Cloud timeout / 5xx stops the purge too (see purgeScormCloudForCourse).
+   * Then this answers 409 with `code: 'SCORM_PURGE_INCOMPLETE'` and
+   * `retryable: true`, having deleted only the purged registrations and
+   * nothing else locally, and audits DELETE_SCORM_COURSE_PARTIAL; re-sending
+   * the same request continues where it stopped. 409 rather than 202 so a
+   * client that only checks for success can never mistake it for a finished
+   * delete.
+   *
+   * Two concurrent deletes of the same course: the loser's teardown hits
+   * P2025 and answers COURSE_ALREADY_DELETED (403 "Course not found", the
+   * service's not-found convention) instead of "local teardown failed".
+   */
+  private async destroyImportedScormCourse(
+    course: Course,
+    options: { force?: boolean; adminId?: string } | undefined,
+    startedAt: number,
+  ): Promise<ResponseDto> {
+    const courseId = course.id;
+    const impact = await this.gatherCourseDeletionImpact(courseId);
+
+    this.assertCourseDeleteForceIfLearnerState(
+      impact,
+      options,
+      'Refusing to delete: this SCORM course has learner data. ' +
+        'Deleting it permanently removes every enrollment, progress ' +
+        'record, completion, certificate and learner post/comment for this ' +
+        'course, and deletes the package and all learner registrations from ' +
+        'SCORM Cloud. This cannot be undone. Re-send with { force: true } to ' +
+        'destroy it anyway, or deactivate the course instead to hide it ' +
+        'while keeping learner records.',
+    );
+
+    // ── 1. Close the door ─────────────────────────────────────────────────
+    // An inactive course refuses learner launches (ScormRuntimeService: "This
+    // course is not published yet"), so no new SCORM Cloud registration can be
+    // created in the window between the Cloud purge and the local delete —
+    // such a registration would survive on Cloud with no local row naming it.
+    // If anything below fails the course is deliberately LEFT deactivated:
+    // its Cloud assets may already be gone, so re-publishing would hand
+    // learners launch links that 404.
+    await this.deactivateCourseBeforeDestroy(course);
+
+    // ── 2. SCORM Cloud (outside the transaction — it's HTTP) ───────────────
+    const { purgedCloudCourseIds, ...cloud } =
+      await this.purgeScormCloudForCourse(
+        courseId,
+        impact.packages,
+        startedAt + CourseService.SCORM_PURGE_BUDGET_MS,
+        Boolean(options?.force),
+      );
+
+    // Same meaning as the prune cron's PRUNED: Cloud course gone, row kept.
+    // Committed now so a teardown that fails below cannot leave a READY
+    // package the publish gate would accept (its launches would 404), and so
+    // a retry skips these Cloud deletes. Best-effort: the partial audit
+    // written on failure is the second line for the gate.
+    if (purgedCloudCourseIds.length > 0) {
+      try {
+        await this.prisma.scormPackage.updateMany({
+          where: {
+            courseId,
+            scormCloudCourseId: { in: purgedCloudCourseIds },
+            status: { not: ScormPackageStatus.PRUNED },
+          },
+          data: { status: ScormPackageStatus.PRUNED },
+        });
+      } catch (err) {
+        CourseService.completionLogger.warn(
+          `SCORM course delete ${courseId}: could not mark purged packages PRUNED: ${errorMessage(
+            err,
+          )}`,
+        );
+      }
+    }
+
+    if (cloud.incomplete) {
+      const why = cloud.retryableFailures.length
+        ? `SCORM Cloud failed transiently (timeout or 5xx) on ${cloud.retryableFailures.length} object(s)`
+        : 'the SCORM Cloud purge did not fit in one request';
+      CourseService.completionLogger.warn(
+        `SCORM course delete ${courseId}: ${why} — ${cloud.registrationsDeleted} registration(s) purged this request, ${cloud.registrationsRemaining} still pending; local teardown skipped until a retry`,
+      );
+      // Registrations purged here are gone for good, but the request "failed",
+      // so without this row the only trace of the destruction would be a log
+      // line. The finishing retry reads it back (findPriorPartialScormDeletes).
+      if (options?.adminId) {
+        await this.courseVersionService.writeAudit({
+          adminId: options.adminId,
+          action: CourseService.PARTIAL_SCORM_DELETE_ACTION,
+          targetType: 'Course',
+          targetId: courseId,
+          courseId,
+          metadata: {
+            title: course.title,
+            force: Boolean(options.force),
+            learnerState: impact.learnerState,
+            cloud,
+          },
+        });
+      }
+      throw new HttpException(
+        {
+          status: HttpStatus.CONFLICT,
+          code: 'SCORM_PURGE_INCOMPLETE',
+          retryable: true,
+          error:
+            `Partially purged: ${why} (${cloud.registrationsDeleted} ` +
+            `registration(s) removed now, ${cloud.registrationsRemaining} ` +
+            'still pending). The course is deactivated and nothing else was ' +
+            'deleted. Retry the same delete to continue — each retry only ' +
+            'handles what is left.',
+          details: { cloud },
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    // ── 3. Local teardown, children → parents ─────────────────────────────
+    let deleted: Record<string, number>;
+    try {
+      deleted = await this.teardownCourseLocalRows(courseId, {
+        force: options?.force,
+        afterCloudPurge: { registrationsDeleted: cloud.registrationsDeleted },
+        tx: CourseService.SCORM_TEARDOWN_TX,
+      });
+    } catch (err) {
+      // The other request finished the job; nothing here "failed".
+      if (CourseService.isCourseAlreadyDeletedError(err)) throw err;
+      CourseService.completionLogger.warn(
+        `SCORM course delete ${courseId}: local teardown failed after the SCORM Cloud purge — course left deactivated: ${errorMessage(
+          err,
+        )}`,
+      );
+      // Cloud is purged but the course survives: like the incomplete path,
+      // record it so the destruction is traceable, the publish gate refuses
+      // the course, and the finishing retry's audit links back to it.
+      if (options?.adminId) {
+        await this.courseVersionService.writeAudit({
+          adminId: options.adminId,
+          action: CourseService.PARTIAL_SCORM_DELETE_ACTION,
+          targetType: 'Course',
+          targetId: courseId,
+          courseId,
+          metadata: {
+            title: course.title,
+            force: Boolean(options.force),
+            learnerState: impact.learnerState,
+            cloud,
+            teardownError: errorMessage(err),
+          },
+        });
+      }
+      // The teardown's 409s are already worded for this case — pass them
+      // through with the Cloud report rather than re-wrapping the message.
+      if (
+        err instanceof HttpException &&
+        err.getStatus() === HttpStatus.CONFLICT
+      ) {
+        const body = err.getResponse() as Record<string, any>;
+        throw new HttpException(
+          { ...body, details: { ...(body?.details ?? {}), cloud } },
+          HttpStatus.CONFLICT,
+          { cause: err },
+        );
+      }
+      const fkTarget =
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2003'
+          ? CourseService.foreignKeyViolationTarget(err)
+          : undefined;
+      const cause =
+        err instanceof HttpException
+          ? (err.getResponse() as any)?.error ?? err.message
+          : fkTarget !== undefined
+            ? `a row still references this course${
+                fkTarget ? ` (${fkTarget})` : ''
+              }`
+            : errorMessage(err);
+      throw new HttpException(
+        {
+          status:
+            err instanceof HttpException
+              ? err.getStatus()
+              : HttpStatus.FORBIDDEN,
+          error:
+            'SCORM Cloud assets were removed, but deleting the local course ' +
+            `records failed (${cause}). The course has been left deactivated ` +
+            'so learners cannot launch missing content — retry the delete.',
+          details: { cloud, ...(fkTarget ? { constraint: fkTarget } : {}) },
+        },
+        err instanceof HttpException ? err.getStatus() : HttpStatus.FORBIDDEN,
+        { cause: err },
+      );
+    }
 
     // Audit after commit — a failed audit write must not roll the destroy back
     // (see CourseVersionService.writeAudit's note on passing `tx`).
     if (options?.adminId) {
+      // A forced earlier attempt may already have purged every registration,
+      // so this (possibly no-force) finishing request can gather and delete
+      // no learner rows at all — the destroy as a whole was still forced.
+      // Newest READY or PRUNED package, as the publish gate measures it: a
+      // FAILED/PROCESSING re-import attempt never started a new course life,
+      // so it must not hide the partial attempts before it.
+      const priorPartials = await this.findPriorPartialScormDeletes(
+        courseId,
+        CourseService.latestPackageCreatedAt(
+          impact.packages.filter(
+            (p) =>
+              p.status === ScormPackageStatus.READY ||
+              p.status === ScormPackageStatus.PRUNED,
+          ),
+        ),
+      );
+      const forcedEarlier = priorPartials.some((p) => p.forced);
       await this.courseVersionService.writeAudit({
         adminId: options.adminId,
-        action: impact.hasLearnerState
-          ? 'DELETE_SCORM_COURSE_FORCE'
-          : 'DELETE_SCORM_COURSE',
+        action:
+          forcedEarlier ||
+          CourseService.isForcedCourseDelete(
+            impact,
+            deleted,
+            cloud.registrationsDeleted,
+          )
+            ? 'DELETE_SCORM_COURSE_FORCE'
+            : 'DELETE_SCORM_COURSE',
         targetType: 'Course',
         targetId: courseId,
         courseId,
@@ -4782,8 +5780,13 @@ export class CourseService {
           title: course.title,
           learnerState: impact.learnerState,
           content: impact.content,
+          sharedQuestionUses: impact.sharedQuestionUses,
+          sharedQuestionAssessments: impact.sharedQuestionAssessments,
           deleted,
           cloud,
+          ...(priorPartials.length
+            ? { priorPartialAuditIds: priorPartials.map((p) => p.id) }
+            : {}),
         },
       });
     }
@@ -4801,45 +5804,59 @@ export class CourseService {
     id: string,
     options?: { force?: boolean; adminId?: string },
   ): Promise<ResponseDto> {
+    // The SCORM purge's time budget counts from here (≈ request start).
+    const startedAt = Date.now();
     try {
       const course = await this.prisma.course.findUnique({
         where: { id },
       });
       if (!course) {
+        // A double-click's second request (or a client retrying a delete
+        // whose response it lost) lands after the first committed — give it
+        // the same "treat as done" code as the in-flight race.
+        if (await this.hasCompletedCourseDelete(id)) {
+          throw CourseService.courseAlreadyDeletedError(
+            null,
+            'Course not found — it has already been deleted.',
+          );
+        }
         throw new Error('Course not found');
       }
       if (course.deliveryMode === CourseDeliveryMode.IMPORTED_SCORM) {
-        // Imported courses need SCORM Cloud teardown plus an ordered local
-        // delete — a bare course.delete() would orphan the Cloud course and
-        // every learner registration.
-        return await this.destroyImportedScormCourse(course, options);
+        return await this.destroyImportedScormCourse(
+          course,
+          options,
+          startedAt,
+        );
       }
 
-      await this.prisma.course.delete({
-        where: { id },
-      });
-
-      return {
-        message: 'Successfully deleted course record',
-        statusCode: 200,
-        data: course,
-      };
+      return await this.destroyNativeCourse(course, options);
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
+      }
+      // E.g. the SCORM pre-purge deactivation, after a concurrent delete of
+      // the same course committed.
+      if (CourseService.isCourseRowMissing(error)) {
+        throw CourseService.courseAlreadyDeletedError(error);
       }
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2003'
       ) {
-        // Foreign key constraint violation
+        // Foreign key constraint violation — name it: the teardown is meant
+        // to clear every FK, so one surviving is a bug worth pinpointing.
+        const constraint = CourseService.foreignKeyViolationTarget(error);
         throw new HttpException(
           {
             status: HttpStatus.FORBIDDEN,
-            error:
-              'Cannot delete it because it is associated with other records.',
+            error: `Cannot delete it because it is associated with other records${
+              constraint ? ` (${constraint})` : ''
+            }.`,
+            details: { constraint },
           },
           HttpStatus.FORBIDDEN,
+          { cause: error },
         );
       } else {
         // Other errors

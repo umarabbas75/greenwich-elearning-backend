@@ -60,7 +60,7 @@ model User {
   forumViewEvents          ForumViewEvent[]
   forumCategoriesCreated   ForumCategory[]            @relation("ForumCategoryCreator")
   forumVotes               ForumVote[]
-  forumTagsCreated         ForumTag[]           @relation("ForumTagCreator")
+  forumTagsCreated         ForumTag[]                 @relation("ForumTagCreator")
   sectionTimeSpent         SectionTimeSpent[]
   sectionTimeSpentDaily    SectionTimeSpentDaily[]
   emailLogs                EmailLog[]
@@ -81,23 +81,23 @@ model User {
 /// Rows are created on "request OTP", consumed on successful verify, and
 /// superseded (invalidated) when a new code is requested for the same user.
 model PasswordReset {
-  id           String    @id @default(uuid())
-  userId       String
+  id             String    @id @default(uuid())
+  userId         String
   /// argon2 hash of the 6-digit OTP — never store the code in plaintext.
-  otpHash      String
-  expiresAt    DateTime
+  otpHash        String
+  expiresAt      DateTime
   /// Wrong-guess counter; the row is locked once it hits the max.
-  attempts     Int       @default(0)
+  attempts       Int       @default(0)
   /// How many times a code has been (re)sent for this active reset.
-  resendCount  Int       @default(0)
+  resendCount    Int       @default(0)
   /// Set when the OTP is verified — gates the actual password reset.
-  verifiedAt   DateTime?
+  verifiedAt     DateTime?
   /// argon2 hash of the one-time reset token issued after verify.
   resetTokenHash String?
   /// Set when the password is actually changed — terminal, makes row unusable.
-  consumedAt   DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  consumedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -112,53 +112,53 @@ enum UserStatus {
 }
 
 model Course {
-  id                   String                 @id @default(uuid())
-  isActive             Boolean                @default(true)
-  title                String                 @unique
-  description          String
-  image                String
-  overview             String
-  duration             String
-  price                String?
-  assessment           String
+  id                     String                     @id @default(uuid())
+  isActive               Boolean                    @default(true)
+  title                  String                     @unique
+  description            String
+  image                  String
+  overview               String
+  duration               String
+  price                  String?
+  assessment             String
   // Number of days a learner retains access after completing the course
   // (content completion). Access is computed live on each request; once
   // completedAt + validityDays has passed, the learner is locked out.
   // Defaults to 365 (one year) when the admin doesn't specify it.
-  validityDays         Int                    @default(365)
+  validityDays           Int                        @default(365)
   /// Whether this course auto-generates certificates, uses manual admin upload, or none.
-  certificateIssueMode CertificateIssueMode   @default(NONE)
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
-  syllabusOverview     String
-  resourcesOverview    String
-  tutorInfo            String? // Tutor information (name, bio, qualifications, contact, etc.)
-  assessments          Json[]
-  resources            Json[]
-  syllabus             Json[]
-  UserCourseProgress   UserCourseProgress[]
-  modules              Module[]
-  Post                 Post[]
-  users                UserCourse[]
-  LastSeenSection      LastSeenSection[]
-  courseForms          CourseForm[]
-  formCompletions      UserFormCompletion[]
-  Policy               Policy[]
-  UserPolicyCompletion UserPolicyCompletion[]
-  Assignment           Assignment[]
-  feedbackForm         CourseFeedbackForm?
-  feedbackSubmissions  CourseFeedbackSubmission[]
-  courseAssessments    Assessment[]
-  questionCategories   QuestionCategory[]
-  questions            Question[]
-  courseCompletions    CourseCompletion[]
+  certificateIssueMode   CertificateIssueMode       @default(NONE)
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  syllabusOverview       String
+  resourcesOverview      String
+  tutorInfo              String? // Tutor information (name, bio, qualifications, contact, etc.)
+  assessments            Json[]
+  resources              Json[]
+  syllabus               Json[]
+  UserCourseProgress     UserCourseProgress[]
+  modules                Module[]
+  Post                   Post[]
+  users                  UserCourse[]
+  LastSeenSection        LastSeenSection[]
+  courseForms            CourseForm[]
+  formCompletions        UserFormCompletion[]
+  Policy                 Policy[]
+  UserPolicyCompletion   UserPolicyCompletion[]
+  Assignment             Assignment[]
+  feedbackForm           CourseFeedbackForm?
+  feedbackSubmissions    CourseFeedbackSubmission[]
+  courseAssessments      Assessment[]
+  questionCategories     QuestionCategory[]
+  questions              Question[]
+  courseCompletions      CourseCompletion[]
   userChapterCompletions UserChapterCompletion[]
   userModuleCompletions  UserModuleCompletion[]
-  ForumThread          ForumThread[]
-  forumViewEvents      ForumViewEvent[]
-  courseVersions       CourseVersion[]
-  deliveryMode         CourseDeliveryMode    @default(NATIVE)
-  scormPackages        ScormPackage[]
+  ForumThread            ForumThread[]
+  forumViewEvents        ForumViewEvent[]
+  courseVersions         CourseVersion[]
+  deliveryMode           CourseDeliveryMode         @default(NATIVE)
+  scormPackages          ScormPackage[]
 
   @@map("courses")
 }
@@ -180,19 +180,19 @@ enum CertificateSource {
 }
 
 model UserCourse {
-  id          String    @id @default(uuid())
-  userId      String
-  courseId    String
-  isActive    Boolean   @default(false) // Default status as inactive
-  isPaid      Boolean   @default(false) // Default status as inactive
+  id                String    @id @default(uuid())
+  userId            String
+  courseId          String
+  isActive          Boolean   @default(false) // Default status as inactive
+  isPaid            Boolean   @default(false) // Default status as inactive
   // When the admin first activated this course for this user (isActive false→true).
   // This is the engagement "start line" for NEVER_STARTED reminders. Nullable for
   // historical rows; the sweep falls back to updatedAt when null.
-  activatedAt DateTime?
+  activatedAt       DateTime?
   // Pinned curriculum snapshot taken at first activation. Null = float to live tree.
   enrolledVersionId String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   user            User           @relation(fields: [userId], references: [id])
   course          Course         @relation(fields: [courseId], references: [id])
@@ -311,37 +311,37 @@ model UserPolicyItemCompletion {
 }
 
 model CourseFeedbackForm {
-  id          String                    @id @default(uuid())
-  courseId    String
-  formName    String
-  formStructure Json                    // The actual form questions/structure
-  isRequired  Boolean                   @default(true)
-  isActive    Boolean                   @default(true)
-  createdAt   DateTime                  @default(now())
-  updatedAt   DateTime                  @updatedAt
-  course      Course                    @relation(fields: [courseId], references: [id])
-  submissions CourseFeedbackSubmission[]
+  id            String                     @id @default(uuid())
+  courseId      String
+  formName      String
+  formStructure Json // The actual form questions/structure
+  isRequired    Boolean                    @default(true)
+  isActive      Boolean                    @default(true)
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+  course        Course                     @relation(fields: [courseId], references: [id])
+  submissions   CourseFeedbackSubmission[]
 
   @@unique([courseId]) // One feedback form per course
   @@map("course_feedback_forms")
 }
 
 model CourseFeedbackSubmission {
-  id                    String                   @id @default(uuid())
-  courseId              String
-  userId                String
-  feedbackFormId        String
-  formVersion           String?
-  responses             Json                     // formData verbatim (legacy name kept for compat)
-  meanRating            Decimal?                 @db.Decimal(3, 2)
-  overallRating         FeedbackOverallRating?
-  learnerEmail          String?
-  submittedAt           DateTime                 @default(now())
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
-  course                Course                   @relation(fields: [courseId], references: [id])
-  user                  User                     @relation(fields: [userId], references: [id])
-  feedbackForm          CourseFeedbackForm       @relation(fields: [feedbackFormId], references: [id])
+  id             String                 @id @default(uuid())
+  courseId       String
+  userId         String
+  feedbackFormId String
+  formVersion    String?
+  responses      Json // formData verbatim (legacy name kept for compat)
+  meanRating     Decimal?               @db.Decimal(3, 2)
+  overallRating  FeedbackOverallRating?
+  learnerEmail   String?
+  submittedAt    DateTime               @default(now())
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  course         Course                 @relation(fields: [courseId], references: [id])
+  user           User                   @relation(fields: [userId], references: [id])
+  feedbackForm   CourseFeedbackForm     @relation(fields: [feedbackFormId], references: [id])
 
   @@unique([userId, courseId]) // One submission per user per course
   @@index([courseId])
@@ -371,47 +371,47 @@ model TodoItem {
 }
 
 model Module {
-  id                 String               @id @default(uuid())
-  title              String
-  description        String
-  courseId           String
-  isArchived         Boolean              @default(false)
+  id                     String                  @id @default(uuid())
+  title                  String
+  description            String
+  courseId               String
+  isArchived             Boolean                 @default(false)
   /// When this row was archived. Nullable — populated by delete/archive paths
   /// (from PR 1 onward) and backfilled from `updatedAt` for pre-existing archived
   /// rows. Consumed by the archive inventory endpoint's `archivedAt:desc` sort
   /// and by audit correlation.
-  archivedAt         DateTime?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  chapters           Chapter[]
-  course             Course               @relation(fields: [courseId], references: [id])
-  UserCourseProgress UserCourseProgress[]
-  sections           Section[] // Added this line
+  archivedAt             DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  chapters               Chapter[]
+  course                 Course                  @relation(fields: [courseId], references: [id])
+  UserCourseProgress     UserCourseProgress[]
+  sections               Section[] // Added this line
   userChapterCompletions UserChapterCompletion[]
-  userModuleCompletions UserModuleCompletion[]
+  userModuleCompletions  UserModuleCompletion[]
 
   @@map("modules")
 }
 
 model Chapter {
-  id                 String               @id @default(uuid())
-  title              String
-  description        String
-  pdfFile            String
-  moduleId           String
-  quizId             String?              @unique
-  isArchived         Boolean              @default(false)
+  id                     String                  @id @default(uuid())
+  title                  String
+  description            String
+  pdfFile                String
+  moduleId               String
+  quizId                 String?                 @unique
+  isArchived             Boolean                 @default(false)
   /// See `Module.archivedAt` — same semantics.
-  archivedAt         DateTime?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  LastSeenSection    LastSeenSection[]
-  UserCourseProgress UserCourseProgress[]
-  module             Module               @relation(fields: [moduleId], references: [id])
-  QuizAnswer         QuizAnswer[]
-  quizzes            Quiz[]
-  sections           Section[]
-  QuizProgress       QuizProgress[]
+  archivedAt             DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  LastSeenSection        LastSeenSection[]
+  UserCourseProgress     UserCourseProgress[]
+  module                 Module                  @relation(fields: [moduleId], references: [id])
+  QuizAnswer             QuizAnswer[]
+  quizzes                Quiz[]
+  sections               Section[]
+  QuizProgress           QuizProgress[]
   userChapterCompletions UserChapterCompletion[]
 
   @@map("chapters")
@@ -425,47 +425,47 @@ model PoliciesAndProcedures {
 }
 
 model Section {
-  id               String            @id @default(uuid())
+  id               String   @id @default(uuid())
   title            String
   description      String
   chapterId        String
   moduleId         String? // Added this line
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
   shortDescription String?
-  
+
   // New fields for type system
-  type             SectionType       @default(DEFAULT)
-  orderIndex       Int?              // Order within chapter (1, 2, 3, etc.)
-  
+  type       SectionType @default(DEFAULT)
+  orderIndex Int? // Order within chapter (1, 2, 3, etc.)
+
   // Match and Learn specific fields (nullable, used when type = MATCH_AND_LEARN)
-  itemLabel        String?
-  categoryLabel    String?
-  categories       String[]          @default([])
-  maxPerCategory   Int               @default(1)
-  isActive         Boolean           @default(true)
-  isArchived       Boolean           @default(false)
+  itemLabel      String?
+  categoryLabel  String?
+  categories     String[]  @default([])
+  maxPerCategory Int       @default(1)
+  isActive       Boolean   @default(true)
+  isArchived     Boolean   @default(false)
   /// See `Module.archivedAt` — same semantics.
-  archivedAt       DateTime?
-  
+  archivedAt     DateTime?
+
   // Visual Activity specific fields (nullable, used when type = VISUAL_ACTIVITY)
   questionText           String?
   imageUrl               String?
-  allowMultipleSelection Boolean           @default(false)
-  
+  allowMultipleSelection Boolean @default(false)
+
   // JSON storage for flexible data
-  items            Json?  // MATCH_AND_LEARN + ORDERING (orderable rows)
-  options          Json?  // VISUAL_ACTIVITY (array of option objects)
-  config           Json?  // ORDERING: { correctOrder }; MATCHING: { pairs }; FLASHCARDS: { layout, cards }
+  items   Json? // MATCH_AND_LEARN + ORDERING (orderable rows)
+  options Json? // VISUAL_ACTIVITY (array of option objects)
+  config  Json? // ORDERING: { correctOrder }; MATCHING: { pairs }; FLASHCARDS: { layout, cards }
 
   // ORDERING — orderable items in `items` JSON; correct sequence in `config.correctOrder`
   // MATCHING — `config.pairs` as [{ id, left, right }]; optional `questionText`
   // FLASHCARDS — `config` as { layout: "grid"|"single", cards: [{ id, front, back }] }
-  
+
   LastSeenSection    LastSeenSection[]
   UserCourseProgress UserCourseProgress[]
-  chapter            Chapter           @relation(fields: [chapterId], references: [id])
-  module             Module?           @relation(fields: [moduleId], references: [id]) // Added this line
+  chapter            Chapter              @relation(fields: [chapterId], references: [id])
+  module             Module?              @relation(fields: [moduleId], references: [id]) // Added this line
 
   // Speeds the live/unpinned section fetch (where: { chapterId, isArchived }).
   // Postgres does not auto-index FK columns.
@@ -496,8 +496,8 @@ model UserCourseProgress {
 }
 
 model Quiz {
-  id         String   @id @default(uuid())
-  question   String   @unique
+  id         String        @id @default(uuid())
+  question   String        @unique
   options    String[]
   /// Legacy correct-answer string. Nullable so multi-type quizzes (type set,
   /// graded via `content` instead) don't need one — see `type`/`content` below.
@@ -514,12 +514,12 @@ model Quiz {
   /// Display order within the chapter (lower first; nulls last). Reorder-only
   /// updates do not publish a new course version — see quiz reorder API.
   orderIndex Int?
-  isArchived Boolean  @default(false)
+  isArchived Boolean       @default(false)
   /// See `Module.archivedAt` — same semantics.
   archivedAt DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  chapter    Chapter? @relation(fields: [chapterId], references: [id])
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  chapter    Chapter?      @relation(fields: [chapterId], references: [id])
 
   // Speeds the live/unpinned quiz fetch (where: { chapterId, isArchived }).
   // Postgres does not auto-index FK columns.
@@ -540,23 +540,23 @@ enum CourseVersionStatus {
 
 /// One published snapshot of a course's Module → Chapter → Section → Quiz tree.
 model CourseVersion {
-  id                  String              @id @default(uuid())
-  courseId            String
-  versionNumber       Int
-  status              CourseVersionStatus @default(PUBLISHED)
-  publishedAt         DateTime?
-  publishedByAdminId  String?
-  changeNotes         String?
-  isLatest            Boolean             @default(false)
+  id                 String              @id @default(uuid())
+  courseId           String
+  versionNumber      Int
+  status             CourseVersionStatus @default(PUBLISHED)
+  publishedAt        DateTime?
+  publishedByAdminId String?
+  changeNotes        String?
+  isLatest           Boolean             @default(false)
   /// Structural manifest: ordered module/chapter/section/quiz source IDs only.
   /// Content is always read from the live tree.
-  manifest            Json?
+  manifest           Json?
   /// Active section count at publish time (O(1) progress denominator).
-  sectionCount        Int?
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
+  sectionCount       Int?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
-  course      Course                @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
   enrollments UserCourse[]
 
   @@unique([courseId, versionNumber])
@@ -780,12 +780,12 @@ model ForumThread {
 
 /// Append-only log: who opened the forum list or viewed a specific thread, when.
 model ForumViewEvent {
-  id        String          @id @default(uuid())
+  id        String         @id @default(uuid())
   userId    String
-  threadId  String?         // null = opened forum list (no specific thread)
+  threadId  String? // null = opened forum list (no specific thread)
   courseId  String?
-  scope     ForumViewScope  @default(thread)
-  createdAt DateTime        @default(now())
+  scope     ForumViewScope @default(thread)
+  createdAt DateTime       @default(now())
 
   user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   thread ForumThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
@@ -803,22 +803,22 @@ enum ForumViewScope {
 }
 
 model ForumComment {
-  id         String   @id @default(uuid())
-  content    String
-  userId     String
-  threadId   String
+  id                String         @id @default(uuid())
+  content           String
+  userId            String
+  threadId          String
   /// Null = top-level reply to the thread. One level of nested replies only.
-  parentId   String?
-  voteScore  Int      @default(0)
-  isAccepted Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  thread     ForumThread    @relation(fields: [threadId], references: [id])
-  user       User           @relation(fields: [userId], references: [id])
-  parent     ForumComment?  @relation("ForumCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies    ForumComment[] @relation("ForumCommentReplies")
-  votes      ForumVote[]
-  acceptedForThread ForumThread[] @relation("ThreadAcceptedComment")
+  parentId          String?
+  voteScore         Int            @default(0)
+  isAccepted        Boolean        @default(false)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  thread            ForumThread    @relation(fields: [threadId], references: [id])
+  user              User           @relation(fields: [userId], references: [id])
+  parent            ForumComment?  @relation("ForumCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies           ForumComment[] @relation("ForumCommentReplies")
+  votes             ForumVote[]
+  acceptedForThread ForumThread[]  @relation("ThreadAcceptedComment")
 
   @@index([threadId, isAccepted(sort: Desc), voteScore(sort: Desc), createdAt(sort: Desc)])
   @@index([threadId, isAccepted(sort: Desc), createdAt(sort: Desc)])
@@ -915,39 +915,41 @@ model ThreadSubscription {
 model Notification {
   id          String           @id @default(uuid())
   userId      String
-  threadId    String?          // nullable; cascade-null when thread is deleted
-  message     String           // legacy pre-rendered string — kept until FE fully switches to payload templates
-  seenAt      DateTime?        // panel opened (clears bell badge)
-  readAt      DateTime?        // row clicked / explicitly marked read; implies seenAt
-  payload     Json?            // structured template data — shape varies by type
-  groupKey    String?          // collapsed-row key, e.g. "assessment-submitted:<assessmentId>"
-  dedupeKey   String?          // per-recipient idempotency key; partial unique on (userId, dedupeKey)
+  threadId    String? // nullable; cascade-null when thread is deleted
+  message     String // legacy pre-rendered string — kept until FE fully switches to payload templates
+  seenAt      DateTime? // panel opened (clears bell badge)
+  readAt      DateTime? // row clicked / explicitly marked read; implies seenAt
+  payload     Json? // structured template data — shape varies by type
+  groupKey    String? // collapsed-row key, e.g. "assessment-submitted:<assessmentId>"
+  dedupeKey   String? // per-recipient idempotency key; partial unique on (userId, dedupeKey)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   commenterId String?
   type        NotificationType @default(FORUM_COMMENT)
-  referenceId String?          // assessmentId / attemptId / etc. — polymorphic, no FK
+  referenceId String? // assessmentId / attemptId / etc. — polymorphic, no FK
   commenter   User?            @relation("Commenter", fields: [commenterId], references: [id])
   thread      ForumThread?     @relation(fields: [threadId], references: [id], onDelete: SetNull)
   user        User             @relation(fields: [userId], references: [id])
 
   @@index([userId, readAt, createdAt(sort: Desc)])
   @@index([userId, groupKey])
+  // Course destroy deletes bell rows by referenceId (no FK to cascade).
+  @@index([referenceId])
   @@map("notifications")
 }
 
 model Post {
-  id        String    @id @default(uuid())
-  title     String
-  content   String
-  courseId  String
-  userId    String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  comments     Comment[]
-  course       Course    @relation(fields: [courseId], references: [id])
-  user         User      @relation(fields: [userId], references: [id])
-  forumThread  ForumThread?
+  id          String       @id @default(uuid())
+  title       String
+  content     String
+  courseId    String
+  userId      String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  comments    Comment[]
+  course      Course       @relation(fields: [courseId], references: [id])
+  user        User         @relation(fields: [userId], references: [id])
+  forumThread ForumThread?
 
   @@map("posts")
 }
@@ -1014,12 +1016,13 @@ enum SectionType {
   EMBED
   FLASHCARDS
   SCORM
+
   @@map("section_type")
 }
 
 /// Assignment definition linked to a course
 model Assignment {
-  id                 String    @id @default(uuid())
+  id                 String                @id @default(uuid())
   title              String
   description        String?
   instructions       String?
@@ -1027,22 +1030,22 @@ model Assignment {
   dueAt              DateTime?
   gradingMode        AssignmentGradingMode @default(numeric)
   maxPoints          Int?
-  allowResubmissions Boolean   @default(true)
+  allowResubmissions Boolean               @default(true)
   maxAttempts        Int?
   createdByAdminId   String
-  assignedToAdminId  String    // Admin who will review submissions for this assignment
-  assignmentFileUrl  String?   // Deprecated: first attachment URL (kept for backward compatibility)
-  assignmentFileName String?   // Deprecated: first attachment filename
+  assignedToAdminId  String // Admin who will review submissions for this assignment
+  assignmentFileUrl  String? // Deprecated: first attachment URL (kept for backward compatibility)
+  assignmentFileName String? // Deprecated: first attachment filename
   assignmentFileType AssignmentFileType? // Deprecated: first attachment type
-  isActive           Boolean   @default(true) // Admin can deactivate assignments
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  isActive           Boolean               @default(true) // Admin can deactivate assignments
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
-  course         Course                 @relation(fields: [courseId], references: [id])
-  createdByAdmin User                   @relation("AssignmentsCreatedByAdmin", fields: [createdByAdminId], references: [id])
-  submissions    AssignmentSubmission[]
-  attachments    AssignmentAttachment[]
-  assignedToAdmin User                  @relation("AssignmentReviewer", fields: [assignedToAdminId], references: [id])
+  course          Course                 @relation(fields: [courseId], references: [id])
+  createdByAdmin  User                   @relation("AssignmentsCreatedByAdmin", fields: [createdByAdminId], references: [id])
+  submissions     AssignmentSubmission[]
+  attachments     AssignmentAttachment[]
+  assignedToAdmin User                   @relation("AssignmentReviewer", fields: [assignedToAdminId], references: [id])
 
   @@index([courseId])
   @@index([createdByAdminId])
@@ -1071,13 +1074,13 @@ model AssignmentAttachment {
 /// A file submission by a student for a specific admin-created assignment
 model AssignmentSubmission {
   id                String                     @id @default(uuid())
-  assignmentId      String                     // Required - must link to an admin-created assignment
+  assignmentId      String // Required - must link to an admin-created assignment
   studentId         String
-  assignedToAdminId String                     // Admin who will review this submission
+  assignedToAdminId String // Admin who will review this submission
   reviewedByAdminId String?
-  fileUrl           String                     // Deprecated: first attachment URL (kept for backward compatibility)
-  fileName          String?                    // Deprecated: first attachment filename
-  fileType          AssignmentFileType         // Deprecated: first attachment type
+  fileUrl           String // Deprecated: first attachment URL (kept for backward compatibility)
+  fileName          String? // Deprecated: first attachment filename
+  fileType          AssignmentFileType // Deprecated: first attachment type
   status            AssignmentSubmissionStatus @default(submitted)
   feedback          String?
   score             Float?
@@ -1086,10 +1089,10 @@ model AssignmentSubmission {
   createdAt         DateTime                   @default(now())
   updatedAt         DateTime                   @updatedAt
 
-  assignment      Assignment @relation(fields: [assignmentId], references: [id])
-  student         User       @relation("StudentSubmissions", fields: [studentId], references: [id])
-  assignedToAdmin User       @relation("AdminAssignedSubmissions", fields: [assignedToAdminId], references: [id])
-  reviewedByAdmin User?      @relation("AdminReviewedSubmissions", fields: [reviewedByAdminId], references: [id])
+  assignment      Assignment                       @relation(fields: [assignmentId], references: [id])
+  student         User                             @relation("StudentSubmissions", fields: [studentId], references: [id])
+  assignedToAdmin User                             @relation("AdminAssignedSubmissions", fields: [assignedToAdminId], references: [id])
+  reviewedByAdmin User?                            @relation("AdminReviewedSubmissions", fields: [reviewedByAdminId], references: [id])
   attachments     AssignmentSubmissionAttachment[]
 
   @@unique([assignmentId, studentId]) // One submission per student per assignment
@@ -1197,20 +1200,20 @@ model QuestionCategory {
 ///   MATCHING:           { pairs: [{id,left,right}] }
 ///   VISUAL_ACTIVITY:    { imageUrl: string, options: [{id,text,isCorrect}], allowMultiple: boolean }
 model Question {
-  id                  String             @id @default(uuid())
+  id                  String               @id @default(uuid())
   courseId            String
   categoryId          String
   type                QuestionType
-  difficulty          QuestionDifficulty @default(MEDIUM)
+  difficulty          QuestionDifficulty   @default(MEDIUM)
   text                String
   imageUrl            String?
   content             Json
-  maxMarks            Float              @default(1)
-  isActive            Boolean            @default(true)
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
-  course              Course             @relation(fields: [courseId], references: [id])
-  category            QuestionCategory   @relation(fields: [categoryId], references: [id])
+  maxMarks            Float                @default(1)
+  isActive            Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  course              Course               @relation(fields: [courseId], references: [id])
+  category            QuestionCategory     @relation(fields: [categoryId], references: [id])
   assessmentQuestions AssessmentQuestion[]
 
   @@index([courseId])
@@ -1225,21 +1228,21 @@ model Question {
 /// autoConfig JSON (used when mode = AUTOMATIC):
 ///   { totalQuestions: number, byCategory: [{categoryId,count}], byDifficulty: [{difficulty,count}] }
 model Assessment {
-  id                  String         @id @default(uuid())
+  id                  String               @id @default(uuid())
   courseId            String
   title               String
   description         String?
-  mode                AssessmentMode @default(MANUAL)
-  isActive            Boolean        @default(false)
-  passingPercentage   Float          @default(60)
-  timeLimitMinutes    Int?           // informational only — NOT enforced in code yet
-  maxAttempts         Int?           // null = unlimited
-  autoConfig          Json?          // required when mode = AUTOMATIC
+  mode                AssessmentMode       @default(MANUAL)
+  isActive            Boolean              @default(false)
+  passingPercentage   Float                @default(60)
+  timeLimitMinutes    Int? // informational only — NOT enforced in code yet
+  maxAttempts         Int? // null = unlimited
+  autoConfig          Json? // required when mode = AUTOMATIC
   createdByAdminId    String
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-  course              Course         @relation(fields: [courseId], references: [id])
-  createdByAdmin      User           @relation("AssessmentsCreatedByAdmin", fields: [createdByAdminId], references: [id])
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  course              Course               @relation(fields: [courseId], references: [id])
+  createdByAdmin      User                 @relation("AssessmentsCreatedByAdmin", fields: [createdByAdminId], references: [id])
   assessmentQuestions AssessmentQuestion[]
   attempts            AssessmentAttempt[]
 
@@ -1255,7 +1258,7 @@ model AssessmentQuestion {
   assessmentId  String
   questionId    String
   orderIndex    Int        @default(0)
-  marksOverride Float?     // overrides question.maxMarks for this specific assessment
+  marksOverride Float? // overrides question.maxMarks for this specific assessment
   createdAt     DateTime   @default(now())
   assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   question      Question   @relation(fields: [questionId], references: [id])
@@ -1267,10 +1270,10 @@ model AssessmentQuestion {
 
 /// One attempt per student per assessment session. All content is snapshotted at creation time.
 model AssessmentAttempt {
-  id                   String                  @id @default(uuid())
+  id                   String                    @id @default(uuid())
   assessmentId         String
   userId               String
-  status               AssessmentAttemptStatus @default(IN_PROGRESS)
+  status               AssessmentAttemptStatus   @default(IN_PROGRESS)
   // Snapshot of assessment settings at attempt creation time
   snapshotTitle        String
   snapshotPassingPct   Float
@@ -1282,16 +1285,16 @@ model AssessmentAttempt {
   percentage           Float?
   isPassed             Boolean?
   // Lifecycle timestamps
-  startedAt            DateTime               @default(now())
+  startedAt            DateTime                  @default(now())
   submittedAt          DateTime?
   gradedAt             DateTime?
   finalizedAt          DateTime?
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
-  assessment           Assessment             @relation(fields: [assessmentId], references: [id])
-  user                 User                   @relation(fields: [userId], references: [id])
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  assessment           Assessment                @relation(fields: [assessmentId], references: [id])
+  user                 User                      @relation(fields: [userId], references: [id])
   questionSnapshots    AttemptQuestionSnapshot[]
-  courseCompletion     CourseCompletion?       @relation("BestAttempt")
+  courseCompletion     CourseCompletion?         @relation("BestAttempt")
 
   @@index([assessmentId])
   @@index([userId])
@@ -1314,22 +1317,22 @@ model AssessmentAttempt {
 model AttemptQuestionSnapshot {
   id               String            @id @default(uuid())
   attemptId        String
-  questionId       String            // traceability only — question may be edited/deleted later
+  questionId       String // traceability only — question may be edited/deleted later
   orderIndex       Int               @default(0)
   // Snapshot of question content at attempt creation time
   questionType     QuestionType
   questionText     String
   questionImageUrl String?
-  questionContent  Json              // full content snapshot (correct answers included for grading)
+  questionContent  Json // full content snapshot (correct answers included for grading)
   maxMarks         Float
   // Student answer
   studentAnswer    Json?
   isAnswered       Boolean           @default(false)
   isLocked         Boolean           @default(false) // locked once answered — cannot re-answer
   // Grading
-  systemScore      Float?            // auto-calculated on answer submission
-  adminScore       Float?            // admin override or manual grade
-  finalScore       Float?            // adminScore ?? systemScore, set on finalization
+  systemScore      Float? // auto-calculated on answer submission
+  adminScore       Float? // admin override or manual grade
+  finalScore       Float? // adminScore ?? systemScore, set on finalization
   adminFeedback    String?
   gradedAt         DateTime?
   createdAt        DateTime          @default(now())
@@ -1344,25 +1347,25 @@ model AttemptQuestionSnapshot {
 
 /// Tracks full course completion (course content + assessment passed) per user per course.
 model CourseCompletion {
-  id                 String             @id @default(uuid())
-  userId             String
-  courseId           String
-  isPassed           Boolean            @default(false)
-  bestAttemptId      String?            @unique
-  certificateUrl     String?
+  id                         String             @id @default(uuid())
+  userId                     String
+  courseId                   String
+  isPassed                   Boolean            @default(false)
+  bestAttemptId              String?            @unique
+  certificateUrl             String?
   /// Short public verification code (e.g. GTC-A1B2C3D4).
-  certificateId      String?            @unique
-  certificateIssuedAt DateTime?
-  certificateSource  CertificateSource?
+  certificateId              String?            @unique
+  certificateIssuedAt        DateTime?
+  certificateSource          CertificateSource?
   /// Admin who uploaded a manual certificate URL, when applicable.
   certificateIssuedByAdminId String?
-  courseCompletedAt  DateTime?
-  assessmentPassedAt DateTime?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  user               User               @relation(fields: [userId], references: [id])
-  course             Course             @relation(fields: [courseId], references: [id])
-  bestAttempt        AssessmentAttempt? @relation("BestAttempt", fields: [bestAttemptId], references: [id])
+  courseCompletedAt          DateTime?
+  assessmentPassedAt         DateTime?
+  createdAt                  DateTime           @default(now())
+  updatedAt                  DateTime           @updatedAt
+  user                       User               @relation(fields: [userId], references: [id])
+  course                     Course             @relation(fields: [courseId], references: [id])
+  bestAttempt                AssessmentAttempt? @relation("BestAttempt", fields: [bestAttemptId], references: [id])
 
   @@unique([userId, courseId])
   @@index([userId, courseId])
@@ -1395,23 +1398,23 @@ model LoginEvent {
 /// accumulated from heartbeat pings. chapterId/moduleId/courseId are denormalized
 /// so reports can roll time up to any level without extra joins.
 model SectionTimeSpent {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   userId          String
   sectionId       String
   chapterId       String
   moduleId        String?
   courseId        String
   /// Sum of capped heartbeat intervals — the student's active seconds here.
-  totalSeconds    Int      @default(0)
+  totalSeconds    Int       @default(0)
   /// Interactive section verify/check tries (MATCH_AND_LEARN, etc.).
-  totalAttempts   Int      @default(0)
+  totalAttempts   Int       @default(0)
   firstAttemptAt  DateTime?
   lastAttemptAt   DateTime?
   /// Last ping time; used to compute the next contiguous interval and to cap
   /// gaps (idle/closed tab) so time can't be inflated.
-  lastHeartbeatAt DateTime @default(now())
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  lastHeartbeatAt DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1440,6 +1443,8 @@ model SectionTimeSpentDaily {
   @@unique([userId, courseId, day])
   @@index([userId, day])
   @@index([day])
+  // Course-scoped deletes/counts (course destroy) — the unique leads with userId.
+  @@index([courseId])
   @@map("section_time_spent_daily")
 }
 
@@ -1602,6 +1607,36 @@ model ScormPackage {
   failureReason      String?
   /// Admin-visible note when import succeeded but gate verification was skipped or inconclusive.
   importWarning      String?
+  /// Rise lesson manifest, parsed once at import, in position order:
+  ///   [{ index, id, title, type, sectionId }]
+  ///
+  /// Each entry carries the Section row it produced, so resolving a decoded
+  /// lesson index to a section id is a JSON read rather than a query on the
+  /// progress hot path. Stable for the life of the package: a replace creates a
+  /// NEW package with its own sections, and a registration is bound to exactly
+  /// one package (@@unique([userId, packageId])), so an index can never be
+  /// resolved against a manifest it did not come from.
+  ///
+  /// Null (or empty) means the probe could not read a lesson manifest — a
+  /// non-Rise package, or a Rise export whose shape changed. Those fall back to
+  /// a single synthetic section and binary progress.
+  lessons            Json?
+  lessonCount        Int?
+  /// The chapter holding this package's lesson sections. Anchors the replace
+  /// path, which archives the whole chapter rather than a single section.
+  chapterId          String?
+  /// Rise's content-package fingerprint, decoded from learners' suspendData.
+  /// If a later blob reports a different one, the lesson index space no longer
+  /// matches the manifest these sections were built from and decoded progress
+  /// must not be applied.
+  ///
+  /// Seeded only once TWO distinct registrations have corroborated the same
+  /// value against the manifest (recorded per registration as
+  /// `metadata.riseCpvCorroborated`) — the blob is learner-controlled, and a
+  /// wrong seed degrades everyone else on the package to binary. Write-once
+  /// (conditional on null); setting it back to NULL is the admin reset, after
+  /// which it re-seeds from fresh corroboration.
+  riseCpv            String?
   createdAt          DateTime           @default(now())
 
   course        Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -1615,22 +1650,94 @@ model ScormPackage {
 /// One learner registration against one ScormPackage / Cloud course.
 /// scormCloudRegistrationId is what Cloud posts back as payload.id.
 model ScormRegistration {
-  id                       String    @id @default(uuid())
-  userId                   String
-  courseId                 String
-  packageId                String
-  sectionId                String
-  completeOn               String
-  scormCloudRegistrationId String    @unique
-  completionStatus         String    @default("unknown")
-  successStatus            String    @default("unknown")
-  scoreScaled              Float?
-  totalTimeSeconds         Float?
-  firstLaunchAt            DateTime?
-  lastPostbackAt           DateTime?
-  completedAt              DateTime?
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
+  id                        String    @id @default(uuid())
+  userId                    String
+  courseId                  String
+  packageId                 String
+  sectionId                 String
+  completeOn                String
+  scormCloudRegistrationId  String    @unique
+  completionStatus          String    @default("unknown")
+  successStatus             String    @default("unknown")
+  scoreScaled               Float?
+  totalTimeSeconds          Float?
+  firstLaunchAt             DateTime?
+  lastPostbackAt            DateTime?
+  completedAt               DateTime?
+  /// ── Lesson-level progress, decoded from runtime.suspendData ──────────────
+  /// Count of lessons the package reports complete. Monotonic: a Rise
+  /// re-attempt can reset suspendData, and progress rows are additive, so this
+  /// counter must never be allowed to move backwards either.
+  lessonsCompleted          Int?
+  /// The manifest lesson indices actually decoded as complete, as a set.
+  ///
+  /// Three jobs, all of which a bare count does badly:
+  ///  - lets the sync skip a redundant write only when the SET is unchanged.
+  ///    A Rise re-attempt can produce a DIFFERENT set of the same size, which a
+  ///    count comparison reads as "nothing new" and silently drops.
+  ///  - survives the completion bridge, which stamps every section and makes
+  ///    the progress rows useless for "which lessons did they read".
+  ///  - answers per-lesson reporting without re-fetching from Cloud.
+  lessonsCompletedIndices   Int[]     @default([])
+  /// "suspend-data" when lesson progress was decoded, "binary" when it could
+  /// not be and the learner falls back to the package's own 0/100 verdict.
+  progressSource            String?
+  /// When a FULL runtime detail was last pulled from Cloud for this
+  /// registration. Distinct from `lastPostbackAt`, which every postback stamps:
+  /// debouncing against that one would mean "pull only after 60s of learner
+  /// INACTIVITY", so an actively-studying learner — the whole target case —
+  /// would never get a pull at all.
+  ///
+  /// Stamped when a pull is CLAIMED (before the Cloud call), so it rate-limits
+  /// attempts — it says nothing about whether the pull succeeded.
+  lastRuntimePullAt         DateTime?
+  /// The newest instant whose FULL detail has been applied: the moment the
+  /// Cloud pull was ISSUED (its claim), not when its answer was written, and
+  /// only ever moved forward. `lastPostbackAt` (stamped only by real postbacks,
+  /// with their receipt time) `> lastRuntimeAppliedAt` (or this null) means
+  /// "dirty": a postback no later pull has seen — debounced, failed, or a pull
+  /// issued before it that landed after. Reconcile prioritises dirty rows and
+  /// the learner progress read refreshes them. Also stamped when a FULL pull
+  /// comes back without a runtime, or Cloud 404s the registration, so neither
+  /// stays dirty forever.
+  lastRuntimeAppliedAt      DateTime?
+  /// Snapshot of lessonsCompleted taken when the completion bridge stamped the
+  /// full section set. Without it, "which lessons did they actually read" is
+  /// unrecoverable after certification, because the bridge's stamp is
+  /// indistinguishable from real progress once written.
+  lessonsCompletedAtCertify Int?
+  attempts                  Int?
+  suspended                 Boolean?
+  /// runtime.location verbatim, plus the lesson it resolves to.
+  ///
+  /// LABEL ONLY — the bookmark is where the learner IS, not how far they got
+  /// (measured non-contiguous on live data). Never a percentage numerator.
+  ///
+  /// `lessonIndex` is **1-based for display**, to pair with `lessonCount` as
+  /// "Lesson 6 of 14". It is deliberately NOT the manifest index: every other
+  /// index in this feature — `ScormPackage.lessons[].index`,
+  /// `Section.config.scormLessonIndex`, `lessonsCompletedIndices`, and the
+  /// suspendData keys themselves — is 0-based. Joining this column back to the
+  /// manifest without subtracting 1 selects the NEXT lesson. Use `lessonId`
+  /// for that; it is the manifest's own identifier and needs no arithmetic.
+  locationRaw               String?
+  lessonId                  String?
+  lessonIndex               Int?
+  lessonTitle               String?
+  /// Cloud's own completion fraction. Always 0 for Rise — stored for
+  /// auditability, never displayed.
+  completionAmount          Float?
+  /// Cloud's real first/last access. `firstLaunchAt` is when WE created the
+  /// row, which is earlier and less meaningful.
+  firstAccessAt             DateTime?
+  lastAccessAt              DateTime?
+  /// Remainder of the Cloud payload, minus suspendData (Articulate's private
+  /// blob, rewritten on every commit — Cloud is its system of record) and minus
+  /// learner name fields, which are already on the User row we own and must not
+  /// be copied into a JSON column no purge path inspects.
+  metadata                  Json?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
   user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   package ScormPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
@@ -1638,5 +1745,10 @@ model ScormRegistration {
   @@unique([userId, packageId])
   @@index([courseId, completionStatus])
   @@index([userId, courseId])
+  /// The unique above leads with userId, so it cannot serve per-package reads:
+  /// the cpv corroboration count, the prune's registration scan.
+  @@index([packageId])
+  /// Reconcile's dirty-first selection: a range on lastPostbackAt, newest first.
+  @@index([lastPostbackAt])
   @@map("scorm_registrations")
 }

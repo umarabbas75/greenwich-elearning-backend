@@ -16,6 +16,7 @@ const engagement_service_1 = require("../engagement/engagement.service");
 const error_message_1 = require("../utils/error-message");
 const scorm_runtime_service_1 = require("./scorm-runtime.service");
 const scorm_service_1 = require("./scorm.service");
+const DAILY_SCORM_DEADLINE_MS = 40000;
 let ScormReconcileController = class ScormReconcileController {
     constructor(scorm, runtime, engagement) {
         this.scorm = scorm;
@@ -71,12 +72,12 @@ let ScormReconcileController = class ScormReconcileController {
         };
     }
     async runDaily() {
-        const data = {
-            engagement: await this.runSettled(() => this.engagement.runSweep()),
-            importJobs: await this.runSettled(() => this.scorm.processImportJobsCron()),
-            reconcile: await this.runSettled(() => this.runtime.reconcileCron()),
-            pruneSuperseded: await this.runSettled(() => this.runtime.pruneSupersededPackagesCron()),
-        };
+        const deadline = Date.now() + DAILY_SCORM_DEADLINE_MS;
+        const engagement = await this.runSettled(() => this.engagement.runSweep());
+        const importJobs = await this.runSettled(() => this.scorm.processImportJobsCron(deadline));
+        const reconcile = await this.runSettled(() => this.runtime.reconcileCron(deadline));
+        const pruneSuperseded = await this.runSettled(() => this.runtime.pruneSupersededPackagesCron(deadline));
+        const data = { engagement, importJobs, reconcile, pruneSuperseded };
         return {
             message: 'Daily cron sweep completed',
             statusCode: 200,

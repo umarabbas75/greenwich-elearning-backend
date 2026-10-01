@@ -1,0 +1,14 @@
+-- Course destroy counts and deletes daily time rows by courseId; the existing
+-- unique (userId, courseId, day) leads with userId so it cannot serve that.
+--
+-- CONCURRENTLY: a plain CREATE INDEX takes a SHARE lock that blocks the
+-- learner heartbeat's writes to this table for the whole build. It cannot run
+-- in a transaction block; `prisma migrate deploy` sends a PostgreSQL
+-- migration file as one simple-protocol query (no BEGIN), which is only an
+-- implicit transaction when it holds several statements — so this file must
+-- stay a single statement.
+--
+-- If a build is interrupted it leaves an INVALID index that IF NOT EXISTS
+-- would then skip: DROP INDEX CONCURRENTLY "section_time_spent_daily_courseId_idx"
+-- and re-run.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "section_time_spent_daily_courseId_idx" ON "section_time_spent_daily"("courseId");

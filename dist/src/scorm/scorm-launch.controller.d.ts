@@ -15,15 +15,29 @@ export declare class ScormLaunchController {
         message: string;
         statusCode: number;
         data: {
-            id: string;
-            completedAt: Date;
+            lessonsCompleted: number;
+            lessonsCompletedDecoded: number;
+            lessonsTotal: number;
+            id?: string;
+            attempts?: number;
+            completedAt?: Date;
             packageId: string;
-            completionStatus: string;
-            successStatus: string;
-            scoreScaled: number;
-            totalTimeSeconds: number;
-            firstLaunchAt: Date;
-            lastPostbackAt: Date;
+            scormCloudRegistrationId?: string;
+            completionStatus?: string;
+            successStatus?: string;
+            scoreScaled?: number;
+            totalTimeSeconds?: number;
+            firstLaunchAt?: Date;
+            lastPostbackAt?: Date;
+            progressSource?: string;
+            lastRuntimeAppliedAt?: Date;
+            lessonsCompletedAtCertify?: number;
+            suspended?: boolean;
+            lessonId?: string;
+            lessonIndex?: number;
+            lessonTitle?: string;
+            firstAccessAt?: Date;
+            lastAccessAt?: Date;
         };
     }>;
 }

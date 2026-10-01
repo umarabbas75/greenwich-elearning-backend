@@ -32,6 +32,7 @@ describe('CourseService — imported SCORM guards', () => {
       chapter: { findUnique: jest.fn() },
       section: { findUnique: jest.fn(), findMany: jest.fn() },
       scormPackage: { findFirst: jest.fn() },
+      adminAuditLog: { findFirst: jest.fn().mockResolvedValue(null) },
       userCourse: { findFirst: jest.fn(), delete: jest.fn() },
       userCourseProgress: { count: jest.fn().mockResolvedValue(0) },
       userChapterCompletion: { count: jest.fn().mockResolvedValue(0) },
@@ -124,17 +125,173 @@ describe('CourseService — imported SCORM guards', () => {
     service = moduleRef.get(CourseService);
   });
 
-  it('setCourseActive refuses isActive true on IMPORTED_SCORM with no live SCORM section', async () => {
-    prisma.course.findUnique.mockResolvedValue({
-      id: 'course-1',
-      deliveryMode: CourseDeliveryMode.IMPORTED_SCORM,
-    });
-    prisma.section.findMany.mockResolvedValue([]);
+  describe('setCourseActive on IMPORTED_SCORM', () => {
+    const scormCourse = () =>
+      prisma.course.findUnique.mockResolvedValue({
+        id: 'course-1',
+        deliveryMode: CourseDeliveryMode.IMPORTED_SCORM,
+      });
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => `sec-${i}`);
+    /** READY package whose manifest produced `sectionIds`, one per lesson. */
+    const readyPackage = (sectionIds: string[]) =>
+      prisma.scormPackage.findFirst.mockResolvedValue({
+        id: 'pkg-1',
+        sectionId: sectionIds[0],
+        lessons: sectionIds.map((sectionId, index) => ({
+          index,
+          id: `lesson-${index}`,
+          title: `Lesson ${index}`,
+          type: 'blocks',
+          sectionId,
+        })),
+      });
+    const sections = (live: string[], deactivated: string[] = []) =>
+      prisma.section.findMany.mockResolvedValue([
+        ...live.map((id) => ({ id, isActive: true })),
+        ...deactivated.map((id) => ({ id, isActive: false })),
+      ]);
+    const publishError = async () => {
+      const err: HttpException = await service
+        .setCourseActive('course-1', true)
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(HttpException);
+      expect(prisma.course.update).not.toHaveBeenCalled();
+      return (err.getResponse() as any).error as string;
+    };
 
-    await expect(service.setCourseActive('course-1', true)).rejects.toBeInstanceOf(
-      HttpException,
-    );
-    expect(prisma.course.update).not.toHaveBeenCalled();
+    it('refuses when there is no READY package', async () => {
+      scormCourse();
+      sections([]);
+      prisma.scormPackage.findFirst.mockResolvedValue(null);
+
+      expect(await publishError()).toContain('without a READY package');
+    });
+
+    /**
+     * The guard used to require EXACTLY one live SCORM section. A Rise package
+     * with a lesson manifest materialises one section per lesson, so that
+     * check would refuse to publish (and refuse to re-publish after any
+     * deactivation) every multi-lesson course.
+     */
+    it('publishes a 14-lesson package whose 14 sections are live', async () => {
+      scormCourse();
+      readyPackage(ids(14));
+      sections(ids(14));
+      prisma.course.update.mockResolvedValue({ id: 'course-1', isActive: true });
+
+      await expect(
+        service.setCourseActive('course-1', true),
+      ).resolves.toMatchObject({ statusCode: 200 });
+      expect(prisma.course.update).toHaveBeenCalled();
+    });
+
+    it('still publishes a single-section package (no lesson manifest)', async () => {
+      scormCourse();
+      prisma.scormPackage.findFirst.mockResolvedValue({
+        id: 'pkg-1',
+        sectionId: 'sec-0',
+        lessons: null,
+      });
+      sections(['sec-0']);
+      prisma.course.update.mockResolvedValue({ id: 'course-1', isActive: true });
+
+      await expect(
+        service.setCourseActive('course-1', true),
+      ).resolves.toMatchObject({ statusCode: 200 });
+    });
+
+    /**
+     * Same count, wrong set: the old `length === lessonCount` check passed
+     * this, yet the denominator would include a section no learner reaches.
+     */
+    it('refuses a course whose delete stopped part-way after this package', async () => {
+      scormCourse();
+      readyPackage(ids(2));
+      sections(ids(2));
+      prisma.adminAuditLog.findFirst.mockResolvedValue({ id: 'audit-1' });
+
+      expect(await publishError()).toContain('stopped part-way');
+      expect(prisma.adminAuditLog.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            courseId: 'course-1',
+            action: 'DELETE_SCORM_COURSE_PARTIAL',
+          }),
+        }),
+      );
+    });
+
+    it('refuses a right-sized but wrong set of live sections', async () => {
+      scormCourse();
+      readyPackage(['sec-0', 'sec-1']);
+      sections(['sec-0', 'sec-stray']);
+
+      const error = await publishError();
+      expect(error).toContain('1 leftover SCORM section(s)');
+      expect(error).toContain('archived or missing');
+    });
+
+    it('tells the admin to reactivate deactivated lesson sections, not re-import', async () => {
+      scormCourse();
+      readyPackage(ids(14));
+      sections(ids(13), ['sec-13']);
+
+      const error = await publishError();
+      expect(error).toContain('1 section(s) of this package are deactivated');
+      expect(error).toContain('reactivate them');
+      expect(error).not.toContain('re-import');
+    });
+
+    it('tells the admin to archive leftovers from another package', async () => {
+      scormCourse();
+      readyPackage(ids(14));
+      sections([...ids(14), 'old-0', 'old-1']);
+
+      const error = await publishError();
+      expect(error).toContain('2 leftover SCORM section(s)');
+      expect(error).toContain('archive them');
+      expect(error).not.toContain('re-import');
+    });
+
+    it('refuses extras on a single-section package too', async () => {
+      scormCourse();
+      prisma.scormPackage.findFirst.mockResolvedValue({
+        id: 'pkg-1',
+        sectionId: 'sec-0',
+        lessons: null,
+      });
+      sections(['sec-0', 'sec-stray']);
+
+      expect(await publishError()).toContain('archive them');
+    });
+
+    /**
+     * The half-built tree the old count check really protected against: the
+     * package recorded 14 lessons but sections were archived out from under
+     * it (archived rows are filtered out of the query entirely).
+     */
+    it('asks for a re-import when package sections are archived or missing', async () => {
+      scormCourse();
+      readyPackage(ids(14));
+      sections(['sec-0', 'sec-1']);
+
+      const error = await publishError();
+      expect(error).toContain('12 of the 14 section(s)');
+      expect(error).toContain('re-import');
+    });
+
+    it('does not run the SCORM guard when deactivating', async () => {
+      scormCourse();
+      prisma.course.update.mockResolvedValue({
+        id: 'course-1',
+        isActive: false,
+      });
+
+      await expect(
+        service.setCourseActive('course-1', false),
+      ).resolves.toMatchObject({ statusCode: 200 });
+      expect(prisma.section.findMany).not.toHaveBeenCalled();
+    });
   });
 
   it('createModule is rejected on IMPORTED_SCORM', async () => {
@@ -143,7 +300,11 @@ describe('CourseService — imported SCORM guards', () => {
     });
 
     await expect(
-      service.createModule({ id: 'course-1', title: 'X', description: '' } as any),
+      service.createModule({
+        id: 'course-1',
+        title: 'X',
+        description: '',
+      } as any),
     ).rejects.toMatchObject({
       response: expect.objectContaining({
         error: IMPORTED_SCORM_TREE_LOCKED_MESSAGE,

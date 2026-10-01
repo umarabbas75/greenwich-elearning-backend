@@ -37,10 +37,7 @@ export class ScormController {
   @UseGuards(AuthGuard('jwt'))
   @Post('packages')
   @HttpCode(200)
-  createPackage(
-    @GetUser() admin: User,
-    @Body() body: CreateScormPackageDto,
-  ) {
+  createPackage(@GetUser() admin: User, @Body() body: CreateScormPackageDto) {
     return this.scorm.createPackage(admin.id, body);
   }
 

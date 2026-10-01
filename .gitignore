@@ -11,3 +11,11 @@ backups/
 # ...but Prisma migrations ARE source and must always be committed. Without this
 # negation a brand-new migration.sql is silently ignored and lost.
 !prisma/migrations/**/*.sql
+
+# TypeScript incremental build state (tsconfig "incremental": true).
+*.tsbuildinfo
+
+# Database dumps contain learner PII — never commit them
+backups/
+*.dump
+prod-backup-*.sql

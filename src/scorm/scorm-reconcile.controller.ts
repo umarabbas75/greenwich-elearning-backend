@@ -6,6 +6,21 @@ import { ScormRuntimeService } from './scorm-runtime.service';
 import { ScormService } from './scorm.service';
 
 /**
+ * No SCORM sweep starts a new item after this much of the daily invocation.
+ * Shared, not per-sweep: each sweep's own budget counted from its own start,
+ * so three in a row could add up past Vercel's 60s. 40s rather than ~50 makes
+ * a kill unlikely, NOT impossible: an import item started just before it can
+ * take its Cloud budgets (≈ 10+10+25s) plus the 20s tree tx plus the publish,
+ * well past 60s. That is survivable by design, not by this number: a kill
+ * inside the tree tx or the publish tx rolls it back (the row stays
+ * PROCESSING and the next poll/cron redoes the item), and a kill between the
+ * two leaves "has section, still PROCESSING", which the next poll finishes by
+ * publishing only. A per-item "enough time left" gate would need ≥65s and so
+ * defer every import — not worth it.
+ */
+const DAILY_SCORM_DEADLINE_MS = 40_000;
+
+/**
  * Vercel Cron is GET. POST aliases exist for manual curl. Guarded by
  * CRON_SECRET. Hobby plan allows one daily job — `GET daily` runs every sweep.
  */
@@ -102,14 +117,25 @@ export class ScormReconcileController {
   }
 
   private async runDaily() {
-    const data = {
-      engagement: await this.runSettled(() => this.engagement.runSweep()),
-      importJobs: await this.runSettled(() => this.scorm.processImportJobsCron()),
-      reconcile: await this.runSettled(() => this.runtime.reconcileCron()),
-      pruneSuperseded: await this.runSettled(() =>
-        this.runtime.pruneSupersededPackagesCron(),
-      ),
-    };
+    // Measured from invocation start, before engagement runs.
+    const deadline = Date.now() + DAILY_SCORM_DEADLINE_MS;
+    // Engagement first, as before. It takes no deadline, and a kill midway is
+    // unrecoverable: notification rows are inserted before their emails go
+    // out, so dedupe never re-sends them. Every SCORM sweep, by contrast, is
+    // resumable — it stops starting items at the shared deadline and reports
+    // the rest as `deferred` for the next run (and pull-on-read covers learners
+    // in between). So a slow engagement sweep costs SCORM a day, not data.
+    const engagement = await this.runSettled(() => this.engagement.runSweep());
+    const importJobs = await this.runSettled(() =>
+      this.scorm.processImportJobsCron(deadline),
+    );
+    const reconcile = await this.runSettled(() =>
+      this.runtime.reconcileCron(deadline),
+    );
+    const pruneSuperseded = await this.runSettled(() =>
+      this.runtime.pruneSupersededPackagesCron(deadline),
+    );
+    const data = { engagement, importJobs, reconcile, pruneSuperseded };
     return {
       message: 'Daily cron sweep completed',
       statusCode: 200,

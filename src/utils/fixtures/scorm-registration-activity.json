@@ -1,0 +1,48 @@
+{
+  "id": "f896568a-7a28-43c0-9a6e-9a2b12818406",
+  "instance": 0,
+  "registrationCompletion": "INCOMPLETE",
+  "registrationCompletionAmount": 0,
+  "registrationSuccess": "UNKNOWN",
+  "totalSecondsTracked": 1966,
+  "firstAccessDate": "2026-09-20T17:50:14Z",
+  "lastAccessDate": "2026-09-21T07:38:33Z",
+  "createdDate": "2026-09-20T17:49:49Z",
+  "learner": {
+    "id": "learner-1",
+    "firstName": "Given",
+    "lastName": "Family"
+  },
+  "course": {
+    "id": "79d7a9fc-c669-44df-990b-ac1d83c9bd53",
+    "title": "HIRA"
+  },
+  "xapiRegistrationId": "9b927a85-0000-0000-0000-000000000000",
+  "activityDetails": {
+    "id": "B0",
+    "title": "Hazard Identification and Risk Assessment (HIRA)",
+    "activityCompletion": "INCOMPLETE",
+    "activitySuccess": "UNKNOWN",
+    "attempts": 1,
+    "completionAmount": {
+      "scaled": 0
+    },
+    "suspended": true,
+    "timeTracked": "0000:00:00",
+    "children": [
+      {
+        "id": "i1",
+        "title": "Hazard Identification and Risk Assessment (HIRA)",
+        "activityCompletion": "INCOMPLETE",
+        "activitySuccess": "UNKNOWN",
+        "attempts": 1,
+        "completionAmount": {
+          "scaled": 0
+        },
+        "suspended": true,
+        "timeTracked": "0000:32:46.40",
+        "children": []
+      }
+    ]
+  }
+}

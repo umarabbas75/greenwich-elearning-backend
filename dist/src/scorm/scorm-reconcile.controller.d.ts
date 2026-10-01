@@ -17,6 +17,7 @@ export declare class ScormReconcileController {
                 error: string;
             } | {
                 processed: number;
+                deferred: number;
                 results: {
                     id: string;
                     status: string;
@@ -27,12 +28,14 @@ export declare class ScormReconcileController {
             } | {
                 candidates: number;
                 updated: number;
+                deferred: number;
             };
             pruneSuperseded: {
                 error: string;
             } | {
                 candidates: number;
                 pruned: number;
+                deferred: number;
             };
         };
     }>;
@@ -47,6 +50,7 @@ export declare class ScormReconcileController {
                 error: string;
             } | {
                 processed: number;
+                deferred: number;
                 results: {
                     id: string;
                     status: string;
@@ -57,12 +61,14 @@ export declare class ScormReconcileController {
             } | {
                 candidates: number;
                 updated: number;
+                deferred: number;
             };
             pruneSuperseded: {
                 error: string;
             } | {
                 candidates: number;
                 pruned: number;
+                deferred: number;
             };
         };
     }>;
@@ -71,6 +77,7 @@ export declare class ScormReconcileController {
         statusCode: number;
         data: {
             processed: number;
+            deferred: number;
             results: {
                 id: string;
                 status: string;
@@ -82,6 +89,7 @@ export declare class ScormReconcileController {
         statusCode: number;
         data: {
             processed: number;
+            deferred: number;
             results: {
                 id: string;
                 status: string;
@@ -94,6 +102,7 @@ export declare class ScormReconcileController {
         data: {
             candidates: number;
             updated: number;
+            deferred: number;
         };
     }>;
     reconcilePost(): Promise<{
@@ -102,6 +111,7 @@ export declare class ScormReconcileController {
         data: {
             candidates: number;
             updated: number;
+            deferred: number;
         };
     }>;
     pruneSupersededGet(): Promise<{
@@ -110,6 +120,7 @@ export declare class ScormReconcileController {
         data: {
             candidates: number;
             pruned: number;
+            deferred: number;
         };
     }>;
     pruneSupersededPost(): Promise<{
@@ -118,6 +129,7 @@ export declare class ScormReconcileController {
         data: {
             candidates: number;
             pruned: number;
+            deferred: number;
         };
     }>;
     private runImportJobs;

@@ -21,6 +21,67 @@ export class ScormCloudHttpError extends HttpException {
   }
 }
 
+/**
+ * Cloud did not answer within the per-request budget. Distinct from
+ * ScormCloudHttpError on purpose: callers branch on `cloudStatus` (404 = gone,
+ * 409 = exists) and a timeout carries no Cloud status at all — reporting it
+ * as one would make "slow" look like an answer.
+ */
+export class ScormCloudTimeoutError extends HttpException {
+  readonly timeoutMs: number;
+
+  constructor(what: string, timeoutMs: number) {
+    super(
+      `SCORM Cloud did not respond within ${Math.round(
+        timeoutMs / 1000,
+      )}s (${what})`,
+      HttpStatus.GATEWAY_TIMEOUT,
+    );
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/**
+ * The request never got an HTTP answer (DNS, reset, TLS…). Same 502 and
+ * message the client always threw; the subclass only lets callers tell
+ * "Cloud unreachable, retry" from a definitive answer or a config error.
+ */
+export class ScormCloudNetworkError extends HttpException {
+  constructor() {
+    super('SCORM Cloud is unreachable', HttpStatus.BAD_GATEWAY);
+  }
+}
+
+/**
+ * Per-request budget (default; SCORM_CLOUD_TIMEOUT_MS overrides). Every request-path call runs inside a 60s serverless
+ * invocation (vercel.json maxDuration) that may make several Cloud calls plus
+ * DB writes, so one hung socket must not eat the whole budget — without a
+ * signal, fetch waits for the OS TCP timeout and the function is killed
+ * mid-write with no error recorded anywhere.
+ */
+export const SCORM_CLOUD_TIMEOUT_MS = 10_000;
+/**
+ * GetCourseAsset for Rise's runtime-data.js: a large body (the whole course's
+ * text, often MBs) whose read the signal also covers, so 10s times out on a
+ * slow-but-healthy Cloud and leaves the import PROCESSING. Still well inside
+ * 60s with the job-status and configuration calls that precede it.
+ */
+export const SCORM_CLOUD_ASSET_TIMEOUT_MS = 25_000;
+/**
+ * Default for SCORM_CLOUD_UPLOAD_TIMEOUT_MS. The multipart upload streams the
+ * whole zip, so it gets far longer — but it
+ * runs in that same 60s invocation, so it stays under it with room left for
+ * the FAILED write / course rollback in startPackageImport. A longer budget
+ * would only mean Vercel kills the function before our catch can run. Raise it
+ * only where the host's limit is longer (e.g. a long-running server).
+ */
+export const SCORM_CLOUD_UPLOAD_TIMEOUT_MS = 35_000;
+
+function isAbortTimeout(err: unknown): boolean {
+  const name = (err as { name?: string } | null)?.name;
+  return name === 'TimeoutError' || name === 'AbortError';
+}
+
 export type ScormCloudImportJobStatus = {
   status: string;
   message?: string;
@@ -114,26 +175,45 @@ export class ScormCloudClient {
       name,
     );
     const url = `${this.apiBase()}/courses/importJobs/upload?${qs.toString()}`;
+    // Built OUTSIDE the try, as requestText does. `authHeader()` throws when
+    // the Cloud credentials are unset, and inside the try that config error
+    // would be caught and reported as "SCORM Cloud is unreachable" — a 502 the
+    // import path then writes into the package's failureReason, sending an
+    // admin to check Cloud's status page over a missing env var.
+    const headers: Record<string, string> = {
+      Authorization: this.authHeader(),
+      Accept: 'application/json, text/plain, */*',
+    };
+
+    // One signal for the whole exchange: it also aborts the body read, so a
+    // Cloud that sends headers then stalls cannot hang us either.
+    const uploadTimeoutMs = this.timeoutMs(
+      'SCORM_CLOUD_UPLOAD_TIMEOUT_MS',
+      SCORM_CLOUD_UPLOAD_TIMEOUT_MS,
+    );
+    const signal = AbortSignal.timeout(uploadTimeoutMs);
     let response: Response;
+    let text: string;
     try {
       response = await fetch(url, {
         method: 'POST',
-        headers: {
-          Authorization: this.authHeader(),
-          Accept: 'application/json, text/plain, */*',
-        },
+        headers,
         body: form,
+        signal,
       });
+      text = await response.text();
     } catch (err) {
+      if (isAbortTimeout(err)) {
+        this.logger.error(
+          `SCORM Cloud upload import timed out after ${uploadTimeoutMs}ms`,
+        );
+        throw new ScormCloudTimeoutError('upload import', uploadTimeoutMs);
+      }
       this.logger.error(
         `SCORM Cloud upload import network error: ${errorMessage(err)}`,
       );
-      throw new HttpException(
-        'SCORM Cloud is unreachable',
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw new ScormCloudNetworkError();
     }
-    const text = await response.text();
     if (!response.ok) {
       throw new ScormCloudHttpError(response.status, text);
     }
@@ -183,8 +263,7 @@ export class ScormCloudClient {
     );
     return {
       status: String(json?.status ?? ''),
-      message:
-        typeof json?.message === 'string' ? json.message : undefined,
+      message: typeof json?.message === 'string' ? json.message : undefined,
     };
   }
 
@@ -199,7 +278,18 @@ export class ScormCloudClient {
     const qs = new URLSearchParams({ relativePath });
     return this.requestText(
       'GET',
-      `/courses/${encodeURIComponent(scormCloudCourseId)}/asset?${qs.toString()}`,
+      `/courses/${encodeURIComponent(
+        scormCloudCourseId,
+      )}/asset?${qs.toString()}`,
+      undefined,
+      {
+        // Never below the general budget: an env raise for a slow network
+        // must not leave the biggest read with the smallest budget.
+        timeoutMs: Math.max(
+          SCORM_CLOUD_ASSET_TIMEOUT_MS,
+          this.timeoutMs('SCORM_CLOUD_TIMEOUT_MS', SCORM_CLOUD_TIMEOUT_MS),
+        ),
+      },
     );
   }
 
@@ -241,12 +331,35 @@ export class ScormCloudClient {
     return link;
   }
 
+  /**
+   * GetRegistrationProgress.
+   *
+   * `detail` selects how much of the record comes back, and the three levels
+   * are exactly the three postback `resultsFormat` values:
+   *
+   *   'course'   → registration summary; `activityDetails.children` is empty
+   *   'activity' → + child activities (attempts, suspended, completionAmount)
+   *   'full'     → + per-SCO `runtime`, which is the ONLY place suspendData is
+   *
+   * Verified against the live API on 2026-09-21. Lesson-level progress is
+   * decoded from suspendData, so anything that wants it must ask for 'full';
+   * the default stays 'course' so existing callers keep their payload size.
+   */
   async getRegistrationProgress(
     registrationId: string,
+    detail: 'course' | 'activity' | 'full' = 'course',
   ): Promise<ScormCloudRegistrationProgress> {
+    const qs = new URLSearchParams();
+    if (detail === 'activity' || detail === 'full') {
+      qs.set('includeChildResults', 'true');
+    }
+    if (detail === 'full') {
+      qs.set('includeRuntime', 'true');
+    }
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
     return this.request<ScormCloudRegistrationProgress>(
       'GET',
-      `/registrations/${encodeURIComponent(registrationId)}`,
+      `/registrations/${encodeURIComponent(registrationId)}${suffix}`,
     );
   }
 
@@ -259,12 +372,16 @@ export class ScormCloudClient {
     );
   }
 
-  async deleteCourse(scormCloudCourseId: string): Promise<void> {
+  /** `timeoutMs` overrides the default budget (see startPackageImport). */
+  async deleteCourse(
+    scormCloudCourseId: string,
+    options?: { timeoutMs?: number },
+  ): Promise<void> {
     await this.request(
       'DELETE',
       `/courses/${encodeURIComponent(scormCloudCourseId)}`,
       undefined,
-      { acceptEmpty: true },
+      { acceptEmpty: true, timeoutMs: options?.timeoutMs },
     );
   }
 
@@ -280,10 +397,24 @@ export class ScormCloudClient {
     const qs = new URLSearchParams({ userEmail: ownerEmail });
     await this.request(
       'DELETE',
-      `/learner/${encodeURIComponent(learnerId)}/delete-information?${qs.toString()}`,
+      `/learner/${encodeURIComponent(
+        learnerId,
+      )}/delete-information?${qs.toString()}`,
       undefined,
       { acceptEmpty: true },
     );
+  }
+
+  /** Env override for a budget; anything not a positive number → default. */
+  private timeoutMs(key: string, fallback: number): number {
+    const raw = this.config.get<string | number>(key);
+    if (raw === undefined || raw === null || raw === '') return fallback;
+    const ms = Number(raw);
+    if (!Number.isFinite(ms) || ms <= 0) {
+      this.logger.warn(`Ignoring invalid ${key}="${raw}"; using ${fallback}ms`);
+      return fallback;
+    }
+    return ms;
   }
 
   private apiBase(): string {
@@ -309,7 +440,7 @@ export class ScormCloudClient {
     method: string,
     path: string,
     body?: unknown,
-    options?: { acceptEmpty?: boolean },
+    options?: { acceptEmpty?: boolean; timeoutMs?: number },
   ): Promise<T> {
     const text = await this.requestText(method, path, body, options);
     if (!text) {
@@ -331,33 +462,50 @@ export class ScormCloudClient {
     method: string,
     path: string,
     body?: unknown,
-    options?: { acceptEmpty?: boolean },
+    options?: { acceptEmpty?: boolean; timeoutMs?: number },
   ): Promise<string> {
     const url = `${this.apiBase()}${path.startsWith('/') ? path : `/${path}`}`;
+    // A per-call budget is a property of the call (a big body, a cleanup that
+    // must fit what is left of the invocation), so it wins over the env default.
+    const timeoutMs =
+      options?.timeoutMs ??
+      this.timeoutMs('SCORM_CLOUD_TIMEOUT_MS', SCORM_CLOUD_TIMEOUT_MS);
     const headers: Record<string, string> = {
       Authorization: this.authHeader(),
       Accept: 'application/json, text/plain, */*',
     };
-    const init: RequestInit = { method, headers };
+    const init: RequestInit = {
+      method,
+      headers,
+      // Covers the body read below too, not just the headers.
+      signal: AbortSignal.timeout(timeoutMs),
+    };
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';
       init.body = JSON.stringify(body);
     }
 
     let response: Response;
+    let text: string;
     try {
       response = await fetch(url, init);
+      text = await response.text();
     } catch (err) {
+      if (isAbortTimeout(err)) {
+        this.logger.error(
+          `SCORM Cloud ${method} ${path} timed out after ${timeoutMs}ms`,
+        );
+        throw new ScormCloudTimeoutError(
+          `${method} ${path.split('?')[0]}`,
+          timeoutMs,
+        );
+      }
       this.logger.error(
         `SCORM Cloud ${method} ${path} network error: ${errorMessage(err)}`,
       );
-      throw new HttpException(
-        'SCORM Cloud is unreachable',
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw new ScormCloudNetworkError();
     }
 
-    const text = await response.text();
     if (response.status === 204 || (options?.acceptEmpty && !text)) {
       if (!response.ok && response.status !== 204) {
         throw new ScormCloudHttpError(response.status, text);

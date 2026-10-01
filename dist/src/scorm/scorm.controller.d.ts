@@ -23,6 +23,10 @@ export declare class ScormController {
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
             importWarning: string;
+            lessons: import(".prisma/client").Prisma.JsonValue;
+            lessonCount: number;
+            chapterId: string;
+            riseCpv: string;
             createdAt: Date;
         };
     }>;
@@ -44,6 +48,10 @@ export declare class ScormController {
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
             importWarning: string;
+            lessons: import(".prisma/client").Prisma.JsonValue;
+            lessonCount: number;
+            chapterId: string;
+            riseCpv: string;
             createdAt: Date;
         };
     }>;
@@ -65,6 +73,10 @@ export declare class ScormController {
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
             importWarning: string;
+            lessons: import(".prisma/client").Prisma.JsonValue;
+            lessonCount: number;
+            chapterId: string;
+            riseCpv: string;
             createdAt: Date;
         };
     }>;
@@ -86,6 +98,10 @@ export declare class ScormController {
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
             importWarning: string;
+            lessons: import(".prisma/client").Prisma.JsonValue;
+            lessonCount: number;
+            chapterId: string;
+            riseCpv: string;
             createdAt: Date;
         };
     }>;
@@ -107,6 +123,10 @@ export declare class ScormController {
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
             importWarning: string;
+            lessons: import(".prisma/client").Prisma.JsonValue;
+            lessonCount: number;
+            chapterId: string;
+            riseCpv: string;
             createdAt: Date;
         }[];
     }>;

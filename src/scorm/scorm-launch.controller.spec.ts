@@ -10,7 +10,10 @@ import { ScormLaunchController } from './scorm-launch.controller';
 describe('ScormLaunchController contract', () => {
   it('exposes POST /launch with HTTP 200 (not Nest POST 201, not a 302 redirect)', () => {
     expect(
-      Reflect.getMetadata(PATH_METADATA, ScormLaunchController.prototype.launch),
+      Reflect.getMetadata(
+        PATH_METADATA,
+        ScormLaunchController.prototype.launch,
+      ),
     ).toBe('launch');
     expect(
       Reflect.getMetadata(
@@ -25,10 +28,7 @@ describe('ScormLaunchController contract', () => {
       ),
     ).toBe(200);
     expect(
-      Reflect.getMetadata(
-        'redirect',
-        ScormLaunchController.prototype.launch,
-      ),
+      Reflect.getMetadata('redirect', ScormLaunchController.prototype.launch),
     ).toBeUndefined();
   });
 

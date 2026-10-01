@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { resetManifestCache } from './course-version.manifest';
 import { computeLearnerPercentages, percentageKey } from './learner-percentage';
@@ -265,5 +267,165 @@ describe('learner-percentage contract', () => {
 
     expect(row.percentage).toBe(0);
     expect(Number.isNaN(row.percentage)).toBe(false);
+  });
+});
+
+/**
+ * The test of the SCORM lesson-progress design.
+ *
+ * An imported SCORM course materialises one Section per Rise lesson and writes
+ * decoded lesson completions as ordinary `UserCourseProgress` rows. If that is
+ * right, the engine needs no SCORM branch at all — a SCORM learner is
+ * arithmetically indistinguishable from a native one.
+ *
+ * If any of these ever require a change to learner-percentage.ts, that is the
+ * signal the write-side design is wrong. Do not add the branch here.
+ */
+describe('learner-percentage — imported SCORM parity', () => {
+  let prisma: Record<string, any>;
+
+  const lessonSections = Array.from({ length: 14 }, (_, i) => `sec-${i}`);
+
+  beforeEach(() => {
+    resetManifestCache();
+    prisma = {
+      userCourse: { findMany: jest.fn().mockResolvedValue([]) },
+      courseCompletion: { findMany: jest.fn().mockResolvedValue([]) },
+      courseVersion: { findUnique: jest.fn().mockResolvedValue(null) },
+      section: { findMany: jest.fn().mockResolvedValue([]) },
+      userCourseProgress: { findMany: jest.fn().mockResolvedValue([]) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
+    };
+  });
+
+  const run = (pairs: any[]) =>
+    computeLearnerPercentages(prisma as unknown as PrismaService, pairs);
+
+  /** A 14-lesson SCORM course on the live tree, learner done with `completed`. */
+  const setupLive = (completed: string[]) => {
+    prisma.$queryRaw.mockResolvedValue(
+      lessonSections.map((id) => ({ id, courseId: 'course-1' })),
+    );
+    prisma.userCourseProgress.findMany.mockResolvedValue(
+      completed.map((sectionId) => ({
+        userId: 'user-1',
+        courseId: 'course-1',
+        sectionId,
+      })),
+    );
+  };
+
+  /**
+   * The plan's definition of done: 3 of 14 lessons reads 21% — the same number
+   * Rise's own `progress.p` reported for this learner on live data.
+   */
+  it('reports 21% for a learner 3 lessons into 14', async () => {
+    setupLive(['sec-0', 'sec-1', 'sec-4']);
+
+    const result = await run([
+      { userId: 'user-1', courseId: 'course-1', enrolledVersionId: null },
+    ]);
+    const entry = result.get(percentageKey('user-1', 'course-1'))!;
+
+    expect(entry.numerator).toBe(3);
+    expect(entry.denominator).toBe(14);
+    expect(entry.percentage).toBe(21);
+  });
+
+  it('reads 0% before the learner completes a lesson, not "not started"', async () => {
+    setupLive([]);
+    const result = await run([
+      { userId: 'user-1', courseId: 'course-1', enrolledVersionId: null },
+    ]);
+    const entry = result.get(percentageKey('user-1', 'course-1'))!;
+    expect(entry.percentage).toBe(0);
+    expect(entry.denominator).toBe(14);
+  });
+
+  /**
+   * The completion bridge stamps every section the gate counts, so a certified
+   * SCORM learner arrives here with all 14 rows and must read exactly 100 —
+   * not 99 from the "never round up to finished" floor.
+   */
+  it('reads exactly 100% once the bridge has stamped every lesson', async () => {
+    setupLive(lessonSections);
+    const result = await run([
+      { userId: 'user-1', courseId: 'course-1', enrolledVersionId: null },
+    ]);
+    const entry = result.get(percentageKey('user-1', 'course-1'))!;
+    expect(entry.numerator).toBe(14);
+    expect(entry.percentage).toBe(100);
+  });
+
+  /**
+   * A learner pinned before the lesson backfill keeps a one-section curriculum.
+   * Their progress row against the old synthetic section still counts, and they
+   * read binary 0/100 — correct for the curriculum they were pinned to.
+   */
+  it('keeps a pre-backfill learner on their one-section denominator', async () => {
+    prisma.userCourse.findMany.mockResolvedValue([
+      { userId: 'user-1', courseId: 'course-1', enrolledVersionId: 'ver-old' },
+    ]);
+    prisma.courseVersion.findUnique.mockResolvedValue({
+      id: 'ver-old',
+      manifest: {
+        modules: [
+          {
+            sourceId: 'mod-1',
+            order: 0,
+            chapters: [
+              {
+                sourceId: 'ch-1',
+                order: 0,
+                sectionIds: ['sec-legacy'],
+                quizIds: [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    prisma.userCourseProgress.findMany.mockResolvedValue([
+      { userId: 'user-1', courseId: 'course-1', sectionId: 'sec-legacy' },
+    ]);
+
+    const result = await run([{ userId: 'user-1', courseId: 'course-1' }]);
+    const entry = result.get(percentageKey('user-1', 'course-1'))!;
+    expect(entry.denominator).toBe(1);
+    expect(entry.percentage).toBe(100);
+    expect(entry.denominatorSource).toBe('manifest');
+  });
+
+  /**
+   * Progress rows written against a SUPERSEDED package's archived sections must
+   * not leak into the live denominator — the engine intersects rather than
+   * counting raw rows, and that is what stops a package replace inflating a
+   * learner past their real position.
+   */
+  it('ignores rows for sections outside the learner curriculum', async () => {
+    prisma.$queryRaw.mockResolvedValue(
+      lessonSections.map((id) => ({ id, courseId: 'course-1' })),
+    );
+    prisma.userCourseProgress.findMany.mockResolvedValue([
+      { userId: 'user-1', courseId: 'course-1', sectionId: 'sec-0' },
+      { userId: 'user-1', courseId: 'course-1', sectionId: 'old-pkg-sec-3' },
+      { userId: 'user-1', courseId: 'course-1', sectionId: 'old-pkg-sec-7' },
+    ]);
+
+    const result = await run([
+      { userId: 'user-1', courseId: 'course-1', enrolledVersionId: null },
+    ]);
+    const entry = result.get(percentageKey('user-1', 'course-1'))!;
+    expect(entry.numerator).toBe(1);
+    expect(entry.denominator).toBe(14);
+  });
+
+  /** The engine must contain no SCORM-specific code for any of the above. */
+  it('learner-percentage.ts references nothing SCORM', () => {
+    const source = readFileSync(
+      join(__dirname, 'learner-percentage.ts'),
+      'utf8',
+    );
+    expect(source.toLowerCase()).not.toContain('scorm');
   });
 });

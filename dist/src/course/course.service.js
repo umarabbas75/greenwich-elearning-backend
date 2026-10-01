@@ -19,6 +19,7 @@ const prisma_service_1 = require("../prisma/prisma.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
 const scorm_cloud_client_1 = require("../scorm-cloud/scorm-cloud.client");
 const error_message_1 = require("../utils/error-message");
+const scorm_publish_gate_1 = require("../utils/scorm-publish-gate");
 const assert_enrollment_usable_1 = require("../utils/assert-enrollment-usable");
 const assert_imported_course_tree_locked_1 = require("../utils/assert-imported-course-tree-locked");
 const course_report_1 = require("../utils/course-report");
@@ -2199,6 +2200,36 @@ let CourseService = CourseService_1 = class CourseService {
             });
         }
     }
+    async assertScormCoursePublishable(courseId) {
+        const ready = await this.prisma.scormPackage.findFirst({
+            where: { courseId, status: 'READY' },
+            orderBy: { versionNumber: 'desc' },
+            select: { id: true, sectionId: true, lessons: true, createdAt: true },
+        });
+        const expected = (0, scorm_publish_gate_1.scormPackageSectionIds)(ready);
+        if (!ready || expected.size === 0) {
+            throw new Error('Imported SCORM course cannot be published without a READY package — import the package first');
+        }
+        const unfinishedDelete = await this.prisma.adminAuditLog.findFirst({
+            where: {
+                courseId,
+                action: CourseService_1.PARTIAL_SCORM_DELETE_ACTION,
+                createdAt: { gt: ready.createdAt },
+            },
+            select: { id: true },
+        });
+        if (unfinishedDelete) {
+            throw new Error('Imported SCORM course cannot be published: a delete of this course stopped part-way and its SCORM Cloud content may already be gone — finish the delete, or import the package again');
+        }
+        const candidates = await this.prisma.section.findMany({
+            where: (0, scorm_publish_gate_1.scormGateCandidateSectionsWhere)(courseId),
+            select: { id: true, isActive: true },
+        });
+        const { problems } = (0, scorm_publish_gate_1.evaluateScormPublishGate)(expected, candidates);
+        if (problems.length === 0)
+            return;
+        throw new Error(`Imported SCORM course cannot be published: ${problems.join('; ')}`);
+    }
     async setCourseActive(courseId, isActive) {
         try {
             const existing = await this.prisma.course.findUnique({
@@ -2208,31 +2239,7 @@ let CourseService = CourseService_1 = class CourseService {
                 throw new Error('Course not found');
             }
             if (isActive && existing.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM) {
-                const live = await this.prisma.section.findMany({
-                    where: {
-                        type: client_1.SectionType.SCORM,
-                        isArchived: false,
-                        chapter: {
-                            isArchived: false,
-                            module: { courseId, isArchived: false },
-                        },
-                    },
-                    select: { id: true },
-                });
-                if (live.length !== 1) {
-                    throw new Error('Imported SCORM course cannot be published without exactly one live SCORM section on a READY package');
-                }
-                const ready = await this.prisma.scormPackage.findFirst({
-                    where: {
-                        courseId,
-                        status: 'READY',
-                        sectionId: live[0].id,
-                    },
-                    select: { id: true },
-                });
-                if (!ready) {
-                    throw new Error('Imported SCORM course cannot be published without exactly one live SCORM section on a READY package');
-                }
+                await this.assertScormCoursePublishable(courseId);
             }
             const course = await this.prisma.course.update({
                 where: { id: courseId },
@@ -2995,6 +3002,7 @@ let CourseService = CourseService_1 = class CourseService {
                     versionNumber: true,
                     status: true,
                     scormCloudCourseId: true,
+                    createdAt: true,
                 },
             }),
             this.prisma.chapter.findMany({
@@ -3012,7 +3020,7 @@ let CourseService = CourseService_1 = class CourseService {
         ]);
         const chapterIds = chapters.map((c) => c.id);
         const assessmentIds = assessments.map((a) => a.id);
-        const [enrollments, scormRegistrations, courseCompletions, certificatesIssued, progressRows, chapterCompletions, moduleCompletions, timeSpentRows, lastSeenRows, quizProgressRows, quizAnswerRows, formCompletionRows, policyCompletionRows, policyItemCompletionRows, feedbackSubmissionRows, assessmentAttemptRows, assignmentSubmissionRows, versions, modules, sections, quizzes, courseForms, assignments, questions, posts, forumThreads,] = await Promise.all([
+        const [enrollments, scormRegistrations, courseCompletions, certificatesIssued, progressRows, chapterCompletions, moduleCompletions, timeSpentRows, timeSpentDailyRows, lastSeenRows, quizProgressRows, quizAnswerRows, formCompletionRows, policyCompletionRows, policyItemCompletionRows, feedbackSubmissionRows, assessmentAttemptRows, assignmentSubmissionRows, learnerPostRows, learnerPostCommentRows, sharedQuestionUses, sharedQuestionAssessmentRows, versions, modules, sections, quizzes, courseForms, assignments, questions, posts, forumThreads,] = await Promise.all([
             this.prisma.userCourse.count({ where: { courseId } }),
             this.prisma.scormRegistration.count({ where: { courseId } }),
             this.prisma.courseCompletion.count({ where: { courseId } }),
@@ -3023,6 +3031,7 @@ let CourseService = CourseService_1 = class CourseService {
             this.prisma.userChapterCompletion.count({ where: { courseId } }),
             this.prisma.userModuleCompletion.count({ where: { courseId } }),
             this.prisma.sectionTimeSpent.count({ where: { courseId } }),
+            this.prisma.sectionTimeSpentDaily.count({ where: { courseId } }),
             this.prisma.lastSeenSection.count({ where: { courseId } }),
             chapterIds.length > 0
                 ? this.prisma.quizProgress.count({
@@ -3048,6 +3057,21 @@ let CourseService = CourseService_1 = class CourseService {
             this.prisma.assignmentSubmission.count({
                 where: { assignment: { courseId } },
             }),
+            this.prisma.post.count({
+                where: { courseId, user: { role: client_1.Role.user } },
+            }),
+            this.prisma.comment.count({
+                where: { post: { courseId }, user: { role: client_1.Role.user } },
+            }),
+            this.prisma.assessmentQuestion.count({
+                where: CourseService_1.sharedQuestionUseWhere(courseId),
+            }),
+            this.prisma.assessmentQuestion.groupBy({
+                by: ['assessmentId'],
+                where: CourseService_1.sharedQuestionUseWhere(courseId),
+                orderBy: { assessmentId: 'asc' },
+                take: CourseService_1.SHARED_QUESTION_ASSESSMENTS_CAP + 1,
+            }),
             this.prisma.courseVersion.count({ where: { courseId } }),
             this.prisma.module.count({ where: { courseId } }),
             chapterIds.length > 0
@@ -3061,7 +3085,9 @@ let CourseService = CourseService_1 = class CourseService {
             this.prisma.courseForm.count({ where: { courseId } }),
             this.prisma.assignment.count({ where: { courseId } }),
             this.prisma.question.count({ where: { courseId } }),
-            this.prisma.post.count({ where: { courseId } }),
+            this.prisma.post.count({
+                where: { courseId, user: { role: { not: client_1.Role.user } } },
+            }),
             this.prisma.forumThread.count({ where: { courseId } }),
         ]);
         const learnerState = {
@@ -3073,6 +3099,7 @@ let CourseService = CourseService_1 = class CourseService {
             chapterCompletions,
             moduleCompletions,
             timeSpentRows,
+            timeSpentDailyRows,
             lastSeenRows,
             quizProgressRows,
             quizAnswerRows,
@@ -3082,6 +3109,8 @@ let CourseService = CourseService_1 = class CourseService {
             feedbackSubmissionRows,
             assessmentAttemptRows,
             assignmentSubmissionRows,
+            learnerPostRows,
+            learnerPostCommentRows,
         };
         const learnerStateTotal = Object.entries(learnerState)
             .filter(([key]) => key !== 'certificatesIssued')
@@ -3104,6 +3133,31 @@ let CourseService = CourseService_1 = class CourseService {
             posts,
             forumThreads,
         };
+        const sharedAssessmentIds = (sharedQuestionAssessmentRows ?? []).map((row) => row.assessmentId);
+        const sharedQuestionAssessmentsTruncated = sharedAssessmentIds.length >
+            CourseService_1.SHARED_QUESTION_ASSESSMENTS_CAP;
+        const sharedAssessmentRows = sharedAssessmentIds.length > 0
+            ? await this.prisma.assessment.findMany({
+                where: {
+                    id: {
+                        in: sharedAssessmentIds.slice(0, CourseService_1.SHARED_QUESTION_ASSESSMENTS_CAP),
+                    },
+                },
+                select: {
+                    id: true,
+                    title: true,
+                    courseId: true,
+                    course: { select: { title: true } },
+                },
+                orderBy: { id: 'asc' },
+            })
+            : [];
+        const sharedQuestionAssessments = sharedAssessmentRows.map((a) => ({
+            assessmentId: a.id,
+            assessmentTitle: a.title,
+            courseId: a.courseId,
+            courseTitle: a.course?.title ?? null,
+        }));
         return {
             packages,
             chapterIds,
@@ -3112,6 +3166,15 @@ let CourseService = CourseService_1 = class CourseService {
             learnerStateTotal,
             hasLearnerState: learnerStateTotal > 0,
             content,
+            sharedQuestionUses,
+            sharedQuestionAssessments,
+            sharedQuestionAssessmentsTruncated,
+        };
+    }
+    static sharedQuestionUseWhere(courseId) {
+        return {
+            question: { courseId },
+            assessment: { courseId: { not: courseId } },
         };
     }
     async getCourseDeletionPreview(id) {
@@ -3137,7 +3200,10 @@ let CourseService = CourseService_1 = class CourseService {
                     learnerState: impact.learnerState,
                     learnerStateTotal: impact.learnerStateTotal,
                     content: impact.content,
-                    canDeleteWithoutForce: !impact.hasLearnerState,
+                    sharedQuestionUses: impact.sharedQuestionUses,
+                    sharedQuestionAssessments: impact.sharedQuestionAssessments,
+                    sharedQuestionAssessmentsTruncated: impact.sharedQuestionAssessmentsTruncated,
+                    canDeleteWithoutForce: !impact.hasLearnerState && impact.sharedQuestionUses === 0,
                 },
             };
         }
@@ -3150,6 +3216,11 @@ let CourseService = CourseService_1 = class CourseService {
     }
     static isAlreadyGoneOnCloud(err) {
         return err instanceof scorm_cloud_client_1.ScormCloudHttpError && err.cloudStatus === 404;
+    }
+    static isTransientCloudError(err) {
+        return (err instanceof scorm_cloud_client_1.ScormCloudTimeoutError ||
+            err instanceof scorm_cloud_client_1.ScormCloudNetworkError ||
+            (err instanceof scorm_cloud_client_1.ScormCloudHttpError && err.cloudStatus >= 500));
     }
     async purgeScormCloudForLearner(userId, courseId, scormCloudRegistrationIds) {
         const failures = [];
@@ -3174,39 +3245,87 @@ let CourseService = CourseService_1 = class CourseService {
             failures,
         };
     }
-    async purgeScormCloudForCourse(courseId, packages) {
+    async purgeScormCloudForCourse(courseId, packages, deadline, force) {
         const failures = [];
+        const retryableFailures = [];
+        let cloudDeletesStarted = 0;
+        const outOfTime = () => cloudDeletesStarted > 0 && Date.now() >= deadline;
         const seen = new Set();
         let registrationsDeleted = 0;
-        for (let pass = 0; pass < 2; pass += 1) {
+        let registrationsRemaining = 0;
+        let retryableRegistrations = 0;
+        let incomplete = false;
+        for (let pass = 0; pass < 2 && !incomplete; pass += 1) {
             let rows = [];
             try {
                 rows = await this.prisma.scormRegistration.findMany({
                     where: { courseId },
-                    select: { scormCloudRegistrationId: true },
+                    select: { id: true, scormCloudRegistrationId: true },
                 });
             }
             catch (err) {
                 CourseService_1.completionLogger.warn(`Failed to list ScormRegistration rows for course destroy ${courseId}: ${(0, error_message_1.errorMessage)(err)}`);
+                incomplete = true;
                 break;
             }
-            for (const reg of rows) {
-                if (seen.has(reg.scormCloudRegistrationId))
-                    continue;
-                seen.add(reg.scormCloudRegistrationId);
+            if (!force && rows.length > 0) {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.CONFLICT,
+                    error: `Refusing to delete: ${rows.length} SCORM Cloud registration(s) ` +
+                        'were created for this course while the delete was running. ' +
+                        'Nothing was removed from SCORM Cloud and no local record was ' +
+                        'deleted; the course was left deactivated. Review the deletion ' +
+                        'preview again, then re-send with { force: true } to proceed.',
+                    details: { learnerState: { scormRegistrations: rows.length } },
+                }, common_1.HttpStatus.CONFLICT);
+            }
+            const queue = rows.filter((r) => !seen.has(r.scormCloudRegistrationId));
+            const purgeOne = async (reg) => {
                 try {
                     await this.scormCloud.deleteRegistration(reg.scormCloudRegistrationId);
-                    registrationsDeleted += 1;
                 }
                 catch (err) {
-                    if (CourseService_1.isAlreadyGoneOnCloud(err)) {
-                        registrationsDeleted += 1;
-                        continue;
+                    if (CourseService_1.isTransientCloudError(err)) {
+                        retryableFailures.push(`registration:${reg.scormCloudRegistrationId}`);
+                        retryableRegistrations += 1;
+                        incomplete = true;
+                        CourseService_1.completionLogger.warn(`Transient SCORM Cloud DeleteRegistration failure ${reg.scormCloudRegistrationId} (course ${courseId}) — will retry: ${(0, error_message_1.errorMessage)(err)}`);
+                        return;
                     }
-                    failures.push(`registration:${reg.scormCloudRegistrationId}`);
-                    CourseService_1.completionLogger.warn(`Failed SCORM Cloud DeleteRegistration ${reg.scormCloudRegistrationId} (course ${courseId}): ${(0, error_message_1.errorMessage)(err)}`);
+                    if (!CourseService_1.isAlreadyGoneOnCloud(err)) {
+                        failures.push(`registration:${reg.scormCloudRegistrationId}`);
+                        CourseService_1.completionLogger.warn(`Failed SCORM Cloud DeleteRegistration ${reg.scormCloudRegistrationId} (course ${courseId}): ${(0, error_message_1.errorMessage)(err)}`);
+                        return;
+                    }
                 }
-            }
+                registrationsDeleted += 1;
+                try {
+                    await this.prisma.scormRegistration.deleteMany({
+                        where: { id: reg.id },
+                    });
+                }
+                catch (err) {
+                    CourseService_1.completionLogger.warn(`Purged SCORM Cloud registration ${reg.scormCloudRegistrationId} but could not delete its local row (course ${courseId}): ${(0, error_message_1.errorMessage)(err)}`);
+                }
+            };
+            const worker = async () => {
+                while (queue.length > 0) {
+                    if (incomplete || outOfTime()) {
+                        incomplete = true;
+                        return;
+                    }
+                    const reg = queue.shift();
+                    if (seen.has(reg.scormCloudRegistrationId))
+                        continue;
+                    seen.add(reg.scormCloudRegistrationId);
+                    cloudDeletesStarted += 1;
+                    await purgeOne(reg);
+                }
+            };
+            await Promise.all(Array.from({
+                length: Math.min(CourseService_1.SCORM_PURGE_CONCURRENCY, queue.length),
+            }, worker));
+            registrationsRemaining = queue.length + retryableRegistrations;
         }
         const cloudCourseIds = [
             ...new Set(packages
@@ -3215,61 +3334,206 @@ let CourseService = CourseService_1 = class CourseService {
                 .filter(Boolean)),
         ];
         let cloudCoursesDeleted = 0;
-        for (const cloudCourseId of cloudCourseIds) {
-            try {
-                await this.scormCloud.deleteCourse(cloudCourseId);
-                cloudCoursesDeleted += 1;
-            }
-            catch (err) {
-                if (CourseService_1.isAlreadyGoneOnCloud(err)) {
-                    cloudCoursesDeleted += 1;
-                    continue;
+        const purgedCloudCourseIds = [];
+        if (!incomplete) {
+            for (const cloudCourseId of cloudCourseIds) {
+                if (outOfTime()) {
+                    incomplete = true;
+                    break;
                 }
-                failures.push(`course:${cloudCourseId}`);
-                CourseService_1.completionLogger.warn(`Failed SCORM Cloud DeleteCourse ${cloudCourseId} (course ${courseId}): ${(0, error_message_1.errorMessage)(err)}`);
+                cloudDeletesStarted += 1;
+                try {
+                    await this.scormCloud.deleteCourse(cloudCourseId);
+                    cloudCoursesDeleted += 1;
+                    purgedCloudCourseIds.push(cloudCourseId);
+                }
+                catch (err) {
+                    if (CourseService_1.isAlreadyGoneOnCloud(err)) {
+                        cloudCoursesDeleted += 1;
+                        purgedCloudCourseIds.push(cloudCourseId);
+                        continue;
+                    }
+                    if (CourseService_1.isTransientCloudError(err)) {
+                        retryableFailures.push(`course:${cloudCourseId}`);
+                        incomplete = true;
+                        CourseService_1.completionLogger.warn(`Transient SCORM Cloud DeleteCourse failure ${cloudCourseId} (course ${courseId}) — will retry: ${(0, error_message_1.errorMessage)(err)}`);
+                        break;
+                    }
+                    failures.push(`course:${cloudCourseId}`);
+                    CourseService_1.completionLogger.warn(`Failed SCORM Cloud DeleteCourse ${cloudCourseId} (course ${courseId}): ${(0, error_message_1.errorMessage)(err)}`);
+                }
             }
         }
         return {
             registrations: seen.size,
             registrationsDeleted,
+            registrationsRemaining,
             cloudCourses: cloudCourseIds.length,
             cloudCoursesDeleted,
+            purgedCloudCourseIds,
             failures,
+            retryableFailures,
+            incomplete,
         };
     }
-    async destroyImportedScormCourse(course, options) {
-        const courseId = course.id;
-        const impact = await this.gatherCourseDeletionImpact(courseId);
-        if (impact.hasLearnerState && !options?.force) {
-            throw new common_1.HttpException({
-                status: common_1.HttpStatus.CONFLICT,
-                error: 'Refusing to delete: this SCORM course has learner data. ' +
-                    'Deleting it permanently removes every enrollment, progress ' +
-                    'record, completion and certificate for this course, and deletes ' +
-                    'the package and all learner registrations from SCORM Cloud. ' +
-                    'This cannot be undone. Re-send with { force: true } to destroy ' +
-                    'it anyway, or deactivate the course instead to hide it while ' +
-                    'keeping learner records.',
-                details: {
-                    learnerState: impact.learnerState,
-                    content: impact.content,
-                },
-            }, common_1.HttpStatus.CONFLICT);
+    assertCourseDeleteForceIfLearnerState(impact, options, learnerStateError) {
+        if (options?.force)
+            return;
+        const reasons = [];
+        if (impact.hasLearnerState)
+            reasons.push(learnerStateError);
+        if (impact.sharedQuestionUses > 0) {
+            const courses = [
+                ...new Set(impact.sharedQuestionAssessments.map((a) => a.courseTitle ?? a.courseId)),
+            ];
+            reasons.push(`Refusing to delete: ${impact.sharedQuestionUses} question use(s) from ` +
+                "this course's question bank are in assessments of other courses " +
+                `(${courses.join(', ')}${impact.sharedQuestionAssessmentsTruncated ? ', …' : ''}). Deleting the course removes those questions from those ` +
+                'assessments, changing quizzes in courses you are not deleting. ' +
+                'Remove them from those assessments first, or re-send with ' +
+                '{ force: true } to proceed anyway.');
         }
+        if (reasons.length === 0)
+            return;
+        throw new common_1.HttpException({
+            status: common_1.HttpStatus.CONFLICT,
+            error: reasons.join(' '),
+            details: {
+                learnerState: impact.learnerState,
+                content: impact.content,
+                sharedQuestionUses: impact.sharedQuestionUses,
+                sharedQuestionAssessments: impact.sharedQuestionAssessments,
+            },
+        }, common_1.HttpStatus.CONFLICT);
+    }
+    static deletedLearnerRowCount(deleted, purgedRegistrations = 0) {
+        return (CourseService_1.LEARNER_DELETED_KEYS.reduce((sum, key) => sum + (deleted[key] ?? 0), 0) + purgedRegistrations);
+    }
+    static isForcedCourseDelete(impact, deleted, purgedRegistrations = 0) {
+        return (impact.hasLearnerState ||
+            impact.sharedQuestionUses > 0 ||
+            (deleted.sharedQuestionUses ?? 0) > 0 ||
+            CourseService_1.deletedLearnerRowCount(deleted, purgedRegistrations) > 0);
+    }
+    static foreignKeyViolationTarget(err) {
+        const meta = (err.meta ?? {});
+        const target = meta.field_name ?? meta.constraint ?? meta.modelName;
+        return typeof target === 'string' && target ? target : null;
+    }
+    async deactivateCourseBeforeDestroy(course) {
         if (course.isActive) {
             await this.prisma.course.update({
-                where: { id: courseId },
+                where: { id: course.id },
                 data: { isActive: false },
             });
         }
-        const cloud = await this.purgeScormCloudForCourse(courseId, impact.packages);
-        const deleted = await this.prisma.$transaction(async (tx) => {
-            const { chapterIds, assessmentIds } = impact;
+    }
+    async countLearnerRowsForDestroy(tx, courseId) {
+        const [enrollments, scormRegistrations, courseCompletions, progressRows, learnerPostRows, learnerPostCommentRows, assessmentAttemptRows, assignmentSubmissionRows, formCompletionRows, policyCompletionRows,] = await Promise.all([
+            tx.userCourse.count({ where: { courseId } }),
+            tx.scormRegistration.count({ where: { courseId } }),
+            tx.courseCompletion.count({ where: { courseId } }),
+            tx.userCourseProgress.count({ where: { courseId } }),
+            tx.post.count({ where: { courseId, user: { role: client_1.Role.user } } }),
+            tx.comment.count({
+                where: { post: { courseId }, user: { role: client_1.Role.user } },
+            }),
+            tx.assessmentAttempt.count({ where: { assessment: { courseId } } }),
+            tx.assignmentSubmission.count({ where: { assignment: { courseId } } }),
+            tx.userFormCompletion.count({ where: { courseId } }),
+            tx.userPolicyCompletion.count({ where: { courseId } }),
+        ]);
+        return {
+            enrollments,
+            scormRegistrations,
+            courseCompletions,
+            progressRows,
+            learnerPostRows,
+            learnerPostCommentRows,
+            assessmentAttemptRows,
+            assignmentSubmissionRows,
+            formCompletionRows,
+            policyCompletionRows,
+        };
+    }
+    async teardownCourseLocalRows(courseId, options) {
+        const purged = options.afterCloudPurge;
+        const refusalSuffix = purged
+            ? (purged.registrationsDeleted > 0
+                ? ' SCORM Cloud content and learner registrations were already removed'
+                : ' SCORM Cloud content was already removed (this request deleted no ' +
+                    'learner registrations)') +
+                ' and the course stays deactivated; no other local record was ' +
+                'deleted. Review the deletion preview again, then re-send with ' +
+                '{ force: true } to finish the delete.'
+            : ' Nothing was deleted. Review the deletion preview again, then ' +
+                're-send with { force: true } to proceed.';
+        const teardown = this.prisma.$transaction(async (tx) => {
+            if (options.deactivate) {
+                await tx.course.update({
+                    where: { id: courseId },
+                    data: { isActive: false },
+                });
+            }
+            if (!options.force) {
+                const recount = await this.countLearnerRowsForDestroy(tx, courseId);
+                const total = Object.values(recount).reduce((a, b) => a + b, 0);
+                if (total > 0) {
+                    throw new common_1.HttpException({
+                        status: common_1.HttpStatus.CONFLICT,
+                        error: `Refusing to delete: ${total} learner record(s) were written ` +
+                            'to this course while the delete was running.' +
+                            refusalSuffix,
+                        details: { learnerState: recount },
+                    }, common_1.HttpStatus.CONFLICT);
+                }
+            }
+            const [chapters, assessments] = await Promise.all([
+                tx.chapter.findMany({
+                    where: { module: { courseId } },
+                    select: { id: true },
+                }),
+                tx.assessment.findMany({
+                    where: { courseId },
+                    select: { id: true },
+                }),
+            ]);
+            const chapterIds = chapters.map((c) => c.id);
+            const assessmentIds = assessments.map((a) => a.id);
             const counts = {};
+            const [attemptRefs, assignmentRefs, submissionRefs] = await Promise.all([
+                assessmentIds.length > 0
+                    ? tx.assessmentAttempt.findMany({
+                        where: { assessmentId: { in: assessmentIds } },
+                        select: { id: true },
+                    })
+                    : Promise.resolve([]),
+                tx.assignment.findMany({
+                    where: { courseId },
+                    select: { id: true },
+                }),
+                tx.assignmentSubmission.findMany({
+                    where: { assignment: { courseId } },
+                    select: { id: true },
+                }),
+            ]);
+            const notificationRefIds = [
+                courseId,
+                ...[...attemptRefs, ...assignmentRefs, ...submissionRefs].map((r) => r.id),
+            ];
+            counts.notifications = await tx.$executeRaw `
+          DELETE FROM "notifications"
+          WHERE "referenceId" = ANY(${notificationRefIds})`;
             counts.forumThreadsDetached = (await tx.forumThread.updateMany({
                 where: { courseId },
                 data: { courseId: null, status: 'inActive' },
             })).count;
+            [counts.learnerPosts, counts.learnerPostComments] = await Promise.all([
+                tx.post.count({ where: { courseId, user: { role: client_1.Role.user } } }),
+                tx.comment.count({
+                    where: { post: { courseId }, user: { role: client_1.Role.user } },
+                }),
+            ]);
             const posts = await tx.post.findMany({
                 where: { courseId },
                 select: { id: true },
@@ -3287,16 +3551,23 @@ let CourseService = CourseService_1 = class CourseService {
                     where: { assessmentId: { in: assessmentIds } },
                 })).count;
             }
-            counts.assessmentQuestions = (await tx.assessmentQuestion.deleteMany({
-                where: {
-                    OR: [
-                        ...(assessmentIds.length > 0
-                            ? [{ assessmentId: { in: assessmentIds } }]
-                            : []),
-                        { question: { courseId } },
-                    ],
-                },
+            counts.sharedQuestionUses = (await tx.assessmentQuestion.deleteMany({
+                where: CourseService_1.sharedQuestionUseWhere(courseId),
             })).count;
+            if (counts.sharedQuestionUses > 0 && !options.force) {
+                throw new common_1.HttpException({
+                    status: common_1.HttpStatus.CONFLICT,
+                    error: "Refusing to delete: this course's questions were added to " +
+                        "another course's assessment while the delete was running." +
+                        refusalSuffix,
+                }, common_1.HttpStatus.CONFLICT);
+            }
+            counts.assessmentQuestions =
+                assessmentIds.length > 0
+                    ? (await tx.assessmentQuestion.deleteMany({
+                        where: { assessmentId: { in: assessmentIds } },
+                    })).count
+                    : 0;
             counts.assessments = (await tx.assessment.deleteMany({ where: { courseId } })).count;
             counts.questions = (await tx.question.deleteMany({ where: { courseId } })).count;
             counts.questionCategories = (await tx.questionCategory.deleteMany({ where: { courseId } })).count;
@@ -3346,11 +3617,238 @@ let CourseService = CourseService_1 = class CourseService {
             counts.modules = (await tx.module.deleteMany({ where: { courseId } })).count;
             await tx.course.delete({ where: { id: courseId } });
             return counts;
-        }, { timeout: 30000, maxWait: 8000 });
+        }, options.tx ?? { timeout: 30000, maxWait: 8000 });
+        return teardown.catch((err) => {
+            throw CourseService_1.isCourseRowMissing(err)
+                ? CourseService_1.courseAlreadyDeletedError(err)
+                : err;
+        });
+    }
+    static courseAlreadyDeletedError(cause, error = 'Course not found — it was deleted by another request while ' +
+        'this one was running.') {
+        return new common_1.HttpException({
+            status: common_1.HttpStatus.FORBIDDEN,
+            code: 'COURSE_ALREADY_DELETED',
+            error,
+        }, common_1.HttpStatus.FORBIDDEN, { cause });
+    }
+    async hasCompletedCourseDelete(courseId) {
+        try {
+            const row = await this.prisma.adminAuditLog.findFirst({
+                where: {
+                    courseId,
+                    action: { in: CourseService_1.COMPLETED_DELETE_ACTIONS },
+                },
+                select: { id: true },
+            });
+            return Boolean(row);
+        }
+        catch {
+            return false;
+        }
+    }
+    static isCourseRowMissing(err) {
+        return (err instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+            err.code === 'P2025');
+    }
+    static isCourseAlreadyDeletedError(err) {
+        return (err instanceof common_1.HttpException &&
+            err.getResponse()?.code ===
+                'COURSE_ALREADY_DELETED');
+    }
+    async destroyNativeCourse(course, options) {
+        const courseId = course.id;
+        const impact = await this.gatherCourseDeletionImpact(courseId);
+        this.assertCourseDeleteForceIfLearnerState(impact, options, 'Refusing to delete: this course has learner data. ' +
+            'Deleting it permanently removes every enrollment, progress record, ' +
+            'completion, certificate and learner post/comment for this course. ' +
+            'This cannot be undone. Re-send with { force: true } to destroy it ' +
+            'anyway, or deactivate the course instead to hide it while keeping ' +
+            'learner records.');
+        const deleted = await this.teardownCourseLocalRows(courseId, {
+            force: options?.force,
+            deactivate: course.isActive,
+        });
+        const learnerRowsDeleted = CourseService_1.deletedLearnerRowCount(deleted);
         if (options?.adminId) {
             await this.courseVersionService.writeAudit({
                 adminId: options.adminId,
-                action: impact.hasLearnerState
+                action: CourseService_1.isForcedCourseDelete(impact, deleted)
+                    ? 'DELETE_COURSE_FORCE'
+                    : 'DELETE_COURSE',
+                targetType: 'Course',
+                targetId: courseId,
+                courseId,
+                metadata: {
+                    title: course.title,
+                    deliveryMode: course.deliveryMode,
+                    learnerState: impact.learnerState,
+                    content: impact.content,
+                    sharedQuestionUses: impact.sharedQuestionUses,
+                    sharedQuestionAssessments: impact.sharedQuestionAssessments,
+                    deleted,
+                },
+            });
+        }
+        return {
+            message: impact.hasLearnerState || learnerRowsDeleted > 0
+                ? 'Successfully deleted course and all learner records'
+                : 'Successfully deleted course',
+            statusCode: 200,
+            data: { course, deleted },
+        };
+    }
+    static latestPackageCreatedAt(packages) {
+        let latest;
+        for (const p of packages) {
+            if (p.createdAt && (!latest || p.createdAt > latest))
+                latest = p.createdAt;
+        }
+        return latest;
+    }
+    async findPriorPartialScormDeletes(courseId, since) {
+        try {
+            const rows = await this.prisma.adminAuditLog.findMany({
+                where: {
+                    courseId,
+                    action: CourseService_1.PARTIAL_SCORM_DELETE_ACTION,
+                    ...(since ? { createdAt: { gt: since } } : {}),
+                },
+                select: { id: true, metadata: true },
+                orderBy: { createdAt: 'asc' },
+            });
+            return rows.map((r) => {
+                const meta = (r.metadata ?? {});
+                return {
+                    id: r.id,
+                    forced: meta.force === true || (meta.cloud?.registrationsDeleted ?? 0) > 0,
+                };
+            });
+        }
+        catch (err) {
+            CourseService_1.completionLogger.warn(`Could not read prior partial-delete audits for course ${courseId}: ${(0, error_message_1.errorMessage)(err)}`);
+            return [];
+        }
+    }
+    async destroyImportedScormCourse(course, options, startedAt) {
+        const courseId = course.id;
+        const impact = await this.gatherCourseDeletionImpact(courseId);
+        this.assertCourseDeleteForceIfLearnerState(impact, options, 'Refusing to delete: this SCORM course has learner data. ' +
+            'Deleting it permanently removes every enrollment, progress ' +
+            'record, completion, certificate and learner post/comment for this ' +
+            'course, and deletes the package and all learner registrations from ' +
+            'SCORM Cloud. This cannot be undone. Re-send with { force: true } to ' +
+            'destroy it anyway, or deactivate the course instead to hide it ' +
+            'while keeping learner records.');
+        await this.deactivateCourseBeforeDestroy(course);
+        const { purgedCloudCourseIds, ...cloud } = await this.purgeScormCloudForCourse(courseId, impact.packages, startedAt + CourseService_1.SCORM_PURGE_BUDGET_MS, Boolean(options?.force));
+        if (purgedCloudCourseIds.length > 0) {
+            try {
+                await this.prisma.scormPackage.updateMany({
+                    where: {
+                        courseId,
+                        scormCloudCourseId: { in: purgedCloudCourseIds },
+                        status: { not: client_1.ScormPackageStatus.PRUNED },
+                    },
+                    data: { status: client_1.ScormPackageStatus.PRUNED },
+                });
+            }
+            catch (err) {
+                CourseService_1.completionLogger.warn(`SCORM course delete ${courseId}: could not mark purged packages PRUNED: ${(0, error_message_1.errorMessage)(err)}`);
+            }
+        }
+        if (cloud.incomplete) {
+            const why = cloud.retryableFailures.length
+                ? `SCORM Cloud failed transiently (timeout or 5xx) on ${cloud.retryableFailures.length} object(s)`
+                : 'the SCORM Cloud purge did not fit in one request';
+            CourseService_1.completionLogger.warn(`SCORM course delete ${courseId}: ${why} — ${cloud.registrationsDeleted} registration(s) purged this request, ${cloud.registrationsRemaining} still pending; local teardown skipped until a retry`);
+            if (options?.adminId) {
+                await this.courseVersionService.writeAudit({
+                    adminId: options.adminId,
+                    action: CourseService_1.PARTIAL_SCORM_DELETE_ACTION,
+                    targetType: 'Course',
+                    targetId: courseId,
+                    courseId,
+                    metadata: {
+                        title: course.title,
+                        force: Boolean(options.force),
+                        learnerState: impact.learnerState,
+                        cloud,
+                    },
+                });
+            }
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.CONFLICT,
+                code: 'SCORM_PURGE_INCOMPLETE',
+                retryable: true,
+                error: `Partially purged: ${why} (${cloud.registrationsDeleted} ` +
+                    `registration(s) removed now, ${cloud.registrationsRemaining} ` +
+                    'still pending). The course is deactivated and nothing else was ' +
+                    'deleted. Retry the same delete to continue — each retry only ' +
+                    'handles what is left.',
+                details: { cloud },
+            }, common_1.HttpStatus.CONFLICT);
+        }
+        let deleted;
+        try {
+            deleted = await this.teardownCourseLocalRows(courseId, {
+                force: options?.force,
+                afterCloudPurge: { registrationsDeleted: cloud.registrationsDeleted },
+                tx: CourseService_1.SCORM_TEARDOWN_TX,
+            });
+        }
+        catch (err) {
+            if (CourseService_1.isCourseAlreadyDeletedError(err))
+                throw err;
+            CourseService_1.completionLogger.warn(`SCORM course delete ${courseId}: local teardown failed after the SCORM Cloud purge — course left deactivated: ${(0, error_message_1.errorMessage)(err)}`);
+            if (options?.adminId) {
+                await this.courseVersionService.writeAudit({
+                    adminId: options.adminId,
+                    action: CourseService_1.PARTIAL_SCORM_DELETE_ACTION,
+                    targetType: 'Course',
+                    targetId: courseId,
+                    courseId,
+                    metadata: {
+                        title: course.title,
+                        force: Boolean(options.force),
+                        learnerState: impact.learnerState,
+                        cloud,
+                        teardownError: (0, error_message_1.errorMessage)(err),
+                    },
+                });
+            }
+            if (err instanceof common_1.HttpException &&
+                err.getStatus() === common_1.HttpStatus.CONFLICT) {
+                const body = err.getResponse();
+                throw new common_1.HttpException({ ...body, details: { ...(body?.details ?? {}), cloud } }, common_1.HttpStatus.CONFLICT, { cause: err });
+            }
+            const fkTarget = err instanceof client_1.Prisma.PrismaClientKnownRequestError &&
+                err.code === 'P2003'
+                ? CourseService_1.foreignKeyViolationTarget(err)
+                : undefined;
+            const cause = err instanceof common_1.HttpException
+                ? err.getResponse()?.error ?? err.message
+                : fkTarget !== undefined
+                    ? `a row still references this course${fkTarget ? ` (${fkTarget})` : ''}`
+                    : (0, error_message_1.errorMessage)(err);
+            throw new common_1.HttpException({
+                status: err instanceof common_1.HttpException
+                    ? err.getStatus()
+                    : common_1.HttpStatus.FORBIDDEN,
+                error: 'SCORM Cloud assets were removed, but deleting the local course ' +
+                    `records failed (${cause}). The course has been left deactivated ` +
+                    'so learners cannot launch missing content — retry the delete.',
+                details: { cloud, ...(fkTarget ? { constraint: fkTarget } : {}) },
+            }, err instanceof common_1.HttpException ? err.getStatus() : common_1.HttpStatus.FORBIDDEN, { cause: err });
+        }
+        if (options?.adminId) {
+            const priorPartials = await this.findPriorPartialScormDeletes(courseId, CourseService_1.latestPackageCreatedAt(impact.packages.filter((p) => p.status === client_1.ScormPackageStatus.READY ||
+                p.status === client_1.ScormPackageStatus.PRUNED)));
+            const forcedEarlier = priorPartials.some((p) => p.forced);
+            await this.courseVersionService.writeAudit({
+                adminId: options.adminId,
+                action: forcedEarlier ||
+                    CourseService_1.isForcedCourseDelete(impact, deleted, cloud.registrationsDeleted)
                     ? 'DELETE_SCORM_COURSE_FORCE'
                     : 'DELETE_SCORM_COURSE',
                 targetType: 'Course',
@@ -3360,8 +3858,13 @@ let CourseService = CourseService_1 = class CourseService {
                     title: course.title,
                     learnerState: impact.learnerState,
                     content: impact.content,
+                    sharedQuestionUses: impact.sharedQuestionUses,
+                    sharedQuestionAssessments: impact.sharedQuestionAssessments,
                     deleted,
                     cloud,
+                    ...(priorPartials.length
+                        ? { priorPartialAuditIds: priorPartials.map((p) => p.id) }
+                        : {}),
                 },
             });
         }
@@ -3374,35 +3877,37 @@ let CourseService = CourseService_1 = class CourseService {
         };
     }
     async deleteCourse(id, options) {
+        const startedAt = Date.now();
         try {
             const course = await this.prisma.course.findUnique({
                 where: { id },
             });
             if (!course) {
+                if (await this.hasCompletedCourseDelete(id)) {
+                    throw CourseService_1.courseAlreadyDeletedError(null, 'Course not found — it has already been deleted.');
+                }
                 throw new Error('Course not found');
             }
             if (course.deliveryMode === client_1.CourseDeliveryMode.IMPORTED_SCORM) {
-                return await this.destroyImportedScormCourse(course, options);
+                return await this.destroyImportedScormCourse(course, options, startedAt);
             }
-            await this.prisma.course.delete({
-                where: { id },
-            });
-            return {
-                message: 'Successfully deleted course record',
-                statusCode: 200,
-                data: course,
-            };
+            return await this.destroyNativeCourse(course, options);
         }
         catch (error) {
             if (error instanceof common_1.HttpException) {
                 throw error;
             }
+            if (CourseService_1.isCourseRowMissing(error)) {
+                throw CourseService_1.courseAlreadyDeletedError(error);
+            }
             if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
                 error.code === 'P2003') {
+                const constraint = CourseService_1.foreignKeyViolationTarget(error);
                 throw new common_1.HttpException({
                     status: common_1.HttpStatus.FORBIDDEN,
-                    error: 'Cannot delete it because it is associated with other records.',
-                }, common_1.HttpStatus.FORBIDDEN);
+                    error: `Cannot delete it because it is associated with other records${constraint ? ` (${constraint})` : ''}.`,
+                    details: { constraint },
+                }, common_1.HttpStatus.FORBIDDEN, { cause: error });
             }
             else {
                 throw new common_1.HttpException({
@@ -5067,6 +5572,41 @@ let CourseService = CourseService_1 = class CourseService {
 };
 exports.CourseService = CourseService;
 CourseService.completionLogger = new common_1.Logger(CourseService_1.name);
+CourseService.SHARED_QUESTION_ASSESSMENTS_CAP = 20;
+CourseService.SCORM_PURGE_CONCURRENCY = 8;
+CourseService.SCORM_PURGE_BUDGET_MS = 25000;
+CourseService.SCORM_TEARDOWN_TX = {
+    timeout: 15000,
+    maxWait: 4000,
+};
+CourseService.LEARNER_DELETED_KEYS = [
+    'enrollments',
+    'scormRegistrations',
+    'courseCompletions',
+    'progressRows',
+    'chapterCompletions',
+    'moduleCompletions',
+    'timeSpentRows',
+    'timeSpentDailyRows',
+    'lastSeenRows',
+    'quizProgressRows',
+    'quizAnswerRows',
+    'formCompletions',
+    'policyCompletions',
+    'policyItemCompletions',
+    'feedbackSubmissions',
+    'assessmentAttempts',
+    'assignmentSubmissions',
+    'learnerPosts',
+    'learnerPostComments',
+];
+CourseService.PARTIAL_SCORM_DELETE_ACTION = 'DELETE_SCORM_COURSE_PARTIAL';
+CourseService.COMPLETED_DELETE_ACTIONS = [
+    'DELETE_COURSE',
+    'DELETE_COURSE_FORCE',
+    'DELETE_SCORM_COURSE',
+    'DELETE_SCORM_COURSE_FORCE',
+];
 exports.CourseService = CourseService = CourseService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,

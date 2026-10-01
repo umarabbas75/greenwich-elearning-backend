@@ -426,8 +426,8 @@ export class CourseController {
   }
 
   /**
-   * What a delete would destroy, without destroying anything. For an imported
-   * SCORM course this also covers the SCORM Cloud package and registrations.
+   * What a delete would destroy, without destroying anything. Covers learner
+   * rows, curriculum, and (for imported SCORM) Cloud assets.
    */
   @UseGuards(AuthGuard('jwt'))
   @Get('/:id/deletion-preview')
@@ -436,9 +436,12 @@ export class CourseController {
   }
 
   /**
-   * Safe by default: an imported SCORM course with learner data is refused
-   * with a 409 listing what would be lost. `?force=true` performs the full
-   * destroy (local rows + SCORM Cloud course and registrations).
+   * Safe by default: any course with learner data is refused with a 409
+   * listing what would be lost. `?force=true` performs the full destroy (all
+   * local rows; imported SCORM also removes SCORM Cloud course + registrations).
+   * A large SCORM course may answer 409 `code: 'SCORM_PURGE_INCOMPLETE'`,
+   * `retryable: true`: the Cloud purge ran out of request time and saved its
+   * progress — re-send the same request to continue.
    */
   @UseGuards(AuthGuard('jwt'))
   @Delete('/:id')

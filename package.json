@@ -57,7 +57,10 @@
     "script:extract-images": "ts-node -r tsconfig-paths/register scripts/extract-base64-images.ts --apply",
     "script:extract-images:rollback": "ts-node -r tsconfig-paths/register scripts/extract-base64-images.ts --rollback",
     "script:forum-posts-migrate:dry": "ts-node -r tsconfig-paths/register scripts/migrate-course-posts-to-forum.ts",
-    "script:forum-posts-migrate": "ts-node -r tsconfig-paths/register scripts/migrate-course-posts-to-forum.ts --apply"
+    "script:forum-posts-migrate": "ts-node -r tsconfig-paths/register scripts/migrate-course-posts-to-forum.ts --apply",
+    "script:scorm-fixtures": "ts-node -r tsconfig-paths/register scripts/build-scorm-fixtures.ts",
+    "script:backfill-scorm-lessons:dry": "ts-node -r tsconfig-paths/register scripts/backfill-scorm-lessons.ts",
+    "script:backfill-scorm-lessons": "ts-node -r tsconfig-paths/register scripts/backfill-scorm-lessons.ts --apply"
   },
   "dependencies": {
     "@cantoo/pdf-lib": "^2.9.1",

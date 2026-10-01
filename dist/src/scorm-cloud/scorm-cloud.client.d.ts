@@ -6,6 +6,16 @@ export declare class ScormCloudHttpError extends HttpException {
     readonly cloudBody: string;
     constructor(status: number, body: string);
 }
+export declare class ScormCloudTimeoutError extends HttpException {
+    readonly timeoutMs: number;
+    constructor(what: string, timeoutMs: number);
+}
+export declare class ScormCloudNetworkError extends HttpException {
+    constructor();
+}
+export declare const SCORM_CLOUD_TIMEOUT_MS = 10000;
+export declare const SCORM_CLOUD_ASSET_TIMEOUT_MS = 25000;
+export declare const SCORM_CLOUD_UPLOAD_TIMEOUT_MS = 35000;
 export type ScormCloudImportJobStatus = {
     status: string;
     message?: string;
@@ -65,10 +75,13 @@ export declare class ScormCloudClient {
         redirectOnExitUrl: string;
         expiry?: number;
     }): Promise<string>;
-    getRegistrationProgress(registrationId: string): Promise<ScormCloudRegistrationProgress>;
+    getRegistrationProgress(registrationId: string, detail?: 'course' | 'activity' | 'full'): Promise<ScormCloudRegistrationProgress>;
     deleteRegistration(registrationId: string): Promise<void>;
-    deleteCourse(scormCloudCourseId: string): Promise<void>;
+    deleteCourse(scormCloudCourseId: string, options?: {
+        timeoutMs?: number;
+    }): Promise<void>;
     deleteAllLearnerData(learnerId: string): Promise<void>;
+    private timeoutMs;
     private apiBase;
     private authHeader;
     private request;

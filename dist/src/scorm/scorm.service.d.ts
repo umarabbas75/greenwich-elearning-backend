@@ -4,6 +4,9 @@ import { CourseVersionService } from '../course-version/course-version.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScormCloudClient } from '../scorm-cloud/scorm-cloud.client';
 import { CreateScormPackageDto } from './dto';
+export declare const TREE_LOCK_SEED = 1;
+export declare const COURSE_TREE_LOCK_SEED = 2;
+export declare const IMPORT_START_LOCK_SEED = 3;
 export declare class ScormService {
     private readonly prisma;
     private readonly cloud;
@@ -28,6 +31,10 @@ export declare class ScormService {
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
             importWarning: string;
+            lessons: Prisma.JsonValue;
+            lessonCount: number;
+            chapterId: string;
+            riseCpv: string;
             createdAt: Date;
         };
     }>;
@@ -51,10 +58,21 @@ export declare class ScormService {
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
             importWarning: string;
+            lessons: Prisma.JsonValue;
+            lessonCount: number;
+            chapterId: string;
+            riseCpv: string;
             createdAt: Date;
         };
     }>;
     private startPackageImport;
+    private pollStaleInFlightImport;
+    private deleteCloudCourseAfterTimeout;
+    private failIfStale;
+    private failIfPastHardCap;
+    private failIfStaleAfterPoll;
+    private failIfUnbuilt;
+    private reread;
     getPackage(id: string): Promise<{
         message: string;
         statusCode: number;
@@ -73,6 +91,10 @@ export declare class ScormService {
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
             importWarning: string;
+            lessons: Prisma.JsonValue;
+            lessonCount: number;
+            chapterId: string;
+            riseCpv: string;
             createdAt: Date;
         };
     }>;
@@ -94,6 +116,10 @@ export declare class ScormService {
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
             importWarning: string;
+            lessons: Prisma.JsonValue;
+            lessonCount: number;
+            chapterId: string;
+            riseCpv: string;
             createdAt: Date;
         }[];
     }>;
@@ -115,11 +141,16 @@ export declare class ScormService {
             status: import(".prisma/client").$Enums.ScormPackageStatus;
             failureReason: string;
             importWarning: string;
+            lessons: Prisma.JsonValue;
+            lessonCount: number;
+            chapterId: string;
+            riseCpv: string;
             createdAt: Date;
         };
     }>;
-    processImportJobsCron(): Promise<{
+    processImportJobsCron(deadline?: number): Promise<{
         processed: number;
+        deferred: number;
         results: {
             id: string;
             status: string;
@@ -161,11 +192,18 @@ export declare class ScormService {
         status: import(".prisma/client").$Enums.ScormPackageStatus;
         failureReason: string;
         importWarning: string;
+        lessons: Prisma.JsonValue;
+        lessonCount: number;
+        chapterId: string;
+        riseCpv: string;
         createdAt: Date;
     }>;
+    private importWarningFor;
     private finishPublishAndReady;
     private policyGate;
     private buildOrReplaceTree;
+    private findScormTreeAnchor;
     private prepareExistingCourse;
     private createImportedCourse;
 }
+export declare function riseIndexSpaceWarning(risk: string | null): string | null;
