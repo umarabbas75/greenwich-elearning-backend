@@ -58,6 +58,8 @@ import { assertNoInlineBase64 } from '../utils/reject-inline-base64';
 import { buildFlashcardsConfig, FlashcardsConfig } from '../utils/flashcards-section';
 import { promoteFormPhotoToUserIfMissing } from '../utils/promote-form-photo-to-user';
 import { promoteFormAddressToUserIfMissing } from '../utils/promote-form-address-to-user';
+import { formAppliesToEnrollment } from '../utils/course-form-applicability';
+import { coursePoliciesSignature } from '../utils/course-policy-signature';
 import { assertValidAdvisorReviewMetadata, evaluateRegistrationAccess, getAdvisorComments, getAdvisorRegistrationStatus, isV2BookingMetadata } from '../utils/advisor-review-metadata';
 import { MailService } from '../mail/mail.service';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
@@ -984,7 +986,12 @@ export class CourseService {
       completedAt: Date | null;
     }>;
   }> {
-    await assertEnrollmentUsable(this.prisma, userId, courseId, userRole);
+    const enrollment = await assertEnrollmentUsable(
+      this.prisma,
+      userId,
+      courseId,
+      userRole,
+    );
 
     const forms = await this.prisma.courseForm.findMany({
       where: { courseId },
@@ -997,9 +1004,16 @@ export class CourseService {
       },
     });
 
+    const visibleForms =
+      userRole === Role.user
+        ? forms.filter((f) =>
+            formAppliesToEnrollment(f.createdAt, enrollment.createdAt),
+          )
+        : forms;
+
     return {
       courseId,
-      forms: forms.map((f) => {
+      forms: visibleForms.map((f) => {
         const c = f.userFormCompletions[0];
         return {
           courseFormId: f.id,
@@ -2498,7 +2512,7 @@ export class CourseService {
         include: {
           users: {
             where: { userId },
-            select: { id: true },
+            select: { id: true, createdAt: true },
           },
         },
       });
@@ -2506,6 +2520,7 @@ export class CourseService {
       if (!course) {
         throw new Error('Course not found');
       }
+      const enrolledAt = course.users[0]?.createdAt;
 
       // Check if user is assigned to this course
       if (course.users.length === 0) {
@@ -2538,7 +2553,7 @@ export class CourseService {
       }
 
       // Now get all required data in parallel
-      const [forms, policies, policyCompletions, policyItemCompletions, registrationForm] =
+      const [allForms, allPolicies, allPolicyCompletions, allPolicyItemCompletions, attachedRegistrationForm] =
         await Promise.all([
           // Get required forms and their completions
           this.prisma.courseForm.findMany({
@@ -2601,6 +2616,28 @@ export class CourseService {
           }),
         ]);
 
+      const forms = allForms.filter((f) =>
+        formAppliesToEnrollment(f.createdAt, enrolledAt),
+      );
+      const registrationForm =
+        attachedRegistrationForm &&
+        formAppliesToEnrollment(attachedRegistrationForm.createdAt, enrolledAt)
+          ? attachedRegistrationForm
+          : null;
+      const policies = allPolicies.filter((p) =>
+        formAppliesToEnrollment(p.createdAt, enrolledAt),
+      );
+      const applicablePolicyIds = new Set(policies.map((p) => p.id));
+      const applicableItemIds = new Set(
+        policies.flatMap((p) => p.items.map((i) => i.id)),
+      );
+      const policyCompletions = allPolicyCompletions.filter((c) =>
+        applicablePolicyIds.has(c.policyId),
+      );
+      const policyItemCompletions = allPolicyItemCompletions.filter((c) =>
+        applicableItemIds.has(c.itemId),
+      );
+
       // Calculate form completion status
       const totalRequiredForms = forms.length;
       let completedForms = 0;
@@ -2645,7 +2682,9 @@ export class CourseService {
         },
       });
 
-      const policyStatus = detailedPolicies.map((policy) => ({
+      const policyStatus = detailedPolicies
+        .filter((policy) => applicablePolicyIds.has(policy.id))
+        .map((policy) => ({
         policyId: policy.id,
         title: policy.title,
         description: policy.description,
@@ -3702,17 +3741,28 @@ export class CourseService {
       });
 
       // 2. Update course forms if provided
+      // Forms are diffed by formId, never wiped: deleting a course_forms row
+      // cascades every learner's submission for it, and recreating it resets
+      // createdAt, which decides which enrolments the form applies to.
       if (courseForms) {
-        await this.prisma.courseForm.deleteMany({ where: { courseId: id } });
+        const incoming = new Map(courseForms.map((form) => [form.value, form]));
+        await this.prisma.courseForm.deleteMany({
+          where: { courseId: id, formId: { notIn: [...incoming.keys()] } },
+        });
 
-        if (courseForms.length > 0) {
-          await this.prisma.courseForm.createMany({
-            data: courseForms.map((form) => ({
+        for (const form of incoming.values()) {
+          await this.prisma.courseForm.upsert({
+            where: { courseId_formId: { courseId: id, formId: form.value } },
+            create: {
               courseId: id,
               formId: form.value,
               formName: form.label,
               isRequired: form.isRequired ?? true,
-            })),
+            },
+            update: {
+              formName: form.label,
+              isRequired: form.isRequired ?? true,
+            },
           });
         }
       }
@@ -3744,8 +3794,20 @@ export class CourseService {
         });
       }
 
-      // 4. Update policies and related data if provided
-      if (policies) {
+      // 4. Update policies and related data if provided. Recreating policies
+      // deletes every learner's acknowledgements, so skip it when the admin
+      // re-saved the course without changing them.
+      const existingPolicies = policies
+        ? await this.prisma.policy.findMany({
+            where: { courseId: id },
+            include: { items: true },
+          })
+        : [];
+      const policiesChanged =
+        !!policies &&
+        coursePoliciesSignature(policies) !==
+          coursePoliciesSignature(existingPolicies);
+      if (policiesChanged) {
         // Step 3.1: Clean up existing related records
         await this.prisma.userPolicyItemCompletion.deleteMany({
           where: { item: { policy: { courseId: id } } },
@@ -7651,15 +7713,19 @@ export class CourseService {
         // resolves the learner's curriculum from the pin passed in above.
         const { course, isActive, isPaid } = userCourse as any;
 
-        // Form completion status (unchanged)
+        const applicableForms = (course.courseForms || []).filter((form) =>
+          formAppliesToEnrollment(form.createdAt, userCourse.createdAt),
+        );
+        const listedForms =
+          role === 'user' ? applicableForms : course.courseForms || [];
+
         const formStatus = {
-          totalForms: course.courseForms?.length || 0,
-          completedForms:
-            course.courseForms?.filter(
-              (form) => form.userFormCompletions?.some((uc) => uc.isComplete),
-            ).length || 0,
+          totalForms: listedForms.length,
+          completedForms: listedForms.filter((form) =>
+            form.userFormCompletions?.some((uc) => uc.isComplete),
+          ).length,
           forms:
-            course.courseForms?.map((form) => ({
+            listedForms.map((form) => ({
               courseFormId: form.id,
               formId: form.formId,
               formName: form.formName,
@@ -7671,7 +7737,9 @@ export class CourseService {
         };
 
         // Policy completion status - only required policies matter for access
-        const requiredPolicies = course.Policy || [];
+        const requiredPolicies = (course.Policy || []).filter((policy) =>
+          formAppliesToEnrollment(policy.createdAt, userCourse.createdAt),
+        );
 
         // Policy-level completion (all required policies must be completed)
         const allRequiredPoliciesCompleted = requiredPolicies.every(
@@ -7687,14 +7755,16 @@ export class CourseService {
           (item) => item.completions?.some((uc) => uc.isComplete),
         );
 
+        const listedPolicies =
+          role === 'user' ? requiredPolicies : course.Policy || [];
         const policyStatus = {
-          totalPolicies: requiredPolicies.length,
+          totalPolicies: listedPolicies.length,
           completedPolicies:
-            requiredPolicies.filter(
+            listedPolicies.filter(
               (policy) => policy.completions?.some((uc) => uc.isComplete),
             ).length || 0,
           policies:
-            requiredPolicies.map((policy) => ({
+            listedPolicies.map((policy) => ({
               policyId: policy.id,
               title: policy.title,
               description: policy.description,
@@ -7730,15 +7800,16 @@ export class CourseService {
 
         const latestLastSeenSection = course.LastSeenSection?.[0];
 
-        const formsCompleted =
-          formStatus.totalForms === formStatus.completedForms;
+        const formsCompleted = applicableForms.every((form) =>
+          form.userFormCompletions?.some((uc) => uc.isComplete),
+        );
 
         // Updated access control logic
         const canAccessPolicies = formsCompleted;
         const registrationGate = evaluateRegistrationAccess(
-          formStatus.forms.map((form) => ({
+          applicableForms.map((form) => ({
             formId: form.formId,
-            metadata: form.metadata,
+            metadata: form.userFormCompletions?.[0]?.metadata ?? null,
           })),
         );
         const canAccessContent =

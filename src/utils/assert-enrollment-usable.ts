@@ -15,7 +15,13 @@ export async function assertEnrollmentUsable(
   userId: string,
   courseId: string,
   userRole: Role,
-): Promise<{ id: string; userId: string; courseId: string; isActive: boolean }> {
+): Promise<{
+  id: string;
+  userId: string;
+  courseId: string;
+  isActive: boolean;
+  createdAt: Date;
+}> {
   const isLearner = userRole === Role.user;
   const enrollment = await prisma.userCourse.findFirst({
     where: isLearner
