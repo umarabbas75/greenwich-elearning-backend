@@ -20,6 +20,7 @@ import {
   ArrayMinSize,
   IsObject,
   IsInt,
+  IsUUID,
   Min,
   Max,
   MinLength,
@@ -226,6 +227,10 @@ export class CourseDto {
   @IsOptional()
   @IsEnum(CertificateIssueMode)
   certificateIssueMode?: CertificateIssueMode;
+
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
 }
 
 export class SetCourseActiveDto {
@@ -362,7 +367,58 @@ export class UpdateCourseDto {
   @IsOptional()
   @IsEnum(CertificateIssueMode)
   certificateIssueMode?: CertificateIssueMode;
+
+  /** Set to move the course. Null clears the category. Omit to leave it. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  categoryId?: string | null;
 }
+
+export class CreateCourseCategoryDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  slug?: string;
+
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
+}
+
+export class UpdateCourseCategoryDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  description?: string | null;
+
+  @IsOptional()
+  @IsString()
+  slug?: string;
+
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
+}
+
+export class AssignCourseCategoryDto {
+  /** Null removes the course from its category. */
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  categoryId: string | null;
+}
+
 export class UpdateCourseProgress {
   @IsString()
   @IsNotEmpty()

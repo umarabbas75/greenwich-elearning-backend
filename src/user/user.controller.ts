@@ -53,7 +53,7 @@ export class UserController {
     return this.appService.getDeletedUser(params.id);
   }
 
-  // @UseGuards(AuthGuard('cJwt'))
+  @UseGuards(AuthGuard('cJwt'))
   @Get('/:id')
   getUser(@Param() params: ParamsDto): Promise<ResponseDto> {
     return this.appService.getUser(params.id);

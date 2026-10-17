@@ -159,8 +159,27 @@ model Course {
   courseVersions         CourseVersion[]
   deliveryMode           CourseDeliveryMode         @default(NATIVE)
   scormPackages          ScormPackage[]
+  /// Catalogue grouping (NEBOSH, IOSH, …). Null until an admin assigns one.
+  categoryId             String?
+  category               CourseCategory?            @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
+  @@index([categoryId])
   @@map("courses")
+}
+
+/// Admin-managed catalogue group. Courses point here with a nullable FK so a
+/// category can be removed only after its courses are moved.
+model CourseCategory {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  courses     Course[]
+
+  @@map("course_categories")
 }
 
 /// How certificates are issued for a course.

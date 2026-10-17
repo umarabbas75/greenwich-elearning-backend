@@ -6,7 +6,7 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { Course, Module, Chapter, Section, Prisma, Role, NotificationType, CourseDeliveryMode, ScormPackageStatus, SectionType as PrismaSectionType } from '@prisma/client';
+import { Course, Module, Chapter, Section, Policy, PolicyItem, Prisma, Role, NotificationType, CourseDeliveryMode, ScormPackageStatus, SectionType as PrismaSectionType } from '@prisma/client';
 import {
   // AssignCourseDto,
   CourseDto,
@@ -30,6 +30,7 @@ import {
 } from '../dto';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { courseCategorySelect } from './course-category.service';
 import {
   assertChapterAccessible,
   recordChapterAndModuleCompletionIfNeeded,
@@ -2159,7 +2160,9 @@ export class CourseService {
       if (isCourseExist) {
         throw new Error('Course already exist with specified title');
       }
-      console.log('test');
+      if (body.categoryId) {
+        await this.assertCourseCategoryExists(body.categoryId);
+      }
       // Create transaction for atomic operations
       const result = await this.prisma.$transaction(async (prisma) => {
         // 1. Create the course
@@ -2185,6 +2188,7 @@ export class CourseService {
             ...(body.certificateIssueMode != null
               ? { certificateIssueMode: body.certificateIssueMode }
               : {}),
+            ...(body.categoryId ? { categoryId: body.categoryId } : {}),
           },
         });
 
@@ -2443,6 +2447,7 @@ export class CourseService {
       const course = await this.prisma.course.findUnique({
         where: { id },
         include: {
+          category: { select: courseCategorySelect },
           courseForms: true, // Include the associated course forms
           Policy: {
             include: {
@@ -2770,6 +2775,7 @@ export class CourseService {
           description: true,
           image: true,
           price: true,
+          category: { select: courseCategorySelect },
           // Public marketing page must show the CURRENT (non-archived)
           // curriculum. Prior to these filters an archived module would
           // vanish from the admin list (we filter isArchived:false there
@@ -2902,6 +2908,7 @@ export class CourseService {
     try {
       const courses = await this.prisma.course.findMany({
         include: {
+          category: { select: courseCategorySelect },
           _count: {
             select: {
               // Match getAllModules — archived modules are hidden from the
@@ -3049,6 +3056,7 @@ export class CourseService {
       const courses = await this.prisma.course.findMany({
         where: { isActive: true },
         include: {
+          category: { select: courseCategorySelect },
           _count: {
             select: {
               // Public listing must agree with the public detail page — the
@@ -3110,6 +3118,16 @@ export class CourseService {
    * destroy also marks each package whose Cloud course it deleted PRUNED, so
    * the READY lookup alone already refuses those (no reliance on the audit).
    */
+  private async assertCourseCategoryExists(categoryId: string): Promise<void> {
+    const category = await this.prisma.courseCategory.findUnique({
+      where: { id: categoryId },
+      select: { id: true },
+    });
+    if (!category) {
+      throw new Error('Category not found');
+    }
+  }
+
   private async assertScormCoursePublishable(courseId: string): Promise<void> {
     const ready = await this.prisma.scormPackage.findFirst({
       where: { courseId, status: 'READY' },
@@ -3720,6 +3738,105 @@ export class CourseService {
     }
   }
 
+  /**
+   * Applies the course editor's policies without recreating them. Policies and
+   * items are matched by id (by title when a client sends no id), so the ones
+   * that are kept keep their id, createdAt and every learner's
+   * acknowledgement. Only policies or items the admin removed are deleted,
+   * together with the acknowledgements that point at them.
+   */
+  private async syncCoursePolicies(
+    courseId: string,
+    incoming: any[],
+    existing: Array<Policy & { items: PolicyItem[] }>,
+  ): Promise<void> {
+    const takeMatch = <T extends { id: string; title: string }>(
+      pool: T[],
+      candidate: { id?: string; title?: string },
+    ): T | undefined => {
+      const index = candidate.id
+        ? pool.findIndex((row) => row.id === candidate.id)
+        : pool.findIndex((row) => row.title === candidate.title);
+      return index === -1 ? undefined : pool.splice(index, 1)[0];
+    };
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        const deleteItems = async (itemIds: string[]) => {
+          if (itemIds.length === 0) return;
+          await tx.userPolicyItemCompletion.deleteMany({
+            where: { itemId: { in: itemIds } },
+          });
+          await tx.policyItem.deleteMany({ where: { id: { in: itemIds } } });
+        };
+
+        const unmatchedPolicies = [...existing];
+        for (const policy of incoming) {
+          const items: any[] = policy.items ?? [];
+          const itemData = (item: any, index: number) => ({
+            title: item.title,
+            description: item.description ?? '',
+            link: item.link,
+            isRequired: item.isRequired ?? true,
+            order: item.order ?? index,
+          });
+
+          const match = takeMatch(unmatchedPolicies, policy);
+          if (!match) {
+            await tx.policy.create({
+              data: {
+                courseId,
+                title: policy.title,
+                description: policy.description,
+                order: policy.order ?? 0,
+                items: { create: items.map(itemData) },
+              },
+            });
+            continue;
+          }
+
+          await tx.policy.update({
+            where: { id: match.id },
+            data: {
+              title: policy.title,
+              description: policy.description,
+              order: policy.order ?? 0,
+            },
+          });
+          const unmatchedItems = [...match.items];
+          for (const [index, item] of items.entries()) {
+            const itemMatch = takeMatch(unmatchedItems, item);
+            if (itemMatch) {
+              await tx.policyItem.update({
+                where: { id: itemMatch.id },
+                data: itemData(item, index),
+              });
+            } else {
+              await tx.policyItem.create({
+                data: { ...itemData(item, index), policyId: match.id },
+              });
+            }
+          }
+          await deleteItems(unmatchedItems.map((item) => item.id));
+        }
+
+        if (unmatchedPolicies.length > 0) {
+          const removedIds = unmatchedPolicies.map((policy) => policy.id);
+          await deleteItems(
+            unmatchedPolicies.flatMap((policy) =>
+              policy.items.map((item) => item.id),
+            ),
+          );
+          await tx.userPolicyCompletion.deleteMany({
+            where: { policyId: { in: removedIds } },
+          });
+          await tx.policy.deleteMany({ where: { id: { in: removedIds } } });
+        }
+      },
+      { timeout: 15000, maxWait: 5000 },
+    );
+  }
+
   async updateCourse(id: string, body: UpdateCourseDto): Promise<ResponseDto> {
     try {
       const course = await this.prisma.course.findUnique({ where: { id } });
@@ -3733,6 +3850,9 @@ export class CourseService {
       }
 
       const { courseForms, policies, feedbackForm, ...courseData } = body;
+      if (courseData.categoryId) {
+        await this.assertCourseCategoryExists(courseData.categoryId);
+      }
 
       // 1. Update basic course information
       const updatedCourse = await this.prisma.course.update({
@@ -3767,83 +3887,43 @@ export class CourseService {
         }
       }
 
-      // 3. Update feedback form if provided
+      // 3. Update the feedback form in place. Submissions belong to learners
+      // and are never touched here: recreating the form used to delete every
+      // learner's feedback on each save and re-arm the reminder cron. The
+      // editor omits formStructure, so only overwrite it when one is sent.
       if (feedbackForm) {
-        // First delete existing feedback submissions
-        await this.prisma.courseFeedbackSubmission.deleteMany({
-          where: {
+        const formName = feedbackForm.formName || 'Course Completion Feedback';
+        await this.prisma.courseFeedbackForm.upsert({
+          where: { courseId: id },
+          create: {
             courseId: id,
-          },
-        });
-
-        // Then delete existing feedback form for this course
-        await this.prisma.courseFeedbackForm.deleteMany({
-          where: {
-            courseId: id,
-          },
-        });
-
-        // Create new feedback form
-        await this.prisma.courseFeedbackForm.create({
-          data: {
-            courseId: id,
-            formName: feedbackForm.formName || 'Course Completion Feedback',
+            formName,
             formStructure: feedbackForm.formStructure || {},
             isRequired: feedbackForm.isRequired,
+          },
+          update: {
+            formName,
+            isRequired: feedbackForm.isRequired,
+            ...(feedbackForm.formStructure !== undefined
+              ? { formStructure: feedbackForm.formStructure }
+              : {}),
           },
         });
       }
 
-      // 4. Update policies and related data if provided. Recreating policies
-      // deletes every learner's acknowledgements, so skip it when the admin
-      // re-saved the course without changing them.
-      const existingPolicies = policies
-        ? await this.prisma.policy.findMany({
-            where: { courseId: id },
-            include: { items: true },
-          })
-        : [];
-      const policiesChanged =
-        !!policies &&
-        coursePoliciesSignature(policies) !==
-          coursePoliciesSignature(existingPolicies);
-      if (policiesChanged) {
-        // Step 3.1: Clean up existing related records
-        await this.prisma.userPolicyItemCompletion.deleteMany({
-          where: { item: { policy: { courseId: id } } },
-        });
-
-        await this.prisma.userPolicyCompletion.deleteMany({
-          where: { policy: { courseId: id } },
-        });
-
-        await this.prisma.policyItem.deleteMany({
-          where: { policy: { courseId: id } },
-        });
-
-        await this.prisma.policy.deleteMany({
+      // 4. Update policies in place. Recreating them deleted every learner's
+      // acknowledgements and reset createdAt, which decides which enrolments
+      // a policy applies to. A re-save with nothing changed writes nothing.
+      if (policies) {
+        const existingPolicies = await this.prisma.policy.findMany({
           where: { courseId: id },
+          include: { items: true },
         });
-
-        // Step 3.2: Recreate policies and their items
-        for (const policy of policies) {
-          await this.prisma.policy.create({
-            data: {
-              courseId: id,
-              title: policy.title,
-              description: policy.description,
-              order: policy.order ?? 0,
-              items: {
-                create: policy.items?.map((item, index) => ({
-                  title: item.title,
-                  description: item.description ?? '',
-                  link: item.link,
-                  isRequired: item.isRequired ?? true,
-                  order: item.order ?? index,
-                })),
-              },
-            },
-          });
+        if (
+          coursePoliciesSignature(policies) !==
+          coursePoliciesSignature(existingPolicies)
+        ) {
+          await this.syncCoursePolicies(id, policies, existingPolicies);
         }
       }
 
@@ -7559,6 +7639,7 @@ export class CourseService {
         include: {
           course: {
             include: {
+              category: { select: courseCategorySelect },
               courseForms: {
                 include: {
                   userFormCompletions: {
@@ -7953,6 +8034,7 @@ export class CourseService {
               id: true,
               title: true,
               price: true,
+              category: { select: courseCategorySelect },
             },
           },
         },

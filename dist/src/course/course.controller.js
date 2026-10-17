@@ -16,11 +16,13 @@ exports.CourseController = void 0;
 const common_1 = require("@nestjs/common");
 const course_service_1 = require("./course.service");
 const dto_1 = require("../dto");
+const course_category_service_1 = require("./course-category.service");
 const decorator_1 = require("../decorator");
 const passport_1 = require("@nestjs/passport");
 let CourseController = class CourseController {
-    constructor(appService) {
+    constructor(appService, categories) {
         this.appService = appService;
+        this.categories = categories;
     }
     markFormComplete(user, body) {
         return this.appService.markFormComplete(user.id, user.role, body.courseId, body.formId, body.metaData, body.courseFormId);
@@ -92,6 +94,21 @@ let CourseController = class CourseController {
     }
     deletePost(id) {
         return this.appService.deletePost(id);
+    }
+    listCourseCategories() {
+        return this.categories.list();
+    }
+    createCourseCategory(body) {
+        return this.categories.create(body);
+    }
+    updateCourseCategory(id, body) {
+        return this.categories.update(id, body);
+    }
+    deleteCourseCategory(id) {
+        return this.categories.remove(id);
+    }
+    assignCourseCategory(id, body) {
+        return this.categories.assign(id, body.categoryId);
     }
     getCourse(params) {
         return this.appService.getCourse(params.id);
@@ -418,6 +435,47 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "deletePost", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Get)('/categories'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "listCourseCategories", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Post)('/categories'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [dto_1.CreateCourseCategoryDto]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "createCourseCategory", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Patch)('/categories/:id'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, dto_1.UpdateCourseCategoryDto]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "updateCourseCategory", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Delete)('/categories/:id'),
+    __param(0, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "deleteCourseCategory", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Put)('/:id/category'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, dto_1.AssignCourseCategoryDto]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "assignCourseCategory", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/:id'),
@@ -815,6 +873,7 @@ __decorate([
 ], CourseController.prototype, "resetUserCourseProgress", null);
 exports.CourseController = CourseController = __decorate([
     (0, common_1.Controller)('courses'),
-    __metadata("design:paramtypes", [course_service_1.CourseService])
+    __metadata("design:paramtypes", [course_service_1.CourseService,
+        course_category_service_1.CourseCategoryService])
 ], CourseController);
 //# sourceMappingURL=course.controller.js.map

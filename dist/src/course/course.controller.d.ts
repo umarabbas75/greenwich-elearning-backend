@@ -1,9 +1,11 @@
 import { CourseService } from './course.service';
-import { AssignCourseDto, CourseDto, GetUpdateLastSeen, MarkFormCompleteDto, UpdateFormMetadataDto, ModuleDto, ParamsDto, ParamsDto1, ResponseDto, ResetUserCourseProgressDto, UpdateCourseDto, UpdateSectionOrderDto, SetCourseActiveDto } from '../dto';
+import { AssignCourseDto, CourseDto, GetUpdateLastSeen, MarkFormCompleteDto, UpdateFormMetadataDto, ModuleDto, ParamsDto, ParamsDto1, ResponseDto, ResetUserCourseProgressDto, UpdateCourseDto, UpdateSectionOrderDto, SetCourseActiveDto, CreateCourseCategoryDto, UpdateCourseCategoryDto, AssignCourseCategoryDto } from '../dto';
+import { CourseCategoryService } from './course-category.service';
 import { User } from '@prisma/client';
 export declare class CourseController {
     private readonly appService;
-    constructor(appService: CourseService);
+    private readonly categories;
+    constructor(appService: CourseService, categories: CourseCategoryService);
     markFormComplete(user: User, body: MarkFormCompleteDto): Promise<any>;
     updateFormMetadata(user: User, body: UpdateFormMetadataDto): Promise<any>;
     markPolicyItemAsComplete(user: User, body: any): Promise<any>;
@@ -25,6 +27,11 @@ export declare class CourseController {
     getCourseFormsStatus(user: User, courseId: string): Promise<any>;
     updatePost(body: any, id: string): Promise<any>;
     deletePost(id: string): Promise<any>;
+    listCourseCategories(): Promise<ResponseDto>;
+    createCourseCategory(body: CreateCourseCategoryDto): Promise<ResponseDto>;
+    updateCourseCategory(id: string, body: UpdateCourseCategoryDto): Promise<ResponseDto>;
+    deleteCourseCategory(id: string): Promise<ResponseDto>;
+    assignCourseCategory(id: string, body: AssignCourseCategoryDto): Promise<ResponseDto>;
     getCourse(params: any): Promise<any>;
     canAccessCourseContent(user: User, params: any): Promise<any>;
     getModule(params: ParamsDto): Promise<ResponseDto>;

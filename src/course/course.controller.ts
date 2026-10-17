@@ -25,13 +25,20 @@ import {
   UpdateCourseDto,
   UpdateSectionOrderDto,
   SetCourseActiveDto,
+  CreateCourseCategoryDto,
+  UpdateCourseCategoryDto,
+  AssignCourseCategoryDto,
 } from '../dto';
+import { CourseCategoryService } from './course-category.service';
 import { User } from '@prisma/client';
 import { GetUser } from '../decorator';
 import { AuthGuard } from '@nestjs/passport';
 @Controller('courses')
 export class CourseController {
-  constructor(private readonly appService: CourseService) {}
+  constructor(
+    private readonly appService: CourseService,
+    private readonly categories: CourseCategoryService,
+  ) {}
 
   @UseGuards(AuthGuard('cJwt'))
   @Post('/markFormComplete')
@@ -209,6 +216,44 @@ export class CourseController {
   deletePost(@Param('id') id: string): Promise<any> {
     return this.appService.deletePost(id);
   }
+  @UseGuards(AuthGuard('jwt'))
+  @Get('/categories')
+  listCourseCategories(): Promise<ResponseDto> {
+    return this.categories.list();
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('/categories')
+  createCourseCategory(
+    @Body() body: CreateCourseCategoryDto,
+  ): Promise<ResponseDto> {
+    return this.categories.create(body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Patch('/categories/:id')
+  updateCourseCategory(
+    @Param('id') id: string,
+    @Body() body: UpdateCourseCategoryDto,
+  ): Promise<ResponseDto> {
+    return this.categories.update(id, body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Delete('/categories/:id')
+  deleteCourseCategory(@Param('id') id: string): Promise<ResponseDto> {
+    return this.categories.remove(id);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Put('/:id/category')
+  assignCourseCategory(
+    @Param('id') id: string,
+    @Body() body: AssignCourseCategoryDto,
+  ): Promise<ResponseDto> {
+    return this.categories.assign(id, body.categoryId);
+  }
+
   @UseGuards(AuthGuard('cJwt'))
   @Get('/:id')
   getCourse(@Param() params: any): Promise<any> {

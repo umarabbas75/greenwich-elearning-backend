@@ -21,6 +21,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "script:reset-assessment": "ts-node -r tsconfig-paths/register scripts/reset-assessment-progress.ts",
     "script:reset-assessment:dry": "ts-node -r tsconfig-paths/register scripts/reset-assessment-progress.ts --dry-run",
+    "script:section-export-backup": "ts-node -r tsconfig-paths/register scripts/export-section-content-backup.ts",
+    "script:section-restore": "ts-node -r tsconfig-paths/register scripts/restore-section-content-backup.ts",
     "script:pending-feedback:dry": "ts-node -r tsconfig-paths/register scripts/send-pending-feedback-emails.ts",
     "script:pending-feedback:send": "ts-node -r tsconfig-paths/register scripts/send-pending-feedback-emails.ts --send",
     "script:certificate:client-art": "python3 scripts/certificate-art/build-client-template.py",

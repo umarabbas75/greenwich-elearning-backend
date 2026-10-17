@@ -9,6 +9,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CourseModule = void 0;
 const common_1 = require("@nestjs/common");
 const course_service_1 = require("./course.service");
+const course_category_service_1 = require("./course-category.service");
 const course_controller_1 = require("./course.controller");
 const jwt_1 = require("@nestjs/jwt");
 const strategy_1 = require("../strategy");
@@ -34,6 +35,7 @@ exports.CourseModule = CourseModule = __decorate([
         ],
         providers: [
             course_service_1.CourseService,
+            course_category_service_1.CourseCategoryService,
             strategy_1.JwtUserStrategy,
             strategy_1.JwtUserLiteStrategy,
             strategy_1.JwtAdminStrategy,

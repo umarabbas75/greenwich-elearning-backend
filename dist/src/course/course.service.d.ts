@@ -96,6 +96,7 @@ export declare class CourseService {
     getSection(id: string): Promise<ResponseDto>;
     getAllCourses(): Promise<ResponseDto>;
     getAllPublicCourses(): Promise<ResponseDto>;
+    private assertCourseCategoryExists;
     private assertScormCoursePublishable;
     setCourseActive(courseId: string, isActive: boolean): Promise<ResponseDto>;
     getAllModules(id: string): Promise<ResponseDto>;
@@ -103,6 +104,7 @@ export declare class CourseService {
     getAllChapters(id: string): Promise<ResponseDto>;
     getAllSections(id: string): Promise<ResponseDto>;
     getAllUserSections(id: string, userId: string, courseId: string): Promise<any>;
+    private syncCoursePolicies;
     updateCourse(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateModule(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateChapter(id: string, body: UpdateCourseDto): Promise<ResponseDto>;

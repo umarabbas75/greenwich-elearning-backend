@@ -5,4 +5,5 @@ export declare function assertEnrollmentUsable(prisma: PrismaService, userId: st
     userId: string;
     courseId: string;
     isActive: boolean;
+    createdAt: Date;
 }>;

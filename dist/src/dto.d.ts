@@ -73,6 +73,7 @@ export declare class CourseDto {
     policies?: Array<any>;
     validityDays?: number;
     certificateIssueMode?: CertificateIssueMode;
+    categoryId?: string;
 }
 export declare class SetCourseActiveDto {
     isActive: boolean;
@@ -121,6 +122,22 @@ export declare class UpdateCourseDto {
     policies?: Array<any>;
     validityDays?: number;
     certificateIssueMode?: CertificateIssueMode;
+    categoryId?: string | null;
+}
+export declare class CreateCourseCategoryDto {
+    name: string;
+    description?: string;
+    slug?: string;
+    sortOrder?: number;
+}
+export declare class UpdateCourseCategoryDto {
+    name?: string;
+    description?: string | null;
+    slug?: string;
+    sortOrder?: number;
+}
+export declare class AssignCourseCategoryDto {
+    categoryId: string | null;
 }
 export declare class UpdateCourseProgress {
     courseId: string;

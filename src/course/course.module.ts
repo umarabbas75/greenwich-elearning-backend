@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CourseService } from './course.service';
+import { CourseCategoryService } from './course-category.service';
 import { CourseController } from './course.controller';
 import { JwtModule } from '@nestjs/jwt';
 import {
@@ -29,6 +30,7 @@ import { ScormCloudModule } from '../scorm-cloud/scorm-cloud.module';
   ],
   providers: [
     CourseService,
+    CourseCategoryService,
     JwtUserStrategy,
     JwtUserLiteStrategy,
     JwtAdminStrategy,

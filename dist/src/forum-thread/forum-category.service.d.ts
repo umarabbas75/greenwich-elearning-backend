@@ -16,11 +16,11 @@ export declare class ForumCategoryService {
             isActive: boolean;
             name: string;
             sortOrder: number;
+            slug: string;
             allowAcceptedAnswer: boolean;
             allowVotes: boolean;
             allowMentions: boolean;
             allowAttachments: boolean;
-            slug: string;
             icon: string;
             courseScope: import(".prisma/client").$Enums.ForumCourseScope;
             studentCreatePolicy: import(".prisma/client").$Enums.ForumStudentCreatePolicy;
@@ -39,11 +39,11 @@ export declare class ForumCategoryService {
             isActive: boolean;
             name: string;
             sortOrder: number;
+            slug: string;
             allowAcceptedAnswer: boolean;
             allowVotes: boolean;
             allowMentions: boolean;
             allowAttachments: boolean;
-            slug: string;
             icon: string;
             courseScope: import(".prisma/client").$Enums.ForumCourseScope;
             studentCreatePolicy: import(".prisma/client").$Enums.ForumStudentCreatePolicy;
@@ -62,11 +62,11 @@ export declare class ForumCategoryService {
             isActive: boolean;
             name: string;
             sortOrder: number;
+            slug: string;
             allowAcceptedAnswer: boolean;
             allowVotes: boolean;
             allowMentions: boolean;
             allowAttachments: boolean;
-            slug: string;
             icon: string;
             courseScope: import(".prisma/client").$Enums.ForumCourseScope;
             studentCreatePolicy: import(".prisma/client").$Enums.ForumStudentCreatePolicy;
