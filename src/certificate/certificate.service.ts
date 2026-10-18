@@ -25,6 +25,7 @@ import {
   uploadCertificatePdf,
 } from './certificate-cloudinary';
 import { stripTrailingSlash } from '../utils/strip-trailing-slash';
+import { feedbackAppliesToCompletion } from '../utils/feedback-applicability';
 import { normalizeCertificateId } from './certificate-id';
 
 export interface CertificateVerifyResult {
@@ -82,16 +83,6 @@ export class CertificateService {
     userId: string,
     courseId: string,
   ): Promise<ResponseDto> {
-    const mode = await this.getCourseIssueMode(courseId);
-    if (mode === CertificateIssueMode.NONE) {
-      throw new ForbiddenException('This course does not issue certificates.');
-    }
-
-    await this.assertFeedbackSubmittedForCertificate(userId, courseId);
-
-    const requiresAssessmentPass =
-      await this.courseRequiresAssessmentPass(courseId);
-
     const completion = await this.prisma.courseCompletion.findUnique({
       where: { userId_courseId: { userId, courseId } },
       select: {
@@ -103,6 +94,27 @@ export class CertificateService {
         certificateSource: true,
       },
     });
+
+    // An issued certificate records something the learner already achieved.
+    // Rules added later (feedback made required, an assessment activated,
+    // issuing switched off) must not take it away.
+    if (completion?.certificateUrl) {
+      return this.studentCertificateResponse(completion);
+    }
+
+    const mode = await this.getCourseIssueMode(courseId);
+    if (mode === CertificateIssueMode.NONE) {
+      throw new ForbiddenException('This course does not issue certificates.');
+    }
+
+    await this.assertFeedbackSubmittedForCertificate(
+      userId,
+      courseId,
+      completion?.courseCompletedAt ?? null,
+    );
+
+    const requiresAssessmentPass =
+      await this.courseRequiresAssessmentPass(courseId);
 
     if (requiresAssessmentPass && !completion?.isPassed) {
       throw new ForbiddenException(
@@ -116,31 +128,27 @@ export class CertificateService {
       );
     }
 
-    if (!completion.certificateUrl) {
-      if (mode === CertificateIssueMode.MANUAL) {
-        throw new NotFoundException(
-          'Your certificate is not yet available. It will be issued by the course administrator.',
-        );
-      }
+    if (mode === CertificateIssueMode.MANUAL) {
+      throw new NotFoundException(
+        'Your certificate is not yet available. It will be issued by the course administrator.',
+      );
+    }
 
-      const eligible = await this.isEligibleForCertificate(userId, courseId);
-      if (!eligible) {
-        throw new ForbiddenException(
-          'Certificate requirements are not yet met.',
-        );
+    // Feedback was checked above; only the content/assessment gates remain.
+    if (!(await this.isEligibleForAutoIssue(userId, courseId))) {
+      throw new ForbiddenException('Certificate requirements are not yet met.');
+    }
+    try {
+      await this.generateAndPersist(userId, courseId);
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) {
+        throw error;
       }
-      try {
-        await this.generateAndPersist(userId, courseId);
-      } catch (error) {
-        if (error instanceof ServiceUnavailableException) {
-          throw error;
-        }
-        const message = error instanceof Error ? error.message : String(error);
-        CertificateService.logger.warn(
-          `Certificate generation failed for user ${userId}, course ${courseId}: ${message}`,
-        );
-        throw new NotFoundException('Certificate could not be generated.');
-      }
+      const message = error instanceof Error ? error.message : String(error);
+      CertificateService.logger.warn(
+        `Certificate generation failed for user ${userId}, course ${courseId}: ${message}`,
+      );
+      throw new NotFoundException('Certificate could not be generated.');
     }
 
     const updated = await this.prisma.courseCompletion.findUnique({
@@ -157,21 +165,30 @@ export class CertificateService {
       throw new NotFoundException('Certificate could not be generated.');
     }
 
+    return this.studentCertificateResponse(updated);
+  }
+
+  private studentCertificateResponse(row: {
+    certificateUrl: string | null;
+    certificateId: string | null;
+    certificateIssuedAt: Date | null;
+    certificateSource: CertificateSource | null;
+  }): ResponseDto {
     return {
       message: 'Certificate retrieved',
       statusCode: 200,
       data: {
-        certificateUrl: updated.certificateId
+        certificateUrl: row.certificateId
           ? this.resolvePublicDownloadUrl(
-              updated.certificateUrl!,
-              updated.certificateId,
+              row.certificateUrl!,
+              row.certificateId,
             )
-          : updated.certificateUrl,
-        certificateId: updated.certificateId,
-        certificateIssuedAt: updated.certificateIssuedAt?.toISOString() ?? null,
-        certificateSource: updated.certificateSource,
-        verifyUrl: updated.certificateId
-          ? this.buildVerifyUrl(updated.certificateId)
+          : row.certificateUrl,
+        certificateId: row.certificateId,
+        certificateIssuedAt: row.certificateIssuedAt?.toISOString() ?? null,
+        certificateSource: row.certificateSource,
+        verifyUrl: row.certificateId
+          ? this.buildVerifyUrl(row.certificateId)
           : null,
       },
     };
@@ -536,19 +553,36 @@ export class CertificateService {
     return course.certificateIssueMode;
   }
 
+  /**
+   * True when the course requires feedback from this learner and they have not
+   * submitted it. Learners who completed before feedback became required are
+   * never asked for it.
+   */
+  private async owesFeedback(
+    userId: string,
+    courseId: string,
+    courseCompletedAt: Date | null,
+  ): Promise<boolean> {
+    const [form, submission] = await Promise.all([
+      this.prisma.courseFeedbackForm.findFirst({
+        where: { courseId, isActive: true, isRequired: true },
+        select: { requiredSince: true },
+      }),
+      this.prisma.courseFeedbackSubmission.findFirst({
+        where: { userId, courseId },
+        select: { id: true },
+      }),
+    ]);
+    if (!form || submission) return false;
+    return feedbackAppliesToCompletion(form.requiredSince, courseCompletedAt);
+  }
+
   private async assertFeedbackSubmittedForCertificate(
     userId: string,
     courseId: string,
+    courseCompletedAt: Date | null,
   ): Promise<void> {
-    const form = await this.prisma.courseFeedbackForm.findFirst({
-      where: { courseId, isActive: true, isRequired: true },
-    });
-    if (!form) return;
-
-    const submission = await this.prisma.courseFeedbackSubmission.findFirst({
-      where: { userId, courseId },
-    });
-    if (!submission) {
+    if (await this.owesFeedback(userId, courseId, courseCompletedAt)) {
       throw new ForbiddenException(
         'Course feedback is required before accessing the certificate.',
       );
@@ -584,28 +618,6 @@ export class CertificateService {
     }
 
     return true;
-  }
-
-  /** Auto-issue plus feedback when required (on-demand download fallback). */
-  private async isEligibleForCertificate(
-    userId: string,
-    courseId: string,
-  ): Promise<boolean> {
-    if (!(await this.isEligibleForAutoIssue(userId, courseId))) {
-      return false;
-    }
-
-    const requiredForm = await this.prisma.courseFeedbackForm.findFirst({
-      where: { courseId, isActive: true, isRequired: true },
-      select: { id: true },
-    });
-    if (!requiredForm) return true;
-
-    const submission = await this.prisma.courseFeedbackSubmission.findFirst({
-      where: { userId, courseId },
-      select: { id: true },
-    });
-    return !!submission;
   }
 
   /** True when the course has at least one active assessment learners must pass. */
@@ -681,20 +693,33 @@ export class CertificateService {
     userId: string,
     courseId: string,
   ): Promise<void> {
+    const completion = await this.prisma.courseCompletion.findUnique({
+      where: { userId_courseId: { userId, courseId } },
+      select: {
+        isPassed: true,
+        courseCompletedAt: true,
+        certificateUrl: true,
+        certificateId: true,
+      },
+    });
+    // Issued by this platform: later rule changes never block re-downloading
+    // it. Only these have a stored certificateId for the PDF to carry; an
+    // uploaded manual certificate is served from its own URL instead.
+    if (completion?.certificateUrl && completion.certificateId) return;
+
     const mode = await this.getCourseIssueMode(courseId);
     if (mode === CertificateIssueMode.NONE) {
       throw new ForbiddenException('This course does not issue certificates.');
     }
 
-    await this.assertFeedbackSubmittedForCertificate(userId, courseId);
+    await this.assertFeedbackSubmittedForCertificate(
+      userId,
+      courseId,
+      completion?.courseCompletedAt ?? null,
+    );
 
     const requiresAssessmentPass =
       await this.courseRequiresAssessmentPass(courseId);
-
-    const completion = await this.prisma.courseCompletion.findUnique({
-      where: { userId_courseId: { userId, courseId } },
-      select: { isPassed: true, courseCompletedAt: true },
-    });
 
     if (requiresAssessmentPass && !completion?.isPassed) {
       throw new ForbiddenException(

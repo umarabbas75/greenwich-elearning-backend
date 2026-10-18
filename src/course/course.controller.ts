@@ -330,14 +330,18 @@ export class CourseController {
   setCourseActive(
     @Param() params: ParamsDto,
     @Body() body: SetCourseActiveDto,
+    @GetUser() admin: User,
   ): Promise<ResponseDto> {
-    return this.appService.setCourseActive(params.id, body.isActive);
+    return this.appService.setCourseActive(params.id, body.isActive, admin.id);
   }
 
   @UseGuards(AuthGuard('jwt'))
   @Post('/')
-  createCourse(@Body() body: CourseDto): Promise<ResponseDto> {
-    return this.appService.createCourse(body);
+  createCourse(
+    @Body() body: CourseDto,
+    @GetUser() admin: User,
+  ): Promise<ResponseDto> {
+    return this.appService.createCourse(body, admin.id);
   }
 
   @UseGuards(AuthGuard('jwt'))
@@ -345,8 +349,9 @@ export class CourseController {
   updateCourse(
     @Body() body: CourseDto,
     @Param() params: ParamsDto,
+    @GetUser() admin: User,
   ): Promise<ResponseDto> {
-    return this.appService.updateCourse(params.id, body);
+    return this.appService.updateCourse(params.id, body, admin.id);
   }
 
   @UseGuards(AuthGuard('jwt'))

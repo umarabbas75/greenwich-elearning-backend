@@ -34,8 +34,8 @@ let UserController = class UserController {
     getDeletedUser(params) {
         return this.appService.getDeletedUser(params.id);
     }
-    getUser(params) {
-        return this.appService.getUser(params.id);
+    getUser(params, requester) {
+        return this.appService.getUser(params.id, requester);
     }
     createUser(body) {
         return this.appService.createUser(body);
@@ -46,8 +46,8 @@ let UserController = class UserController {
     updateUser(params, body, requester) {
         return this.appService.updateUser(requester, params.id, body);
     }
-    changePassword(params, body) {
-        return this.appService.changePassword(params.id, body);
+    changePassword(params, body, requester) {
+        return this.appService.changePassword(requester, params.id, body);
     }
     updatePassword(params, body) {
         return this.appService.updatePassword(params.userId, body);
@@ -78,7 +78,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], UserController.prototype, "getAllUserMessages", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Get)('/'),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
@@ -103,8 +103,9 @@ __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Get)('/:id'),
     __param(0, (0, common_1.Param)()),
+    __param(1, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.ParamsDto]),
+    __metadata("design:paramtypes", [dto_1.ParamsDto, Object]),
     __metadata("design:returntype", Promise)
 ], UserController.prototype, "getUser", null);
 __decorate([
@@ -141,13 +142,14 @@ __decorate([
     (0, common_1.Put)('/changePassword/:id'),
     __param(0, (0, common_1.Param)()),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [dto_1.ParamsDto,
-        dto_1.ChangePasswordDto]),
+        dto_1.ChangePasswordDto, Object]),
     __metadata("design:returntype", Promise)
 ], UserController.prototype, "changePassword", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Put)('/updatePassword/:userId'),
     __param(0, (0, common_1.Param)()),
     __param(1, (0, common_1.Body)()),

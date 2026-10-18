@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.assertEnrollmentUsable = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
+const course_access_expiry_1 = require("./course-access-expiry");
 async function assertEnrollmentUsable(prisma, userId, courseId, userRole) {
     const isLearner = userRole === client_1.Role.user;
     const enrollment = await prisma.userCourse.findFirst({
@@ -19,7 +20,7 @@ async function assertEnrollmentUsable(prisma, userId, courseId, userRole) {
         const [completion, course] = await Promise.all([
             prisma.courseCompletion.findUnique({
                 where: { userId_courseId: { userId, courseId } },
-                select: { courseCompletedAt: true },
+                select: { courseCompletedAt: true, validityDaysAtCompletion: true },
             }),
             prisma.course.findUnique({
                 where: { id: courseId },
@@ -27,9 +28,7 @@ async function assertEnrollmentUsable(prisma, userId, courseId, userRole) {
             }),
         ]);
         if (completion?.courseCompletedAt) {
-            const validityDays = course?.validityDays ?? 365;
-            const expiresAt = new Date(completion.courseCompletedAt);
-            expiresAt.setDate(expiresAt.getDate() + validityDays);
+            const expiresAt = (0, course_access_expiry_1.courseAccessExpiresAt)(completion.courseCompletedAt, completion.validityDaysAtCompletion, course?.validityDays);
             if (new Date() > expiresAt) {
                 throw new common_1.ForbiddenException({
                     detail: `Your access to this course expired on ${expiresAt.toISOString().split('T')[0]}. Please contact your administrator to renew access.`,

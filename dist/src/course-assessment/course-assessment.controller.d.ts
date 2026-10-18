@@ -653,6 +653,7 @@ export declare class CourseAssessmentController {
             certificateSource: import(".prisma/client").$Enums.CertificateSource;
             certificateIssuedByAdminId: string;
             courseCompletedAt: Date;
+            validityDaysAtCompletion: number;
             assessmentPassedAt: Date;
             createdAt: Date;
             updatedAt: Date;

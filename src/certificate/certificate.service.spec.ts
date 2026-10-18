@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CertificateService } from './certificate.service';
 
@@ -133,5 +133,86 @@ describe('CertificateService.getLearnerEligibility', () => {
     const result = await service.getLearnerEligibility('user-1');
 
     expect(result.data).toEqual({ eligible: false });
+  });
+});
+
+describe('CertificateService.getStudentCertificate after a rule change', () => {
+  const prisma = {
+    courseCompletion: { findUnique: jest.fn() },
+    course: { findUnique: jest.fn() },
+    courseFeedbackForm: { findFirst: jest.fn() },
+    courseFeedbackSubmission: { findFirst: jest.fn() },
+    assessment: { count: jest.fn() },
+  };
+  const config = { get: jest.fn() };
+  const service = new CertificateService(
+    prisma as never,
+    {} as never,
+    config as unknown as ConfigService,
+    { createNotification: jest.fn() } as never,
+  );
+
+  beforeEach(() => {
+    jest.resetAllMocks();
+    prisma.assessment.count.mockResolvedValue(0);
+    prisma.courseFeedbackSubmission.findFirst.mockResolvedValue(null);
+    prisma.courseFeedbackForm.findFirst.mockResolvedValue({
+      requiredSince: new Date('2026-10-17T07:21:51.013Z'),
+    });
+  });
+
+  it('still returns an issued certificate after feedback became required and issuing was switched off', async () => {
+    prisma.courseCompletion.findUnique.mockResolvedValue({
+      certificateUrl: 'https://cdn.example/cert.pdf',
+      certificateId: null,
+      certificateIssuedAt: new Date('2026-09-01T00:00:00.000Z'),
+      certificateSource: 'MANUAL',
+    });
+    prisma.course.findUnique.mockResolvedValue({
+      certificateIssueMode: 'NONE',
+    });
+
+    const result = await service.getStudentCertificate('user-1', 'course-1');
+
+    expect((result.data as any).certificateUrl).toBe(
+      'https://cdn.example/cert.pdf',
+    );
+    expect(prisma.courseFeedbackForm.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('does not ask for feedback from a learner who completed before it became required', async () => {
+    prisma.courseCompletion.findUnique.mockResolvedValue({
+      certificateUrl: null,
+      courseCompletedAt: new Date('2026-06-08T10:00:00.000Z'),
+      isPassed: false,
+    });
+    prisma.course.findUnique.mockResolvedValue({
+      certificateIssueMode: 'MANUAL',
+    });
+
+    // Past the feedback check, a MANUAL course without an uploaded
+    // certificate reports it as pending.
+    await expect(
+      service.getStudentCertificate('user-1', 'course-1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('still asks for feedback from a learner who completed after it became required', async () => {
+    prisma.courseCompletion.findUnique.mockResolvedValue({
+      certificateUrl: null,
+      courseCompletedAt: new Date('2026-10-18T10:00:00.000Z'),
+      isPassed: false,
+    });
+    prisma.course.findUnique.mockResolvedValue({
+      certificateIssueMode: 'MANUAL',
+    });
+
+    await expect(
+      service.getStudentCertificate('user-1', 'course-1'),
+    ).rejects.toThrow(
+      new ForbiddenException(
+        'Course feedback is required before accessing the certificate.',
+      ),
+    );
   });
 });

@@ -143,14 +143,14 @@ let CourseController = class CourseController {
     getAllUserSections(params, user) {
         return this.appService.getAllUserSections(params?.id, user.id, params?.courseId);
     }
-    setCourseActive(params, body) {
-        return this.appService.setCourseActive(params.id, body.isActive);
+    setCourseActive(params, body, admin) {
+        return this.appService.setCourseActive(params.id, body.isActive, admin.id);
     }
-    createCourse(body) {
-        return this.appService.createCourse(body);
+    createCourse(body, admin) {
+        return this.appService.createCourse(body, admin.id);
     }
-    updateCourse(body, params) {
-        return this.appService.updateCourse(params.id, body);
+    updateCourse(body, params, admin) {
+        return this.appService.updateCourse(params.id, body, admin.id);
     }
     updateModule(body, params) {
         return this.appService.updateModule(params.id, body);
@@ -571,17 +571,19 @@ __decorate([
     (0, common_1.Patch)('/admin/:id/active'),
     __param(0, (0, common_1.Param)()),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [dto_1.ParamsDto,
-        dto_1.SetCourseActiveDto]),
+        dto_1.SetCourseActiveDto, Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "setCourseActive", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('/'),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [dto_1.CourseDto]),
+    __metadata("design:paramtypes", [dto_1.CourseDto, Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "createCourse", null);
 __decorate([
@@ -589,9 +591,10 @@ __decorate([
     (0, common_1.Put)('/:id'),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, common_1.Param)()),
+    __param(2, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [dto_1.CourseDto,
-        dto_1.ParamsDto]),
+        dto_1.ParamsDto, Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "updateCourse", null);
 __decorate([

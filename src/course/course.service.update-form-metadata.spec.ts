@@ -162,6 +162,38 @@ describe('CourseService.updateFormMetadata', () => {
     expect(result.form.metadata).toEqual(meta);
   });
 
+  it('reviews the submission when the link carries a course form id replaced by a later save', async () => {
+    mockExistingCompletion();
+    prisma.courseForm.findUnique.mockResolvedValue(null);
+    const meta = advisorMeta();
+    prisma.userFormCompletion.update.mockResolvedValue({
+      id: 'ufc-1',
+      userId: LEARNER_ID,
+      courseId: COURSE_ID,
+      formId: 'registration-form',
+      courseFormId: COURSE_FORM_ID,
+      isComplete: true,
+      completedAt: COMPLETED_AT,
+      metadata: meta,
+    });
+
+    const result = await service.updateFormMetadata(
+      'admin-1',
+      Role.admin,
+      LEARNER_ID,
+      COURSE_ID,
+      'registration-form',
+      'cf-deleted-on-17-oct',
+      meta,
+    );
+
+    expect(prisma.userFormCompletion.update).toHaveBeenCalledWith({
+      where: { id: 'ufc-1' },
+      data: { metadata: meta },
+    });
+    expect(result.form.courseFormId).toBe(COURSE_FORM_ID);
+  });
+
   it('rejects when no submission exists', async () => {
     prisma.courseForm.findUnique.mockResolvedValue({
       id: COURSE_FORM_ID,

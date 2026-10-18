@@ -84,7 +84,7 @@ export declare class CourseService {
     getUserPolicies(userId: any): Promise<ResponseDto>;
     deletePolicies(): Promise<ResponseDto>;
     updatePost(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
-    createCourse(body: CourseDto): Promise<ResponseDto>;
+    createCourse(body: CourseDto, adminId?: string): Promise<ResponseDto>;
     createModule(body: ModuleDto, adminId?: string): Promise<ResponseDto>;
     createChapter(body: ModuleDto, adminId?: string): Promise<ResponseDto>;
     createSection(body: CreateSectionDto | CreateMatchAndLearnSectionDto | CreateVisualActivitySectionDto | CreateOrderingSectionDto | CreateMatchingSectionDto | CreateFlashcardsSectionDto, adminId?: string): Promise<ResponseDto>;
@@ -98,14 +98,15 @@ export declare class CourseService {
     getAllPublicCourses(): Promise<ResponseDto>;
     private assertCourseCategoryExists;
     private assertScormCoursePublishable;
-    setCourseActive(courseId: string, isActive: boolean): Promise<ResponseDto>;
+    setCourseActive(courseId: string, isActive: boolean, adminId?: string): Promise<ResponseDto>;
     getAllModules(id: string): Promise<ResponseDto>;
     getAllUserModules(id: string, userId: string): Promise<any>;
     getAllChapters(id: string): Promise<ResponseDto>;
     getAllSections(id: string): Promise<ResponseDto>;
     getAllUserSections(id: string, userId: string, courseId: string): Promise<any>;
+    private static courseFieldChanges;
     private syncCoursePolicies;
-    updateCourse(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
+    updateCourse(id: string, body: UpdateCourseDto, adminId?: string): Promise<ResponseDto>;
     updateModule(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateChapter(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     updateSection(id: string, body: UpdateSectionDto | UpdateMatchAndLearnSectionDto | UpdateVisualActivitySectionDto | UpdateOrderingSectionDto | UpdateMatchingSectionDto | UpdateFlashcardsSectionDto | any): Promise<ResponseDto>;

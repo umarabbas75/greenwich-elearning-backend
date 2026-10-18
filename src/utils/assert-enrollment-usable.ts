@@ -1,6 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { courseAccessExpiresAt } from './course-access-expiry';
 
 /**
  * Shared enrolment gate. Extracted from CourseService so ScormModule can
@@ -39,7 +40,7 @@ export async function assertEnrollmentUsable(
     const [completion, course] = await Promise.all([
       prisma.courseCompletion.findUnique({
         where: { userId_courseId: { userId, courseId } },
-        select: { courseCompletedAt: true },
+        select: { courseCompletedAt: true, validityDaysAtCompletion: true },
       }),
       prisma.course.findUnique({
         where: { id: courseId },
@@ -48,9 +49,11 @@ export async function assertEnrollmentUsable(
     ]);
 
     if (completion?.courseCompletedAt) {
-      const validityDays = course?.validityDays ?? 365;
-      const expiresAt = new Date(completion.courseCompletedAt);
-      expiresAt.setDate(expiresAt.getDate() + validityDays);
+      const expiresAt = courseAccessExpiresAt(
+        completion.courseCompletedAt,
+        completion.validityDaysAtCompletion,
+        course?.validityDays,
+      );
       if (new Date() > expiresAt) {
         throw new ForbiddenException({
           detail: `Your access to this course expired on ${

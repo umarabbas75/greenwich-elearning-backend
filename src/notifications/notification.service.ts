@@ -259,19 +259,16 @@ export class NotificationService {
       skipDuplicates: true,
     });
 
-    // Email only if an email directive was supplied. The primary recipient is
-    // emailed only when the row was freshly inserted (dedupe-aware); CC
-    // addresses are emailed unconditionally (they have no in-app row to dedupe
-    // on). Best-effort — never throws into the caller.
-    if (input.email) {
-      const recipients = result.count > 0 ? [input.userId] : [];
-      if (recipients.length > 0 || input.emailCcAddresses?.length) {
-        await this.dispatchNotificationEmails(
-          recipients,
-          input.email,
-          input.emailCcAddresses,
-        );
-      }
+    // Email only if an email directive was supplied, and only when the row was
+    // freshly inserted. CC addresses have no in-app row of their own, so they
+    // follow the recipient's: a dedupe no-op (retry, double submit) must not
+    // re-mail the admin inbox. Best-effort — never throws into the caller.
+    if (input.email && result.count > 0) {
+      await this.dispatchNotificationEmails(
+        [input.userId],
+        input.email,
+        input.emailCcAddresses,
+      );
     }
   }
 
@@ -283,6 +280,10 @@ export class NotificationService {
     input: BulkCreateNotificationInput,
   ): Promise<void> {
     if (input.userIds.length === 0) {
+      // No in-app rows means nothing to dedupe against, so a CC-only send
+      // goes out on every call. Callers whose trigger can repeat must guard
+      // it themselves (markFormComplete only notifies on the call that
+      // completes the form).
       if (input.email && input.emailCcAddresses?.length) {
         await this.dispatchNotificationEmails(
           [],
@@ -307,14 +308,17 @@ export class NotificationService {
       skipDuplicates: true,
     });
 
-    if (!input.email) return;
+    // Nothing new was inserted (every row was a dedupe no-op): a retry or a
+    // double submit, so neither the recipients nor the CC inbox hear about it
+    // again.
+    if (!input.email || result.count === 0) return;
 
     // In-app recipients to email: only those whose row was freshly inserted this
     // call (not a dedupe no-op). When a dedupeKey is provided we identify the new
     // rows by re-reading those keys; without one we conservatively email all
     // (no idempotency guarantee — documented on the input).
-    let recipients: string[] = result.count > 0 ? input.userIds : [];
-    if (result.count > 0 && input.dedupeKeyFor) {
+    let recipients: string[] = input.userIds;
+    if (input.dedupeKeyFor) {
       const keys = input.userIds
         .map((u) => input.dedupeKeyFor!(u))
         .filter((k): k is string => !!k);

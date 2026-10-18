@@ -22,6 +22,7 @@ const notification_service_1 = require("../notifications/notification.service");
 const certificate_pdf_1 = require("./certificate-pdf");
 const certificate_cloudinary_1 = require("./certificate-cloudinary");
 const strip_trailing_slash_1 = require("../utils/strip-trailing-slash");
+const feedback_applicability_1 = require("../utils/feedback-applicability");
 const certificate_id_1 = require("./certificate-id");
 let CertificateService = CertificateService_1 = class CertificateService {
     constructor(prisma, mail, config, notificationService) {
@@ -53,12 +54,6 @@ let CertificateService = CertificateService_1 = class CertificateService {
         }
     }
     async getStudentCertificate(userId, courseId) {
-        const mode = await this.getCourseIssueMode(courseId);
-        if (mode === client_1.CertificateIssueMode.NONE) {
-            throw new common_1.ForbiddenException('This course does not issue certificates.');
-        }
-        await this.assertFeedbackSubmittedForCertificate(userId, courseId);
-        const requiresAssessmentPass = await this.courseRequiresAssessmentPass(courseId);
         const completion = await this.prisma.courseCompletion.findUnique({
             where: { userId_courseId: { userId, courseId } },
             select: {
@@ -70,31 +65,37 @@ let CertificateService = CertificateService_1 = class CertificateService {
                 certificateSource: true,
             },
         });
+        if (completion?.certificateUrl) {
+            return this.studentCertificateResponse(completion);
+        }
+        const mode = await this.getCourseIssueMode(courseId);
+        if (mode === client_1.CertificateIssueMode.NONE) {
+            throw new common_1.ForbiddenException('This course does not issue certificates.');
+        }
+        await this.assertFeedbackSubmittedForCertificate(userId, courseId, completion?.courseCompletedAt ?? null);
+        const requiresAssessmentPass = await this.courseRequiresAssessmentPass(courseId);
         if (requiresAssessmentPass && !completion?.isPassed) {
             throw new common_1.ForbiddenException('You must pass the course assessment before accessing your certificate.');
         }
         if (!requiresAssessmentPass && !completion?.courseCompletedAt) {
             throw new common_1.ForbiddenException('You must complete the course before accessing your certificate.');
         }
-        if (!completion.certificateUrl) {
-            if (mode === client_1.CertificateIssueMode.MANUAL) {
-                throw new common_1.NotFoundException('Your certificate is not yet available. It will be issued by the course administrator.');
+        if (mode === client_1.CertificateIssueMode.MANUAL) {
+            throw new common_1.NotFoundException('Your certificate is not yet available. It will be issued by the course administrator.');
+        }
+        if (!(await this.isEligibleForAutoIssue(userId, courseId))) {
+            throw new common_1.ForbiddenException('Certificate requirements are not yet met.');
+        }
+        try {
+            await this.generateAndPersist(userId, courseId);
+        }
+        catch (error) {
+            if (error instanceof common_1.ServiceUnavailableException) {
+                throw error;
             }
-            const eligible = await this.isEligibleForCertificate(userId, courseId);
-            if (!eligible) {
-                throw new common_1.ForbiddenException('Certificate requirements are not yet met.');
-            }
-            try {
-                await this.generateAndPersist(userId, courseId);
-            }
-            catch (error) {
-                if (error instanceof common_1.ServiceUnavailableException) {
-                    throw error;
-                }
-                const message = error instanceof Error ? error.message : String(error);
-                CertificateService_1.logger.warn(`Certificate generation failed for user ${userId}, course ${courseId}: ${message}`);
-                throw new common_1.NotFoundException('Certificate could not be generated.');
-            }
+            const message = error instanceof Error ? error.message : String(error);
+            CertificateService_1.logger.warn(`Certificate generation failed for user ${userId}, course ${courseId}: ${message}`);
+            throw new common_1.NotFoundException('Certificate could not be generated.');
         }
         const updated = await this.prisma.courseCompletion.findUnique({
             where: { userId_courseId: { userId, courseId } },
@@ -108,18 +109,21 @@ let CertificateService = CertificateService_1 = class CertificateService {
         if (!updated?.certificateUrl) {
             throw new common_1.NotFoundException('Certificate could not be generated.');
         }
+        return this.studentCertificateResponse(updated);
+    }
+    studentCertificateResponse(row) {
         return {
             message: 'Certificate retrieved',
             statusCode: 200,
             data: {
-                certificateUrl: updated.certificateId
-                    ? this.resolvePublicDownloadUrl(updated.certificateUrl, updated.certificateId)
-                    : updated.certificateUrl,
-                certificateId: updated.certificateId,
-                certificateIssuedAt: updated.certificateIssuedAt?.toISOString() ?? null,
-                certificateSource: updated.certificateSource,
-                verifyUrl: updated.certificateId
-                    ? this.buildVerifyUrl(updated.certificateId)
+                certificateUrl: row.certificateId
+                    ? this.resolvePublicDownloadUrl(row.certificateUrl, row.certificateId)
+                    : row.certificateUrl,
+                certificateId: row.certificateId,
+                certificateIssuedAt: row.certificateIssuedAt?.toISOString() ?? null,
+                certificateSource: row.certificateSource,
+                verifyUrl: row.certificateId
+                    ? this.buildVerifyUrl(row.certificateId)
                     : null,
             },
         };
@@ -401,16 +405,23 @@ let CertificateService = CertificateService_1 = class CertificateService {
         }
         return course.certificateIssueMode;
     }
-    async assertFeedbackSubmittedForCertificate(userId, courseId) {
-        const form = await this.prisma.courseFeedbackForm.findFirst({
-            where: { courseId, isActive: true, isRequired: true },
-        });
-        if (!form)
-            return;
-        const submission = await this.prisma.courseFeedbackSubmission.findFirst({
-            where: { userId, courseId },
-        });
-        if (!submission) {
+    async owesFeedback(userId, courseId, courseCompletedAt) {
+        const [form, submission] = await Promise.all([
+            this.prisma.courseFeedbackForm.findFirst({
+                where: { courseId, isActive: true, isRequired: true },
+                select: { requiredSince: true },
+            }),
+            this.prisma.courseFeedbackSubmission.findFirst({
+                where: { userId, courseId },
+                select: { id: true },
+            }),
+        ]);
+        if (!form || submission)
+            return false;
+        return (0, feedback_applicability_1.feedbackAppliesToCompletion)(form.requiredSince, courseCompletedAt);
+    }
+    async assertFeedbackSubmittedForCertificate(userId, courseId, courseCompletedAt) {
+        if (await this.owesFeedback(userId, courseId, courseCompletedAt)) {
             throw new common_1.ForbiddenException('Course feedback is required before accessing the certificate.');
         }
     }
@@ -436,22 +447,6 @@ let CertificateService = CertificateService_1 = class CertificateService {
             return false;
         }
         return true;
-    }
-    async isEligibleForCertificate(userId, courseId) {
-        if (!(await this.isEligibleForAutoIssue(userId, courseId))) {
-            return false;
-        }
-        const requiredForm = await this.prisma.courseFeedbackForm.findFirst({
-            where: { courseId, isActive: true, isRequired: true },
-            select: { id: true },
-        });
-        if (!requiredForm)
-            return true;
-        const submission = await this.prisma.courseFeedbackSubmission.findFirst({
-            where: { userId, courseId },
-            select: { id: true },
-        });
-        return !!submission;
     }
     async courseRequiresAssessmentPass(courseId) {
         const count = await this.prisma.assessment.count({
@@ -505,16 +500,23 @@ let CertificateService = CertificateService_1 = class CertificateService {
         };
     }
     async assertEligibleForCertificateDownload(userId, courseId) {
+        const completion = await this.prisma.courseCompletion.findUnique({
+            where: { userId_courseId: { userId, courseId } },
+            select: {
+                isPassed: true,
+                courseCompletedAt: true,
+                certificateUrl: true,
+                certificateId: true,
+            },
+        });
+        if (completion?.certificateUrl && completion.certificateId)
+            return;
         const mode = await this.getCourseIssueMode(courseId);
         if (mode === client_1.CertificateIssueMode.NONE) {
             throw new common_1.ForbiddenException('This course does not issue certificates.');
         }
-        await this.assertFeedbackSubmittedForCertificate(userId, courseId);
+        await this.assertFeedbackSubmittedForCertificate(userId, courseId, completion?.courseCompletedAt ?? null);
         const requiresAssessmentPass = await this.courseRequiresAssessmentPass(courseId);
-        const completion = await this.prisma.courseCompletion.findUnique({
-            where: { userId_courseId: { userId, courseId } },
-            select: { isPassed: true, courseCompletedAt: true },
-        });
         if (requiresAssessmentPass && !completion?.isPassed) {
             throw new common_1.ForbiddenException('You must pass the course assessment before accessing your certificate.');
         }

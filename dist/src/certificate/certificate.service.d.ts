@@ -24,6 +24,7 @@ export declare class CertificateService {
     constructor(prisma: PrismaService, mail: MailService, config: ConfigService, notificationService: NotificationService);
     tryIssueCertificate(userId: string, courseId: string): Promise<void>;
     getStudentCertificate(userId: string, courseId: string): Promise<ResponseDto>;
+    private studentCertificateResponse;
     listIssuedCertificates(params: {
         courseId?: string;
         source?: CertificateSource;
@@ -42,9 +43,9 @@ export declare class CertificateService {
     private resolvePublicDownloadUrl;
     recordManualCertificate(userId: string, courseId: string, certificateUrl: string, adminId: string): Promise<ResponseDto>;
     private getCourseIssueMode;
+    private owesFeedback;
     private assertFeedbackSubmittedForCertificate;
     private isEligibleForAutoIssue;
-    private isEligibleForCertificate;
     courseRequiresAssessmentPass(courseId: string): Promise<boolean>;
     buildStudentCertificatePdf(userId: string, courseId: string): Promise<{
         buffer: Uint8Array;

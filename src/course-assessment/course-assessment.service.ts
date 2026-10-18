@@ -18,6 +18,7 @@ import { CourseVersionService } from '../course-version/course-version.service';
 import { CertificateService } from '../certificate/certificate.service';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
 import { assertImportedCourseTreeLocked } from '../utils/assert-imported-course-tree-locked';
+import { courseAccessExpiresAt } from '../utils/course-access-expiry';
 import {
   calculateAutoScore,
   stripCorrectAnswerFields,
@@ -1499,7 +1500,7 @@ export class CourseAssessmentService {
     const [completion, course] = await Promise.all([
       this.prisma.courseCompletion.findUnique({
         where: { userId_courseId: { userId, courseId } },
-        select: { courseCompletedAt: true },
+        select: { courseCompletedAt: true, validityDaysAtCompletion: true },
       }),
       this.prisma.course.findUnique({
         where: { id: courseId },
@@ -1508,8 +1509,11 @@ export class CourseAssessmentService {
     ]);
     if (!completion?.courseCompletedAt) return;
 
-    const expiresAt = new Date(completion.courseCompletedAt);
-    expiresAt.setDate(expiresAt.getDate() + (course?.validityDays ?? 365));
+    const expiresAt = courseAccessExpiresAt(
+      completion.courseCompletedAt,
+      completion.validityDaysAtCompletion,
+      course?.validityDays,
+    );
     if (new Date() > expiresAt) {
       // ForbiddenException (an HttpException) is re-thrown unchanged by
       // throwMapped, so this surfaces as a clean 403 — which the client uses to
@@ -1526,6 +1530,14 @@ export class CourseAssessmentService {
     userId: string,
     courseId: string,
   ): Promise<boolean> {
+    // A recorded completion is final: content added to the course afterwards
+    // must not shut someone who already finished out of the assessment.
+    const completion = await this.prisma.courseCompletion.findUnique({
+      where: { userId_courseId: { userId, courseId } },
+      select: { courseCompletedAt: true },
+    });
+    if (completion?.courseCompletedAt) return true;
+
     // Version-aware denominator: a learner pinned to a course version is judged
     // against that version's frozen section set, so adding sections after they
     // enrolled cannot un-complete them for the assessment gate. Unpinned

@@ -148,12 +148,20 @@ let EngagementService = EngagementService_1 = class EngagementService {
             JOIN "users" u ON u."id" = cc."userId"
             JOIN "courses" c ON c."id" = cc."courseId"
             JOIN "course_feedback_forms" ff ON ff."courseId" = cc."courseId"
+            -- Only learners who can still act on the reminder: submitting
+            -- feedback needs an active enrolment (it does not check expiry).
+            JOIN "user_courses" uc
+                   ON uc."userId" = cc."userId" AND uc."courseId" = cc."courseId"
             LEFT JOIN "course_feedback_submissions" fs
                    ON fs."userId" = cc."userId" AND fs."courseId" = cc."courseId"
            WHERE cc."courseCompletedAt" IS NOT NULL
              AND cc."courseCompletedAt" < ${cutoff}
              AND ff."isRequired" = true
              AND ff."isActive" = true
+             -- Learners who finished before feedback became required are
+             -- never asked for it retroactively.
+             AND cc."courseCompletedAt" >= ff."requiredSince"
+             AND uc."isActive" = true
              AND fs."id" IS NULL
              AND c."isActive" = true
              AND u."status" = 'active'

@@ -117,11 +117,22 @@ export class CourseCompletionService {
       });
       if (existing?.courseCompletedAt) return; // already recorded
 
+      // Record the access window granted now, so a later cut to the course's
+      // validityDays cannot shorten it.
+      const course = await this.prisma.course.findUnique({
+        where: { id: courseId },
+        select: { validityDays: true },
+      });
+      const stamp = {
+        courseCompletedAt: new Date(),
+        validityDaysAtCompletion: course?.validityDays ?? null,
+      };
+
       let justCompleted: boolean;
       if (existing) {
         const claimed = await this.prisma.courseCompletion.updateMany({
           where: { userId, courseId, courseCompletedAt: null },
-          data: { courseCompletedAt: new Date() },
+          data: stamp,
         });
         justCompleted = claimed.count === 1;
       } else {
@@ -129,7 +140,7 @@ export class CourseCompletionService {
         // loser of a create race fail rather than double-send.
         try {
           await this.prisma.courseCompletion.create({
-            data: { userId, courseId, courseCompletedAt: new Date() },
+            data: { userId, courseId, ...stamp },
           });
           justCompleted = true;
         } catch {

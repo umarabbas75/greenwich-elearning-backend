@@ -31,7 +31,6 @@ export declare class FeedbackService {
     getCourseFeedbackSubmissions(courseId: string, adminId: string): Promise<ResponseDto>;
     notifyFeedbackRequiredIfNeeded(userId: string, courseId: string): Promise<void>;
     markFeedbackNotificationsRead(userId: string, courseId: string): Promise<void>;
-    assertFeedbackSubmittedForCertificate(userId: string, courseId: string): Promise<void>;
     private assertAdminAsync;
     private buildAdminListWhere;
     private toAdminListRow;

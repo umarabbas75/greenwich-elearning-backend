@@ -231,6 +231,18 @@ model CourseForm {
   isRequired          Boolean              @default(true)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
+  /// The form is required of enrolments created at or after this moment.
+  /// Starts as the attach time and moves to "now" when the form is switched
+  /// from optional to required, so that change never reaches existing
+  /// learners. Whether a learner sees the form at all still follows createdAt.
+  requiredSince       DateTime             @default(now())
+  /// Set while an admin has removed the form from the course. The row is kept
+  /// so learners' submissions survive; re-adding the form clears it.
+  detachedAt          DateTime?
+  /// Every period the form was removed for, as [{ from, until }] ISO strings.
+  /// Enrolments created inside one never had the form, so it does not apply
+  /// to them after it is re-added.
+  detachedWindows     Json?
   userFormCompletions UserFormCompletion[] @relation("FormCompletions")
   course              Course               @relation(fields: [courseId], references: [id])
 
@@ -274,15 +286,18 @@ model Policy {
 }
 
 model PolicyItem {
-  id          String                     @id @default(uuid())
-  title       String // e.g., "Safety Guidelines", "Code of Conduct"
-  description String?
-  link        String // URL to the document
-  isRequired  Boolean                    @default(true)
-  order       Int                        @default(0)
-  policyId    String
-  policy      Policy                     @relation(fields: [policyId], references: [id])
-  completions UserPolicyItemCompletion[]
+  id            String                     @id @default(uuid())
+  title         String // e.g., "Safety Guidelines", "Code of Conduct"
+  description   String?
+  link          String // URL to the document
+  isRequired    Boolean                    @default(true)
+  order         Int                        @default(0)
+  /// The item applies to enrolments created at or after this moment: when it
+  /// was added, or when it was last switched from optional to required.
+  requiredSince DateTime                   @default(now())
+  policyId      String
+  policy        Policy                     @relation(fields: [policyId], references: [id])
+  completions   UserPolicyItemCompletion[]
 
   @@index([policyId, isRequired]) // For finding required items
   @@index([policyId, order]) // For ordered display
@@ -336,6 +351,9 @@ model CourseFeedbackForm {
   formStructure Json // The actual form questions/structure
   isRequired    Boolean                    @default(true)
   isActive      Boolean                    @default(true)
+  /// When feedback last became required. Only completions at or after this
+  /// moment owe feedback; earlier completers are never asked retroactively.
+  requiredSince DateTime                   @default(now())
   createdAt     DateTime                   @default(now())
   updatedAt     DateTime                   @updatedAt
   course        Course                     @relation(fields: [courseId], references: [id])
@@ -1379,6 +1397,10 @@ model CourseCompletion {
   /// Admin who uploaded a manual certificate URL, when applicable.
   certificateIssuedByAdminId String?
   courseCompletedAt          DateTime?
+  /// course.validityDays when the course was completed. Access lasts the
+  /// larger of this and the course's current value, so lowering validityDays
+  /// later never cuts off someone who already finished.
+  validityDaysAtCompletion   Int?
   assessmentPassedAt         DateTime?
   createdAt                  DateTime           @default(now())
   updatedAt                  DateTime           @updatedAt

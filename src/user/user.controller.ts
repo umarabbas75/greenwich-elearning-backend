@@ -30,7 +30,8 @@ export class UserController {
   getAllUserMessages(@GetUser() user: User): Promise<ResponseDto> {
     return this.appService.getAllUserMessages(user.id, user.role);
   }
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin-only: every user's record (dashboard user table, grading queue).
+  @UseGuards(AuthGuard('jwt'))
   @Get('/')
   getAllUser(): Promise<ResponseDto> {
     return this.appService.getAllUsers();
@@ -53,10 +54,14 @@ export class UserController {
     return this.appService.getDeletedUser(params.id);
   }
 
+  // Learners can read only their own record; admins can read anyone's.
   @UseGuards(AuthGuard('cJwt'))
   @Get('/:id')
-  getUser(@Param() params: ParamsDto): Promise<ResponseDto> {
-    return this.appService.getUser(params.id);
+  getUser(
+    @Param() params: ParamsDto,
+    @GetUser() requester: User,
+  ): Promise<ResponseDto> {
+    return this.appService.getUser(params.id, requester);
   }
 
   //@UseGuards(AuthGuard('cJwt'))
@@ -86,16 +91,19 @@ export class UserController {
     return this.appService.updateUser(requester, params.id, body);
   }
 
+  // Users change their own password (old password required).
   @UseGuards(AuthGuard('cJwt'))
   @Put('/changePassword/:id')
   changePassword(
     @Param() params: ParamsDto,
     @Body() body: ChangePasswordDto,
+    @GetUser() requester: User,
   ): Promise<ResponseDto> {
-    return this.appService.changePassword(params.id, body);
+    return this.appService.changePassword(requester, params.id, body);
   }
 
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin-only reset: sets another user's password without the old one.
+  @UseGuards(AuthGuard('jwt'))
   @Put('/updatePassword/:userId')
   updatePassword(
     @Param() params: any,

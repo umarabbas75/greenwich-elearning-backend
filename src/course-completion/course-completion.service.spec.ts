@@ -294,7 +294,7 @@ describe('CourseCompletionService.checkContentCompletion', () => {
     expect(prisma.courseCompletion.updateMany).not.toHaveBeenCalled();
   });
 
-  it('preserves assessment fields — upsert touches only courseCompletedAt', async () => {
+  it('preserves assessment fields — upsert touches only the completion stamp', async () => {
     courseVersionService.countCompletionDenominator.mockResolvedValue(
       denominator(['s1'], []),
     );
@@ -304,8 +304,31 @@ describe('CourseCompletionService.checkContentCompletion', () => {
 
     const arg = prisma.courseCompletion.create.mock.calls[0][0];
     expect(Object.keys(arg.data).sort()).toEqual(
-      ['courseCompletedAt', 'courseId', 'userId'].sort(),
+      [
+        'courseCompletedAt',
+        'courseId',
+        'userId',
+        'validityDaysAtCompletion',
+      ].sort(),
     );
+  });
+
+  it('records the access window granted at completion', async () => {
+    courseVersionService.countCompletionDenominator.mockResolvedValue(
+      denominator(['s1'], []),
+    );
+    prisma.userCourseProgress.findMany.mockResolvedValue(allProgressed(['s1']));
+    prisma.course.findUnique.mockResolvedValue({
+      title: 'NEBOSH IGC',
+      validityDays: 180,
+    });
+
+    await service.checkContentCompletion('user-1', 'course-1');
+
+    expect(
+      prisma.courseCompletion.create.mock.calls[0][0].data
+        .validityDaysAtCompletion,
+    ).toBe(180);
   });
 
   it('stamps but sends no email for a soft-deleted user', async () => {

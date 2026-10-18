@@ -13,14 +13,14 @@ export declare class UserService {
     private assertEmailAvailable;
     private writeAdminAudit;
     private recordPasswordChange;
-    getUser(id: string): Promise<ResponseDto>;
+    getUser(id: string, requester: Pick<User, 'id' | 'role'>): Promise<ResponseDto>;
     getDeletedUser(id: string): Promise<ResponseDto>;
     getAllUsers(): Promise<ResponseDto>;
     getDeletedUsers(): Promise<ResponseDto>;
     createUser(body: BodyDto): Promise<ResponseDto>;
     updateUser(requester: Pick<User, 'id' | 'role'>, userId: string, body: BodyUpdateDto): Promise<ResponseDto>;
     changeUserEmail(adminId: string, userId: string, newEmail: string): Promise<ResponseDto>;
-    changePassword(userId: string, body: ChangePasswordDto): Promise<ResponseDto>;
+    changePassword(requester: Pick<User, 'id'>, userId: string, body: ChangePasswordDto): Promise<ResponseDto>;
     updatePassword(userId: string, body: any): Promise<ResponseDto>;
     deleteUser(id: string): Promise<ResponseDto>;
     restoreUser(id: string): Promise<ResponseDto>;

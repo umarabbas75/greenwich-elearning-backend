@@ -18,6 +18,7 @@ const mail_service_1 = require("../mail/mail.service");
 const notification_service_1 = require("../notifications/notification.service");
 const certificate_service_1 = require("../certificate/certificate.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
+const feedback_applicability_1 = require("../utils/feedback-applicability");
 const feedback_constants_1 = require("./feedback.constants");
 let FeedbackService = FeedbackService_1 = class FeedbackService {
     constructor(prisma, mail, notifications, certificateService) {
@@ -124,18 +125,25 @@ let FeedbackService = FeedbackService_1 = class FeedbackService {
     }
     async getCourseFeedbackStatus(studentId, courseId) {
         try {
-            const feedbackForm = await this.prisma.courseFeedbackForm.findFirst({
-                where: { courseId, isActive: true },
-            });
-            const completion = await this.prisma.courseFeedbackSubmission.findFirst({
-                where: { userId: studentId, courseId },
-            });
+            const [feedbackForm, completion, courseCompletion] = await Promise.all([
+                this.prisma.courseFeedbackForm.findFirst({
+                    where: { courseId, isActive: true },
+                }),
+                this.prisma.courseFeedbackSubmission.findFirst({
+                    where: { userId: studentId, courseId },
+                }),
+                this.prisma.courseCompletion.findUnique({
+                    where: { userId_courseId: { userId: studentId, courseId } },
+                    select: { courseCompletedAt: true },
+                }),
+            ]);
             return {
                 message: 'Course feedback status fetched successfully',
                 statusCode: 200,
                 data: {
                     isCompleted: !!completion,
-                    isRequired: feedbackForm?.isRequired ?? false,
+                    isRequired: !!feedbackForm?.isRequired &&
+                        (0, feedback_applicability_1.feedbackAppliesToCompletion)(feedbackForm.requiredSince, courseCompletion?.courseCompletedAt),
                     submittedAt: completion?.submittedAt?.toISOString() ?? undefined,
                 },
             };
@@ -160,7 +168,12 @@ let FeedbackService = FeedbackService_1 = class FeedbackService {
                     },
                     include: {
                         course: {
-                            select: { id: true, title: true, tutorInfo: true },
+                            select: {
+                                id: true,
+                                title: true,
+                                tutorInfo: true,
+                                feedbackForm: { select: { requiredSince: true } },
+                            },
                         },
                     },
                     orderBy: { courseCompletedAt: 'desc' },
@@ -175,6 +188,8 @@ let FeedbackService = FeedbackService_1 = class FeedbackService {
             const msPerDay = 86400000;
             const data = completions
                 .filter((c) => !submittedIds.has(c.courseId))
+                .filter((c) => !!c.course.feedbackForm &&
+                (0, feedback_applicability_1.feedbackAppliesToCompletion)(c.course.feedbackForm.requiredSince, c.courseCompletedAt))
                 .map((c) => {
                 const completedAt = c.courseCompletedAt;
                 const daysSinceCompletion = Math.floor((now - completedAt.getTime()) / msPerDay);
@@ -377,19 +392,6 @@ let FeedbackService = FeedbackService_1 = class FeedbackService {
                 seenAt: now,
             },
         });
-    }
-    async assertFeedbackSubmittedForCertificate(userId, courseId) {
-        const form = await this.prisma.courseFeedbackForm.findFirst({
-            where: { courseId, isActive: true, isRequired: true },
-        });
-        if (!form)
-            return;
-        const submission = await this.prisma.courseFeedbackSubmission.findFirst({
-            where: { userId, courseId },
-        });
-        if (!submission) {
-            throw new common_1.ForbiddenException('Course feedback is required before accessing the certificate.');
-        }
     }
     async assertAdminAsync(userId) {
         const admin = await this.prisma.user.findUnique({ where: { id: userId } });

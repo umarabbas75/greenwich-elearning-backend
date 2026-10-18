@@ -43,9 +43,9 @@ export declare class CourseController {
     getAllChapters(params: ParamsDto): Promise<ResponseDto>;
     getAllSections(params: ParamsDto): Promise<ResponseDto>;
     getAllUserSections(params: ParamsDto1, user: User): Promise<ResponseDto>;
-    setCourseActive(params: ParamsDto, body: SetCourseActiveDto): Promise<ResponseDto>;
-    createCourse(body: CourseDto): Promise<ResponseDto>;
-    updateCourse(body: CourseDto, params: ParamsDto): Promise<ResponseDto>;
+    setCourseActive(params: ParamsDto, body: SetCourseActiveDto, admin: User): Promise<ResponseDto>;
+    createCourse(body: CourseDto, admin: User): Promise<ResponseDto>;
+    updateCourse(body: CourseDto, params: ParamsDto, admin: User): Promise<ResponseDto>;
     updateModule(body: UpdateCourseDto, params: ParamsDto): Promise<ResponseDto>;
     updateChapter(body: UpdateCourseDto, params: ParamsDto): Promise<ResponseDto>;
     updateSection(body: any, params: ParamsDto): Promise<ResponseDto>;

@@ -1,10 +1,14 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { Prisma, SecurityEventType, User } from '@prisma/client';
+import { Prisma, Role, SecurityEventType, User } from '@prisma/client';
 import { ResponseDto, BodyDto, BodyUpdateDto, ChangePasswordDto } from '../dto';
 import * as argon2 from 'argon2';
 import { constantTimeEqual } from '../utils/constant-time-equal';
 import { emailEqualsWhere, normalizeEmail } from '../utils/email';
 import { errorMessage } from '../utils/error-message';
+import {
+  courseFormAppliesToEnrollment,
+  courseFormAttachedForEnrollment,
+} from '../utils/course-form-applicability';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
@@ -141,8 +145,21 @@ export class UserService {
     }
   }
 
-  async getUser(id: string): Promise<ResponseDto> {
+  async getUser(
+    id: string,
+    requester: Pick<User, 'id' | 'role'>,
+  ): Promise<ResponseDto> {
     try {
+      // The record carries contact details and submitted registration forms,
+      // so a learner may only read their own.
+      const isAdmin = requester.role === Role.admin;
+      if (!isAdmin && requester.id !== id) {
+        throw new HttpException(
+          { status: HttpStatus.FORBIDDEN, error: 'Forbidden' },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
       const user = await this.prisma.user.findFirst({
         where: { id, deletedAt: null },
         include: {
@@ -150,7 +167,17 @@ export class UserService {
             include: {
               course: {
                 include: {
+                  // Admins also see forms removed from the course that this
+                  // learner submitted, so the record stays reviewable.
                   courseForms: {
+                    where: isAdmin
+                      ? {
+                          OR: [
+                            { detachedAt: null },
+                            { userFormCompletions: { some: { userId: id } } },
+                          ],
+                        }
+                      : { detachedAt: null },
                     include: {
                       userFormCompletions: {
                         where: { userId: id },
@@ -181,8 +208,18 @@ export class UserService {
       // Transform data to group by courses
       const coursesWithForms = user.UserCourse.map((userCourse) => {
         const course = userCourse.course;
-        const totalForms = course.courseForms.length;
-        const completedForms = course.courseForms.filter(
+        // Learners see the forms that were part of the course for their
+        // enrolment, matching the course hub, each flagged required only if it
+        // applies to them. Admins see every attached form plus removed ones
+        // the learner submitted. Counts cover forms still on the course.
+        const forms = isAdmin
+          ? course.courseForms
+          : course.courseForms.filter((form) =>
+              courseFormAttachedForEnrollment(form, userCourse.createdAt),
+            );
+        const countedForms = forms.filter((form) => !form.detachedAt);
+        const totalForms = countedForms.length;
+        const completedForms = countedForms.filter(
           (form) =>
             form.userFormCompletions.length > 0 &&
             form.userFormCompletions[0].isComplete,
@@ -194,10 +231,14 @@ export class UserService {
           courseImage: course.image,
           totalForms,
           completedForms,
-          forms: course.courseForms.map((form) => ({
+          forms: forms.map((form) => ({
             formId: form.formId,
             formName: form.formName,
-            isRequired: form.isRequired,
+            isRequired: isAdmin
+              ? form.isRequired
+              : form.isRequired &&
+                courseFormAppliesToEnrollment(form, userCourse.createdAt),
+            isDetached: form.detachedAt !== null,
             courseFormId: form.id,
             isComplete: form.userFormCompletions[0]?.isComplete || false,
             completedAt: form.userFormCompletions[0]?.completedAt || null,
@@ -325,8 +366,10 @@ export class UserService {
         throw new Error('No users found');
       }
 
-      // Transform data to make it more user-friendly (optional)
-      const transformedUsers = users.map((user) => ({
+      // Transform data to make it more user-friendly (optional). The password
+      // hash never leaves the server.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const transformedUsers = users.map(({ password, ...user }) => ({
         ...user,
         courses: user.UserCourse.map((userCourse) => userCourse.course),
       }));
@@ -612,10 +655,17 @@ export class UserService {
   }
 
   async changePassword(
+    requester: Pick<User, 'id'>,
     userId: string,
     body: ChangePasswordDto,
   ): Promise<ResponseDto> {
     try {
+      // Only the account owner changes their own password; admins reset other
+      // users' passwords through updatePassword.
+      if (requester.id !== userId) {
+        throw new Error('Forbidden');
+      }
+
       const existingUser: User = await this.prisma.user.findUnique({
         where: { id: userId },
       });

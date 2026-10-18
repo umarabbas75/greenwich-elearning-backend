@@ -19,6 +19,7 @@ const course_version_service_1 = require("../course-version/course-version.servi
 const certificate_service_1 = require("../certificate/certificate.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
 const assert_imported_course_tree_locked_1 = require("../utils/assert-imported-course-tree-locked");
+const course_access_expiry_1 = require("../utils/course-access-expiry");
 const question_grading_1 = require("../utils/question-grading");
 let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessmentService {
     constructor(prisma, notificationService, courseVersionService, certificateService) {
@@ -1152,7 +1153,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
         const [completion, course] = await Promise.all([
             this.prisma.courseCompletion.findUnique({
                 where: { userId_courseId: { userId, courseId } },
-                select: { courseCompletedAt: true },
+                select: { courseCompletedAt: true, validityDaysAtCompletion: true },
             }),
             this.prisma.course.findUnique({
                 where: { id: courseId },
@@ -1161,8 +1162,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
         ]);
         if (!completion?.courseCompletedAt)
             return;
-        const expiresAt = new Date(completion.courseCompletedAt);
-        expiresAt.setDate(expiresAt.getDate() + (course?.validityDays ?? 365));
+        const expiresAt = (0, course_access_expiry_1.courseAccessExpiresAt)(completion.courseCompletedAt, completion.validityDaysAtCompletion, course?.validityDays);
         if (new Date() > expiresAt) {
             throw new common_1.ForbiddenException({
                 detail: `Your access to this course expired on ${expiresAt.toISOString().split('T')[0]}. Please contact your administrator to renew access.`,
@@ -1170,6 +1170,12 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
         }
     }
     async _isCourseContentCompleted(userId, courseId) {
+        const completion = await this.prisma.courseCompletion.findUnique({
+            where: { userId_courseId: { userId, courseId } },
+            select: { courseCompletedAt: true },
+        });
+        if (completion?.courseCompletedAt)
+            return true;
         const { total: totalSections, liveSectionIds } = await this.courseVersionService.countCompletionDenominator(userId, courseId);
         if (totalSections === 0)
             return true;

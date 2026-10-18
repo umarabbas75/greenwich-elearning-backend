@@ -29,6 +29,8 @@ const flashcards_section_1 = require("../utils/flashcards-section");
 const promote_form_photo_to_user_1 = require("../utils/promote-form-photo-to-user");
 const promote_form_address_to_user_1 = require("../utils/promote-form-address-to-user");
 const course_form_applicability_1 = require("../utils/course-form-applicability");
+const course_access_expiry_1 = require("../utils/course-access-expiry");
+const feedback_applicability_1 = require("../utils/feedback-applicability");
 const course_policy_signature_1 = require("../utils/course-policy-signature");
 const advisor_review_metadata_1 = require("../utils/advisor-review-metadata");
 const mail_service_1 = require("../mail/mail.service");
@@ -353,46 +355,71 @@ let CourseService = CourseService_1 = class CourseService {
                 detail: 'courseFormId does not match the given courseId and formId',
             });
         }
-        await (0, assert_enrollment_usable_1.assertEnrollmentUsable)(this.prisma, userId, courseId, userRole);
+        const enrollment = await (0, assert_enrollment_usable_1.assertEnrollmentUsable)(this.prisma, userId, courseId, userRole);
+        if (userRole === client_1.Role.user &&
+            (courseForm.detachedAt ||
+                !(0, course_form_applicability_1.courseFormAttachedForEnrollment)(courseForm, enrollment.createdAt))) {
+            throw new common_1.BadRequestException({
+                detail: 'This form is not part of your enrolment on this course',
+            });
+        }
+        const alreadyCompleted = (row) => ({
+            alreadyCompleted: true,
+            id: row.id,
+            courseFormId: row.courseFormId,
+            formId: row.formId,
+            completedAt: row.completedAt,
+            metadata: row.metadata,
+        });
         const existing = await this.prisma.userFormCompletion.findUnique({
             where: {
                 userId_courseId_formId: { userId, courseId, formId },
             },
         });
         if (existing?.isComplete) {
-            return {
-                alreadyCompleted: true,
-                id: existing.id,
-                courseFormId: existing.courseFormId,
-                formId: existing.formId,
-                completedAt: existing.completedAt,
-                metadata: existing.metadata,
-            };
+            return alreadyCompleted(existing);
         }
-        const completion = await this.prisma.userFormCompletion.upsert({
-            where: {
-                userId_courseId_formId: {
-                    userId,
-                    courseId,
-                    formId,
-                },
-            },
-            create: {
-                userId,
-                courseId,
-                formId,
-                courseFormId,
-                isComplete: true,
-                completedAt: new Date(),
-                metadata: (metadata ?? {}),
-            },
-            update: {
-                isComplete: true,
-                completedAt: new Date(),
-                metadata: (metadata ?? {}),
-                courseFormId,
-            },
-        });
+        const data = {
+            isComplete: true,
+            completedAt: new Date(),
+            metadata: (metadata ?? {}),
+            courseFormId,
+        };
+        let completion;
+        if (existing) {
+            const claimed = await this.prisma.userFormCompletion.updateMany({
+                where: { id: existing.id, isComplete: false },
+                data,
+            });
+            const current = await this.prisma.userFormCompletion.findUnique({
+                where: { id: existing.id },
+            });
+            if (claimed.count === 0) {
+                return alreadyCompleted(current ?? existing);
+            }
+            completion = current ?? existing;
+        }
+        else {
+            try {
+                completion = await this.prisma.userFormCompletion.create({
+                    data: { userId, courseId, formId, ...data },
+                });
+            }
+            catch (error) {
+                if (!(error instanceof client_1.Prisma.PrismaClientKnownRequestError) ||
+                    error.code !== 'P2002') {
+                    throw error;
+                }
+                const winner = await this.prisma.userFormCompletion.findUnique({
+                    where: {
+                        userId_courseId_formId: { userId, courseId, formId },
+                    },
+                });
+                if (!winner)
+                    throw error;
+                return alreadyCompleted(winner);
+            }
+        }
         try {
             await (0, promote_form_photo_to_user_1.promoteFormPhotoToUserIfMissing)(this.prisma, userId, metadata);
         }
@@ -434,19 +461,6 @@ let CourseService = CourseService_1 = class CourseService {
             });
         }
         (0, advisor_review_metadata_1.assertValidAdvisorReviewMetadata)(metaData);
-        const courseForm = await this.prisma.courseForm.findUnique({
-            where: { id: courseFormId },
-        });
-        if (!courseForm) {
-            throw new common_1.BadRequestException({
-                detail: 'Invalid courseFormId: that course form assignment was not found',
-            });
-        }
-        if (courseForm.courseId !== courseId || courseForm.formId !== formId) {
-            throw new common_1.BadRequestException({
-                detail: 'courseFormId does not match the given courseId and formId',
-            });
-        }
         const existing = await this.prisma.userFormCompletion.findUnique({
             where: {
                 userId_courseId_formId: {
@@ -462,9 +476,7 @@ let CourseService = CourseService_1 = class CourseService {
             });
         }
         if (existing.courseFormId !== courseFormId) {
-            throw new common_1.BadRequestException({
-                detail: 'courseFormId does not match this user\'s registration form submission',
-            });
+            CourseService_1.completionLogger.warn(`Advisor review for user ${learnerUserId}, course ${courseId} sent stale courseFormId ${courseFormId}; reviewing submission on ${existing.courseFormId}`);
         }
         const updated = await this.prisma.userFormCompletion.update({
             where: { id: existing.id },
@@ -628,7 +640,7 @@ let CourseService = CourseService_1 = class CourseService {
     async getStudentCourseFormsStatus(userId, userRole, courseId) {
         const enrollment = await (0, assert_enrollment_usable_1.assertEnrollmentUsable)(this.prisma, userId, courseId, userRole);
         const forms = await this.prisma.courseForm.findMany({
-            where: { courseId },
+            where: { courseId, detachedAt: null },
             orderBy: { createdAt: 'asc' },
             include: {
                 userFormCompletions: {
@@ -637,8 +649,9 @@ let CourseService = CourseService_1 = class CourseService {
                 },
             },
         });
-        const visibleForms = userRole === client_1.Role.user
-            ? forms.filter((f) => (0, course_form_applicability_1.formAppliesToEnrollment)(f.createdAt, enrollment.createdAt))
+        const isLearner = userRole === client_1.Role.user;
+        const visibleForms = isLearner
+            ? forms.filter((f) => (0, course_form_applicability_1.courseFormAttachedForEnrollment)(f, enrollment.createdAt))
             : forms;
         return {
             courseId,
@@ -648,7 +661,10 @@ let CourseService = CourseService_1 = class CourseService {
                     courseFormId: f.id,
                     formId: f.formId,
                     formName: f.formName,
-                    isRequired: f.isRequired,
+                    isRequired: isLearner
+                        ? f.isRequired &&
+                            (0, course_form_applicability_1.courseFormAppliesToEnrollment)(f, enrollment.createdAt)
+                        : f.isRequired,
                     isComplete: c?.isComplete ?? false,
                     completedAt: c?.completedAt ?? null,
                 };
@@ -657,7 +673,13 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async getCourseFormsWithMetadataForUser(userId, courseId) {
         const forms = await this.prisma.courseForm.findMany({
-            where: { courseId },
+            where: {
+                courseId,
+                OR: [
+                    { detachedAt: null },
+                    { userFormCompletions: { some: { userId } } },
+                ],
+            },
             orderBy: { createdAt: 'asc' },
             include: {
                 userFormCompletions: {
@@ -678,6 +700,7 @@ let CourseService = CourseService_1 = class CourseService {
                 formId: f.formId,
                 formName: f.formName,
                 isRequired: f.isRequired,
+                isDetached: f.detachedAt !== null,
                 isComplete: c?.isComplete ?? false,
                 completedAt: c?.completedAt ?? null,
                 metadata: c?.metadata ?? null,
@@ -764,7 +787,21 @@ let CourseService = CourseService_1 = class CourseService {
     }
     async markPolicyItemAsComplete({ userId, courseId, policyId, policyItemId, }) {
         try {
-            const [itemCompletion, requiredItems, completedItems] = await this.prisma.$transaction([
+            const enrollment = await this.prisma.userCourse.findUnique({
+                where: { userId_courseId: { userId, courseId } },
+                select: { createdAt: true },
+            });
+            const requiredItems = await this.prisma.policyItem.findMany({
+                where: { policyId, isRequired: true },
+                select: { id: true, requiredSince: true },
+            });
+            const applicableItemIds = requiredItems
+                .filter((item) => (0, course_form_applicability_1.formAppliesToEnrollment)(item.requiredSince, enrollment?.createdAt))
+                .map((item) => item.id);
+            const requiredItemIds = applicableItemIds.length > 0
+                ? applicableItemIds
+                : requiredItems.map((item) => item.id);
+            const [itemCompletion, completedItems] = await this.prisma.$transaction([
                 this.prisma.userPolicyItemCompletion.upsert({
                     where: {
                         userId_itemId: {
@@ -783,30 +820,16 @@ let CourseService = CourseService_1 = class CourseService {
                         completedAt: new Date(),
                     },
                 }),
-                this.prisma.policyItem.findMany({
-                    where: {
-                        policyId,
-                        isRequired: true,
-                    },
-                    select: { id: true },
-                }),
                 this.prisma.userPolicyItemCompletion.findMany({
                     where: {
                         userId,
-                        itemId: {
-                            in: await this.prisma.policyItem
-                                .findMany({
-                                where: { policyId, isRequired: true },
-                                select: { id: true },
-                            })
-                                .then((items) => items.map((i) => i.id)),
-                        },
+                        itemId: { in: requiredItemIds },
                         isComplete: true,
                     },
                     select: { itemId: true },
                 }),
             ]);
-            const allRequiredItemsCompleted = requiredItems.length === completedItems.length;
+            const allRequiredItemsCompleted = requiredItemIds.length === completedItems.length;
             const policyCompletion = allRequiredItemsCompleted
                 ? await this.prisma.userPolicyCompletion.upsert({
                     where: {
@@ -875,19 +898,29 @@ let CourseService = CourseService_1 = class CourseService {
                     },
                 },
             });
+            const enrollment = await this.prisma.userCourse.findUnique({
+                where: { userId_courseId: { userId, courseId } },
+                select: { createdAt: true },
+            });
+            const appliesToLearner = (createdAt) => (0, course_form_applicability_1.formAppliesToEnrollment)(createdAt, enrollment?.createdAt);
             const transformedPolicies = policies.map((policy) => {
                 const items = policy.items.map((item) => ({
                     policyItemId: item.id,
                     title: item.title,
                     description: item.description,
                     link: item.link,
-                    isRequired: item.isRequired,
+                    isRequired: item.isRequired &&
+                        appliesToLearner(policy.createdAt) &&
+                        appliesToLearner(item.requiredSince),
                     isComplete: item.completions[0]?.isComplete || false,
                     completedAt: item.completions[0]?.completedAt || null,
                 }));
+                const requiredForLearner = items.filter((item) => item.isRequired);
+                const countedItems = requiredForLearner.length > 0
+                    ? requiredForLearner
+                    : items.filter((_, index) => policy.items[index].isRequired);
                 const isPolicyComplete = policy.completions[0]?.isComplete ||
-                    (items.length > 0 &&
-                        items.every((item) => !item.isRequired || item.isComplete));
+                    (items.length > 0 && countedItems.every((item) => item.isComplete));
                 return {
                     policyId: policy.id,
                     title: policy.title,
@@ -1487,7 +1520,7 @@ let CourseService = CourseService_1 = class CourseService {
             });
         }
     }
-    async createCourse(body) {
+    async createCourse(body, adminId) {
         try {
             const isCourseExist = await this.prisma.course.findUnique({
                 where: { title: body.title },
@@ -1545,6 +1578,25 @@ let CourseService = CourseService_1 = class CourseService {
                 }
                 return course;
             });
+            if (adminId) {
+                await this.courseVersionService.writeAudit({
+                    adminId,
+                    action: 'CREATE_COURSE',
+                    targetType: 'Course',
+                    targetId: result.id,
+                    courseId: result.id,
+                    metadata: {
+                        title: result.title,
+                        courseForms: (body.courseForms ?? []).map((form) => form.value),
+                        feedbackForm: body.feedbackForm
+                            ? { isRequired: body.feedbackForm.isRequired }
+                            : null,
+                        validityDays: result.validityDays,
+                        certificateIssueMode: result.certificateIssueMode,
+                        categoryId: result.categoryId,
+                    },
+                });
+            }
             return {
                 message: 'Successfully created course record with forms',
                 statusCode: 200,
@@ -1715,7 +1767,7 @@ let CourseService = CourseService_1 = class CourseService {
                 where: { id },
                 include: {
                     category: { select: course_category_service_1.courseCategorySelect },
-                    courseForms: true,
+                    courseForms: { where: { detachedAt: null } },
                     Policy: {
                         include: {
                             items: true,
@@ -1788,11 +1840,10 @@ let CourseService = CourseService_1 = class CourseService {
             }
             const completion = await this.prisma.courseCompletion.findUnique({
                 where: { userId_courseId: { userId, courseId } },
-                select: { courseCompletedAt: true },
+                select: { courseCompletedAt: true, validityDaysAtCompletion: true },
             });
             if (completion?.courseCompletedAt) {
-                const expiresAt = new Date(completion.courseCompletedAt);
-                expiresAt.setDate(expiresAt.getDate() + (course.validityDays ?? 365));
+                const expiresAt = (0, course_access_expiry_1.courseAccessExpiresAt)(completion.courseCompletedAt, completion.validityDaysAtCompletion, course.validityDays);
                 if (new Date() > expiresAt) {
                     return {
                         message: `Your access to this course expired on ${expiresAt.toISOString().split('T')[0]}. Please contact your administrator to renew access.`,
@@ -1806,6 +1857,7 @@ let CourseService = CourseService_1 = class CourseService {
                     where: {
                         courseId,
                         isRequired: true,
+                        detachedAt: null,
                     },
                     include: {
                         userFormCompletions: {
@@ -1819,7 +1871,7 @@ let CourseService = CourseService_1 = class CourseService {
                     include: {
                         items: {
                             where: { isRequired: true },
-                            select: { id: true },
+                            select: { id: true, requiredSince: true },
                         },
                     },
                 }),
@@ -1845,7 +1897,7 @@ let CourseService = CourseService_1 = class CourseService {
                     select: { itemId: true },
                 }),
                 this.prisma.courseForm.findFirst({
-                    where: { courseId, formId: 'registration-form' },
+                    where: { courseId, formId: 'registration-form', detachedAt: null },
                     include: {
                         userFormCompletions: {
                             where: { userId },
@@ -1854,14 +1906,16 @@ let CourseService = CourseService_1 = class CourseService {
                     },
                 }),
             ]);
-            const forms = allForms.filter((f) => (0, course_form_applicability_1.formAppliesToEnrollment)(f.createdAt, enrolledAt));
+            const forms = allForms.filter((f) => (0, course_form_applicability_1.courseFormAppliesToEnrollment)(f, enrolledAt));
             const registrationForm = attachedRegistrationForm &&
-                (0, course_form_applicability_1.formAppliesToEnrollment)(attachedRegistrationForm.createdAt, enrolledAt)
+                (0, course_form_applicability_1.courseFormAttachedForEnrollment)(attachedRegistrationForm, enrolledAt)
                 ? attachedRegistrationForm
                 : null;
             const policies = allPolicies.filter((p) => (0, course_form_applicability_1.formAppliesToEnrollment)(p.createdAt, enrolledAt));
             const applicablePolicyIds = new Set(policies.map((p) => p.id));
-            const applicableItemIds = new Set(policies.flatMap((p) => p.items.map((i) => i.id)));
+            const applicableItemIds = new Set(policies.flatMap((p) => p.items
+                .filter((i) => (0, course_form_applicability_1.formAppliesToEnrollment)(i.requiredSince, enrolledAt))
+                .map((i) => i.id)));
             const policyCompletions = allPolicyCompletions.filter((c) => applicablePolicyIds.has(c.policyId));
             const policyItemCompletions = allPolicyItemCompletions.filter((c) => applicableItemIds.has(c.itemId));
             const totalRequiredForms = forms.length;
@@ -1879,7 +1933,7 @@ let CourseService = CourseService_1 = class CourseService {
             });
             const totalRequiredPolicies = policies.length;
             const completedPolicies = policyCompletions.length;
-            const totalRequiredPolicyItems = policies.reduce((sum, policy) => sum + (policy.items?.length || 0), 0);
+            const totalRequiredPolicyItems = applicableItemIds.size;
             const completedPolicyItems = policyItemCompletions.length;
             const detailedPolicies = await this.prisma.policy.findMany({
                 where: { courseId },
@@ -1910,7 +1964,7 @@ let CourseService = CourseService_1 = class CourseService {
                     title: item.title,
                     description: item.description,
                     link: item.link,
-                    isRequired: item.isRequired,
+                    isRequired: applicableItemIds.has(item.id),
                     isComplete: item.completions[0]?.isComplete || false,
                 })),
             }));
@@ -2265,7 +2319,7 @@ let CourseService = CourseService_1 = class CourseService {
             return;
         throw new Error(`Imported SCORM course cannot be published: ${problems.join('; ')}`);
     }
-    async setCourseActive(courseId, isActive) {
+    async setCourseActive(courseId, isActive, adminId) {
         try {
             const existing = await this.prisma.course.findUnique({
                 where: { id: courseId },
@@ -2280,6 +2334,16 @@ let CourseService = CourseService_1 = class CourseService {
                 where: { id: courseId },
                 data: { isActive },
             });
+            if (adminId && existing.isActive !== isActive) {
+                await this.courseVersionService.writeAudit({
+                    adminId,
+                    action: isActive ? 'ACTIVATE_COURSE' : 'DEACTIVATE_COURSE',
+                    targetType: 'Course',
+                    targetId: courseId,
+                    courseId,
+                    metadata: { from: existing.isActive, to: isActive },
+                });
+            }
             return {
                 message: isActive
                     ? 'Course activated successfully'
@@ -2683,7 +2747,27 @@ let CourseService = CourseService_1 = class CourseService {
             });
         }
     }
+    static courseFieldChanges(before, after, keys) {
+        const isLarge = (value) => (typeof value === 'string' && value.length > 200) ||
+            (value !== null && typeof value === 'object' && !(value instanceof Date));
+        const changes = {};
+        for (const key of keys) {
+            const from = before[key];
+            const to = after[key];
+            if (JSON.stringify(from) === JSON.stringify(to))
+                continue;
+            changes[key] = isLarge(from) || isLarge(to) ? 'changed' : { from, to };
+        }
+        return changes;
+    }
     async syncCoursePolicies(courseId, incoming, existing) {
+        const summary = {
+            added: [],
+            updated: [],
+            removed: [],
+            itemsAdded: 0,
+            itemsRemoved: 0,
+        };
         const takeMatch = (pool, candidate) => {
             const index = candidate.id
                 ? pool.findIndex((row) => row.id === candidate.id)
@@ -2720,7 +2804,12 @@ let CourseService = CourseService_1 = class CourseService {
                             items: { create: items.map(itemData) },
                         },
                     });
+                    summary.added.push(policy.title);
                     continue;
+                }
+                if ((0, course_policy_signature_1.coursePoliciesSignature)([policy]) !==
+                    (0, course_policy_signature_1.coursePoliciesSignature)([match])) {
+                    summary.updated.push(policy.title);
                 }
                 await tx.policy.update({
                     where: { id: match.id },
@@ -2734,18 +2823,26 @@ let CourseService = CourseService_1 = class CourseService {
                 for (const [index, item] of items.entries()) {
                     const itemMatch = takeMatch(unmatchedItems, item);
                     if (itemMatch) {
+                        const data = itemData(item, index);
                         await tx.policyItem.update({
                             where: { id: itemMatch.id },
-                            data: itemData(item, index),
+                            data: {
+                                ...data,
+                                ...(!itemMatch.isRequired && data.isRequired
+                                    ? { requiredSince: new Date() }
+                                    : {}),
+                            },
                         });
                     }
                     else {
                         await tx.policyItem.create({
                             data: { ...itemData(item, index), policyId: match.id },
                         });
+                        summary.itemsAdded += 1;
                     }
                 }
                 await deleteItems(unmatchedItems.map((item) => item.id));
+                summary.itemsRemoved += unmatchedItems.length;
             }
             if (unmatchedPolicies.length > 0) {
                 const removedIds = unmatchedPolicies.map((policy) => policy.id);
@@ -2754,10 +2851,12 @@ let CourseService = CourseService_1 = class CourseService {
                     where: { policyId: { in: removedIds } },
                 });
                 await tx.policy.deleteMany({ where: { id: { in: removedIds } } });
+                summary.removed = unmatchedPolicies.map((policy) => policy.title);
             }
         }, { timeout: 15000, maxWait: 5000 });
+        return summary;
     }
-    async updateCourse(id, body) {
+    async updateCourse(id, body, adminId) {
         try {
             const course = await this.prisma.course.findUnique({ where: { id } });
             if (!course) {
@@ -2774,46 +2873,120 @@ let CourseService = CourseService_1 = class CourseService {
                 where: { id },
                 data: courseData,
             });
+            const formChanges = {
+                attached: [],
+                reattached: [],
+                detached: [],
+            };
             if (courseForms) {
                 const incoming = new Map(courseForms.map((form) => [form.value, form]));
-                await this.prisma.courseForm.deleteMany({
-                    where: { courseId: id, formId: { notIn: [...incoming.keys()] } },
+                const existingForms = await this.prisma.courseForm.findMany({
+                    where: { courseId: id },
+                    select: {
+                        formId: true,
+                        isRequired: true,
+                        detachedAt: true,
+                        detachedWindows: true,
+                    },
                 });
+                const existingByFormId = new Map(existingForms.map((form) => [form.formId, form]));
+                formChanges.detached = existingForms
+                    .filter((form) => !form.detachedAt && !incoming.has(form.formId))
+                    .map((form) => form.formId);
+                if (formChanges.detached.length > 0) {
+                    await this.prisma.courseForm.updateMany({
+                        where: { courseId: id, formId: { in: formChanges.detached } },
+                        data: { detachedAt: new Date() },
+                    });
+                }
                 for (const form of incoming.values()) {
+                    const current = existingByFormId.get(form.value);
+                    const isRequired = form.isRequired ?? true;
+                    const now = new Date();
                     await this.prisma.courseForm.upsert({
                         where: { courseId_formId: { courseId: id, formId: form.value } },
                         create: {
                             courseId: id,
                             formId: form.value,
                             formName: form.label,
-                            isRequired: form.isRequired ?? true,
+                            isRequired,
                         },
                         update: {
                             formName: form.label,
-                            isRequired: form.isRequired ?? true,
+                            isRequired,
+                            ...(current && !current.isRequired && isRequired
+                                ? { requiredSince: now }
+                                : {}),
+                            ...(current?.detachedAt
+                                ? {
+                                    detachedAt: null,
+                                    detachedWindows: [
+                                        ...(Array.isArray(current.detachedWindows)
+                                            ? current.detachedWindows
+                                            : []),
+                                        {
+                                            from: current.detachedAt.toISOString(),
+                                            until: now.toISOString(),
+                                        },
+                                    ],
+                                }
+                                : {}),
                         },
                     });
+                    if (!current) {
+                        formChanges.attached.push(form.value);
+                    }
+                    else if (current.detachedAt) {
+                        formChanges.reattached.push(form.value);
+                    }
                 }
             }
+            let feedbackChange = null;
             if (feedbackForm) {
                 const formName = feedbackForm.formName || 'Course Completion Feedback';
-                await this.prisma.courseFeedbackForm.upsert({
+                const existingFeedback = await this.prisma.courseFeedbackForm.findUnique({
                     where: { courseId: id },
-                    create: {
-                        courseId: id,
-                        formName,
-                        formStructure: feedbackForm.formStructure || {},
-                        isRequired: feedbackForm.isRequired,
-                    },
-                    update: {
-                        formName,
-                        isRequired: feedbackForm.isRequired,
-                        ...(feedbackForm.formStructure !== undefined
-                            ? { formStructure: feedbackForm.formStructure }
-                            : {}),
-                    },
+                    select: { id: true, isRequired: true },
                 });
+                if (!existingFeedback) {
+                    const created = await this.prisma.courseFeedbackForm.create({
+                        data: {
+                            courseId: id,
+                            formName,
+                            formStructure: feedbackForm.formStructure || {},
+                            isRequired: feedbackForm.isRequired,
+                        },
+                        select: { isRequired: true },
+                    });
+                    feedbackChange = {
+                        from: null,
+                        to: { isRequired: created.isRequired },
+                    };
+                }
+                else {
+                    const isRequired = feedbackForm.isRequired ?? existingFeedback.isRequired;
+                    await this.prisma.courseFeedbackForm.update({
+                        where: { id: existingFeedback.id },
+                        data: {
+                            formName,
+                            isRequired,
+                            ...(feedbackForm.formStructure !== undefined
+                                ? { formStructure: feedbackForm.formStructure }
+                                : {}),
+                            ...(isRequired && !existingFeedback.isRequired
+                                ? { requiredSince: new Date() }
+                                : {}),
+                        },
+                    });
+                    if (isRequired !== existingFeedback.isRequired) {
+                        feedbackChange = {
+                            from: { isRequired: existingFeedback.isRequired },
+                            to: { isRequired },
+                        };
+                    }
+                }
             }
+            let policyChanges = null;
             if (policies) {
                 const existingPolicies = await this.prisma.policy.findMany({
                     where: { courseId: id },
@@ -2821,8 +2994,32 @@ let CourseService = CourseService_1 = class CourseService {
                 });
                 if ((0, course_policy_signature_1.coursePoliciesSignature)(policies) !==
                     (0, course_policy_signature_1.coursePoliciesSignature)(existingPolicies)) {
-                    await this.syncCoursePolicies(id, policies, existingPolicies);
+                    policyChanges = await this.syncCoursePolicies(id, policies, existingPolicies);
                 }
+            }
+            const fieldChanges = CourseService_1.courseFieldChanges(course, updatedCourse, Object.keys(courseData));
+            const formsChanged = formChanges.attached.length +
+                formChanges.reattached.length +
+                formChanges.detached.length >
+                0;
+            if (adminId &&
+                (Object.keys(fieldChanges).length > 0 ||
+                    formsChanged ||
+                    feedbackChange ||
+                    policyChanges)) {
+                await this.courseVersionService.writeAudit({
+                    adminId,
+                    action: 'UPDATE_COURSE',
+                    targetType: 'Course',
+                    targetId: id,
+                    courseId: id,
+                    metadata: {
+                        fields: fieldChanges,
+                        forms: formsChanged ? formChanges : null,
+                        feedbackForm: feedbackChange,
+                        policies: policyChanges,
+                    },
+                });
             }
             return {
                 message: 'Successfully updated course record with forms and policies',
@@ -5045,6 +5242,7 @@ let CourseService = CourseService_1 = class CourseService {
                         include: {
                             category: { select: course_category_service_1.courseCategorySelect },
                             courseForms: {
+                                where: { detachedAt: null },
                                 include: {
                                     userFormCompletions: {
                                         where: { userId },
@@ -5097,7 +5295,11 @@ let CourseService = CourseService_1 = class CourseService {
                                 },
                             },
                             feedbackForm: {
-                                select: { isRequired: true, isActive: true },
+                                select: {
+                                    isRequired: true,
+                                    isActive: true,
+                                    requiredSince: true,
+                                },
                             },
                             LastSeenSection: {
                                 where: { userId },
@@ -5129,6 +5331,7 @@ let CourseService = CourseService_1 = class CourseService {
                     select: {
                         courseId: true,
                         courseCompletedAt: true,
+                        validityDaysAtCompletion: true,
                         certificateId: true,
                         certificateUrl: true,
                         certificateIssuedAt: true,
@@ -5148,8 +5351,10 @@ let CourseService = CourseService_1 = class CourseService {
             })));
             const coursesWithDetails = assignedCourses.map((userCourse) => {
                 const { course, isActive, isPaid } = userCourse;
-                const applicableForms = (course.courseForms || []).filter((form) => (0, course_form_applicability_1.formAppliesToEnrollment)(form.createdAt, userCourse.createdAt));
-                const listedForms = role === 'user' ? applicableForms : course.courseForms || [];
+                const attachedForms = (course.courseForms || []).filter((form) => (0, course_form_applicability_1.courseFormAttachedForEnrollment)(form, userCourse.createdAt));
+                const isFormRequired = (form) => form.isRequired &&
+                    (0, course_form_applicability_1.courseFormAppliesToEnrollment)(form, userCourse.createdAt);
+                const listedForms = role === 'user' ? attachedForms : course.courseForms || [];
                 const formStatus = {
                     totalForms: listedForms.length,
                     completedForms: listedForms.filter((form) => form.userFormCompletions?.some((uc) => uc.isComplete)).length,
@@ -5157,14 +5362,16 @@ let CourseService = CourseService_1 = class CourseService {
                         courseFormId: form.id,
                         formId: form.formId,
                         formName: form.formName,
-                        isRequired: form.isRequired,
+                        isRequired: role === 'user' ? isFormRequired(form) : form.isRequired,
                         isComplete: form.userFormCompletions?.some((uc) => uc.isComplete) || false,
                         metadata: form.userFormCompletions?.[0]?.metadata ?? null,
                     })) || [],
                 };
                 const requiredPolicies = (course.Policy || []).filter((policy) => (0, course_form_applicability_1.formAppliesToEnrollment)(policy.createdAt, userCourse.createdAt));
                 const allRequiredPoliciesCompleted = requiredPolicies.every((policy) => policy.completions?.some((uc) => uc.isComplete));
-                const allRequiredItems = requiredPolicies.flatMap((policy) => policy.items?.filter((item) => item.isRequired) || []);
+                const itemApplies = (item) => item.isRequired &&
+                    (0, course_form_applicability_1.formAppliesToEnrollment)(item.requiredSince, userCourse.createdAt);
+                const allRequiredItems = requiredPolicies.flatMap((policy) => policy.items?.filter(itemApplies) || []);
                 const allRequiredItemsCompleted = allRequiredItems.every((item) => item.completions?.some((uc) => uc.isComplete));
                 const listedPolicies = role === 'user' ? requiredPolicies : course.Policy || [];
                 const policyStatus = {
@@ -5180,7 +5387,7 @@ let CourseService = CourseService_1 = class CourseService {
                             title: item.title,
                             description: item.description,
                             link: item.link,
-                            isRequired: item.isRequired,
+                            isRequired: role === 'user' ? itemApplies(item) : item.isRequired,
                             isComplete: item.completions?.some((uc) => uc.isComplete) || false,
                         })) || [],
                     })) || [],
@@ -5193,9 +5400,11 @@ let CourseService = CourseService_1 = class CourseService {
                         0);
                 const userCourseProgressCount = learnerProgress?.numerator ?? course._count?.UserCourseProgress ?? 0;
                 const latestLastSeenSection = course.LastSeenSection?.[0];
-                const formsCompleted = applicableForms.every((form) => form.userFormCompletions?.some((uc) => uc.isComplete));
+                const formsCompleted = attachedForms
+                    .filter(isFormRequired)
+                    .every((form) => form.userFormCompletions?.some((uc) => uc.isComplete));
                 const canAccessPolicies = formsCompleted;
-                const registrationGate = (0, advisor_review_metadata_1.evaluateRegistrationAccess)(applicableForms.map((form) => ({
+                const registrationGate = (0, advisor_review_metadata_1.evaluateRegistrationAccess)(attachedForms.map((form) => ({
                     formId: form.formId,
                     metadata: form.userFormCompletions?.[0]?.metadata ?? null,
                 })));
@@ -5216,8 +5425,7 @@ let CourseService = CourseService_1 = class CourseService {
                 let expired = false;
                 let expiresAt = null;
                 if (completedAt) {
-                    expiresAt = new Date(completedAt);
-                    expiresAt.setDate(expiresAt.getDate() + (course.validityDays ?? 365));
+                    expiresAt = (0, course_access_expiry_1.courseAccessExpiresAt)(completedAt, issuedCertificate?.validityDaysAtCompletion, course.validityDays);
                     expired = role === 'user' && new Date() > expiresAt;
                 }
                 return {
@@ -5234,7 +5442,8 @@ let CourseService = CourseService_1 = class CourseService {
                     certificateSource: issuedCertificate?.certificateSource ?? null,
                     feedbackForm: course.feedbackForm
                         ? {
-                            isRequired: course.feedbackForm.isRequired,
+                            isRequired: course.feedbackForm.isRequired &&
+                                (0, feedback_applicability_1.feedbackAppliesToCompletion)(course.feedbackForm.requiredSince, completedAt),
                             isCompleted: feedbackSubmittedIds.has(course.id),
                         }
                         : null,

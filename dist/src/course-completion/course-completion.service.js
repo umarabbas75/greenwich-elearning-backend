@@ -54,18 +54,26 @@ let CourseCompletionService = CourseCompletionService_1 = class CourseCompletion
             });
             if (existing?.courseCompletedAt)
                 return;
+            const course = await this.prisma.course.findUnique({
+                where: { id: courseId },
+                select: { validityDays: true },
+            });
+            const stamp = {
+                courseCompletedAt: new Date(),
+                validityDaysAtCompletion: course?.validityDays ?? null,
+            };
             let justCompleted;
             if (existing) {
                 const claimed = await this.prisma.courseCompletion.updateMany({
                     where: { userId, courseId, courseCompletedAt: null },
-                    data: { courseCompletedAt: new Date() },
+                    data: stamp,
                 });
                 justCompleted = claimed.count === 1;
             }
             else {
                 try {
                     await this.prisma.courseCompletion.create({
-                        data: { userId, courseId, courseCompletedAt: new Date() },
+                        data: { userId, courseId, ...stamp },
                     });
                     justCompleted = true;
                 }

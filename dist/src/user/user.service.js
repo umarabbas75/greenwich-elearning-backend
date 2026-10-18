@@ -16,6 +16,7 @@ const client_1 = require("@prisma/client");
 const argon2 = require("argon2");
 const email_1 = require("../utils/email");
 const error_message_1 = require("../utils/error-message");
+const course_form_applicability_1 = require("../utils/course-form-applicability");
 const prisma_service_1 = require("../prisma/prisma.service");
 const mail_service_1 = require("../mail/mail.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
@@ -108,8 +109,12 @@ let UserService = UserService_1 = class UserService {
             UserService_1.logger.warn(`Failed to record SecurityEvent for password change (user ${userId}): ${(0, error_message_1.errorMessage)(err)}`);
         }
     }
-    async getUser(id) {
+    async getUser(id, requester) {
         try {
+            const isAdmin = requester.role === client_1.Role.admin;
+            if (!isAdmin && requester.id !== id) {
+                throw new common_1.HttpException({ status: common_1.HttpStatus.FORBIDDEN, error: 'Forbidden' }, common_1.HttpStatus.FORBIDDEN);
+            }
             const user = await this.prisma.user.findFirst({
                 where: { id, deletedAt: null },
                 include: {
@@ -118,6 +123,14 @@ let UserService = UserService_1 = class UserService {
                             course: {
                                 include: {
                                     courseForms: {
+                                        where: isAdmin
+                                            ? {
+                                                OR: [
+                                                    { detachedAt: null },
+                                                    { userFormCompletions: { some: { userId: id } } },
+                                                ],
+                                            }
+                                            : { detachedAt: null },
                                         include: {
                                             userFormCompletions: {
                                                 where: { userId: id },
@@ -140,8 +153,12 @@ let UserService = UserService_1 = class UserService {
             }
             const coursesWithForms = user.UserCourse.map((userCourse) => {
                 const course = userCourse.course;
-                const totalForms = course.courseForms.length;
-                const completedForms = course.courseForms.filter((form) => form.userFormCompletions.length > 0 &&
+                const forms = isAdmin
+                    ? course.courseForms
+                    : course.courseForms.filter((form) => (0, course_form_applicability_1.courseFormAttachedForEnrollment)(form, userCourse.createdAt));
+                const countedForms = forms.filter((form) => !form.detachedAt);
+                const totalForms = countedForms.length;
+                const completedForms = countedForms.filter((form) => form.userFormCompletions.length > 0 &&
                     form.userFormCompletions[0].isComplete).length;
                 return {
                     courseId: course.id,
@@ -149,10 +166,14 @@ let UserService = UserService_1 = class UserService {
                     courseImage: course.image,
                     totalForms,
                     completedForms,
-                    forms: course.courseForms.map((form) => ({
+                    forms: forms.map((form) => ({
                         formId: form.formId,
                         formName: form.formName,
-                        isRequired: form.isRequired,
+                        isRequired: isAdmin
+                            ? form.isRequired
+                            : form.isRequired &&
+                                (0, course_form_applicability_1.courseFormAppliesToEnrollment)(form, userCourse.createdAt),
+                        isDetached: form.detachedAt !== null,
                         courseFormId: form.id,
                         isComplete: form.userFormCompletions[0]?.isComplete || false,
                         completedAt: form.userFormCompletions[0]?.completedAt || null,
@@ -256,7 +277,7 @@ let UserService = UserService_1 = class UserService {
             if (users.length === 0) {
                 throw new Error('No users found');
             }
-            const transformedUsers = users.map((user) => ({
+            const transformedUsers = users.map(({ password, ...user }) => ({
                 ...user,
                 courses: user.UserCourse.map((userCourse) => userCourse.course),
             }));
@@ -481,8 +502,11 @@ let UserService = UserService_1 = class UserService {
             });
         }
     }
-    async changePassword(userId, body) {
+    async changePassword(requester, userId, body) {
         try {
+            if (requester.id !== userId) {
+                throw new Error('Forbidden');
+            }
             const existingUser = await this.prisma.user.findUnique({
                 where: { id: userId },
             });

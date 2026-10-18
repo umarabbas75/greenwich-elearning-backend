@@ -18,6 +18,7 @@ import { NotificationService } from '../notifications/notification.service';
 import { CertificateService } from '../certificate/certificate.service';
 import { ResponseDto } from '../dto';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
+import { feedbackAppliesToCompletion } from '../utils/feedback-applicability';
 import {
   FEEDBACK_FORM_VERSION,
   FEEDBACK_LIKERT_KEYS,
@@ -183,20 +184,30 @@ export class FeedbackService {
     courseId: string,
   ): Promise<ResponseDto> {
     try {
-      const feedbackForm = await this.prisma.courseFeedbackForm.findFirst({
-        where: { courseId, isActive: true },
-      });
-
-      const completion = await this.prisma.courseFeedbackSubmission.findFirst({
-        where: { userId: studentId, courseId },
-      });
+      const [feedbackForm, completion, courseCompletion] = await Promise.all([
+        this.prisma.courseFeedbackForm.findFirst({
+          where: { courseId, isActive: true },
+        }),
+        this.prisma.courseFeedbackSubmission.findFirst({
+          where: { userId: studentId, courseId },
+        }),
+        this.prisma.courseCompletion.findUnique({
+          where: { userId_courseId: { userId: studentId, courseId } },
+          select: { courseCompletedAt: true },
+        }),
+      ]);
 
       return {
         message: 'Course feedback status fetched successfully',
         statusCode: 200,
         data: {
           isCompleted: !!completion,
-          isRequired: feedbackForm?.isRequired ?? false,
+          isRequired:
+            !!feedbackForm?.isRequired &&
+            feedbackAppliesToCompletion(
+              feedbackForm.requiredSince,
+              courseCompletion?.courseCompletedAt,
+            ),
           submittedAt: completion?.submittedAt?.toISOString() ?? undefined,
         },
       };
@@ -226,7 +237,12 @@ export class FeedbackService {
           },
           include: {
             course: {
-              select: { id: true, title: true, tutorInfo: true },
+              select: {
+                id: true,
+                title: true,
+                tutorInfo: true,
+                feedbackForm: { select: { requiredSince: true } },
+              },
             },
           },
           orderBy: { courseCompletedAt: 'desc' },
@@ -243,6 +259,14 @@ export class FeedbackService {
 
       const data = completions
         .filter((c) => !submittedIds.has(c.courseId))
+        .filter(
+          (c) =>
+            !!c.course.feedbackForm &&
+            feedbackAppliesToCompletion(
+              c.course.feedbackForm.requiredSince,
+              c.courseCompletedAt,
+            ),
+        )
         .map((c) => {
           const completedAt = c.courseCompletedAt!;
           const daysSinceCompletion = Math.floor(
@@ -516,26 +540,6 @@ export class FeedbackService {
         seenAt: now,
       },
     });
-  }
-
-  /** Whether required feedback blocks certificate access (optional §6). */
-  async assertFeedbackSubmittedForCertificate(
-    userId: string,
-    courseId: string,
-  ): Promise<void> {
-    const form = await this.prisma.courseFeedbackForm.findFirst({
-      where: { courseId, isActive: true, isRequired: true },
-    });
-    if (!form) return;
-
-    const submission = await this.prisma.courseFeedbackSubmission.findFirst({
-      where: { userId, courseId },
-    });
-    if (!submission) {
-      throw new ForbiddenException(
-        'Course feedback is required before accessing the certificate.',
-      );
-    }
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────

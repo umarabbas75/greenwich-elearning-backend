@@ -45,21 +45,30 @@ function editorCopy(policy: ReturnType<typeof storedPolicy>) {
 describe('CourseService.updateCourse', () => {
   let service: CourseService;
   let prisma: Record<string, any>;
+  let courseVersionService: { writeAudit: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
       course: {
-        findUnique: jest.fn().mockResolvedValue({ id: COURSE_ID }),
-        update: jest.fn().mockResolvedValue({ id: COURSE_ID }),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: COURSE_ID, validityDays: 365 }),
+        update: jest
+          .fn()
+          .mockResolvedValue({ id: COURSE_ID, validityDays: 365 }),
       },
       courseForm: {
+        findMany: jest.fn().mockResolvedValue([]),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         upsert: jest.fn().mockResolvedValue({}),
       },
       courseFeedbackForm: {
-        upsert: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn(),
         deleteMany: jest.fn(),
-        create: jest.fn(),
+        create: jest.fn().mockResolvedValue({ isRequired: true }),
+        update: jest.fn().mockResolvedValue({}),
       },
       courseFeedbackSubmission: { deleteMany: jest.fn() },
       policy: {
@@ -81,6 +90,9 @@ describe('CourseService.updateCourse', () => {
       },
     };
     prisma.$transaction = makeAbortAwareTransactionMock(prisma);
+    courseVersionService = {
+      writeAudit: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -92,7 +104,7 @@ describe('CourseService.updateCourse', () => {
           provide: FeedbackService,
           useValue: { notifyFeedbackRequiredIfNeeded: jest.fn() },
         },
-        { provide: CourseVersionService, useValue: {} },
+        { provide: CourseVersionService, useValue: courseVersionService },
         {
           provide: CourseCompletionService,
           useValue: { checkContentCompletion: jest.fn() },
@@ -114,8 +126,141 @@ describe('CourseService.updateCourse', () => {
     service = module.get(CourseService);
   });
 
+  describe('course forms', () => {
+    it('detaches a removed form instead of deleting it and its submissions', async () => {
+      prisma.courseForm.findMany.mockResolvedValue([
+        { formId: 'registration-form', detachedAt: null },
+        { formId: 'learner-agreement', detachedAt: null },
+      ]);
+
+      await service.updateCourse(COURSE_ID, {
+        courseForms: [{ value: 'registration-form', label: 'Registration' }],
+      } as any);
+
+      expect(prisma.courseForm.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.courseForm.updateMany).toHaveBeenCalledWith({
+        where: { courseId: COURSE_ID, formId: { in: ['learner-agreement'] } },
+        data: { detachedAt: expect.any(Date) },
+      });
+    });
+
+    it('re-attaches a removed form and exempts learners who enrolled meanwhile', async () => {
+      const removedAt = new Date('2026-10-01T00:00:00.000Z');
+      prisma.courseForm.findMany.mockResolvedValue([
+        {
+          formId: 'learner-agreement',
+          isRequired: true,
+          detachedAt: removedAt,
+          detachedWindows: null,
+        },
+      ]);
+
+      await service.updateCourse(
+        COURSE_ID,
+        {
+          courseForms: [{ value: 'learner-agreement', label: 'Agreement' }],
+        } as any,
+        'admin-1',
+      );
+
+      const update = prisma.courseForm.upsert.mock.calls[0][0].update;
+      expect(update).toEqual(
+        expect.objectContaining({
+          detachedAt: null,
+          detachedWindows: [
+            { from: removedAt.toISOString(), until: expect.any(String) },
+          ],
+        }),
+      );
+      // The date it applies from is untouched.
+      expect(update).not.toHaveProperty('requiredSince');
+      expect(prisma.courseForm.updateMany).not.toHaveBeenCalled();
+      expect(
+        courseVersionService.writeAudit.mock.calls[0][0].metadata.forms,
+      ).toEqual({
+        attached: [],
+        reattached: ['learner-agreement'],
+        detached: [],
+      });
+    });
+
+    it('keeps every earlier removal window when a form is re-added again', async () => {
+      const earlier = {
+        from: '2026-08-01T00:00:00.000Z',
+        until: '2026-09-01T00:00:00.000Z',
+      };
+      prisma.courseForm.findMany.mockResolvedValue([
+        {
+          formId: 'learner-agreement',
+          isRequired: true,
+          detachedAt: new Date('2026-10-01T00:00:00.000Z'),
+          detachedWindows: [earlier],
+        },
+      ]);
+
+      await service.updateCourse(COURSE_ID, {
+        courseForms: [{ value: 'learner-agreement', label: 'Agreement' }],
+      } as any);
+
+      expect(
+        prisma.courseForm.upsert.mock.calls[0][0].update.detachedWindows,
+      ).toEqual([
+        earlier,
+        { from: '2026-10-01T00:00:00.000Z', until: expect.any(String) },
+      ]);
+    });
+
+    it('restarts the date a form applies from when it is made required', async () => {
+      prisma.courseForm.findMany.mockResolvedValue([
+        {
+          formId: 'learner-agreement',
+          isRequired: false,
+          detachedAt: null,
+          detachedWindows: null,
+        },
+      ]);
+
+      await service.updateCourse(COURSE_ID, {
+        courseForms: [
+          { value: 'learner-agreement', label: 'Agreement', isRequired: true },
+        ],
+      } as any);
+
+      expect(prisma.courseForm.upsert.mock.calls[0][0].update).toEqual({
+        formName: 'Agreement',
+        isRequired: true,
+        requiredSince: expect.any(Date),
+      });
+    });
+
+    it('leaves the date alone when a required form is re-saved', async () => {
+      prisma.courseForm.findMany.mockResolvedValue([
+        {
+          formId: 'learner-agreement',
+          isRequired: true,
+          detachedAt: null,
+          detachedWindows: null,
+        },
+      ]);
+
+      await service.updateCourse(COURSE_ID, {
+        courseForms: [{ value: 'learner-agreement', label: 'Agreement' }],
+      } as any);
+
+      expect(prisma.courseForm.upsert.mock.calls[0][0].update).toEqual({
+        formName: 'Agreement',
+        isRequired: true,
+      });
+    });
+  });
+
   describe('feedback form', () => {
-    it('updates the form in place and never deletes learner submissions', async () => {
+    it('updates an existing form in place and never deletes learner submissions', async () => {
+      prisma.courseFeedbackForm.findUnique.mockResolvedValue({
+        id: 'ff-1',
+        isRequired: true,
+      });
+
       await service.updateCourse(COURSE_ID, {
         feedbackForm: {
           formName: 'Course Completion Feedback',
@@ -123,18 +268,9 @@ describe('CourseService.updateCourse', () => {
         },
       } as any);
 
-      expect(prisma.courseFeedbackForm.upsert).toHaveBeenCalledWith({
-        where: { courseId: COURSE_ID },
-        create: {
-          courseId: COURSE_ID,
-          formName: 'Course Completion Feedback',
-          formStructure: {},
-          isRequired: true,
-        },
-        update: {
-          formName: 'Course Completion Feedback',
-          isRequired: true,
-        },
+      expect(prisma.courseFeedbackForm.update).toHaveBeenCalledWith({
+        where: { id: 'ff-1' },
+        data: { formName: 'Course Completion Feedback', isRequired: true },
       });
       expect(prisma.courseFeedbackSubmission.deleteMany).not.toHaveBeenCalled();
       expect(prisma.courseFeedbackForm.deleteMany).not.toHaveBeenCalled();
@@ -142,16 +278,110 @@ describe('CourseService.updateCourse', () => {
     });
 
     it('overwrites the form structure only when one is sent', async () => {
+      prisma.courseFeedbackForm.findUnique.mockResolvedValue({
+        id: 'ff-1',
+        isRequired: true,
+      });
       const formStructure = { questions: [{ id: 'q1' }] };
       await service.updateCourse(COURSE_ID, {
         feedbackForm: { formName: 'Feedback', isRequired: true, formStructure },
       } as any);
 
-      expect(prisma.courseFeedbackForm.upsert.mock.calls[0][0].update).toEqual({
+      expect(prisma.courseFeedbackForm.update.mock.calls[0][0].data).toEqual({
         formName: 'Feedback',
         isRequired: true,
         formStructure,
       });
+    });
+
+    it('lets an admin switch required feedback off', async () => {
+      prisma.courseFeedbackForm.findUnique.mockResolvedValue({
+        id: 'ff-1',
+        isRequired: true,
+      });
+
+      await service.updateCourse(COURSE_ID, {
+        feedbackForm: { formName: 'Feedback', isRequired: false },
+      } as any);
+
+      expect(prisma.courseFeedbackForm.update.mock.calls[0][0].data).toEqual({
+        formName: 'Feedback',
+        isRequired: false,
+      });
+    });
+
+    it('creates an optional feedback form when asked for one', async () => {
+      prisma.courseFeedbackForm.create.mockResolvedValue({ isRequired: false });
+
+      await service.updateCourse(COURSE_ID, {
+        feedbackForm: { formName: 'Feedback', isRequired: false },
+      } as any);
+
+      expect(prisma.courseFeedbackForm.create).toHaveBeenCalledWith({
+        data: {
+          courseId: COURSE_ID,
+          formName: 'Feedback',
+          formStructure: {},
+          isRequired: false,
+        },
+        select: { isRequired: true },
+      });
+    });
+
+    it('restarts the requirement from now when feedback is made required again', async () => {
+      prisma.courseFeedbackForm.findUnique.mockResolvedValue({
+        id: 'ff-1',
+        isRequired: false,
+      });
+
+      await service.updateCourse(COURSE_ID, {
+        feedbackForm: { formName: 'Feedback', isRequired: true },
+      } as any);
+
+      expect(prisma.courseFeedbackForm.update.mock.calls[0][0].data).toEqual({
+        formName: 'Feedback',
+        isRequired: true,
+        requiredSince: expect.any(Date),
+      });
+    });
+  });
+
+  describe('audit log', () => {
+    it('records which admin changed which fields', async () => {
+      prisma.course.update.mockResolvedValue({
+        id: COURSE_ID,
+        validityDays: 90,
+      });
+
+      await service.updateCourse(
+        COURSE_ID,
+        { validityDays: 90 } as any,
+        'admin-1',
+      );
+
+      expect(courseVersionService.writeAudit).toHaveBeenCalledWith({
+        adminId: 'admin-1',
+        action: 'UPDATE_COURSE',
+        targetType: 'Course',
+        targetId: COURSE_ID,
+        courseId: COURSE_ID,
+        metadata: {
+          fields: { validityDays: { from: 365, to: 90 } },
+          forms: null,
+          feedbackForm: null,
+          policies: null,
+        },
+      });
+    });
+
+    it('writes nothing when the save changed nothing', async () => {
+      await service.updateCourse(
+        COURSE_ID,
+        { validityDays: 365 } as any,
+        'admin-1',
+      );
+
+      expect(courseVersionService.writeAudit).not.toHaveBeenCalled();
     });
   });
 
@@ -198,6 +428,27 @@ describe('CourseService.updateCourse', () => {
       expect(prisma.policyItem.deleteMany).not.toHaveBeenCalled();
       expect(prisma.userPolicyCompletion.deleteMany).not.toHaveBeenCalled();
       expect(prisma.userPolicyItemCompletion.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('restarts the date an item applies from when it is made required', async () => {
+      const stored = editorCopy(nebosh);
+      stored.items[1].isRequired = false;
+      prisma.policy.findMany.mockResolvedValue([stored]);
+      const edited = editorCopy(stored);
+      edited.items[1].isRequired = true;
+
+      await service.updateCourse(COURSE_ID, { policies: [edited] } as any);
+
+      const updates = prisma.policyItem.update.mock.calls.map(([arg]) => arg);
+      expect(updates.find((u) => u.where.id === 'i2').data).toEqual(
+        expect.objectContaining({
+          isRequired: true,
+          requiredSince: expect.any(Date),
+        }),
+      );
+      expect(updates.find((u) => u.where.id === 'i1').data).not.toHaveProperty(
+        'requiredSince',
+      );
     });
 
     it('adds new items to an existing policy without touching the others', async () => {
@@ -260,9 +511,7 @@ describe('CourseService.updateCourse', () => {
           courseId: COURSE_ID,
           title: 'New policy',
           items: {
-            create: [
-              expect.objectContaining({ title: 'Handbook', order: 0 }),
-            ],
+            create: [expect.objectContaining({ title: 'Handbook', order: 0 })],
           },
         }),
       });
