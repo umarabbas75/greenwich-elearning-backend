@@ -60,8 +60,9 @@ export declare class CourseService {
     private getCourseFormsWithMetadataForUser;
     private getCourseFeedbackForUserReport;
     private fetchReportActivityData;
-    markPolicyItemAsComplete({ userId, courseId, policyId, policyItemId, }: {
+    markPolicyItemAsComplete({ userId, userRole, courseId, policyId, policyItemId, }: {
         userId: string;
+        userRole?: Role;
         courseId: string;
         policyId: string;
         policyItemId: string;
@@ -82,14 +83,14 @@ export declare class CourseService {
     createPost(courseId: any, userId: any, body: any): Promise<ResponseDto>;
     createPolicies(userId: any, body: any): Promise<ResponseDto>;
     getUserPolicies(userId: any): Promise<ResponseDto>;
-    deletePolicies(): Promise<ResponseDto>;
+    deletePolicies(adminId: string): Promise<ResponseDto>;
     updatePost(id: string, body: UpdateCourseDto): Promise<ResponseDto>;
     createCourse(body: CourseDto, adminId?: string): Promise<ResponseDto>;
     createModule(body: ModuleDto, adminId?: string): Promise<ResponseDto>;
     createChapter(body: ModuleDto, adminId?: string): Promise<ResponseDto>;
     createSection(body: CreateSectionDto | CreateMatchAndLearnSectionDto | CreateVisualActivitySectionDto | CreateOrderingSectionDto | CreateMatchingSectionDto | CreateFlashcardsSectionDto, adminId?: string): Promise<ResponseDto>;
     getCourse(id: string): Promise<ResponseDto>;
-    canAccessCourseContent(userId: string, courseId: string): Promise<ResponseDto>;
+    canAccessCourseContent(userId: string, courseId: string, userRole?: Role): Promise<ResponseDto>;
     getCourseDetailPublic(id: string): Promise<ResponseDto>;
     getModule(id: string): Promise<ResponseDto>;
     getChapter(id: string): Promise<ResponseDto>;
@@ -144,6 +145,8 @@ export declare class CourseService {
         force?: boolean;
         adminId?: string;
     }): Promise<ResponseDto>;
+    private countLearnerRecordsOn;
+    private auditCurriculumDelete;
     deleteModule(id: string, adminId?: string): Promise<ResponseDto>;
     deleteChapter(id: string, adminId?: string): Promise<ResponseDto>;
     deleteSection(id: string, adminId?: string): Promise<ResponseDto>;

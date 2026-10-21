@@ -35,6 +35,7 @@ import {
   ReportCurriculumTree,
 } from './course-version.manifest';
 import { computeLearnerPercentages, percentageKey } from './learner-percentage';
+import { writeAdminAudit } from '../utils/admin-audit';
 
 export type CurriculumResolveResult =
   | { mode: 'live' }
@@ -276,6 +277,7 @@ export class CourseVersionService {
     adminId: string | null | undefined,
     courseId: string,
     changeNotes?: string,
+    options?: { auto?: boolean },
   ) {
     const course = await this.prisma.course.findUnique({
       where: { id: courseId },
@@ -306,7 +308,8 @@ export class CourseVersionService {
     // the drift reconcile heals), so a dropped concurrent publish is safe; a
     // manual publish surfaces a clean 409. publishNewVersion already ran in an
     // interactive tx; this only adds the lock + a single manifest findMany.
-    return this.prisma.$transaction(
+    let pinnedCount = 0;
+    const result = await this.prisma.$transaction(
       async (tx) => {
         const [{ locked }] = await tx.$queryRaw<Array<{ locked: boolean }>>(
           Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtextextended(${courseId}, 0)) AS locked`,
@@ -394,6 +397,7 @@ export class CourseVersionService {
           where: { courseId, isActive: true, enrolledVersionId: null },
           data: { enrolledVersionId: snapshot.versionId },
         });
+        pinnedCount = pinned.count;
         if (pinned.count > 0) {
           this.logger.log(
             `Pinned ${pinned.count} active unpinned enrollment(s) on course ${courseId} to v${nextNumber}`,
@@ -427,6 +431,27 @@ export class CourseVersionService {
       },
       { timeout: 15000, maxWait: 5000 },
     );
+
+    // Audited after commit so a failed audit write can never roll back the
+    // publish. Manual publishes are always recorded; the automatic publish
+    // that follows every structural edit only when its pin step moved
+    // existing learners onto a curriculum.
+    const skipped = 'skipped' in result.data && result.data.skipped;
+    if (adminId && !skipped && (!options?.auto || pinnedCount > 0)) {
+      await this.writeAudit({
+        adminId,
+        action: 'PUBLISH_VERSION',
+        targetType: 'CourseVersion',
+        targetId: result.data.id,
+        courseId,
+        metadata: {
+          versionNumber: result.data.versionNumber,
+          pinnedEnrollments: pinnedCount,
+          changeNotes: changeNotes ?? null,
+        },
+      });
+    }
+    return result;
   }
 
   async autoPublishAfterStructuralChange(
@@ -440,7 +465,12 @@ export class CourseVersionService {
     // build and a check outside any lock that two concurrent publishers could
     // both pass). publishNewVersion returns `skipped` when nothing changed.
     this.logger.log(`Auto-publishing ${courseId}: ${changeNotes}`);
-    const result = await this.publishNewVersion(adminId, courseId, changeNotes);
+    const result = await this.publishNewVersion(
+      adminId,
+      courseId,
+      changeNotes,
+      { auto: true },
+    );
     if (result.data && 'skipped' in result.data && result.data.skipped) {
       this.logger.log(
         `Skipped auto-publish for ${courseId}: no structural change (${changeNotes})`,
@@ -735,36 +765,7 @@ export class CourseVersionService {
     },
     tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    const client = tx ?? this.prisma;
-    try {
-      // Denormalise the actor's email at write time so the audit row remains
-      // attributable if the admin is later hard-deleted (adminId → null via
-      // ON DELETE SET NULL).
-      const actor = await client.user.findUnique({
-        where: { id: entry.adminId },
-        select: { email: true },
-      });
-      await client.adminAuditLog.create({
-        data: {
-          adminId: entry.adminId,
-          adminEmail: actor?.email ?? null,
-          action: entry.action,
-          targetType: entry.targetType,
-          targetId: entry.targetId ?? null,
-          courseId: entry.courseId ?? null,
-          userId: entry.userId ?? null,
-          metadata: (entry.metadata as Prisma.InputJsonValue) ?? undefined,
-        },
-      });
-    } catch (err) {
-      this.logger.warn(
-        `AdminAuditLog write failed (${entry.action}, target=${
-          entry.targetType
-        }:${entry.targetId ?? '-'}, course=${entry.courseId ?? '-'}, user=${
-          entry.userId ?? '-'
-        }): ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    await writeAdminAudit(tx ?? this.prisma, entry);
   }
 
   async countCompletionDenominator(
@@ -2333,7 +2334,10 @@ export class CourseVersionService {
     };
   }
 
-  async pruneOrphanVersions(courseId?: string): Promise<{
+  async pruneOrphanVersions(
+    adminId: string,
+    courseId?: string,
+  ): Promise<{
     message: string;
     statusCode: number;
     data: { deleted: number; versionNumbers: number[] };
@@ -2348,8 +2352,28 @@ export class CourseVersionService {
       (v) => v._count.enrollments === 0 && !v.isLatest,
     );
 
-    for (const v of toDelete) {
-      await this.prisma.courseVersion.delete({ where: { id: v.id } });
+    // Pruning removes the "a version references this" protection that turns
+    // deletes into archives, so who ran it (and on what scope) is recorded.
+    // All-or-nothing, so a failure part-way never leaves unrecorded deletes.
+    if (toDelete.length > 0) {
+      await this.prisma.$transaction(
+        toDelete.map((v) =>
+          this.prisma.courseVersion.delete({ where: { id: v.id } }),
+        ),
+      );
+      await this.writeAudit({
+        adminId,
+        action: 'PRUNE_ORPHAN_VERSIONS',
+        targetType: 'CourseVersion',
+        courseId: courseId ?? null,
+        metadata: {
+          scope: courseId ? 'course' : 'all-courses',
+          deleted: toDelete.map((v) => ({
+            courseId: v.courseId,
+            versionNumber: v.versionNumber,
+          })),
+        },
+      });
     }
 
     return {

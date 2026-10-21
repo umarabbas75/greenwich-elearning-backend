@@ -23,6 +23,7 @@ const certificate_pdf_1 = require("./certificate-pdf");
 const certificate_cloudinary_1 = require("./certificate-cloudinary");
 const strip_trailing_slash_1 = require("../utils/strip-trailing-slash");
 const feedback_applicability_1 = require("../utils/feedback-applicability");
+const admin_audit_1 = require("../utils/admin-audit");
 const certificate_id_1 = require("./certificate-id");
 let CertificateService = CertificateService_1 = class CertificateService {
     constructor(prisma, mail, config, notificationService) {
@@ -334,7 +335,11 @@ let CertificateService = CertificateService_1 = class CertificateService {
         }
         const completion = await this.prisma.courseCompletion.findUnique({
             where: { userId_courseId: { userId, courseId } },
-            select: { certificateId: true, certificateUrl: true },
+            select: {
+                certificateId: true,
+                certificateUrl: true,
+                certificateIssuedAt: true,
+            },
         });
         if (!completion) {
             throw new common_1.NotFoundException('Course completion record not found.');
@@ -349,6 +354,20 @@ let CertificateService = CertificateService_1 = class CertificateService {
                 certificateIssuedAt: new Date(),
                 certificateSource: client_1.CertificateSource.MANUAL,
                 certificateIssuedByAdminId: adminId,
+            },
+        });
+        await (0, admin_audit_1.writeAdminAudit)(this.prisma, {
+            adminId,
+            action: 'RECORD_MANUAL_CERTIFICATE',
+            targetType: 'CourseCompletion',
+            targetId: updated.id,
+            courseId,
+            userId,
+            metadata: {
+                certificateId,
+                certificateUrl,
+                previousCertificateUrl: completion.certificateUrl,
+                previousIssuedAt: completion.certificateIssuedAt?.toISOString() ?? null,
             },
         });
         if (isFirstIssue) {

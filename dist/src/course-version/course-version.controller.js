@@ -36,8 +36,8 @@ let CourseVersionController = class CourseVersionController {
     archiveVersion(admin, courseId, versionId) {
         return this.courseVersionService.archiveVersion(admin.id, courseId, versionId);
     }
-    pruneOrphanVersions(body) {
-        return this.courseVersionService.pruneOrphanVersions(body?.courseId);
+    pruneOrphanVersions(admin, body) {
+        return this.courseVersionService.pruneOrphanVersions(admin.id, body?.courseId);
     }
     migrateLearner(admin, body) {
         return this.courseVersionService.migrateLearnerToVersion(admin.id, body.userCourseId, body.targetVersionId);
@@ -104,9 +104,10 @@ __decorate([
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('versions/prune-orphans'),
-    __param(0, (0, common_1.Body)()),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", void 0)
 ], CourseVersionController.prototype, "pruneOrphanVersions", null);
 __decorate([

@@ -16,6 +16,7 @@ const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const notification_service_1 = require("../notifications/notification.service");
 const mail_layout_1 = require("../mail/templates/mail-layout");
+const admin_audit_1 = require("../utils/admin-audit");
 const MAX_FILES = 5;
 const assignmentAttachmentsInclude = {
     attachments: { orderBy: { sortOrder: 'asc' } },
@@ -716,10 +717,14 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
             if (!assignmentId) {
                 throw new Error('assignmentId is required');
             }
-            void adminId;
             const assignment = await this.prisma.assignment.findUnique({
                 where: { id: assignmentId },
-                select: { id: true, createdByAdminId: true },
+                select: {
+                    id: true,
+                    createdByAdminId: true,
+                    courseId: true,
+                    title: true,
+                },
             });
             if (!assignment) {
                 throw new Error('Assignment not found');
@@ -754,6 +759,17 @@ let AssignmentService = AssignmentService_1 = class AssignmentService {
                     submissionsDeleted: submissionsResult.count,
                     notificationsDeleted: notificationsDeleted.count,
                 };
+            });
+            await (0, admin_audit_1.writeAdminAudit)(this.prisma, {
+                adminId,
+                action: 'DELETE_ASSIGNMENT',
+                targetType: 'Assignment',
+                targetId: assignmentId,
+                courseId: assignment.courseId,
+                metadata: {
+                    title: assignment.title,
+                    submissionsDeleted: result.submissionsDeleted,
+                },
             });
             return {
                 message: 'Assignment deleted successfully',

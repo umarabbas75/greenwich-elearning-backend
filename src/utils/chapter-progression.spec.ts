@@ -57,6 +57,7 @@ describe('chapter-progression', () => {
         count: jest.fn(),
       },
       userModuleCompletion: { findUnique: jest.fn(), create: jest.fn() },
+      courseCompletion: { findUnique: jest.fn().mockResolvedValue(null) },
     };
     config = { get: jest.fn().mockReturnValue('') } as unknown as ConfigService;
     // Manifest quiz hydration: treat every manifest id as an existing row unless
@@ -284,6 +285,58 @@ describe('chapter-progression', () => {
           { courseId: 'course-1' },
         ),
       ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('never re-locks a chapter after the learner completed the course', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({
+        enrolledVersionId: 'version-1',
+      });
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: versionManifest,
+      });
+      // Content added later leaves the previous chapter short of complete...
+      prisma.userCourseProgress.count.mockResolvedValue(1);
+      prisma.quizProgress.findFirst.mockResolvedValue({ isPassed: false });
+      // ...but the course completion is already recorded.
+      prisma.courseCompletion.findUnique.mockResolvedValue({
+        courseCompletedAt: new Date('2026-09-01T00:00:00.000Z'),
+      });
+
+      await expect(
+        assertChapterAccessible(
+          prisma as unknown as PrismaService,
+          config,
+          'user-1',
+          'ch-2',
+          'learner@test.com',
+          { courseId: 'course-1' },
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('never re-locks the next chapter once the previous one was recorded complete', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({
+        enrolledVersionId: 'version-1',
+      });
+      prisma.courseVersion.findUnique.mockResolvedValue({
+        manifest: versionManifest,
+      });
+      prisma.userCourseProgress.count.mockResolvedValue(1);
+      prisma.quizProgress.findFirst.mockResolvedValue({ isPassed: false });
+      prisma.userChapterCompletion.findUnique.mockResolvedValue({
+        id: 'ucc-1',
+      });
+
+      await expect(
+        assertChapterAccessible(
+          prisma as unknown as PrismaService,
+          config,
+          'user-1',
+          'ch-2',
+          'learner@test.com',
+          { courseId: 'course-1' },
+        ),
+      ).resolves.toBeUndefined();
     });
   });
 

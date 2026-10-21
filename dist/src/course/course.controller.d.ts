@@ -21,7 +21,7 @@ export declare class CourseController {
     getAllPosts(params: any): Promise<ResponseDto>;
     createPost(params: any, user: User, body: any): Promise<any>;
     createPolicies(user: User, body: any): Promise<any>;
-    deletePolicies(): Promise<any>;
+    deletePolicies(admin: User): Promise<any>;
     getUserPolicies(user: User): Promise<any>;
     getUserPolicyCompletions(user: User, params: any): Promise<any>;
     getCourseFormsStatus(user: User, courseId: string): Promise<any>;
@@ -31,7 +31,7 @@ export declare class CourseController {
     createCourseCategory(body: CreateCourseCategoryDto): Promise<ResponseDto>;
     updateCourseCategory(id: string, body: UpdateCourseCategoryDto): Promise<ResponseDto>;
     deleteCourseCategory(id: string): Promise<ResponseDto>;
-    assignCourseCategory(id: string, body: AssignCourseCategoryDto): Promise<ResponseDto>;
+    assignCourseCategory(id: string, body: AssignCourseCategoryDto, admin: User): Promise<ResponseDto>;
     getCourse(params: any): Promise<any>;
     canAccessCourseContent(user: User, params: any): Promise<any>;
     getModule(params: ParamsDto): Promise<ResponseDto>;

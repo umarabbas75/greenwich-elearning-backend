@@ -66,6 +66,8 @@ describe('QuizService.createChapterQuizzesReport — course-completion trigger',
       userModuleCompletion: {
         findUnique: jest.fn().mockResolvedValue({ id: 'umc-1' }),
       },
+      // assertChapterAccessible checks for a recorded course completion first.
+      courseCompletion: { findUnique: jest.fn().mockResolvedValue(null) },
     };
 
     courseCompletion = { checkContentCompletion: jest.fn() };

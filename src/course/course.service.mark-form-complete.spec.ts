@@ -124,6 +124,41 @@ describe('CourseService.markFormComplete', () => {
     expect(notifications.createNotificationForMany).toHaveBeenCalledTimes(1);
   });
 
+  it('resolves a stale course form id from an old link by course and form', async () => {
+    const current = await prisma.courseForm.findUnique();
+    prisma.courseForm.findUnique.mockReset();
+    prisma.courseForm.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ ...current, id: 'cf-current' });
+
+    await service.markFormComplete(
+      LEARNER_ID,
+      Role.user,
+      COURSE_ID,
+      'registration-form',
+      V2_METADATA,
+      'cf-from-an-old-email',
+    );
+
+    expect(prisma.courseForm.findUnique.mock.calls[1][0]).toEqual({
+      where: {
+        courseId_formId: { courseId: COURSE_ID, formId: 'registration-form' },
+      },
+    });
+    expect(prisma.userFormCompletion.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ courseFormId: 'cf-current' }),
+      }),
+    );
+  });
+
+  it('rejects a form the course has never had', async () => {
+    prisma.courseForm.findUnique.mockResolvedValue(null);
+
+    await expect(submit()).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.userFormCompletion.create).not.toHaveBeenCalled();
+  });
+
   it('accepts a form that only became required after the learner enrolled', async () => {
     prisma.courseForm.findUnique.mockResolvedValue({
       id: COURSE_FORM_ID,

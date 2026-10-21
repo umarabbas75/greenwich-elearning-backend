@@ -98,12 +98,45 @@ describe('UserService access to other users', () => {
       expect((result.data as any).courses[0].totalForms).toBe(1);
     });
 
-    it('shows an admin every attached form', async () => {
+    it("shows an admin the learner's own forms, not ones added after they enrolled", async () => {
       const result = await service.getUser('user-1', admin);
 
       expect(
         (result.data as any).courses[0].forms.map((f: any) => f.formId),
-      ).toEqual(['registration-form', 'learner-agreement']);
+      ).toEqual(['registration-form']);
+      expect((result.data as any).courses[0].totalForms).toBe(1);
+    });
+
+    it('still shows an admin a later form the learner did submit, not required of them', async () => {
+      const course = storedUser.UserCourse[0].course;
+      prisma.user.findFirst.mockResolvedValue({
+        ...storedUser,
+        UserCourse: [
+          {
+            ...storedUser.UserCourse[0],
+            course: {
+              ...course,
+              courseForms: [
+                course.courseForms[0],
+                {
+                  ...course.courseForms[1],
+                  userFormCompletions: [
+                    { isComplete: true, completedAt: new Date(), metadata: {} },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      });
+
+      const result = await service.getUser('user-1', admin);
+      const summary = (result.data as any).courses[0];
+
+      expect(
+        summary.forms.find((f: any) => f.formId === 'learner-agreement'),
+      ).toMatchObject({ isRequired: false, isComplete: true });
+      expect(summary.totalForms).toBe(1);
     });
 
     it('never shows a learner a form removed from the course', async () => {
@@ -149,7 +182,7 @@ describe('UserService access to other users', () => {
       expect(
         summary.forms.find((f: any) => f.formId === 'terms-conditions'),
       ).toMatchObject({ isDetached: true, isComplete: true });
-      expect(summary.totalForms).toBe(2);
+      expect(summary.totalForms).toBe(1);
       expect(summary.completedForms).toBe(0);
     });
   });

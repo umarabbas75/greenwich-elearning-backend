@@ -468,7 +468,7 @@ export class CourseAssessmentService {
     }
   }
 
-  async activateAssessment(assessmentId: string) {
+  async activateAssessment(assessmentId: string, adminId?: string) {
     try {
       const assessment = await this.prisma.assessment.findUnique({
         where: { id: assessmentId },
@@ -504,6 +504,18 @@ export class CourseAssessmentService {
         where: { id: assessmentId },
         data: { isActive: true },
       });
+      // An active assessment becomes a certificate requirement for learners
+      // who have not been issued one yet, so who switched it on is recorded.
+      if (adminId && !assessment.isActive) {
+        await this.courseVersionService.writeAudit({
+          adminId,
+          action: 'ACTIVATE_ASSESSMENT',
+          targetType: 'Assessment',
+          targetId: assessmentId,
+          courseId: assessment.courseId,
+          metadata: { title: assessment.title, mode: assessment.mode },
+        });
+      }
 
       return {
         message: 'Assessment activated successfully',
@@ -515,7 +527,7 @@ export class CourseAssessmentService {
     }
   }
 
-  async deactivateAssessment(assessmentId: string) {
+  async deactivateAssessment(assessmentId: string, adminId?: string) {
     try {
       const existing = await this.prisma.assessment.findUnique({
         where: { id: assessmentId },
@@ -532,6 +544,16 @@ export class CourseAssessmentService {
         where: { id: assessmentId },
         data: { isActive: false },
       });
+      if (adminId && existing.isActive) {
+        await this.courseVersionService.writeAudit({
+          adminId,
+          action: 'DEACTIVATE_ASSESSMENT',
+          targetType: 'Assessment',
+          targetId: assessmentId,
+          courseId: existing.courseId,
+          metadata: { title: existing.title },
+        });
+      }
       return {
         message: 'Assessment deactivated successfully',
         statusCode: 200,
@@ -724,9 +746,14 @@ export class CourseAssessmentService {
               percentage: true,
               isPassed: true,
               snapshotTimeLimitMin: true,
+              snapshotMaxAttempts: true,
             },
             orderBy: { startedAt: 'desc' },
           });
+          const maxAttempts = CourseAssessmentService.effectiveMaxAttempts(
+            assessment.maxAttempts,
+            attempts.map((a) => a.snapshotMaxAttempts),
+          );
 
           const attemptsWithMeta = attempts.map((a) => {
             const isExpired = a.status === AssessmentAttemptStatus.EXPIRED;
@@ -744,16 +771,16 @@ export class CourseAssessmentService {
             (a) => a.status === AssessmentAttemptStatus.IN_PROGRESS,
           );
           const remainingAttempts =
-            assessment.maxAttempts === null
+            maxAttempts === null
               ? null
-              : Math.max(0, assessment.maxAttempts - attempts.length);
+              : Math.max(0, maxAttempts - attempts.length);
           const canStart =
             isEligible &&
             !inProgressAttempt &&
-            (assessment.maxAttempts === null || remainingAttempts! > 0);
+            (maxAttempts === null || remainingAttempts! > 0);
 
           return {
-            assessment,
+            assessment: { ...assessment, maxAttempts },
             isEligible,
             remainingAttempts,
             canStart,
@@ -807,16 +834,18 @@ export class CourseAssessmentService {
           'You must complete all course content before attempting the assessment',
         );
 
-      // 4. Attempt limit check
-      const attemptCount = await this.prisma.assessmentAttempt.count({
+      // 4. Attempt limit check, against the limit this learner was granted
+      const previousAttempts = await this.prisma.assessmentAttempt.findMany({
         where: { userId, assessmentId: assessment.id },
+        select: { snapshotMaxAttempts: true },
       });
-      if (
-        assessment.maxAttempts !== null &&
-        attemptCount >= assessment.maxAttempts
-      )
+      const maxAttempts = CourseAssessmentService.effectiveMaxAttempts(
+        assessment.maxAttempts,
+        previousAttempts.map((a) => a.snapshotMaxAttempts),
+      );
+      if (maxAttempts !== null && previousAttempts.length >= maxAttempts)
         throw new Error(
-          `Maximum attempts (${assessment.maxAttempts}) reached for this assessment`,
+          `Maximum attempts (${maxAttempts}) reached for this assessment`,
         );
 
       await this._expireStaleAttempts(userId, assessment.id);
@@ -1486,6 +1515,25 @@ export class CourseAssessmentService {
   // ────────────────────────────────────────────────────────────────────────────
   // PRIVATE HELPERS
   // ────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * The attempt limit for one learner: the larger of the current setting and
+   * every limit their earlier attempts were started under (snapshotMaxAttempts).
+   * Lowering maxAttempts therefore only affects learners who have not started
+   * yet; anyone already granted more (or unlimited) keeps it. null = unlimited.
+   */
+  private static effectiveMaxAttempts(
+    current: number | null,
+    granted: Array<number | null>,
+  ): number | null {
+    if (current === null) return null;
+    let max = current;
+    for (const limit of granted) {
+      if (limit === null) return null;
+      max = Math.max(max, limit);
+    }
+    return max;
+  }
 
   /**
    * Throws if the learner's post-completion access window has elapsed. Access

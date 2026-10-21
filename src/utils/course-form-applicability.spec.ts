@@ -2,6 +2,9 @@ import {
   courseFormAppliesToEnrollment,
   courseFormAttachedForEnrollment,
   formAppliesToEnrollment,
+  policyAppliesToEnrollment,
+  policyItemAppliesToEnrollment,
+  reattachData,
 } from './course-form-applicability';
 
 describe('formAppliesToEnrollment', () => {
@@ -102,6 +105,64 @@ describe('course form rules', () => {
       expect(
         courseFormAttachedForEnrollment(form, at('2026-08-15T00:00:00Z')),
       ).toBe(false);
+    });
+  });
+});
+
+describe('policy rules', () => {
+  const at = (iso: string) => new Date(iso);
+  // Removed for all of August, then added back.
+  const detachedWindows = [
+    { from: '2026-08-01T00:00:00.000Z', until: '2026-09-01T00:00:00.000Z' },
+  ];
+
+  it('applies a policy to learners enrolled while it was on the course', () => {
+    const policy = { createdAt: at('2026-03-01T00:00:00Z'), detachedWindows };
+    expect(policyAppliesToEnrollment(policy, at('2026-07-01T00:00:00Z'))).toBe(
+      true,
+    );
+    expect(policyAppliesToEnrollment(policy, at('2026-09-15T00:00:00Z'))).toBe(
+      true,
+    );
+  });
+
+  it('exempts learners who enrolled before the policy or while it was removed', () => {
+    const policy = { createdAt: at('2026-03-01T00:00:00Z'), detachedWindows };
+    expect(policyAppliesToEnrollment(policy, at('2026-02-01T00:00:00Z'))).toBe(
+      false,
+    );
+    expect(policyAppliesToEnrollment(policy, at('2026-08-15T00:00:00Z'))).toBe(
+      false,
+    );
+  });
+
+  it('exempts learners from an item required after they enrolled or removed when they enrolled', () => {
+    const item = { requiredSince: at('2026-06-01T00:00:00Z'), detachedWindows };
+    expect(
+      policyItemAppliesToEnrollment(item, at('2026-05-01T00:00:00Z')),
+    ).toBe(false);
+    expect(
+      policyItemAppliesToEnrollment(item, at('2026-08-15T00:00:00Z')),
+    ).toBe(false);
+    expect(
+      policyItemAppliesToEnrollment(item, at('2026-07-01T00:00:00Z')),
+    ).toBe(true);
+    expect(policyItemAppliesToEnrollment(item, null)).toBe(true);
+  });
+
+  it('records the removal period when something is added back', () => {
+    const now = at('2026-10-18T12:00:00Z');
+    expect(
+      reattachData(
+        { detachedAt: at('2026-10-17T10:00:00Z'), detachedWindows },
+        now,
+      ),
+    ).toEqual({
+      detachedAt: null,
+      detachedWindows: [
+        ...detachedWindows,
+        { from: '2026-10-17T10:00:00.000Z', until: '2026-10-18T12:00:00.000Z' },
+      ],
     });
   });
 });

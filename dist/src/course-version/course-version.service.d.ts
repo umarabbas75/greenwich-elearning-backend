@@ -47,7 +47,9 @@ export declare class CourseVersionService {
         publishedAt: Date;
     }>;
     pinEnrollmentToLatest(userCourseId: string, tx?: Prisma.TransactionClient): Promise<void>;
-    publishNewVersion(adminId: string | null | undefined, courseId: string, changeNotes?: string): Promise<{
+    publishNewVersion(adminId: string | null | undefined, courseId: string, changeNotes?: string, options?: {
+        auto?: boolean;
+    }): Promise<{
         message: string;
         statusCode: number;
         data: {
@@ -348,7 +350,7 @@ export declare class CourseVersionService {
             }>;
         };
     }>;
-    pruneOrphanVersions(courseId?: string): Promise<{
+    pruneOrphanVersions(adminId: string, courseId?: string): Promise<{
         message: string;
         statusCode: number;
         data: {

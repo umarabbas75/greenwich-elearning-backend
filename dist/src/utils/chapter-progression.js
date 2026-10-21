@@ -243,9 +243,23 @@ async function assertChapterAccessible(prisma, config, userId, chapterId, userEm
     }
     const previousChapterId = orderedIds[idx - 1];
     const previousComplete = await isChapterComplete(prisma, userId, previousChapterId, { courseId, enrolledVersionId });
-    if (!previousComplete) {
-        throw new common_1.ForbiddenException('Complete the previous chapter (all sections and the chapter quiz) before continuing');
+    if (previousComplete) {
+        return;
     }
+    const [courseCompletion, recordedPrevious] = await Promise.all([
+        prisma.courseCompletion.findUnique({
+            where: { userId_courseId: { userId, courseId } },
+            select: { courseCompletedAt: true },
+        }),
+        prisma.userChapterCompletion.findUnique({
+            where: { userId_chapterId: { userId, chapterId: previousChapterId } },
+            select: { id: true },
+        }),
+    ]);
+    if (courseCompletion?.courseCompletedAt || recordedPrevious) {
+        return;
+    }
+    throw new common_1.ForbiddenException('Complete the previous chapter (all sections and the chapter quiz) before continuing');
 }
 exports.assertChapterAccessible = assertChapterAccessible;
 function enrichQuizProgressReport(report) {

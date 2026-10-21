@@ -66,7 +66,7 @@ export declare class CourseCategoryService {
             id: string;
         };
     }>;
-    assign(courseId: string, categoryId: string | null): Promise<{
+    assign(courseId: string, categoryId: string | null, adminId?: string): Promise<{
         message: string;
         statusCode: number;
         data: {

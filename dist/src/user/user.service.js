@@ -16,6 +16,7 @@ const client_1 = require("@prisma/client");
 const argon2 = require("argon2");
 const email_1 = require("../utils/email");
 const error_message_1 = require("../utils/error-message");
+const admin_audit_1 = require("../utils/admin-audit");
 const course_form_applicability_1 = require("../utils/course-form-applicability");
 const prisma_service_1 = require("../prisma/prisma.service");
 const mail_service_1 = require("../mail/mail.service");
@@ -72,28 +73,6 @@ let UserService = UserService_1 = class UserService {
             throw new Error('A previously deleted account is using this email. Restore that account or purge it before re-registering this email.');
         }
         throw new Error('User already exists in the system');
-    }
-    async writeAdminAudit(entry) {
-        try {
-            const actor = await this.prisma.user.findUnique({
-                where: { id: entry.adminId },
-                select: { email: true },
-            });
-            await this.prisma.adminAuditLog.create({
-                data: {
-                    adminId: entry.adminId,
-                    adminEmail: actor?.email ?? null,
-                    action: entry.action,
-                    targetType: entry.targetType,
-                    targetId: entry.targetId ?? null,
-                    userId: entry.userId ?? null,
-                    metadata: entry.metadata ?? undefined,
-                },
-            });
-        }
-        catch (err) {
-            UserService_1.logger.warn(`AdminAuditLog write failed (${entry.action}, user=${entry.userId ?? '-'}): ${(0, error_message_1.errorMessage)(err)}`);
-        }
     }
     async recordPasswordChange(userId) {
         try {
@@ -153,10 +132,11 @@ let UserService = UserService_1 = class UserService {
             }
             const coursesWithForms = user.UserCourse.map((userCourse) => {
                 const course = userCourse.course;
-                const forms = isAdmin
-                    ? course.courseForms
-                    : course.courseForms.filter((form) => (0, course_form_applicability_1.courseFormAttachedForEnrollment)(form, userCourse.createdAt));
-                const countedForms = forms.filter((form) => !form.detachedAt);
+                const isLearnersForm = (form) => !form.detachedAt &&
+                    (0, course_form_applicability_1.courseFormAttachedForEnrollment)(form, userCourse.createdAt);
+                const forms = course.courseForms.filter((form) => isLearnersForm(form) ||
+                    (isAdmin && form.userFormCompletions.length > 0));
+                const countedForms = forms.filter(isLearnersForm);
                 const totalForms = countedForms.length;
                 const completedForms = countedForms.filter((form) => form.userFormCompletions.length > 0 &&
                     form.userFormCompletions[0].isComplete).length;
@@ -169,10 +149,8 @@ let UserService = UserService_1 = class UserService {
                     forms: forms.map((form) => ({
                         formId: form.formId,
                         formName: form.formName,
-                        isRequired: isAdmin
-                            ? form.isRequired
-                            : form.isRequired &&
-                                (0, course_form_applicability_1.courseFormAppliesToEnrollment)(form, userCourse.createdAt),
+                        isRequired: form.isRequired &&
+                            (0, course_form_applicability_1.courseFormAppliesToEnrollment)(form, userCourse.createdAt),
                         isDetached: form.detachedAt !== null,
                         courseFormId: form.id,
                         isComplete: form.userFormCompletions[0]?.isComplete || false,
@@ -466,7 +444,7 @@ let UserService = UserService_1 = class UserService {
                 data: { email },
             });
             delete updatedUser.password;
-            await this.writeAdminAudit({
+            await (0, admin_audit_1.writeAdminAudit)(this.prisma, {
                 adminId,
                 action: 'USER_EMAIL_CHANGED',
                 targetType: 'USER',

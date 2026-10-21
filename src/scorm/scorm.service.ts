@@ -18,6 +18,7 @@ import {
 import { randomUUID } from 'crypto';
 import { CourseVersionService } from '../course-version/course-version.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { writeAdminAudit } from '../utils/admin-audit';
 import {
   SCORM_EMBEDDED_LAUNCH_SETTINGS,
   ScormCloudClient,
@@ -268,11 +269,37 @@ export class ScormService {
       throw err;
     }
 
+    // A re-import has just taken the course offline for every learner (until
+    // an admin reactivates it), whatever Cloud says next, so it is recorded
+    // on every outcome. A new course's import is recorded once Cloud accepts
+    // it; a rejected start rolls that course back. Written after the job id
+    // is saved on success, so it adds nothing to that window.
+    const recordImport = (outcome: 'started' | 'cloud-failed') =>
+      writeAdminAudit(this.prisma, {
+        adminId,
+        action: createdCourseHere
+          ? 'START_SCORM_IMPORT'
+          : 'START_SCORM_REIMPORT',
+        targetType: 'ScormPackage',
+        targetId: pkg.id,
+        courseId: course.id,
+        metadata: {
+          versionNumber: pkg.versionNumber,
+          title,
+          courseDeactivated: !createdCourseHere,
+          outcome,
+        },
+      });
+
     let jobId: string;
     try {
       jobId = await startCloudJob(scormCloudCourseId);
     } catch (err) {
       const reason = cloudErrorMessage(err);
+      // First, so a failing write below cannot skip it.
+      if (!createdCourseHere) {
+        await recordImport('cloud-failed');
+      }
       // A timeout is not a rejection: the POST may have reached Cloud, which
       // can go on creating the course after we stop waiting — so not even a
       // 404 from the delete below proves it is gone. Never roll back on one:
@@ -324,6 +351,7 @@ export class ScormService {
         where: { id: pkg.id },
         data: { cloudImportJobId: jobId },
       });
+      await recordImport('started');
       return {
         message: 'SCORM import job started',
         statusCode: 200,
@@ -350,6 +378,7 @@ export class ScormService {
           `Could not mark package ${pkg.id} FAILED: ${errorMessage(markErr)}`,
         );
       }
+      await recordImport('started');
       throw err;
     }
   }

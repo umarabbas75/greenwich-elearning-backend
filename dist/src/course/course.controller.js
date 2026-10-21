@@ -33,6 +33,7 @@ let CourseController = class CourseController {
     markPolicyItemAsComplete(user, body) {
         return this.appService.markPolicyItemAsComplete({
             userId: user?.id,
+            userRole: user?.role,
             courseId: body.courseId,
             policyId: body.policyId,
             policyItemId: body.policyItemId,
@@ -74,8 +75,8 @@ let CourseController = class CourseController {
     createPolicies(user, body) {
         return this.appService.createPolicies(user?.id, body);
     }
-    deletePolicies() {
-        return this.appService.deletePolicies();
+    deletePolicies(admin) {
+        return this.appService.deletePolicies(admin.id);
     }
     getUserPolicies(user) {
         return this.appService.getUserPolicies(user?.id);
@@ -107,14 +108,14 @@ let CourseController = class CourseController {
     deleteCourseCategory(id) {
         return this.categories.remove(id);
     }
-    assignCourseCategory(id, body) {
-        return this.categories.assign(id, body.categoryId);
+    assignCourseCategory(id, body, admin) {
+        return this.categories.assign(id, body.categoryId, admin.id);
     }
     getCourse(params) {
         return this.appService.getCourse(params.id);
     }
     canAccessCourseContent(user, params) {
-        return this.appService.canAccessCourseContent(user.id, params.id);
+        return this.appService.canAccessCourseContent(user.id, params.id, user.role);
     }
     getModule(params) {
         return this.appService.getModule(params.id);
@@ -386,10 +387,11 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "createPolicies", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Delete)('/policies/delete'),
+    __param(0, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "deletePolicies", null);
 __decorate([
@@ -472,8 +474,9 @@ __decorate([
     (0, common_1.Put)('/:id/category'),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, dto_1.AssignCourseCategoryDto]),
+    __metadata("design:paramtypes", [String, dto_1.AssignCourseCategoryDto, Object]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "assignCourseCategory", null);
 __decorate([

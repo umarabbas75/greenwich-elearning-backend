@@ -75,11 +75,13 @@ describe('CourseService.updateCourse', () => {
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn().mockResolvedValue({}),
         update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       policyItem: {
         create: jest.fn().mockResolvedValue({}),
         update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       userPolicyCompletion: {
@@ -469,27 +471,144 @@ describe('CourseService.updateCourse', () => {
       expect(prisma.userPolicyItemCompletion.deleteMany).not.toHaveBeenCalled();
     });
 
-    it('deletes only the policies and items the admin removed', async () => {
+    it('detaches the policies and items the admin removed, keeping every acknowledgement', async () => {
       prisma.policy.findMany.mockResolvedValue([nebosh, greenwich]);
       const kept = editorCopy(nebosh);
       kept.items = kept.items.filter((item) => item.id === 'i1');
 
       await service.updateCourse(COURSE_ID, { policies: [kept] } as any);
 
-      expect(prisma.userPolicyItemCompletion.deleteMany).toHaveBeenCalledWith({
-        where: { itemId: { in: ['i2'] } },
+      expect(prisma.policyItem.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['i2'] } },
+        data: { detachedAt: expect.any(Date) },
       });
-      expect(prisma.userPolicyItemCompletion.deleteMany).toHaveBeenCalledWith({
-        where: { itemId: { in: ['i3'] } },
-      });
-      expect(prisma.userPolicyCompletion.deleteMany).toHaveBeenCalledWith({
-        where: { policyId: { in: ['p2'] } },
-      });
-      expect(prisma.policy.deleteMany).toHaveBeenCalledWith({
+      expect(prisma.policy.updateMany).toHaveBeenCalledWith({
         where: { id: { in: ['p2'] } },
+        data: { detachedAt: expect.any(Date) },
       });
       expect(prisma.policy.update).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 'p1' } }),
+      );
+      expect(prisma.userPolicyItemCompletion.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.userPolicyCompletion.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.policyItem.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.policy.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('re-attaches a removed item the admin adds back, instead of creating a new one', async () => {
+      const removedAt = new Date('2026-10-17T10:00:00.000Z');
+      const stored = editorCopy(nebosh);
+      (stored.items[1] as any).detachedAt = removedAt;
+      (stored.items[1] as any).detachedWindows = null;
+      prisma.policy.findMany.mockResolvedValue([stored]);
+      // The editor no longer had the removed item's id: matched by title.
+      const edited = editorCopy(nebosh);
+      edited.items[1] = { title: 'Appeals', link: 'https://b' } as any;
+
+      await service.updateCourse(COURSE_ID, { policies: [edited] } as any);
+
+      expect(prisma.policyItem.create).not.toHaveBeenCalled();
+      const update = prisma.policyItem.update.mock.calls
+        .map(([arg]) => arg)
+        .find((u) => u.where.id === 'i2');
+      expect(update.data).toEqual(
+        expect.objectContaining({
+          detachedAt: null,
+          detachedWindows: [
+            { from: removedAt.toISOString(), until: expect.any(String) },
+          ],
+        }),
+      );
+      // Keeps the anchor learners already on the course were held to.
+      expect(update.data).not.toHaveProperty('requiredSince');
+    });
+
+    it('re-attaches a removed policy the admin adds back, keeping its date and acknowledgements', async () => {
+      const removedAt = new Date('2026-10-17T10:00:00.000Z');
+      const earlierWindow = {
+        from: '2026-09-01T00:00:00.000Z',
+        until: '2026-09-02T00:00:00.000Z',
+      };
+      const stored = {
+        ...editorCopy(greenwich),
+        detachedAt: removedAt,
+        detachedWindows: [earlierWindow],
+      };
+      prisma.policy.findMany.mockResolvedValue([nebosh, stored]);
+
+      await service.updateCourse(
+        COURSE_ID,
+        { policies: [editorCopy(nebosh), editorCopy(greenwich)] } as any,
+        'admin-1',
+      );
+
+      expect(prisma.policy.create).not.toHaveBeenCalled();
+      expect(prisma.policy.update).toHaveBeenCalledWith({
+        where: { id: 'p2' },
+        data: expect.objectContaining({
+          detachedAt: null,
+          detachedWindows: [
+            earlierWindow,
+            { from: removedAt.toISOString(), until: expect.any(String) },
+          ],
+        }),
+      });
+      expect(prisma.policy.update.mock.calls[1][0].data).not.toHaveProperty(
+        'createdAt',
+      );
+      expect(prisma.userPolicyCompletion.deleteMany).not.toHaveBeenCalled();
+      expect(courseVersionService.writeAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            policies: expect.objectContaining({
+              reattached: ['Greenwich Policies'],
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('lets an item that names its row keep it, even if a new item shares its title', async () => {
+      prisma.policy.findMany.mockResolvedValue([nebosh]);
+      const edited = editorCopy(nebosh);
+      // A new "Complaints" entry listed before the stored one.
+      edited.items.unshift({ title: 'Complaints', link: 'https://new' } as any);
+
+      await service.updateCourse(COURSE_ID, { policies: [edited] } as any);
+
+      const updates = prisma.policyItem.update.mock.calls.map(([arg]) => arg);
+      expect(updates.find((u) => u.where.id === 'i1').data).toEqual(
+        expect.objectContaining({ link: 'https://a' }),
+      );
+      expect(prisma.policyItem.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          title: 'Complaints',
+          link: 'https://new',
+          policyId: 'p1',
+        }),
+      });
+    });
+
+    it('prefers the attached policy when a removed one has the same title', async () => {
+      const oldCopy = {
+        ...storedPolicy('p-old', 'NEBOSH Policies and Procedures', []),
+        detachedAt: new Date('2026-09-01T00:00:00.000Z'),
+      };
+      prisma.policy.findMany.mockResolvedValue([oldCopy, nebosh]);
+      const edited = editorCopy(nebosh);
+      edited.items[0].link = 'https://a-v2';
+
+      await service.updateCourse(
+        COURSE_ID,
+        { policies: [{ ...edited, id: undefined }] } as any,
+        'admin-1',
+      );
+
+      expect(prisma.policy.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'p1' } }),
+      );
+      expect(prisma.policy.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'p-old' } }),
       );
     });
 
@@ -539,5 +658,67 @@ describe('CourseService.updateCourse', () => {
       expect(prisma.policy.create).not.toHaveBeenCalled();
       expect(prisma.userPolicyCompletion.deleteMany).not.toHaveBeenCalled();
     });
+  });
+
+  // The 17 Oct incident in one test: a single admin Save must never delete
+  // learner records or the rows they hang off, whatever the admin removed.
+  it('never deletes anything, however much an admin removes in one save', async () => {
+    prisma.courseForm.findMany.mockResolvedValue([
+      {
+        formId: 'registration-form',
+        isRequired: true,
+        detachedAt: null,
+        detachedWindows: null,
+      },
+      {
+        formId: 'learner-agreement',
+        isRequired: true,
+        detachedAt: null,
+        detachedWindows: null,
+      },
+    ]);
+    prisma.courseFeedbackForm.findUnique.mockResolvedValue({
+      id: 'ff-1',
+      isRequired: true,
+    });
+    const policyWithTwoItems = storedPolicy('p1', 'NEBOSH Policies', [
+      { id: 'i1', title: 'Complaints', link: 'https://a', order: 0 },
+      { id: 'i2', title: 'Appeals', link: 'https://b', order: 1 },
+    ]);
+    const secondPolicy = storedPolicy('p2', 'Greenwich Policies', [
+      { id: 'i3', title: 'Conduct', link: 'https://c', order: 0 },
+    ]);
+    prisma.policy.findMany.mockResolvedValue([
+      policyWithTwoItems,
+      secondPolicy,
+    ]);
+    const kept = editorCopy(policyWithTwoItems);
+    kept.items = kept.items.slice(0, 1);
+
+    await service.updateCourse(
+      COURSE_ID,
+      {
+        validityDays: 90,
+        courseForms: [{ value: 'registration-form', label: 'Registration' }],
+        feedbackForm: { formName: 'Feedback', isRequired: false },
+        policies: [kept],
+      } as any,
+      'admin-1',
+    );
+
+    for (const [model, methods] of Object.entries(prisma)) {
+      if (model.startsWith('$')) continue;
+      for (const method of ['delete', 'deleteMany']) {
+        const fn = (methods as Record<string, jest.Mock>)[method];
+        if (fn) {
+          expect({ model, method, calls: fn.mock.calls.length }).toEqual({
+            model,
+            method,
+            calls: 0,
+          });
+        }
+      }
+    }
+    expect(courseVersionService.writeAudit).toHaveBeenCalledTimes(1);
   });
 });

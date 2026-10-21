@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
 import { ResponseDto } from '../dto';
+import { writeAdminAudit } from '../utils/admin-audit';
 
 const MAX_FILES = 5;
 
@@ -1077,11 +1078,16 @@ export class AssignmentService {
       }
 
       // Shared access: any admin may delete any admin's assignment. We only
-      // verify the assignment exists (no creator-ownership check).
-      void adminId;
+      // verify the assignment exists (no creator-ownership check); who deleted
+      // it is recorded below, since it erases every learner's submission.
       const assignment = await this.prisma.assignment.findUnique({
         where: { id: assignmentId },
-        select: { id: true, createdByAdminId: true },
+        select: {
+          id: true,
+          createdByAdminId: true,
+          courseId: true,
+          title: true,
+        },
       });
       if (!assignment) {
         throw new Error('Assignment not found');
@@ -1130,6 +1136,18 @@ export class AssignmentService {
           submissionsDeleted: submissionsResult.count,
           notificationsDeleted: notificationsDeleted.count,
         };
+      });
+
+      await writeAdminAudit(this.prisma, {
+        adminId,
+        action: 'DELETE_ASSIGNMENT',
+        targetType: 'Assignment',
+        targetId: assignmentId,
+        courseId: assignment.courseId,
+        metadata: {
+          title: assignment.title,
+          submissionsDeleted: result.submissionsDeleted,
+        },
       });
 
       return {

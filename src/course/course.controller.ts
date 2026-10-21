@@ -82,6 +82,7 @@ export class CourseController {
   ): Promise<any> {
     return this.appService.markPolicyItemAsComplete({
       userId: user?.id,
+      userRole: user?.role,
       courseId: body.courseId,
       policyId: body.policyId,
       policyItemId: body.policyItemId,
@@ -167,11 +168,11 @@ export class CourseController {
   createPolicies(@GetUser() user: User, @Body() body: any): Promise<any> {
     return this.appService.createPolicies(user?.id, body);
   }
-  // @UseGuards(AuthGuard('cJwt'))
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin-only: wipes every user's policies acknowledgement platform-wide.
+  @UseGuards(AuthGuard('jwt'))
   @Delete('/policies/delete')
-  deletePolicies(): Promise<any> {
-    return this.appService.deletePolicies();
+  deletePolicies(@GetUser() admin: User): Promise<any> {
+    return this.appService.deletePolicies(admin.id);
   }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/getUserPolicies')
@@ -250,8 +251,9 @@ export class CourseController {
   assignCourseCategory(
     @Param('id') id: string,
     @Body() body: AssignCourseCategoryDto,
+    @GetUser() admin: User,
   ): Promise<ResponseDto> {
-    return this.categories.assign(id, body.categoryId);
+    return this.categories.assign(id, body.categoryId, admin.id);
   }
 
   @UseGuards(AuthGuard('cJwt'))
@@ -266,7 +268,11 @@ export class CourseController {
     @GetUser() user: User,
     @Param() params: any,
   ): Promise<any> {
-    return this.appService.canAccessCourseContent(user.id, params.id);
+    return this.appService.canAccessCourseContent(
+      user.id,
+      params.id,
+      user.role,
+    );
   }
   @UseGuards(AuthGuard('cJwt'))
   @Get('/module/:id')

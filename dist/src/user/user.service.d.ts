@@ -11,7 +11,6 @@ export declare class UserService {
     constructor(prisma: PrismaService, mail: MailService, scormCloud: ScormCloudClient);
     private purgeScormCloudLearnerData;
     private assertEmailAvailable;
-    private writeAdminAudit;
     private recordPasswordChange;
     getUser(id: string, requester: Pick<User, 'id' | 'role'>): Promise<ResponseDto>;
     getDeletedUser(id: string): Promise<ResponseDto>;

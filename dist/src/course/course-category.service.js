@@ -13,6 +13,7 @@ exports.CourseCategoryService = exports.courseCategorySelect = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
+const admin_audit_1 = require("../utils/admin-audit");
 exports.courseCategorySelect = {
     id: true,
     name: true,
@@ -132,10 +133,10 @@ let CourseCategoryService = class CourseCategoryService {
             data: { id },
         };
     }
-    async assign(courseId, categoryId) {
+    async assign(courseId, categoryId, adminId) {
         const course = await this.prisma.course.findUnique({
             where: { id: courseId },
-            select: { id: true },
+            select: { id: true, categoryId: true },
         });
         if (!course)
             throw this.missing('Course not found');
@@ -157,6 +158,16 @@ let CourseCategoryService = class CourseCategoryService {
                 category: { select: exports.courseCategorySelect },
             },
         });
+        if (adminId && course.categoryId !== categoryId) {
+            await (0, admin_audit_1.writeAdminAudit)(this.prisma, {
+                adminId,
+                action: 'ASSIGN_COURSE_CATEGORY',
+                targetType: 'Course',
+                targetId: courseId,
+                courseId,
+                metadata: { from: course.categoryId, to: categoryId },
+            });
+        }
         return {
             message: categoryId
                 ? 'Successfully assigned course category'

@@ -391,11 +391,31 @@ export async function assertChapterAccessible(
     previousChapterId,
     { courseId, enrolledVersionId },
   );
-  if (!previousComplete) {
-    throw new ForbiddenException(
-      'Complete the previous chapter (all sections and the chapter quiz) before continuing',
-    );
+  if (previousComplete) {
+    return;
   }
+
+  // The live check says no. A recorded completion is final, though: content
+  // added afterwards must not re-lock a chapter for someone who finished the
+  // course, or who had finished the previous chapter. Only looked up here, so
+  // the common path (quiz submit included) pays nothing extra.
+  const [courseCompletion, recordedPrevious] = await Promise.all([
+    prisma.courseCompletion.findUnique({
+      where: { userId_courseId: { userId, courseId } },
+      select: { courseCompletedAt: true },
+    }),
+    prisma.userChapterCompletion.findUnique({
+      where: { userId_chapterId: { userId, chapterId: previousChapterId } },
+      select: { id: true },
+    }),
+  ]);
+  if (courseCompletion?.courseCompletedAt || recordedPrevious) {
+    return;
+  }
+
+  throw new ForbiddenException(
+    'Complete the previous chapter (all sections and the chapter quiz) before continuing',
+  );
 }
 
 export function enrichQuizProgressReport<

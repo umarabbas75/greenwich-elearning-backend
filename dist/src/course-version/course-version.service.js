@@ -16,6 +16,7 @@ const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const course_version_manifest_1 = require("./course-version.manifest");
 const learner_percentage_1 = require("./learner-percentage");
+const admin_audit_1 = require("../utils/admin-audit");
 let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
     constructor(prisma) {
         this.prisma = prisma;
@@ -132,7 +133,7 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             data: { enrolledVersionId: latest.id },
         });
     }
-    async publishNewVersion(adminId, courseId, changeNotes) {
+    async publishNewVersion(adminId, courseId, changeNotes, options) {
         const course = await this.prisma.course.findUnique({
             where: { id: courseId },
             select: { id: true, title: true },
@@ -140,7 +141,8 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         if (!course) {
             throw new common_1.NotFoundException('Course not found');
         }
-        return this.prisma.$transaction(async (tx) => {
+        let pinnedCount = 0;
+        const result = await this.prisma.$transaction(async (tx) => {
             const [{ locked }] = await tx.$queryRaw(client_1.Prisma.sql `SELECT pg_try_advisory_xact_lock(hashtextextended(${courseId}, 0)) AS locked`);
             if (!locked) {
                 throw new common_1.ConflictException(`Another publish is already in progress for course ${courseId}; retry`);
@@ -195,6 +197,7 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 where: { courseId, isActive: true, enrolledVersionId: null },
                 data: { enrolledVersionId: snapshot.versionId },
             });
+            pinnedCount = pinned.count;
             if (pinned.count > 0) {
                 this.logger.log(`Pinned ${pinned.count} active unpinned enrollment(s) on course ${courseId} to v${nextNumber}`);
             }
@@ -218,10 +221,26 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                 },
             };
         }, { timeout: 15000, maxWait: 5000 });
+        const skipped = 'skipped' in result.data && result.data.skipped;
+        if (adminId && !skipped && (!options?.auto || pinnedCount > 0)) {
+            await this.writeAudit({
+                adminId,
+                action: 'PUBLISH_VERSION',
+                targetType: 'CourseVersion',
+                targetId: result.data.id,
+                courseId,
+                metadata: {
+                    versionNumber: result.data.versionNumber,
+                    pinnedEnrollments: pinnedCount,
+                    changeNotes: changeNotes ?? null,
+                },
+            });
+        }
+        return result;
     }
     async autoPublishAfterStructuralChange(courseId, adminId, changeNotes) {
         this.logger.log(`Auto-publishing ${courseId}: ${changeNotes}`);
-        const result = await this.publishNewVersion(adminId, courseId, changeNotes);
+        const result = await this.publishNewVersion(adminId, courseId, changeNotes, { auto: true });
         if (result.data && 'skipped' in result.data && result.data.skipped) {
             this.logger.log(`Skipped auto-publish for ${courseId}: no structural change (${changeNotes})`);
             return null;
@@ -390,28 +409,7 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         });
     }
     async writeAudit(entry, tx) {
-        const client = tx ?? this.prisma;
-        try {
-            const actor = await client.user.findUnique({
-                where: { id: entry.adminId },
-                select: { email: true },
-            });
-            await client.adminAuditLog.create({
-                data: {
-                    adminId: entry.adminId,
-                    adminEmail: actor?.email ?? null,
-                    action: entry.action,
-                    targetType: entry.targetType,
-                    targetId: entry.targetId ?? null,
-                    courseId: entry.courseId ?? null,
-                    userId: entry.userId ?? null,
-                    metadata: entry.metadata ?? undefined,
-                },
-            });
-        }
-        catch (err) {
-            this.logger.warn(`AdminAuditLog write failed (${entry.action}, target=${entry.targetType}:${entry.targetId ?? '-'}, course=${entry.courseId ?? '-'}, user=${entry.userId ?? '-'}): ${err instanceof Error ? err.message : String(err)}`);
-        }
+        await (0, admin_audit_1.writeAdminAudit)(tx ?? this.prisma, entry);
     }
     async countCompletionDenominator(userId, courseId) {
         const liveDenominator = async () => {
@@ -1259,15 +1257,28 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
             },
         };
     }
-    async pruneOrphanVersions(courseId) {
+    async pruneOrphanVersions(adminId, courseId) {
         const versions = await this.prisma.courseVersion.findMany({
             where: courseId ? { courseId } : undefined,
             orderBy: { versionNumber: 'asc' },
             include: { _count: { select: { enrollments: true } } },
         });
         const toDelete = versions.filter((v) => v._count.enrollments === 0 && !v.isLatest);
-        for (const v of toDelete) {
-            await this.prisma.courseVersion.delete({ where: { id: v.id } });
+        if (toDelete.length > 0) {
+            await this.prisma.$transaction(toDelete.map((v) => this.prisma.courseVersion.delete({ where: { id: v.id } })));
+            await this.writeAudit({
+                adminId,
+                action: 'PRUNE_ORPHAN_VERSIONS',
+                targetType: 'CourseVersion',
+                courseId: courseId ?? null,
+                metadata: {
+                    scope: courseId ? 'course' : 'all-courses',
+                    deleted: toDelete.map((v) => ({
+                        courseId: v.courseId,
+                        versionNumber: v.versionNumber,
+                    })),
+                },
+            });
         }
         return {
             message: `Pruned ${toDelete.length} orphan version(s)`,

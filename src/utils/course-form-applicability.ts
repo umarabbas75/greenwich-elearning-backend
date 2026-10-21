@@ -59,6 +59,60 @@ export function courseFormAttachedForEnrollment(
 }
 
 /**
+ * The update that re-attaches a removed form, policy or policy item: clears
+ * detachedAt and records the period it was removed for, so learners who
+ * enrolled in that period stay exempt.
+ */
+export function reattachData(
+  current: { detachedAt: Date; detachedWindows: unknown },
+  now: Date,
+): {
+  detachedAt: null;
+  detachedWindows: Array<{ from: string; until: string }>;
+} {
+  return {
+    detachedAt: null,
+    detachedWindows: [
+      ...(Array.isArray(current.detachedWindows)
+        ? current.detachedWindows
+        : []),
+      { from: current.detachedAt.toISOString(), until: now.toISOString() },
+    ],
+  };
+}
+
+/**
+ * Whether a policy applies to this enrolment: it was on the course when they
+ * enrolled and not removed at that moment.
+ */
+export function policyAppliesToEnrollment(
+  policy: { createdAt: Date; detachedWindows?: unknown },
+  enrolledAt: Date | null | undefined,
+): boolean {
+  return courseFormAttachedForEnrollment(
+    { createdAt: policy.createdAt, detachedWindows: policy.detachedWindows },
+    enrolledAt,
+  );
+}
+
+/**
+ * Whether a required policy item is required of this enrolment: it was
+ * already required when they enrolled and not removed at that moment. The
+ * caller checks isRequired and the item's policy.
+ */
+export function policyItemAppliesToEnrollment(
+  item: { requiredSince: Date; detachedWindows?: unknown },
+  enrolledAt: Date | null | undefined,
+): boolean {
+  if (!formAppliesToEnrollment(item.requiredSince, enrolledAt)) {
+    return false;
+  }
+  return !(
+    enrolledAt && enrolledWhileDetached(item.detachedWindows, enrolledAt)
+  );
+}
+
+/**
  * Whether the form is required of this enrolment: it was part of the course
  * for them and was already required when they enrolled. Switching an
  * optional form to required therefore only reaches later enrolments.

@@ -67,11 +67,11 @@ let CourseAssessmentController = class CourseAssessmentController {
     updateAssessment(id, body) {
         return this.service.updateAssessment(id, body);
     }
-    activateAssessment(id) {
-        return this.service.activateAssessment(id);
+    activateAssessment(id, admin) {
+        return this.service.activateAssessment(id, admin.id);
     }
-    deactivateAssessment(id) {
-        return this.service.deactivateAssessment(id);
+    deactivateAssessment(id, admin) {
+        return this.service.deactivateAssessment(id, admin.id);
     }
     addQuestionToAssessment(assessmentId, body) {
         return this.service.addQuestionToAssessment(assessmentId, body);
@@ -236,16 +236,18 @@ __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('admin/assessments/:id/activate'),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], CourseAssessmentController.prototype, "activateAssessment", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('admin/assessments/:id/deactivate'),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], CourseAssessmentController.prototype, "deactivateAssessment", null);
 __decorate([

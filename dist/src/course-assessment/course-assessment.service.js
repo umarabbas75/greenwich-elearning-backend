@@ -353,7 +353,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             this.throwMapped(error, 'Failed to update assessment');
         }
     }
-    async activateAssessment(assessmentId) {
+    async activateAssessment(assessmentId, adminId) {
         try {
             const assessment = await this.prisma.assessment.findUnique({
                 where: { id: assessmentId },
@@ -375,6 +375,16 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                 where: { id: assessmentId },
                 data: { isActive: true },
             });
+            if (adminId && !assessment.isActive) {
+                await this.courseVersionService.writeAudit({
+                    adminId,
+                    action: 'ACTIVATE_ASSESSMENT',
+                    targetType: 'Assessment',
+                    targetId: assessmentId,
+                    courseId: assessment.courseId,
+                    metadata: { title: assessment.title, mode: assessment.mode },
+                });
+            }
             return {
                 message: 'Assessment activated successfully',
                 statusCode: 200,
@@ -385,7 +395,7 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             this.throwMapped(error, 'Failed to activate assessment');
         }
     }
-    async deactivateAssessment(assessmentId) {
+    async deactivateAssessment(assessmentId, adminId) {
         try {
             const existing = await this.prisma.assessment.findUnique({
                 where: { id: assessmentId },
@@ -398,6 +408,16 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                 where: { id: assessmentId },
                 data: { isActive: false },
             });
+            if (adminId && existing.isActive) {
+                await this.courseVersionService.writeAudit({
+                    adminId,
+                    action: 'DEACTIVATE_ASSESSMENT',
+                    targetType: 'Assessment',
+                    targetId: assessmentId,
+                    courseId: existing.courseId,
+                    metadata: { title: existing.title },
+                });
+            }
             return {
                 message: 'Assessment deactivated successfully',
                 statusCode: 200,
@@ -561,9 +581,11 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                         percentage: true,
                         isPassed: true,
                         snapshotTimeLimitMin: true,
+                        snapshotMaxAttempts: true,
                     },
                     orderBy: { startedAt: 'desc' },
                 });
+                const maxAttempts = CourseAssessmentService_1.effectiveMaxAttempts(assessment.maxAttempts, attempts.map((a) => a.snapshotMaxAttempts));
                 const attemptsWithMeta = attempts.map((a) => {
                     const isExpired = a.status === client_1.AssessmentAttemptStatus.EXPIRED;
                     const timeInfo = a.status === client_1.AssessmentAttemptStatus.IN_PROGRESS
@@ -575,14 +597,14 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
                     return { ...a, isExpired, timeInfo };
                 });
                 const inProgressAttempt = attemptsWithMeta.find((a) => a.status === client_1.AssessmentAttemptStatus.IN_PROGRESS);
-                const remainingAttempts = assessment.maxAttempts === null
+                const remainingAttempts = maxAttempts === null
                     ? null
-                    : Math.max(0, assessment.maxAttempts - attempts.length);
+                    : Math.max(0, maxAttempts - attempts.length);
                 const canStart = isEligible &&
                     !inProgressAttempt &&
-                    (assessment.maxAttempts === null || remainingAttempts > 0);
+                    (maxAttempts === null || remainingAttempts > 0);
                 return {
-                    assessment,
+                    assessment: { ...assessment, maxAttempts },
                     isEligible,
                     remainingAttempts,
                     canStart,
@@ -626,12 +648,13 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
             const isComplete = await this._isCourseContentCompleted(userId, courseId);
             if (!isComplete)
                 throw new Error('You must complete all course content before attempting the assessment');
-            const attemptCount = await this.prisma.assessmentAttempt.count({
+            const previousAttempts = await this.prisma.assessmentAttempt.findMany({
                 where: { userId, assessmentId: assessment.id },
+                select: { snapshotMaxAttempts: true },
             });
-            if (assessment.maxAttempts !== null &&
-                attemptCount >= assessment.maxAttempts)
-                throw new Error(`Maximum attempts (${assessment.maxAttempts}) reached for this assessment`);
+            const maxAttempts = CourseAssessmentService_1.effectiveMaxAttempts(assessment.maxAttempts, previousAttempts.map((a) => a.snapshotMaxAttempts));
+            if (maxAttempts !== null && previousAttempts.length >= maxAttempts)
+                throw new Error(`Maximum attempts (${maxAttempts}) reached for this assessment`);
             await this._expireStaleAttempts(userId, assessment.id);
             const inProgress = await this.prisma.assessmentAttempt.findFirst({
                 where: {
@@ -1148,6 +1171,17 @@ let CourseAssessmentService = CourseAssessmentService_1 = class CourseAssessment
         catch (error) {
             this.throwMapped(error, 'Failed to set certificate');
         }
+    }
+    static effectiveMaxAttempts(current, granted) {
+        if (current === null)
+            return null;
+        let max = current;
+        for (const limit of granted) {
+            if (limit === null)
+                return null;
+            max = Math.max(max, limit);
+        }
+        return max;
     }
     async _assertNotExpired(userId, courseId) {
         const [completion, course] = await Promise.all([

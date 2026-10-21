@@ -201,7 +201,7 @@ export declare class CourseAssessmentService {
             updatedAt: Date;
         };
     }>;
-    activateAssessment(assessmentId: string): Promise<{
+    activateAssessment(assessmentId: string, adminId?: string): Promise<{
         message: string;
         statusCode: number;
         data: {
@@ -220,7 +220,7 @@ export declare class CourseAssessmentService {
             updatedAt: Date;
         };
     }>;
-    deactivateAssessment(assessmentId: string): Promise<{
+    deactivateAssessment(assessmentId: string, adminId?: string): Promise<{
         message: string;
         statusCode: number;
         data: {
@@ -376,6 +376,7 @@ export declare class CourseAssessmentService {
                 status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
                 isPassed: boolean;
                 submittedAt: Date;
+                snapshotMaxAttempts: number;
                 snapshotTimeLimitMin: number;
                 totalMarks: number;
                 marksObtained: number;
@@ -678,6 +679,7 @@ export declare class CourseAssessmentService {
         };
     }>;
     setCertificate(adminId: string, userId: string, courseId: string, body: SetCertificateDto): Promise<import("../dto").ResponseDto>;
+    private static effectiveMaxAttempts;
     private _assertNotExpired;
     private _isCourseContentCompleted;
     private _buildQuestionList;

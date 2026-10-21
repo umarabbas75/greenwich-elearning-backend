@@ -16,6 +16,7 @@ const client_1 = require("@prisma/client");
 const crypto_1 = require("crypto");
 const course_version_service_1 = require("../course-version/course-version.service");
 const prisma_service_1 = require("../prisma/prisma.service");
+const admin_audit_1 = require("../utils/admin-audit");
 const scorm_cloud_client_1 = require("../scorm-cloud/scorm-cloud.client");
 const error_message_1 = require("../utils/error-message");
 const rise_probe_1 = require("../utils/rise-probe");
@@ -127,12 +128,30 @@ let ScormService = ScormService_1 = class ScormService {
             }
             throw err;
         }
+        const recordImport = (outcome) => (0, admin_audit_1.writeAdminAudit)(this.prisma, {
+            adminId,
+            action: createdCourseHere
+                ? 'START_SCORM_IMPORT'
+                : 'START_SCORM_REIMPORT',
+            targetType: 'ScormPackage',
+            targetId: pkg.id,
+            courseId: course.id,
+            metadata: {
+                versionNumber: pkg.versionNumber,
+                title,
+                courseDeactivated: !createdCourseHere,
+                outcome,
+            },
+        });
         let jobId;
         try {
             jobId = await startCloudJob(scormCloudCourseId);
         }
         catch (err) {
             const reason = cloudErrorMessage(err);
+            if (!createdCourseHere) {
+                await recordImport('cloud-failed');
+            }
             const timedOut = err instanceof scorm_cloud_client_1.ScormCloudTimeoutError;
             await this.prisma.scormPackage.update({
                 where: { id: pkg.id },
@@ -166,6 +185,7 @@ let ScormService = ScormService_1 = class ScormService {
                 where: { id: pkg.id },
                 data: { cloudImportJobId: jobId },
             });
+            await recordImport('started');
             return {
                 message: 'SCORM import job started',
                 statusCode: 200,
@@ -187,6 +207,7 @@ let ScormService = ScormService_1 = class ScormService {
             catch (markErr) {
                 this.logger.warn(`Could not mark package ${pkg.id} FAILED: ${(0, error_message_1.errorMessage)(markErr)}`);
             }
+            await recordImport('started');
             throw err;
         }
     }

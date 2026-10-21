@@ -5,6 +5,7 @@ import * as argon2 from 'argon2';
 import { constantTimeEqual } from '../utils/constant-time-equal';
 import { emailEqualsWhere, normalizeEmail } from '../utils/email';
 import { errorMessage } from '../utils/error-message';
+import { writeAdminAudit } from '../utils/admin-audit';
 import {
   courseFormAppliesToEnrollment,
   courseFormAttachedForEnrollment,
@@ -98,37 +99,6 @@ export class UserService {
     throw new Error('User already exists in the system');
   }
 
-  private async writeAdminAudit(entry: {
-    adminId: string;
-    action: string;
-    targetType: string;
-    targetId?: string | null;
-    userId?: string | null;
-    metadata?: Record<string, unknown> | null;
-  }): Promise<void> {
-    try {
-      const actor = await this.prisma.user.findUnique({
-        where: { id: entry.adminId },
-        select: { email: true },
-      });
-      await this.prisma.adminAuditLog.create({
-        data: {
-          adminId: entry.adminId,
-          adminEmail: actor?.email ?? null,
-          action: entry.action,
-          targetType: entry.targetType,
-          targetId: entry.targetId ?? null,
-          userId: entry.userId ?? null,
-          metadata: (entry.metadata as Prisma.InputJsonValue) ?? undefined,
-        },
-      });
-    } catch (err) {
-      UserService.logger.warn(
-        `AdminAuditLog write failed (${entry.action}, user=${entry.userId ?? '-'}): ${errorMessage(err)}`,
-      );
-    }
-  }
-
   private async recordPasswordChange(userId: string): Promise<void> {
     try {
       await this.prisma.securityEvent.create({
@@ -208,16 +178,21 @@ export class UserService {
       // Transform data to group by courses
       const coursesWithForms = user.UserCourse.map((userCourse) => {
         const course = userCourse.course;
-        // Learners see the forms that were part of the course for their
-        // enrolment, matching the course hub, each flagged required only if it
-        // applies to them. Admins see every attached form plus removed ones
-        // the learner submitted. Counts cover forms still on the course.
-        const forms = isAdmin
-          ? course.courseForms
-          : course.courseForms.filter((form) =>
-              courseFormAttachedForEnrollment(form, userCourse.createdAt),
-            );
-        const countedForms = forms.filter((form) => !form.detachedAt);
+        // The learner's own forms, whoever is asking: the ones that were part
+        // of the course for their enrolment, matching the course hub, each
+        // flagged required only if it applies to them. Admins also see any
+        // other form the learner submitted (removed from the course, or one
+        // they were never asked for), so the record stays reviewable. Counts
+        // cover only the learner's forms still on the course.
+        const isLearnersForm = (form: (typeof course.courseForms)[number]) =>
+          !form.detachedAt &&
+          courseFormAttachedForEnrollment(form, userCourse.createdAt);
+        const forms = course.courseForms.filter(
+          (form) =>
+            isLearnersForm(form) ||
+            (isAdmin && form.userFormCompletions.length > 0),
+        );
+        const countedForms = forms.filter(isLearnersForm);
         const totalForms = countedForms.length;
         const completedForms = countedForms.filter(
           (form) =>
@@ -234,10 +209,9 @@ export class UserService {
           forms: forms.map((form) => ({
             formId: form.formId,
             formName: form.formName,
-            isRequired: isAdmin
-              ? form.isRequired
-              : form.isRequired &&
-                courseFormAppliesToEnrollment(form, userCourse.createdAt),
+            isRequired:
+              form.isRequired &&
+              courseFormAppliesToEnrollment(form, userCourse.createdAt),
             isDetached: form.detachedAt !== null,
             courseFormId: form.id,
             isComplete: form.userFormCompletions[0]?.isComplete || false,
@@ -617,7 +591,7 @@ export class UserService {
       });
       delete updatedUser.password;
 
-      await this.writeAdminAudit({
+      await writeAdminAudit(this.prisma, {
         adminId,
         action: 'USER_EMAIL_CHANGED',
         targetType: 'USER',

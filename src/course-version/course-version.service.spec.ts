@@ -1135,10 +1135,23 @@ describe('CourseVersionService', () => {
         },
       ]);
 
-      const result = await service.pruneOrphanVersions('course-1');
+      const writeAudit = jest
+        .spyOn(service, 'writeAudit')
+        .mockResolvedValue(undefined);
+
+      const result = await service.pruneOrphanVersions('admin-1', 'course-1');
       expect(prisma.courseVersion.delete).toHaveBeenCalledTimes(1);
       expect(result.data.deleted).toBe(1);
       expect(result.data.versionNumbers).toEqual([1]);
+      // Pruning lifts the archive-instead-of-delete protection, so it is
+      // attributed.
+      expect(writeAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adminId: 'admin-1',
+          action: 'PRUNE_ORPHAN_VERSIONS',
+          courseId: 'course-1',
+        }),
+      );
     });
   });
 

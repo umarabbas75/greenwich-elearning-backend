@@ -68,8 +68,14 @@ export class CourseVersionController {
 
   @UseGuards(AuthGuard('jwt'))
   @Post('versions/prune-orphans')
-  pruneOrphanVersions(@Body() body?: { courseId?: string }) {
-    return this.courseVersionService.pruneOrphanVersions(body?.courseId);
+  pruneOrphanVersions(
+    @GetUser() admin: User,
+    @Body() body?: { courseId?: string },
+  ) {
+    return this.courseVersionService.pruneOrphanVersions(
+      admin.id,
+      body?.courseId,
+    );
   }
 
   @UseGuards(AuthGuard('jwt'))

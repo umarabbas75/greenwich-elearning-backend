@@ -277,6 +277,13 @@ model Policy {
   order       Int                    @default(0)
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
+  /// Set when an admin removes the policy from the course. The row and every
+  /// learner's acknowledgement are kept as evidence; it no longer applies.
+  /// Re-adding it clears this.
+  detachedAt  DateTime?
+  /// Every period the policy was removed for, as [{ from, until }] ISO strings.
+  /// Enrolments created inside one never had it, so it does not apply to them.
+  detachedWindows Json?
   course      Course                 @relation(fields: [courseId], references: [id])
   items       PolicyItem[]
   completions UserPolicyCompletion[]
@@ -295,6 +302,12 @@ model PolicyItem {
   /// The item applies to enrolments created at or after this moment: when it
   /// was added, or when it was last switched from optional to required.
   requiredSince DateTime                   @default(now())
+  /// Set when an admin removes the item from its policy. Kept, with every
+  /// learner's acknowledgement, as evidence; it no longer applies.
+  /// Re-adding it clears this.
+  detachedAt    DateTime?
+  /// Every period the item was removed for, as [{ from, until }] ISO strings.
+  detachedWindows Json?
   policyId      String
   policy        Policy                     @relation(fields: [policyId], references: [id])
   completions   UserPolicyItemCompletion[]

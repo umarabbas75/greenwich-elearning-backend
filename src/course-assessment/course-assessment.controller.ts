@@ -149,14 +149,14 @@ export class CourseAssessmentController {
 
   @UseGuards(AuthGuard('jwt'))
   @Post('admin/assessments/:id/activate')
-  activateAssessment(@Param('id') id: string) {
-    return this.service.activateAssessment(id);
+  activateAssessment(@Param('id') id: string, @GetUser() admin: User) {
+    return this.service.activateAssessment(id, admin.id);
   }
 
   @UseGuards(AuthGuard('jwt'))
   @Post('admin/assessments/:id/deactivate')
-  deactivateAssessment(@Param('id') id: string) {
-    return this.service.deactivateAssessment(id);
+  deactivateAssessment(@Param('id') id: string, @GetUser() admin: User) {
+    return this.service.deactivateAssessment(id, admin.id);
   }
 
   // ──────────────────────────────────────────────────────────────────────────

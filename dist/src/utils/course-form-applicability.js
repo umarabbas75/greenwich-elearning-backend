@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.courseFormAppliesToEnrollment = exports.courseFormAttachedForEnrollment = exports.formAppliesToEnrollment = void 0;
+exports.courseFormAppliesToEnrollment = exports.policyItemAppliesToEnrollment = exports.policyAppliesToEnrollment = exports.reattachData = exports.courseFormAttachedForEnrollment = exports.formAppliesToEnrollment = void 0;
 function formAppliesToEnrollment(formCreatedAt, enrolledAt) {
     if (!enrolledAt) {
         return true;
@@ -29,6 +29,29 @@ function courseFormAttachedForEnrollment(form, enrolledAt) {
     return !(enrolledAt && enrolledWhileDetached(form.detachedWindows, enrolledAt));
 }
 exports.courseFormAttachedForEnrollment = courseFormAttachedForEnrollment;
+function reattachData(current, now) {
+    return {
+        detachedAt: null,
+        detachedWindows: [
+            ...(Array.isArray(current.detachedWindows)
+                ? current.detachedWindows
+                : []),
+            { from: current.detachedAt.toISOString(), until: now.toISOString() },
+        ],
+    };
+}
+exports.reattachData = reattachData;
+function policyAppliesToEnrollment(policy, enrolledAt) {
+    return courseFormAttachedForEnrollment({ createdAt: policy.createdAt, detachedWindows: policy.detachedWindows }, enrolledAt);
+}
+exports.policyAppliesToEnrollment = policyAppliesToEnrollment;
+function policyItemAppliesToEnrollment(item, enrolledAt) {
+    if (!formAppliesToEnrollment(item.requiredSince, enrolledAt)) {
+        return false;
+    }
+    return !(enrolledAt && enrolledWhileDetached(item.detachedWindows, enrolledAt));
+}
+exports.policyItemAppliesToEnrollment = policyItemAppliesToEnrollment;
 function courseFormAppliesToEnrollment(form, enrolledAt) {
     return (courseFormAttachedForEnrollment(form, enrolledAt) &&
         formAppliesToEnrollment(form.requiredSince, enrolledAt));

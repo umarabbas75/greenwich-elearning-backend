@@ -1,6 +1,7 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { writeAdminAudit } from '../utils/admin-audit';
 
 export const courseCategorySelect = {
   id: true,
@@ -140,10 +141,10 @@ export class CourseCategoryService {
     };
   }
 
-  async assign(courseId: string, categoryId: string | null) {
+  async assign(courseId: string, categoryId: string | null, adminId?: string) {
     const course = await this.prisma.course.findUnique({
       where: { id: courseId },
-      select: { id: true },
+      select: { id: true, categoryId: true },
     });
     if (!course) throw this.missing('Course not found');
 
@@ -165,6 +166,16 @@ export class CourseCategoryService {
         category: { select: courseCategorySelect },
       },
     });
+    if (adminId && course.categoryId !== categoryId) {
+      await writeAdminAudit(this.prisma, {
+        adminId,
+        action: 'ASSIGN_COURSE_CATEGORY',
+        targetType: 'Course',
+        targetId: courseId,
+        courseId,
+        metadata: { from: course.categoryId, to: categoryId },
+      });
+    }
 
     return {
       message: categoryId

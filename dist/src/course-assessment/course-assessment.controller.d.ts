@@ -258,7 +258,7 @@ export declare class CourseAssessmentController {
             updatedAt: Date;
         };
     }>;
-    activateAssessment(id: string): Promise<{
+    activateAssessment(id: string, admin: User): Promise<{
         message: string;
         statusCode: number;
         data: {
@@ -277,7 +277,7 @@ export declare class CourseAssessmentController {
             updatedAt: Date;
         };
     }>;
-    deactivateAssessment(id: string): Promise<{
+    deactivateAssessment(id: string, admin: User): Promise<{
         message: string;
         statusCode: number;
         data: {
@@ -547,6 +547,7 @@ export declare class CourseAssessmentController {
                 status: import(".prisma/client").$Enums.AssessmentAttemptStatus;
                 isPassed: boolean;
                 submittedAt: Date;
+                snapshotMaxAttempts: number;
                 snapshotTimeLimitMin: number;
                 totalMarks: number;
                 marksObtained: number;

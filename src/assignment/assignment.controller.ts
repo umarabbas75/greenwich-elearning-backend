@@ -61,7 +61,8 @@ export class AssignmentController {
   }
 
   // Admin: list submissions assigned to them (optional filter by status)
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin only: a learner token must not reach this.
+  @UseGuards(AuthGuard('jwt'))
   @Get('assigned')
   async assignedToMe(
     @GetUser() user: User,
@@ -71,7 +72,8 @@ export class AssignmentController {
   }
 
   // Admin: review a submission (update status/feedback/score)
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin only: a learner token must not reach this.
+  @UseGuards(AuthGuard('jwt'))
   @Post('review')
   async review(
     @GetUser() user: User,
@@ -87,7 +89,8 @@ export class AssignmentController {
   }
 
   // Admin: create a new assignment for a course
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin only: a learner token must not reach this.
+  @UseGuards(AuthGuard('jwt'))
   @Post('create')
   async createAssignment(
     @GetUser() user: User,
@@ -123,14 +126,16 @@ export class AssignmentController {
   }
 
   // Admin: list all assignments they created
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin only: a learner token must not reach this.
+  @UseGuards(AuthGuard('jwt'))
   @Get('admin/created')
   async adminCreatedAssignments(@GetUser() user: User): Promise<ResponseDto> {
     return this.assignmentService.getAdminCreatedAssignments(user.id);
   }
 
   // Admin: delete an assignment they created (and all its submissions)
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin only: a learner token must not reach this.
+  @UseGuards(AuthGuard('jwt'))
   @Post('admin/delete')
   async deleteAssignment(
     @GetUser() user: User,
@@ -140,7 +145,8 @@ export class AssignmentController {
   }
 
   // Admin: update assignment details
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin only: a learner token must not reach this.
+  @UseGuards(AuthGuard('jwt'))
   @Post('admin/update')
   async updateAssignment(
     @GetUser() user: User,
@@ -279,7 +285,8 @@ export class AssignmentController {
   }
 
   // Admin: get all submissions for a specific assignment
-  @UseGuards(AuthGuard('cJwt'))
+  // Admin only: a learner token must not reach this.
+  @UseGuards(AuthGuard('jwt'))
   @Get(':id/submissions')
   async getAssignmentSubmissions(
     @GetUser() user: User,

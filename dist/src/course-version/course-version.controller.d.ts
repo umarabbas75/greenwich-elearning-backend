@@ -87,7 +87,7 @@ export declare class CourseVersionController {
             versionId: string;
         };
     }>;
-    pruneOrphanVersions(body?: {
+    pruneOrphanVersions(admin: User, body?: {
         courseId?: string;
     }): Promise<{
         message: string;

@@ -108,7 +108,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AssignmentController.prototype, "mySubmissions", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Get)('assigned'),
     __param(0, (0, decorator_1.GetUser)()),
     __param(1, (0, common_1.Query)('status')),
@@ -117,7 +117,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AssignmentController.prototype, "assignedToMe", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('review'),
     __param(0, (0, decorator_1.GetUser)()),
     __param(1, (0, common_1.Body)()),
@@ -126,7 +126,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AssignmentController.prototype, "review", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('create'),
     __param(0, (0, decorator_1.GetUser)()),
     __param(1, (0, common_1.Body)()),
@@ -135,7 +135,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AssignmentController.prototype, "createAssignment", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Get)('admin/created'),
     __param(0, (0, decorator_1.GetUser)()),
     __metadata("design:type", Function),
@@ -143,7 +143,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AssignmentController.prototype, "adminCreatedAssignments", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('admin/delete'),
     __param(0, (0, decorator_1.GetUser)()),
     __param(1, (0, common_1.Body)()),
@@ -152,7 +152,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AssignmentController.prototype, "deleteAssignment", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Post)('admin/update'),
     __param(0, (0, decorator_1.GetUser)()),
     __param(1, (0, common_1.Body)()),
@@ -254,7 +254,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AssignmentController.prototype, "getAssignmentStatus", null);
 __decorate([
-    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Get)(':id/submissions'),
     __param(0, (0, decorator_1.GetUser)()),
     __param(1, (0, common_1.Param)('id')),

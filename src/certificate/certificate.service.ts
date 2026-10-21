@@ -26,6 +26,7 @@ import {
 } from './certificate-cloudinary';
 import { stripTrailingSlash } from '../utils/strip-trailing-slash';
 import { feedbackAppliesToCompletion } from '../utils/feedback-applicability';
+import { writeAdminAudit } from '../utils/admin-audit';
 import { normalizeCertificateId } from './certificate-id';
 
 export interface CertificateVerifyResult {
@@ -473,7 +474,11 @@ export class CertificateService {
 
     const completion = await this.prisma.courseCompletion.findUnique({
       where: { userId_courseId: { userId, courseId } },
-      select: { certificateId: true, certificateUrl: true },
+      select: {
+        certificateId: true,
+        certificateUrl: true,
+        certificateIssuedAt: true,
+      },
     });
     if (!completion) {
       throw new NotFoundException('Course completion record not found.');
@@ -491,6 +496,22 @@ export class CertificateService {
         certificateIssuedAt: new Date(),
         certificateSource: CertificateSource.MANUAL,
         certificateIssuedByAdminId: adminId,
+      },
+    });
+    // The row only keeps the latest URL, so a replaced certificate survives
+    // here, with who replaced it.
+    await writeAdminAudit(this.prisma, {
+      adminId,
+      action: 'RECORD_MANUAL_CERTIFICATE',
+      targetType: 'CourseCompletion',
+      targetId: updated.id,
+      courseId,
+      userId,
+      metadata: {
+        certificateId,
+        certificateUrl,
+        previousCertificateUrl: completion.certificateUrl,
+        previousIssuedAt: completion.certificateIssuedAt?.toISOString() ?? null,
       },
     });
 
