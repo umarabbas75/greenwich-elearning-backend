@@ -1285,7 +1285,7 @@ model Assessment {
   mode                AssessmentMode       @default(MANUAL)
   isActive            Boolean              @default(false)
   passingPercentage   Float                @default(60)
-  timeLimitMinutes    Int? // informational only — NOT enforced in code yet
+  timeLimitMinutes    Int? // snapshotted per attempt; enforced on submit (+60s grace)
   maxAttempts         Int? // null = unlimited
   autoConfig          Json? // required when mode = AUTOMATIC
   createdByAdminId    String
@@ -1299,6 +1299,11 @@ model Assessment {
   @@index([courseId])
   @@index([courseId, isActive])
   @@index([createdByAdminId])
+  // A partial UNIQUE index enforces "at most one active assessment per course":
+  //   CREATE UNIQUE INDEX "assessments_one_active_per_course"
+  //     ON "assessments"("courseId") WHERE "isActive" = true;
+  // It lives in migration 20261023120000_assessment_one_active_per_course and
+  // is NOT expressible in Prisma, so it's invisible here.
   @@map("assessments")
 }
 
@@ -1350,6 +1355,11 @@ model AssessmentAttempt {
   @@index([userId])
   @@index([userId, assessmentId])
   @@index([status])
+  // A partial UNIQUE index enforces "at most one IN_PROGRESS attempt per
+  // learner per assessment":
+  //   CREATE UNIQUE INDEX "assessment_attempts_one_in_progress"
+  //     ON "assessment_attempts"("userId", "assessmentId") WHERE "status" = 'IN_PROGRESS';
+  // It lives in migration 20261023120100_assessment_one_in_progress_attempt.
   @@map("assessment_attempts")
 }
 
@@ -1448,9 +1458,10 @@ model LoginEvent {
   @@map("login_events")
 }
 
-/// Running total of active time a user has spent in a single section (lesson),
-/// accumulated from heartbeat pings. chapterId/moduleId/courseId are denormalized
-/// so reports can roll time up to any level without extra joins.
+/// Running total of time a user has had a section (lesson) visible, including
+/// idle. Hidden tabs and sleep are not included. Accumulated from heartbeat
+/// pings. chapterId/moduleId/courseId are denormalized so reports can roll time
+/// up to any level without extra joins.
 model SectionTimeSpent {
   id              String    @id @default(uuid())
   userId          String
@@ -1458,14 +1469,14 @@ model SectionTimeSpent {
   chapterId       String
   moduleId        String?
   courseId        String
-  /// Sum of capped heartbeat intervals — the student's active seconds here.
+  /// Sum of capped heartbeat intervals — seconds the lesson tab was visible.
   totalSeconds    Int       @default(0)
   /// Interactive section verify/check tries (MATCH_AND_LEARN, etc.).
   totalAttempts   Int       @default(0)
   firstAttemptAt  DateTime?
   lastAttemptAt   DateTime?
   /// Last ping time; used to compute the next contiguous interval and to cap
-  /// gaps (idle/closed tab) so time can't be inflated.
+  /// gaps (hidden tab, closed tab, sleep) so one late ping can't bill the absence.
   lastHeartbeatAt DateTime  @default(now())
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -1481,8 +1492,9 @@ model SectionTimeSpent {
   @@map("section_time_spent")
 }
 
-/// Daily roll-up of active seconds per user per course (UTC calendar day).
-/// Written alongside section_time_spent heartbeats for admin time breakdowns.
+/// Daily roll-up of visible seconds per user per course (UTC calendar day),
+/// idle included. Written alongside section_time_spent heartbeats for admin
+/// time breakdowns.
 model SectionTimeSpentDaily {
   id           String   @id @default(uuid())
   userId       String

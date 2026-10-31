@@ -37,11 +37,12 @@ function lruSet<V>(
  * AuthService (on the login path); this service owns the heartbeat accrual and
  * the reporting roll-ups.
  *
- * Heartbeat model: the FE pings every ~HEARTBEAT_INTERVAL while a section is
- * open. Each ping adds the elapsed time since the previous ping, but capped at
- * MAX_ACCRUAL_SECONDS — so a long gap (idle, tab closed then reopened, sleep)
- * contributes at most one interval, never the whole gap. This counts active
- * viewing time, not wall-clock-since-open.
+ * Heartbeat model: the FE pings every ~30s while a section tab is visible,
+ * including while the learner is idle. Each ping reports the visible seconds
+ * measured since the last successful ping. The server credits
+ * min(clientActive, serverGap, perPingCap), so a long gap (hidden tab, closed
+ * tab, sleep) contributes at most one cap, never the whole absence. A visible
+ * tab left open keeps accruing, because the client keeps pinging.
  */
 @Injectable()
 export class TrackingService {
@@ -74,14 +75,15 @@ export class TrackingService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Accrue ACTIVE time for (user, section) from a heartbeat.
+   * Accrue visible time for (user, section) from a heartbeat. The client
+   * includes idle in `clientActiveSeconds` and omits hidden-tab time.
    *
    * Duration is NOT derived from the beep-arrival gap (that billed away-time
-   * onto the first beep after return). Instead the client reports the active
+   * onto the first beep after return). Instead the client reports the visible
    * time it measured since its last successful ping (`clientActiveSeconds`),
    * and the server credits `min(clientActive, serverGap, perPingCap)` — so a
-   * client can never claim more than real elapsed server time, and an idle /
-   * hidden-tab gap credits ~0 because the client's measured active time is ~0.
+   * client can never claim more than real elapsed server time, and a hidden-tab
+   * or sleep gap credits ~0 because the client's measured time for it is ~0.
    *
    * Old clients that send only { sectionId } hit a conservative gap-rejection
    * fallback (never the original min(gap, 90) rule), so the bug can't persist

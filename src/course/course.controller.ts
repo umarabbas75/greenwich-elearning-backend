@@ -16,6 +16,7 @@ import {
   CourseDto,
   GetUpdateLastSeen,
   MarkFormCompleteDto,
+  RequestFormChangesDto,
   UpdateFormMetadataDto,
   ModuleDto,
   ParamsDto,
@@ -53,6 +54,7 @@ export class CourseController {
       body.formId,
       body.metaData,
       body.courseFormId,
+      body.changesRequestedAt,
     );
   }
 
@@ -71,7 +73,27 @@ export class CourseController {
       body.formId,
       body.courseFormId,
       body.metaData,
+      body.submissionCompletedAt,
     );
+  }
+
+  /** Learning advisor sends a v2 registration form back for the learner to update. */
+  @UseGuards(AuthGuard('cJwt'))
+  @Post('/requestFormChanges')
+  requestFormChanges(
+    @GetUser() user: User,
+    @Body() body: RequestFormChangesDto,
+  ): Promise<any> {
+    return this.appService.requestFormChanges({
+      adminId: user.id,
+      adminRole: user.role,
+      learnerUserId: body.userId,
+      courseId: body.courseId,
+      formId: body.formId,
+      courseFormId: body.courseFormId,
+      comments: body.comments,
+      submissionCompletedAt: body.submissionCompletedAt,
+    });
   }
 
   @UseGuards(AuthGuard('cJwt'))

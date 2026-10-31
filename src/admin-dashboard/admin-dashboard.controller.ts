@@ -183,7 +183,7 @@ export class AdminDashboardController {
 
   // ── Time-on-platform leaderboards ─────────────────────────────────────────
 
-  /** Top users (and per-course breakdown) by active time spent. */
+  /** Top users (and per-course breakdown) by visible lesson time, idle included. */
   @Get('leaderboards/time')
   timeLeaderboard(
     @Query('courseId') courseId?: string,

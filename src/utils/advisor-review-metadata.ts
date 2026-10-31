@@ -19,6 +19,28 @@ export const ADVISOR_REGISTRATION_STATUSES = [
   'Rejected',
 ] as const;
 
+/**
+ * Metadata keys written only by the advisor flow. A learner submission never
+ * carries them: otherwise a learner could post `advisor.registrationStatus:
+ * "Approved"` and unlock the course, or resubmit with the old review attached.
+ */
+export const ADVISOR_OWNED_METADATA_KEYS = [
+  'advisor',
+  'advisorSignature',
+  'advisorDate',
+  'changesRequested',
+  'reviewHistory',
+] as const;
+
+/** Oldest entries are dropped past this, so the bag cannot grow without bound. */
+const REVIEW_HISTORY_LIMIT = 50;
+
+/**
+ * Resubmissions that keep a full copy of the answers they replaced. Older ones
+ * keep only when it was submitted: this bag is sent with every course list.
+ */
+const REPLACED_SNAPSHOT_LIMIT = 3;
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -70,14 +92,184 @@ export function getAdvisorComments(metadata: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/**
+ * Set while the advisor has sent the registration back for the learner to
+ * update. The completion is incomplete for exactly as long as this is present.
+ */
+export type ChangesRequest = {
+  requestedAt: string;
+  requestedById: string;
+  requestedByName: string | null;
+  comments: string;
+  /** When the submission that was sent back had been made. */
+  previousCompletedAt: string | null;
+  previousStatus: AdvisorRegistrationStatus | null;
+};
+
+export type ReviewHistoryEntry = Record<string, unknown> & {
+  action: 'CHANGES_REQUESTED' | 'REQUEST_WITHDRAWN' | 'RESUBMITTED';
+  at: string;
+};
+
+/** The learner's own answers: the metadata bag without any advisor-owned key. */
+export function learnerPartOfMetadata(
+  metadata: unknown,
+): Record<string, unknown> {
+  const owned: readonly string[] = ADVISOR_OWNED_METADATA_KEYS;
+  return Object.fromEntries(
+    Object.entries(asRecord(metadata) ?? {}).filter(
+      ([key]) => !owned.includes(key),
+    ),
+  );
+}
+
+export function getChangesRequest(metadata: unknown): ChangesRequest | null {
+  const request = asRecord(asRecord(metadata)?.changesRequested);
+  if (!request || typeof request.requestedAt !== 'string') {
+    return null;
+  }
+  return {
+    requestedAt: request.requestedAt,
+    requestedById:
+      typeof request.requestedById === 'string' ? request.requestedById : '',
+    requestedByName:
+      typeof request.requestedByName === 'string'
+        ? request.requestedByName
+        : null,
+    comments: typeof request.comments === 'string' ? request.comments : '',
+    previousCompletedAt:
+      typeof request.previousCompletedAt === 'string'
+        ? request.previousCompletedAt
+        : null,
+    previousStatus: ADVISOR_REGISTRATION_STATUSES.includes(
+      request.previousStatus as AdvisorRegistrationStatus,
+    )
+      ? (request.previousStatus as AdvisorRegistrationStatus)
+      : null,
+  };
+}
+
+export function getReviewHistory(metadata: unknown): ReviewHistoryEntry[] {
+  const history = asRecord(metadata)?.reviewHistory;
+  if (!Array.isArray(history)) {
+    return [];
+  }
+  return history.filter(
+    (entry): entry is ReviewHistoryEntry =>
+      typeof asRecord(entry)?.action === 'string',
+  );
+}
+
+export function appendReviewHistory(
+  metadata: unknown,
+  entry: ReviewHistoryEntry,
+): ReviewHistoryEntry[] {
+  const history = [...getReviewHistory(metadata), entry].slice(
+    -REVIEW_HISTORY_LIMIT,
+  );
+  let snapshotsKept = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const replaced = asRecord(history[i].replaced);
+    if (history[i].action !== 'RESUBMITTED' || !replaced?.metadata) {
+      continue;
+    }
+    snapshotsKept++;
+    if (snapshotsKept > REPLACED_SNAPSHOT_LIMIT) {
+      history[i] = {
+        ...history[i],
+        replaced: { completedAt: replaced.completedAt ?? null },
+      };
+    }
+  }
+  return history;
+}
+
+/**
+ * How many times the learner has resubmitted after being sent back; 0 for a
+ * first submission. Read from the highest recorded round, so it never goes
+ * down when old history entries are dropped.
+ */
+export function getResubmissionRound(metadata: unknown): number {
+  return getReviewHistory(metadata).reduce((max, entry) => {
+    const round = entry.action === 'RESUBMITTED' ? Number(entry.round) : 0;
+    return Number.isInteger(round) && round > max ? round : max;
+  }, 0);
+}
+
+/**
+ * The metadata bag of a registration the advisor sends back to the learner.
+ * The learner's answers stay so the form reopens filled in; the advisor's
+ * request is recorded as the current review, and the review it replaces goes
+ * to the history. Sending back again while waiting only updates the request.
+ */
+export function sendBackMetadata(
+  metadata: unknown,
+  request: {
+    at: Date;
+    byId: string;
+    byName: string | null;
+    comments: string;
+    submissionCompletedAt: Date | null;
+  },
+): Record<string, unknown> {
+  const current = asRecord(metadata) ?? {};
+  const prior = getChangesRequest(metadata);
+  const statusBefore = getAdvisorRegistrationStatus(metadata);
+  const requestedAt = request.at.toISOString();
+
+  const changesRequested: ChangesRequest = {
+    requestedAt,
+    requestedById: request.byId,
+    requestedByName: request.byName,
+    comments: request.comments,
+    previousCompletedAt: prior
+      ? prior.previousCompletedAt
+      : request.submissionCompletedAt?.toISOString() ?? null,
+    previousStatus: prior ? prior.previousStatus : statusBefore,
+  };
+
+  return {
+    ...current,
+    advisor: {
+      ...(asRecord(current.advisor) ?? {}),
+      registrationStatus: 'Pending',
+      comments: request.comments,
+    },
+    changesRequested,
+    reviewHistory: appendReviewHistory(metadata, {
+      action: 'CHANGES_REQUESTED',
+      at: requestedAt,
+      byId: request.byId,
+      byName: request.byName,
+      comments: request.comments,
+      statusBefore,
+      review: {
+        advisor: current.advisor ?? null,
+        advisorSignature: current.advisorSignature ?? null,
+        advisorDate: current.advisorDate ?? null,
+      },
+    }),
+  };
+}
+
 export type RegistrationAccessGate =
-  | { blocked: false; registrationStatus: AdvisorRegistrationStatus | null; comments: string | null }
+  | {
+      blocked: false;
+      registrationStatus: AdvisorRegistrationStatus | null;
+      comments: string | null;
+      changesRequestedAt: null;
+    }
   | {
       blocked: true;
-      reason: 'REGISTRATION_PENDING' | 'REGISTRATION_REJECTED';
+      reason:
+        | 'REGISTRATION_PENDING'
+        | 'REGISTRATION_REJECTED'
+        | 'REGISTRATION_CHANGES_REQUESTED';
       registrationStatus: AdvisorRegistrationStatus;
       comments: string | null;
       message: string;
+      /** Set while the form is sent back to the learner for changes. */
+      changesRequestedAt: string | null;
     };
 
 /**
@@ -91,15 +283,42 @@ export function evaluateRegistrationAccess(forms: Array<{
 }>): RegistrationAccessGate {
   const registration = forms.find((f) => f.formId === 'registration-form');
   if (!registration) {
-    return { blocked: false, registrationStatus: null, comments: null };
+    return {
+      blocked: false,
+      registrationStatus: null,
+      comments: null,
+      changesRequestedAt: null,
+    };
   }
   const status = getAdvisorRegistrationStatus(registration.metadata);
   const comments = getAdvisorComments(registration.metadata);
   if (status == null) {
-    return { blocked: false, registrationStatus: null, comments };
+    return {
+      blocked: false,
+      registrationStatus: null,
+      comments,
+      changesRequestedAt: null,
+    };
+  }
+  const changesRequest = getChangesRequest(registration.metadata);
+  if (changesRequest) {
+    return {
+      blocked: true,
+      reason: 'REGISTRATION_CHANGES_REQUESTED',
+      registrationStatus: 'Pending',
+      comments: changesRequest.comments.trim() || comments,
+      message:
+        'Your learning advisor asked you to update your registration form.',
+      changesRequestedAt: changesRequest.requestedAt,
+    };
   }
   if (status === 'Approved') {
-    return { blocked: false, registrationStatus: status, comments };
+    return {
+      blocked: false,
+      registrationStatus: status,
+      comments,
+      changesRequestedAt: null,
+    };
   }
   if (status === 'Rejected') {
     return {
@@ -109,6 +328,7 @@ export function evaluateRegistrationAccess(forms: Array<{
       comments,
       message:
         'Your registration was not approved. Please review the advisor comments.',
+      changesRequestedAt: null,
     };
   }
   return {
@@ -117,6 +337,7 @@ export function evaluateRegistrationAccess(forms: Array<{
     registrationStatus: 'Pending',
     comments,
     message: 'Your registration is waiting for advisor approval.',
+    changesRequestedAt: null,
   };
 }
 

@@ -17,6 +17,7 @@ import {
   IsBoolean,
   ValidateIf,
   ValidateNested,
+  ArrayMaxSize,
   ArrayMinSize,
   IsObject,
   IsInt,
@@ -24,8 +25,10 @@ import {
   Min,
   Max,
   MinLength,
+  MaxLength,
   Length,
   Matches,
+  IsDateString,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
@@ -448,6 +451,15 @@ export class MarkFormCompleteDto {
   @IsOptional()
   @IsObject()
   metaData?: Record<string, unknown>;
+
+  /**
+   * Resubmitting a registration the advisor sent back: the request being
+   * answered (`changesRequested.requestedAt`). If the advisor has updated the
+   * request since, the submit is refused with 409. Older clients omit it.
+   */
+  @IsOptional()
+  @IsDateString()
+  changesRequestedAt?: string;
 }
 
 /** Body for `POST /courses/updateFormMetadata` (admin advisor review of a v2 registration form). */
@@ -471,6 +483,46 @@ export class UpdateFormMetadataDto {
 
   @IsObject()
   metaData: Record<string, unknown>;
+
+  /**
+   * `completedAt` of the submission the advisor was looking at (null while it
+   * is sent back). When sent, a mismatch means the learner resubmitted since
+   * and the save is refused with 409. Older clients omit it.
+   */
+  @IsOptional()
+  @IsDateString()
+  submissionCompletedAt?: string | null;
+}
+
+/** Body for `POST /courses/requestFormChanges` (admin sends a v2 registration back to the learner). */
+export class RequestFormChangesDto {
+  @IsString()
+  @IsNotEmpty()
+  courseId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  formId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  courseFormId: string;
+
+  /** Learner whose submission is sent back. */
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+
+  /** What the learner has to change. Shown to them on the form and in the email. */
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  comments: string;
+
+  /** Same meaning as on UpdateFormMetadataDto. */
+  @IsOptional()
+  @IsDateString()
+  submissionCompletedAt?: string | null;
 }
 
 export class AssignCourseDto {
@@ -1237,10 +1289,24 @@ export class AnswerItemDto {
   studentAnswer: Record<string, any>;
 }
 
+/**
+ * Final submit. Answers already saved through PATCH .../answers are graded too,
+ * so `answers` only needs whatever changed since the last save (or nothing).
+ */
 export class SubmitAttemptDto {
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AnswerItemDto)
+  answers?: AnswerItemDto[];
+}
+
+/** Autosave while the attempt is in progress. Only the changed answers. */
+export class SaveAttemptAnswersDto {
   @IsArray()
   @ValidateNested({ each: true })
   @ArrayMinSize(1)
+  @ArrayMaxSize(200)
   @Type(() => AnswerItemDto)
   answers: AnswerItemDto[];
 }
@@ -1334,9 +1400,10 @@ export class ResetPasswordDto {
 // ── Platform tracking ────────────────────────────────────────────────────────
 
 /**
- * A single time-tracking heartbeat: "the current user is actively viewing this
- * section". Sent by the FE every ~30-60s while a section is open. The backend
- * resolves chapter/module/course from the section, so the FE only sends the id.
+ * A single time-tracking heartbeat: "this lesson tab is visible", idle included.
+ * Sent by the FE every ~30s while a section is on screen. A hidden tab does not
+ * ping. The backend resolves chapter/module/course from the section, so the FE
+ * only sends the id.
  */
 export class TrackingHeartbeatDto {
   @IsString()
@@ -1344,11 +1411,11 @@ export class TrackingHeartbeatDto {
   sectionId: string;
 
   /**
-   * Active seconds the client measured since its LAST successful ping (i.e.
-   * time the tab was visible and the user not idle). The server credits
-   * min(activeSeconds, serverGap, perPingCap) — so this can never inflate the
-   * total beyond real elapsed server time. Omit on old clients (gap-rejection
-   * fallback applies).
+   * Visible seconds the client measured since its LAST successful ping,
+   * including idle. Hidden-tab time is not included. The field name is
+   * historical. The server credits min(activeSeconds, serverGap, perPingCap)
+   * — so this can never inflate the total beyond real elapsed server time.
+   * Omit on old clients (gap-rejection fallback applies).
    */
   @IsOptional()
   @IsNumber()

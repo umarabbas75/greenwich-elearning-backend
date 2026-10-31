@@ -26,6 +26,7 @@ import {
   ReorderAssessmentQuestionsDto,
   SetCertificateDto,
   StartAttemptDto,
+  SaveAttemptAnswersDto,
   SubmitAttemptDto,
   UpdateAssessmentDto,
   UpdateQuestionCategoryDto,
@@ -239,6 +240,12 @@ export class CourseAssessmentController {
   // ──────────────────────────────────────────────────────────────────────────
 
   @UseGuards(AuthGuard('uJwt'))
+  @Get('student/assessment-courses')
+  getStudentAssessmentCourseIds(@GetUser() user: User) {
+    return this.service.getStudentAssessmentCourseIds(user.id);
+  }
+
+  @UseGuards(AuthGuard('uJwt'))
   @Get('student/assessments/:courseId')
   getActiveAssessmentForStudent(
     @GetUser() user: User,
@@ -257,6 +264,16 @@ export class CourseAssessmentController {
   @Get('student/attempts/:id')
   getAttempt(@GetUser() user: User, @Param('id') id: string) {
     return this.service.getAttempt(user.id, id);
+  }
+
+  @UseGuards(AuthGuard('uJwt'))
+  @Patch('student/attempts/:id/answers')
+  saveAnswers(
+    @GetUser() user: User,
+    @Param('id') id: string,
+    @Body() body: SaveAttemptAnswersDto,
+  ) {
+    return this.service.saveAnswers(user.id, id, body);
   }
 
   @UseGuards(AuthGuard('uJwt'))

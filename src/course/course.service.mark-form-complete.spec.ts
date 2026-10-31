@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma, Role } from '@prisma/client';
@@ -70,6 +70,8 @@ describe('CourseService.markFormComplete', () => {
           lastName: 'Doe',
         }),
         findMany: jest.fn().mockResolvedValue([{ id: 'admin-1' }]),
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
     notifications = {
@@ -264,5 +266,256 @@ describe('CourseService.markFormComplete', () => {
 
     expect(result).toMatchObject({ alreadyCompleted: true });
     expect(notifications.createNotificationForMany).not.toHaveBeenCalled();
+  });
+
+  it("never stores the advisor's part from a learner submission", async () => {
+    await service.markFormComplete(
+      LEARNER_ID,
+      Role.user,
+      COURSE_ID,
+      'registration-form',
+      {
+        ...V2_METADATA,
+        fullName: 'Jane Doe',
+        advisor: { registrationStatus: 'Approved' },
+        advisorSignature: 'Self signed',
+        advisorDate: '2026-10-31',
+        changesRequested: { requestedAt: '2026-10-31T00:00:00.000Z' },
+        reviewHistory: [{ action: 'RESUBMITTED', round: 99 }],
+      },
+      COURSE_FORM_ID,
+    );
+
+    const { data } = prisma.userFormCompletion.create.mock.calls[0][0];
+    expect(data.metadata).toEqual({ ...V2_METADATA, fullName: 'Jane Doe' });
+  });
+
+  it('refuses a registration that does not say it is the current form', async () => {
+    await expect(
+      service.markFormComplete(
+        LEARNER_ID,
+        Role.user,
+        COURSE_ID,
+        'registration-form',
+        undefined,
+        COURSE_FORM_ID,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.markFormComplete(
+        LEARNER_ID,
+        Role.user,
+        COURSE_ID,
+        'registration-form',
+        { bookingFormVersion: 'GWTC/IQA-R0013 · 05/05/2026' },
+        COURSE_FORM_ID,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.userFormCompletion.create).not.toHaveBeenCalled();
+    expect(notifications.createNotificationForMany).not.toHaveBeenCalled();
+  });
+
+  it('stores other forms exactly as submitted', async () => {
+    prisma.courseForm.findUnique.mockResolvedValue({
+      id: 'cf-agreement',
+      courseId: COURSE_ID,
+      formId: 'learner-agreement',
+      createdAt: FORM_ATTACHED_AT,
+      requiredSince: FORM_ATTACHED_AT,
+      detachedAt: null,
+      detachedWindows: null,
+    });
+    const metadata = { signature: 'Jane', advisor: 'kept as-is' };
+
+    await service.markFormComplete(
+      LEARNER_ID,
+      Role.user,
+      COURSE_ID,
+      'learner-agreement',
+      metadata,
+      'cf-agreement',
+    );
+
+    const { data } = prisma.userFormCompletion.create.mock.calls[0][0];
+    expect(data.metadata).toEqual(metadata);
+  });
+
+  describe('resubmitting a form the advisor sent back', () => {
+    const SENT_BACK_UPDATED_AT = new Date('2026-10-31T09:00:00.000Z');
+    const ORIGINAL_SUBMISSION = '2026-10-28T10:43:58.410Z';
+    const sentBack = {
+      id: 'ufc-1',
+      courseFormId: COURSE_FORM_ID,
+      formId: 'registration-form',
+      isComplete: false,
+      completedAt: null,
+      updatedAt: SENT_BACK_UPDATED_AT,
+      metadata: {
+        ...V2_METADATA,
+        fullName: 'Jane Doe',
+        userPhoto: 'https://cdn/generic.jpg',
+        advisor: { registrationStatus: 'Pending', comments: 'Original photo' },
+        advisorSignature: 'Muhammad Waqas',
+        advisorDate: '2026-10-28',
+        changesRequested: {
+          requestedAt: '2026-10-31T09:00:00.000Z',
+          requestedById: 'admin-1',
+          requestedByName: 'Muhammad Waqas',
+          comments: 'Original photo',
+          previousCompletedAt: ORIGINAL_SUBMISSION,
+          previousStatus: 'Pending',
+        },
+        reviewHistory: [
+          { action: 'CHANGES_REQUESTED', at: '2026-10-31T09:00:00.000Z' },
+        ],
+      },
+    };
+    const resubmission = {
+      ...V2_METADATA,
+      fullName: 'Jane Doe',
+      userPhoto: 'https://cdn/passport.jpg',
+    };
+
+    const resubmit = (seenRequestAt?: string) =>
+      service.markFormComplete(
+        LEARNER_ID,
+        Role.user,
+        COURSE_ID,
+        'registration-form',
+        resubmission,
+        COURSE_FORM_ID,
+        seenRequestAt,
+      );
+
+    beforeEach(() => {
+      prisma.userFormCompletion.findUnique
+        .mockResolvedValueOnce(sentBack)
+        .mockImplementationOnce(async () => ({
+          ...sentBack,
+          ...prisma.userFormCompletion.updateMany.mock.calls[0][0].data,
+        }));
+      prisma.userFormCompletion.updateMany.mockResolvedValue({ count: 1 });
+    });
+
+    it('stores a fresh submission awaiting review and keeps the trail', async () => {
+      await resubmit();
+
+      const call = prisma.userFormCompletion.updateMany.mock.calls[0][0];
+      expect(call.where).toEqual({
+        id: 'ufc-1',
+        isComplete: false,
+        updatedAt: SENT_BACK_UPDATED_AT,
+      });
+      expect(call.data.isComplete).toBe(true);
+      const stored = call.data.metadata;
+      expect(stored.advisor).toBeUndefined();
+      expect(stored.advisorSignature).toBeUndefined();
+      expect(stored.changesRequested).toBeUndefined();
+      expect(stored.userPhoto).toBe('https://cdn/passport.jpg');
+      expect(stored.reviewHistory).toEqual([
+        expect.objectContaining({ action: 'CHANGES_REQUESTED' }),
+        expect.objectContaining({
+          action: 'RESUBMITTED',
+          round: 1,
+          replaced: {
+            completedAt: ORIGINAL_SUBMISSION,
+            metadata: {
+              ...V2_METADATA,
+              fullName: 'Jane Doe',
+              userPhoto: 'https://cdn/generic.jpg',
+            },
+          },
+        }),
+      ]);
+    });
+
+    it('tells the admins it was resubmitted, under a new notification key', async () => {
+      await resubmit();
+
+      expect(notifications.createNotificationForMany).toHaveBeenCalledTimes(1);
+      const input = notifications.createNotificationForMany.mock.calls[0][0];
+      expect(input.message).toBe(
+        'Jane Doe resubmitted a registration form for NEBOSH IGC',
+      );
+      expect(input.dedupeKeyFor('admin-1')).toBe(
+        `registration-submitted:${COURSE_FORM_ID}:${LEARNER_ID}:admin-1:r1`,
+      );
+      expect(input.payload.resubmitted).toBe(true);
+    });
+
+    it('replaces the profile photo only where it was the old form photo', async () => {
+      await resubmit();
+
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: LEARNER_ID, photo: 'https://cdn/generic.jpg' },
+        data: { photo: 'https://cdn/passport.jpg' },
+      });
+    });
+
+    it('accepts a resubmission that answers the current request', async () => {
+      await resubmit('2026-10-31T09:00:00.000Z');
+
+      expect(prisma.userFormCompletion.updateMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks the learner to reload when they answered an older request', async () => {
+      await expect(resubmit('2026-10-30T08:00:00.000Z')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(prisma.userFormCompletion.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('refuses a resubmission without the form version, which would skip review', async () => {
+      prisma.userFormCompletion.findUnique.mockReset();
+      prisma.userFormCompletion.findUnique.mockResolvedValue(sentBack);
+
+      await expect(
+        service.markFormComplete(
+          LEARNER_ID,
+          Role.user,
+          COURSE_ID,
+          'registration-form',
+          undefined,
+          COURSE_FORM_ID,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.userFormCompletion.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('asks the learner to reload when the advisor changed the request meanwhile', async () => {
+      prisma.userFormCompletion.updateMany.mockResolvedValue({ count: 0 });
+      prisma.userFormCompletion.findUnique.mockReset();
+      prisma.userFormCompletion.findUnique
+        .mockResolvedValueOnce(sentBack)
+        .mockResolvedValueOnce({ ...sentBack, updatedAt: new Date() });
+
+      await expect(resubmit()).rejects.toBeInstanceOf(ConflictException);
+      expect(notifications.createNotificationForMany).not.toHaveBeenCalled();
+    });
+
+    it('reports already completed when the advisor withdrew the request meanwhile', async () => {
+      prisma.userFormCompletion.updateMany.mockResolvedValue({ count: 0 });
+      prisma.userFormCompletion.findUnique.mockReset();
+      prisma.userFormCompletion.findUnique
+        .mockResolvedValueOnce(sentBack)
+        .mockResolvedValueOnce({ ...sentBack, isComplete: true });
+
+      await expect(resubmit()).resolves.toMatchObject({
+        alreadyCompleted: true,
+      });
+      expect(notifications.createNotificationForMany).not.toHaveBeenCalled();
+    });
+  });
+
+  it('keeps the original notification key for a first submission', async () => {
+    await submit();
+
+    const input = notifications.createNotificationForMany.mock.calls[0][0];
+    expect(input.dedupeKeyFor('admin-1')).toBe(
+      `registration-submitted:${COURSE_FORM_ID}:${LEARNER_ID}:admin-1`,
+    );
+    expect(input.message).toBe(
+      'Jane Doe submitted a registration form for NEBOSH IGC',
+    );
   });
 });

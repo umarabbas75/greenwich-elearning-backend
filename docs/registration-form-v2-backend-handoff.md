@@ -10,7 +10,7 @@ This note describes the frontend contract for the new universal **Learner Regist
 
 Backend confirmed:
 
-- **Learner submit** — `POST /courses/markFormComplete/` unchanged. Learner v2 payload lands verbatim.
+- **Learner submit** — `POST /courses/markFormComplete/` unchanged. Learner v2 payload lands verbatim, except advisor-owned keys (see §8).
 - **Advisor review** — `POST /api/v1/courses/updateFormMetadata` shipped. Admin JWT only. Overwrites `metaData` on the existing completion. Does **not** touch `isComplete`, `completedAt`, uploaded photos, emails, or enrollment.
 - Backend validates: `bookingFormVersion === "GWTC/IQA-R0014 · 15/08/2026"` (v2 only), advisor yes/no fields, `registrationStatus`, `advisorSignature` (≥ 2 chars), `advisorDate` (YYYY-MM-DD).
 - **Contract change picked up on frontend:** the request body now includes `userId` (the learner). `courseFormId` identifies the course–form assignment, not a person, so the review cannot be saved without it. `useUpdateCourseFormMetadata` has been updated to send `userId` and guards submit if it's missing.
@@ -374,6 +374,61 @@ Login bounce is already handled (`/login?from=...`). Do not double-encode the pa
 - Rejected: view-only. Comments visible. Cannot resubmit.
 - Pending / not yet reviewed: view-only wait state. Other forms and policies stay available.
 - Approved: start-course unlocks only if the existing forms+policies rule is also satisfied.
+
+---
+
+## 8. NEW (2026-10-31) — Send back to learner, resubmission
+
+**Why:** "Pending + comment" asked learners to fix something (e.g. a generic photo) they could not
+change: a submitted form was locked. The advisor now has a third action besides deciding.
+
+### 8.1 State (no schema change — all in `user_form_completions.metadata` + `isComplete`)
+
+Advisor-owned keys (never accepted from a learner submission): `advisor`, `advisorSignature`,
+`advisorDate`, `changesRequested`, `reviewHistory`.
+
+| State | `isComplete` | `completedAt` | metadata |
+| --- | --- | --- | --- |
+| Submitted, awaiting review | `true` | submit time | no `changesRequested` |
+| Sent back | `false` | `null` | `changesRequested { requestedAt, requestedById, requestedByName, comments, previousCompletedAt, previousStatus }`; `advisor.registrationStatus = "Pending"`, `advisor.comments` = the request |
+| Resubmitted | `true` | resubmit time | fresh learner answers; no `advisor`/`changesRequested` (fresh review) |
+
+`reviewHistory[]` (max 50) records `CHANGES_REQUESTED` (with the review it replaced),
+`REQUEST_WITHDRAWN`, and `RESUBMITTED` (with `round` and `replaced: { completedAt, metadata }`, the
+previous answers; only the 3 latest resubmissions keep `replaced.metadata`). The frontend hides `changesRequested`/`reviewHistory` from metadata tables and PDFs.
+
+### 8.2 `POST /api/v1/courses/requestFormChanges` (admin JWT)
+
+Body: `userId`, `courseId`, `formId` (`"registration-form"`), `courseFormId`, `comments` (required,
+≤ 2000), `submissionCompletedAt?` (see 8.4). Refused (400) for legacy v1 rows, unsubmitted forms, an
+enrolment that is missing, inactive or past its access expiry, or a registration form no longer
+attached for the learner's enrolment (in each case they could not resubmit). Allowed again while already sent back (replaces the request, keeps the
+original `previousCompletedAt`/`previousStatus`). Response: same shape as `updateFormMetadata`.
+Notifies the learner (`REGISTRATION_REVIEWED`, payload `changesRequested: true`, `formId`,
+`courseFormId`; email CTA opens the editable form with the ids in the link).
+
+### 8.3 Changes to existing endpoints
+
+- `markFormComplete` (registration-form only): advisor-owned keys are stripped from the learner's
+  `metaData` (a learner could previously self-approve by posting `advisor.registrationStatus`), and a
+  new submission must carry the v2 `bookingFormVersion` (400 otherwise; without it the row read as a
+  legacy form and skipped approval). A sent-back row can be resubmitted; the client sends
+  `changesRequestedAt` (the request it showed) and gets 409 if the advisor has changed the request
+  since, or `alreadyCompleted` if the advisor withdrew it. The profile photo is replaced only if
+  it was still the photo promoted from the old submission. Admins are notified "resubmitted"
+  (dedupe key gets `:r<round>`; first submissions keep the old key).
+- `updateFormMetadata`: stores the learner part **from the database** plus the advisor keys from the
+  request (a stale tab can no longer overwrite a newer submission). On a sent-back row, saving a
+  decision withdraws the request and restores the original submission (`isComplete: true`,
+  original `completedAt`); the decision must be Approved or Rejected (Pending is refused with 400,
+  as it would lock the form again with nothing for the learner to do). Writes are guarded by `updatedAt` (409 on a concurrent change).
+- `canAccessCourseContent` / `getAllAssignedCourses`: new `registrationChangesRequestedAt` while sent
+  back; `reason` can be `REGISTRATION_CHANGES_REQUESTED` (only when registration is the last block).
+
+### 8.4 `submissionCompletedAt` (optional, both advisor endpoints)
+
+The `completedAt` of the submission the advisor is looking at (`null` while sent back). If it no
+longer matches, the request is refused with 409 so the advisor reloads. Omitted by older clients.
 
 ---
 

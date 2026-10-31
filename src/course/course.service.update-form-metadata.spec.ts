@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Role } from '@prisma/client';
@@ -47,7 +51,7 @@ describe('CourseService.updateFormMetadata', () => {
       courseForm: { findUnique: jest.fn() },
       userFormCompletion: {
         findUnique: jest.fn(),
-        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       user: {
         findUnique: jest.fn().mockResolvedValue({
@@ -95,13 +99,14 @@ describe('CourseService.updateFormMetadata', () => {
     service = module.get(CourseService);
   });
 
-  function mockExistingCompletion() {
-    prisma.courseForm.findUnique.mockResolvedValue({
-      id: COURSE_FORM_ID,
-      courseId: COURSE_ID,
-      formId: 'registration-form',
-    });
-    prisma.userFormCompletion.findUnique.mockResolvedValue({
+  const UPDATED_AT = new Date('2026-08-16T09:00:00.000Z');
+  const LEARNER_ANSWERS = {
+    fullName: 'Aatzaz Khaliq',
+    bookingFormVersion: COURSE_BOOKING_DOC_REF_V2,
+  };
+
+  function storedRow(overrides: Record<string, unknown> = {}) {
+    return {
       id: 'ufc-1',
       userId: LEARNER_ID,
       courseId: COURSE_ID,
@@ -109,9 +114,45 @@ describe('CourseService.updateFormMetadata', () => {
       courseFormId: COURSE_FORM_ID,
       isComplete: true,
       completedAt: COMPLETED_AT,
-      metadata: { fullName: 'Aatzaz Khaliq' },
-    });
+      updatedAt: UPDATED_AT,
+      metadata: LEARNER_ANSWERS,
+      ...overrides,
+    };
   }
+
+  /** First read is the lookup; the second is the row re-read after the write. */
+  function mockExistingCompletion(
+    existing: Record<string, unknown> = storedRow(),
+    afterWrite?: Record<string, unknown>,
+  ) {
+    prisma.courseForm.findUnique.mockResolvedValue({
+      id: COURSE_FORM_ID,
+      courseId: COURSE_ID,
+      formId: 'registration-form',
+    });
+    prisma.userFormCompletion.findUnique
+      .mockResolvedValueOnce(existing)
+      .mockImplementationOnce(async () => {
+        const data =
+          prisma.userFormCompletion.updateMany.mock.calls[0]?.[0]?.data;
+        return afterWrite ?? { ...existing, ...data };
+      });
+  }
+
+  const review = (
+    meta: Record<string, unknown> = advisorMeta(),
+    submissionCompletedAt?: string | null,
+  ) =>
+    service.updateFormMetadata(
+      'admin-1',
+      Role.admin,
+      LEARNER_ID,
+      COURSE_ID,
+      'registration-form',
+      COURSE_FORM_ID,
+      meta,
+      submissionCompletedAt,
+    );
 
   it('rejects non-admin callers', async () => {
     await expect(
@@ -125,57 +166,44 @@ describe('CourseService.updateFormMetadata', () => {
         advisorMeta(),
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(prisma.userFormCompletion.update).not.toHaveBeenCalled();
+    expect(prisma.userFormCompletion.updateMany).not.toHaveBeenCalled();
   });
 
-  it('overwrites metadata only and returns the persisted form', async () => {
+  it('writes the advisor review onto the stored submission and returns it', async () => {
     mockExistingCompletion();
     const meta = advisorMeta();
-    prisma.userFormCompletion.update.mockResolvedValue({
-      id: 'ufc-1',
-      userId: LEARNER_ID,
-      courseId: COURSE_ID,
-      formId: 'registration-form',
-      courseFormId: COURSE_FORM_ID,
-      isComplete: true,
-      completedAt: COMPLETED_AT,
-      metadata: meta,
-    });
 
-    const result = await service.updateFormMetadata(
-      'admin-1',
-      Role.admin,
-      LEARNER_ID,
-      COURSE_ID,
-      'registration-form',
-      COURSE_FORM_ID,
-      meta,
-    );
+    const result = await review(meta);
 
-    expect(prisma.userFormCompletion.update).toHaveBeenCalledWith({
-      where: { id: 'ufc-1' },
-      data: { metadata: meta },
+    expect(prisma.userFormCompletion.updateMany).toHaveBeenCalledWith({
+      where: { id: 'ufc-1', updatedAt: UPDATED_AT },
+      data: {
+        metadata: {
+          ...LEARNER_ANSWERS,
+          advisor: meta.advisor,
+          advisorSignature: meta.advisorSignature,
+          advisorDate: meta.advisorDate,
+        },
+      },
     });
     expect(result.success).toBe(true);
     expect(result.form.isComplete).toBe(true);
     expect(result.form.completedAt).toBe(COMPLETED_AT);
-    expect(result.form.metadata).toEqual(meta);
+    expect(result.form.metadata).toMatchObject({ advisor: meta.advisor });
+  });
+
+  it('keeps the learner answers as stored, whatever the review tab sent', async () => {
+    mockExistingCompletion();
+
+    await review(advisorMeta({ fullName: 'Stale copy from an old tab' }));
+
+    const { data } = prisma.userFormCompletion.updateMany.mock.calls[0][0];
+    expect(data.metadata.fullName).toBe('Aatzaz Khaliq');
   });
 
   it('reviews the submission when the link carries a course form id replaced by a later save', async () => {
     mockExistingCompletion();
     prisma.courseForm.findUnique.mockResolvedValue(null);
-    const meta = advisorMeta();
-    prisma.userFormCompletion.update.mockResolvedValue({
-      id: 'ufc-1',
-      userId: LEARNER_ID,
-      courseId: COURSE_ID,
-      formId: 'registration-form',
-      courseFormId: COURSE_FORM_ID,
-      isComplete: true,
-      completedAt: COMPLETED_AT,
-      metadata: meta,
-    });
 
     const result = await service.updateFormMetadata(
       'admin-1',
@@ -184,14 +212,111 @@ describe('CourseService.updateFormMetadata', () => {
       COURSE_ID,
       'registration-form',
       'cf-deleted-on-17-oct',
-      meta,
+      advisorMeta(),
     );
 
-    expect(prisma.userFormCompletion.update).toHaveBeenCalledWith({
-      where: { id: 'ufc-1' },
-      data: { metadata: meta },
-    });
+    expect(prisma.userFormCompletion.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'ufc-1', updatedAt: UPDATED_AT },
+      }),
+    );
     expect(result.form.courseFormId).toBe(COURSE_FORM_ID);
+  });
+
+  it('refuses a review of a submission the learner changed since it was opened', async () => {
+    mockExistingCompletion();
+
+    await expect(
+      review(advisorMeta(), '2026-08-01T00:00:00.000Z'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.userFormCompletion.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('accepts a review of the submission that was opened', async () => {
+    mockExistingCompletion();
+
+    await review(advisorMeta(), COMPLETED_AT.toISOString());
+
+    expect(prisma.userFormCompletion.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses when the row changed between reading and writing', async () => {
+    mockExistingCompletion();
+    prisma.userFormCompletion.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(review()).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('refuses to review a legacy submission', async () => {
+    mockExistingCompletion(storedRow({ metadata: { fullName: 'Old form' } }));
+
+    await expect(review()).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.userFormCompletion.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses to leave a sent-back form Pending, which would lock it with nothing to do', async () => {
+    mockExistingCompletion(
+      storedRow({
+        isComplete: false,
+        completedAt: null,
+        metadata: {
+          ...LEARNER_ANSWERS,
+          changesRequested: {
+            requestedAt: '2026-08-10T10:00:00.000Z',
+            comments: 'New photo please',
+          },
+        },
+      }),
+    );
+
+    await expect(
+      review(
+        advisorMeta({
+          advisor: { ...advisorMeta().advisor, registrationStatus: 'Pending' },
+        }),
+        null,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.userFormCompletion.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('withdraws a change request when the advisor decides, restoring the original submission', async () => {
+    const sentBack = storedRow({
+      isComplete: false,
+      completedAt: null,
+      metadata: {
+        ...LEARNER_ANSWERS,
+        advisor: {
+          registrationStatus: 'Pending',
+          comments: 'New photo please',
+        },
+        changesRequested: {
+          requestedAt: '2026-08-10T10:00:00.000Z',
+          requestedById: 'admin-1',
+          requestedByName: 'Muhammad Waqas',
+          comments: 'New photo please',
+          previousCompletedAt: COMPLETED_AT.toISOString(),
+          previousStatus: 'Pending',
+        },
+        reviewHistory: [
+          { action: 'CHANGES_REQUESTED', at: '2026-08-10T10:00:00.000Z' },
+        ],
+      },
+    });
+    mockExistingCompletion(sentBack);
+
+    const result = await review(advisorMeta(), null);
+
+    const { data } = prisma.userFormCompletion.updateMany.mock.calls[0][0];
+    expect(data.isComplete).toBe(true);
+    expect(data.completedAt).toEqual(COMPLETED_AT);
+    expect(data.metadata.changesRequested).toBeUndefined();
+    expect(data.metadata.advisor.registrationStatus).toBe('Approved');
+    expect(data.metadata.reviewHistory.map((e: any) => e.action)).toEqual([
+      'CHANGES_REQUESTED',
+      'REQUEST_WITHDRAWN',
+    ]);
+    expect(result.form.isComplete).toBe(true);
   });
 
   it('rejects when no submission exists', async () => {
@@ -213,6 +338,6 @@ describe('CourseService.updateFormMetadata', () => {
         advisorMeta(),
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.userFormCompletion.update).not.toHaveBeenCalled();
+    expect(prisma.userFormCompletion.updateMany).not.toHaveBeenCalled();
   });
 });

@@ -84,6 +84,21 @@ export function studentRegistrationFormView(courseId: string): string {
   )}/course-form-page/forms/course-booking-form?${params.toString()}`;
 }
 
+/** The learner's registration form, opened to update and resubmit it. */
+export function studentRegistrationFormEdit(
+  courseId: string,
+  courseFormId: string,
+): string {
+  const params = new URLSearchParams({
+    courseId,
+    formId: 'registration-form',
+    courseFormId,
+  });
+  return `${BRAND.website}/studentCourses/${encodeURIComponent(
+    courseId,
+  )}/course-form-page/forms/course-booking-form?${params.toString()}`;
+}
+
 export function appHome(): string {
   return BRAND.website;
 }

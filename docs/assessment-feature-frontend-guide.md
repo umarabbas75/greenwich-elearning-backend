@@ -14,6 +14,7 @@
 | 2026-04-04 | **BREAKING (pre-release)**: MATCHING `studentAnswer.rightId` now uses pair ID, not text. Added `categories[]` to MATCHING student-facing snapshot. See [Blocker 1](#blocker-1--matching-rightid-now-uses-pair-id) and [Blocker 2](#blocker-2--matching-categories-is-confirmed-and-shipped). Clarified isEligible logic, attempts[] shape, pagination, VISUAL_ACTIVITY answer format, notification routing. |
 | 2026-04-08 | Added **[How the assessment feature works](#how-the-assessment-feature-works-architecture--behaviour)** (architecture, gates, bookmarked URLs, submit validation). Aligned finalize rules and UI notes with current backend. |
 | 2026-04-15 | **Timer enforcement**: `timeLimitMinutes` is snapshotted as `snapshotTimeLimitMin` per attempt; backend enforces deadline + **60s grace** on submit; new status **`EXPIRED`** for attempts never submitted after the window; responses include computed **`timeInfo`** (see [Assessment timer](#assessment-timer-server--student-ui)). |
+| 2026-10-23 | **One active assessment per course**: activating one now actually deactivates the others (enforced by a partial unique index; concurrent activations get **409**). Response `data.replaced` lists what was switched off. **Autosave**: new **`PATCH /student/attempts/:id/answers`**; submit grades saved answers plus anything in `answers`, which is now **optional**. **Expiry grades saved answers** as of the deadline; only an attempt with nothing saved becomes `EXPIRED`. Submitting an already-submitted attempt returns **200** with it. Double **Start** gets **409**. New **`GET /student/assessment-courses`** for the student nav. |
 
 ---
 
@@ -64,7 +65,7 @@ The list endpoint `GET .../student/assessments/:courseId` pre-computes **`canSta
 - **`timeLimitMinutes` on the assessment** is copied to **`snapshotTimeLimitMin`** on the attempt when it starts. If it is **`null`**, there is **no timer** (same as unlimited time).
 - The **frontend** should run a **visible countdown** and call **`POST .../attempts/:id/submit`** when the countdown reaches **zero** (send whatever answers are filled in).
 - The **backend** rejects submit when `now > startedAt + snapshotTimeLimitMin × 60s + 60s grace`. The grace period is a **fixed server constant** (60 seconds), not configurable per assessment.
-- Attempts that were **never submitted** and are past that window become **`EXPIRED`** (see state machine). Expiry is applied **on demand** when the student list, resume, or admin detail is loaded — there is **no cron job**.
+- Attempts that were **never submitted** and are past that window are closed **on demand** when the student list, resume, save or submit is called — there is **no cron job**. Answers saved before the deadline are **graded as if submitted at the deadline** (→ `AUTO_GRADED` or `SUBMITTED`, same as a normal submit). An attempt with **nothing saved** becomes **`EXPIRED`**.
 - **`timeInfo`** on **`startAttempt`** and **`GET .../attempts/:id`** gives server-derived fields so the UI can seed a countdown without trusting only the client clock:
   - `timeLimitSeconds`, `startedAtMs`, `deadlineMs`, `remainingSeconds` (floored, ≥ 0), `graceSeconds` (always `60` when `timeInfo` is present).
 - List responses (`attempts[]`) include **`snapshotTimeLimitMin`**, per-row **`timeInfo`** when `status === IN_PROGRESS` and a limit exists, and **`isExpired`** when `status === EXPIRED`.
@@ -73,7 +74,7 @@ The list endpoint `GET .../student/assessments/:courseId` pre-computes **`canSta
 
 See [§2 Attempt Status State Machine](#2-attempt-status-state-machine). In short:
 
-- **Submit** sends **all answers in one request** (no per-question save API).
+- Answers are **saved as the student works** (`PATCH .../answers`); **submit** grades the saved answers plus any it is sent.
 - If every scored question is auto-gradeable → **`AUTO_GRADED`** immediately with marks.
 - If any included answer needs human marking (short/long text) → **`SUBMITTED`**.
 - Admin uses **`PATCH .../grade`** → **`GRADED`** (preview).
@@ -83,18 +84,17 @@ See [§2 Attempt Status State Machine](#2-attempt-status-state-machine). In shor
 
 ### Submit payload rule (important)
 
-`SubmitAttemptDto` requires **`answers` to be a non-empty array** (`ArrayMinSize(1)`). Each element is `{ snapshotId, studentAnswer }`. Snapshots **not** listed in `answers` are treated as unanswered (0 marks) — but you must still send **at least one** snapshot entry to pass validation.
+`answers` on submit is **optional**. Each element is `{ snapshotId, studentAnswer }` and overrides the saved answer for that snapshot. Snapshots with neither a saved nor a sent answer are unanswered (0 marks). Submit fails with **400** if that leaves **no** answered question.
 
 ### Bookmarked URLs / coming back later
 
-- A completed attempt is **not** `IN_PROGRESS`. Calling **`POST .../attempts/:id/submit` again** on that id fails with **“This attempt is not in progress”** (or a **time expired** message if the attempt was marked **`EXPIRED`**).
+- A completed attempt is **not** `IN_PROGRESS`. Calling **`POST .../attempts/:id/submit` again** on that id returns **200** with message **“This attempt has already been submitted”** and the attempt in `data` (use `data.status`). Only an **`EXPIRED`** attempt returns **400** (time expired).
 - Opening a saved URL does **not** by itself create a new attempt. If the app calls **`startAttempt`** again, the backend may create a **new** attempt **only if** `maxAttempts` allows it (`null` = unlimited). Otherwise the student gets **“Maximum attempts (N) reached”**.
-- If they abandoned mid-exam and the **time limit + grace** has passed, the next load of the list or **`GET .../attempts/:id`** marks the attempt **`EXPIRED`**. **`startAttempt`** can then succeed again (subject to **`maxAttempts`**). While still within the window, **`IN_PROGRESS`** still blocks **`startAttempt`** until they **submit** or time runs out.
+- If they abandoned mid-exam and the **time limit + grace** has passed, the next load of the list or **`GET .../attempts/:id`** grades what they saved (or marks the attempt **`EXPIRED`** if nothing was saved). **`startAttempt`** can then succeed again (subject to **`maxAttempts`**). While still within the window, **`IN_PROGRESS`** still blocks **`startAttempt`** until they **submit** or time runs out.
 
 ### Out of scope / not enforced in backend today
 
 - **Pagination** on admin/student list endpoints — full lists.
-- **Per-question autosave** — only full submit.
 
 ---
 
@@ -474,9 +474,11 @@ An image with clickable option buttons (single or multiple correct).
                 │  IN_PROGRESS │  ← student starts attempt
                 └──────┬──────┘
          never submitted + past time limit + grace
-                       ▼
+                       │  saved answers? graded as at the deadline →
+                       │  AUTO_GRADED / SUBMITTED (as below)
+                       ▼  nothing saved
                 ┌─────────────┐
-                │   EXPIRED   │  ← not submitted in time (on-demand expiry on read)
+                │   EXPIRED   │  ← on-demand expiry on read
                 └─────────────┘
 
                 ┌─────────────┐
@@ -663,7 +665,10 @@ Body: any subset of { title, description, passingPercentage, timeLimitMinutes, m
 #### Activate Assessment
 ```
 POST /course-assessment/admin/assessments/:id/activate
-⚠️ Atomically deactivates all other assessments for this course and activates this one.
+⚠️ A course has ONE active assessment. Activating this one deactivates any other active
+   assessment in the course in the same transaction. `data.replaced` = [{ id, title }] of
+   those switched off (empty if none). A concurrent activation in the same course → 409.
+   Learners mid-attempt on a replaced assessment can still submit it.
 ⚠️ MANUAL mode: must have at least 1 question added first.
 ```
 
@@ -774,6 +779,17 @@ Body: { "certificateUrl": "https://storage.example.com/cert-123.pdf" }
 
 ## 4. Student Flows
 
+### Which Courses Have an Assessment (student nav)
+```
+GET /course-assessment/student/assessment-courses
+Auth: Student token
+
+Response: { "data": { "courseIds": ["uuid", ...] } }
+
+Active enrolments, access not expired, course has an active assessment. One request for
+the nav instead of one availability call per enrolled course.
+```
+
 ### Check Assessment Availability
 ```
 GET /course-assessment/student/assessments/:courseId
@@ -865,6 +881,24 @@ GET /course-assessment/student/attempts/:id
 Auth: Student token
 
 Same response shape as start (attempt fields + `questionSnapshots` + `timeInfo`). Correct answers are still hidden.
+Each snapshot's `studentAnswer` holds the last saved answer (null if none): prefill from it.
+```
+
+---
+
+### Save Answers (autosave)
+```
+PATCH /course-assessment/student/attempts/:id/answers
+Auth: Student token
+
+Body: { "answers": [ { "snapshotId": "snapshot-uuid-1", "studentAnswer": { "answer": true } } ] }
+Response: { "data": { "saved": 1, "savedAt": "2026-10-23T..." } }
+
+- Send only what changed; 1–200 entries. No grading happens here.
+- 400 when the attempt is no longer IN_PROGRESS or past deadline + grace. Stop saving and
+  call submit: it returns the graded result (200) or the expired state (400).
+- Debounce on the client (the web app waits 1.5s after the last change and saves
+  immediately on question change / tab hidden).
 ```
 
 ---
@@ -883,8 +917,9 @@ Body:
   ]
 }
 
-- All answers are submitted in one request — there is no mid-attempt save
-- The `answers` array must contain **at least one** `{ snapshotId, studentAnswer }` entry (API validation). Include one entry per question you want to score; omitting a snapshot leaves that question unanswered (0 marks).
+- `answers` is optional: saved answers are graded too. Sent answers override saved ones.
+- At least one question must be answered (saved or sent), else 400.
+- Already submitted (double click, another tab, or graded at expiry) → 200 with that attempt.
 - `studentAnswer` shape depends on `questionType` (see Section 1 — Question Types reference)
 - If all questions are auto-gradeable → status becomes AUTO_GRADED, results shown immediately
 - If any answered question is SHORT_ANSWER or LONG_ANSWER → status becomes SUBMITTED, waiting for admin

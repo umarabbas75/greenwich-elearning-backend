@@ -49,3 +49,30 @@ export async function promoteFormPhotoToUserIfMissing(
 
   return { updated: true, photoUrl };
 }
+
+/**
+ * A resubmitted registration form carries a corrected photo. Replace the
+ * profile photo only while it is still the one promoted from the earlier
+ * submission, so a photo the learner or an admin set since is never lost.
+ */
+export async function replacePromotedFormPhoto(
+  prisma: Db,
+  userId: string,
+  previousMetadata: unknown,
+  metadata: unknown,
+): Promise<{ updated: boolean; photoUrl: string | null }> {
+  const previousUrl = extractUserPhotoFromMetadata(previousMetadata);
+  const photoUrl = extractUserPhotoFromMetadata(metadata);
+  if (!previousUrl || !photoUrl || previousUrl === photoUrl) {
+    return { updated: false, photoUrl: null };
+  }
+
+  const replaced = await prisma.user.updateMany({
+    where: { id: userId, photo: previousUrl },
+    data: { photo: photoUrl },
+  });
+
+  return replaced.count > 0
+    ? { updated: true, photoUrl }
+    : { updated: false, photoUrl: null };
+}

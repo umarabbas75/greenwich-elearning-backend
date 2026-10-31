@@ -225,8 +225,9 @@ describe('TrackingService.heartbeat', () => {
   });
 
   it('credits ~0 for an away gap the client reports as inactive', async () => {
-    // The whole point of client-measured active time: a 10-minute idle gap
-    // credits nothing, because the client claims nothing.
+    // Hidden tab or sleep: the client claims nothing for the gap, so a
+    // 10-minute absence credits nothing. Visible idle is the opposite — the
+    // client keeps claiming ~one interval per ping, and those pings are credited.
     prisma.sectionTimeSpent.findUnique.mockResolvedValue(
       existingRow({ lastHeartbeatAt: agoSeconds(600) }),
     );

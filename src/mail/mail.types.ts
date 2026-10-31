@@ -155,6 +155,8 @@ export type NotificationEmail =
       learnerUserId: string;
       courseId: string;
       courseFormId: string;
+      /** The learner updated a form the advisor had sent back. */
+      resubmitted?: boolean;
     }
   | {
       kind: 'REGISTRATION_REVIEWED';
@@ -165,6 +167,9 @@ export type NotificationEmail =
       courseId: string;
       registrationStatus: 'Approved' | 'Pending' | 'Rejected';
       comments?: string | null;
+      /** The advisor sent the form back; the email links to the editable form. */
+      changesRequested?: boolean;
+      courseFormId?: string;
     };
 
 /** Learner confirmation that a v2 registration form was received (not an in-app type). */

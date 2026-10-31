@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -58,7 +59,10 @@ import {
 } from '../utils/course-report';
 import { assertNoInlineBase64 } from '../utils/reject-inline-base64';
 import { buildFlashcardsConfig, FlashcardsConfig } from '../utils/flashcards-section';
-import { promoteFormPhotoToUserIfMissing } from '../utils/promote-form-photo-to-user';
+import {
+  promoteFormPhotoToUserIfMissing,
+  replacePromotedFormPhoto,
+} from '../utils/promote-form-photo-to-user';
 import { promoteFormAddressToUserIfMissing } from '../utils/promote-form-address-to-user';
 import {
   courseFormAppliesToEnrollment,
@@ -70,7 +74,19 @@ import {
 import { courseAccessExpiresAt } from '../utils/course-access-expiry';
 import { feedbackAppliesToCompletion } from '../utils/feedback-applicability';
 import { coursePoliciesSignature } from '../utils/course-policy-signature';
-import { assertValidAdvisorReviewMetadata, evaluateRegistrationAccess, getAdvisorComments, getAdvisorRegistrationStatus, isV2BookingMetadata } from '../utils/advisor-review-metadata';
+import {
+  appendReviewHistory,
+  assertValidAdvisorReviewMetadata,
+  evaluateRegistrationAccess,
+  getAdvisorComments,
+  getAdvisorRegistrationStatus,
+  getChangesRequest,
+  getResubmissionRound,
+  getReviewHistory,
+  isV2BookingMetadata,
+  learnerPartOfMetadata,
+  sendBackMetadata,
+} from '../utils/advisor-review-metadata';
 import { MailService } from '../mail/mail.service';
 import { ADMIN_EMAIL } from '../mail/templates/mail-layout';
 import { FeedbackService } from '../feedback/feedback.service';
@@ -85,6 +101,69 @@ import {
   computeLearnerPercentages,
   percentageKey,
 } from '../course-version/learner-percentage';
+
+type RegistrationReviewResult = {
+  success: true;
+  form: {
+    id: string;
+    userId: string;
+    courseId: string;
+    formId: string;
+    courseFormId: string;
+    isComplete: boolean;
+    completedAt: Date | null;
+    metadata: Prisma.JsonValue;
+  };
+};
+
+function registrationReviewResult(
+  row: UserFormCompletion,
+): RegistrationReviewResult {
+  return {
+    success: true,
+    form: {
+      id: row.id,
+      userId: row.userId,
+      courseId: row.courseId,
+      formId: row.formId,
+      courseFormId: row.courseFormId,
+      isComplete: row.isComplete,
+      completedAt: row.completedAt,
+      metadata: row.metadata,
+    },
+  };
+}
+
+/**
+ * The advisor acts on the submission they looked at. `seen` is that
+ * submission's completedAt (null while sent back); undefined from older
+ * clients, which skip the check.
+ */
+function assertSubmissionUnchanged(
+  row: UserFormCompletion,
+  seen: string | null | undefined,
+): void {
+  if (seen === undefined) {
+    return;
+  }
+  const stored = row.completedAt?.getTime() ?? null;
+  const looked = seen === null ? null : new Date(seen).getTime();
+  if (stored !== looked) {
+    throw new ConflictException({
+      detail:
+        'The learner has changed this registration since you opened it. Reload the page to review the latest submission.',
+    });
+  }
+}
+
+function parseIsoDate(value: string | null): Date | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 @Injectable()
 export class CourseService {
   private static readonly completionLogger = new Logger(CourseService.name);
@@ -622,6 +701,11 @@ export class CourseService {
     formId: string,
     metadata: Record<string, unknown> | undefined,
     courseFormId: string,
+    /**
+     * `changesRequested.requestedAt` of the request the learner was answering,
+     * when resubmitting a registration that was sent back. Older clients omit it.
+     */
+    seenChangesRequestedAt?: string,
   ): Promise<any> {
     // Links in older emails, notifications and bookmarks carry the course
     // form id from when they were made, and a course save may have replaced
@@ -684,24 +768,89 @@ export class CourseService {
       return alreadyCompleted(existing);
     }
 
+    // Only the current (v2) registration form goes through advisor approval;
+    // a submission without its version would be read as a legacy form and
+    // skip it. The app has submitted v2 only since August, so nothing honest
+    // is refused here.
+    if (formId === 'registration-form' && !isV2BookingMetadata(metadata)) {
+      throw new BadRequestException({
+        detail:
+          'This registration form is out of date. Reload the page and submit the current form.',
+      });
+    }
+
+    // A learner never writes the advisor's part of a registration form. On a
+    // resubmission after the advisor sent it back, the review trail carries
+    // over from the stored row and the old review is dropped: the new
+    // submission waits for a fresh decision.
+    const completedAt = new Date();
+    let storedMetadata: Record<string, unknown> = metadata ?? {};
+    const changesRequest =
+      formId === 'registration-form' && existing
+        ? getChangesRequest(existing.metadata)
+        : null;
+    if (
+      changesRequest &&
+      seenChangesRequestedAt !== undefined &&
+      seenChangesRequestedAt !== changesRequest.requestedAt
+    ) {
+      throw new ConflictException({
+        detail:
+          'Your learning advisor updated their request while you were editing this form. Reload the page to see what they asked for now, then submit again.',
+      });
+    }
+    if (formId === 'registration-form') {
+      storedMetadata = learnerPartOfMetadata(metadata);
+      if (existing) {
+        const history = changesRequest
+          ? appendReviewHistory(existing.metadata, {
+              action: 'RESUBMITTED',
+              at: completedAt.toISOString(),
+              round: getResubmissionRound(existing.metadata) + 1,
+              replaced: {
+                completedAt: changesRequest.previousCompletedAt,
+                metadata: learnerPartOfMetadata(existing.metadata),
+              },
+            })
+          : getReviewHistory(existing.metadata);
+        if (history.length > 0) {
+          storedMetadata.reviewHistory = history;
+        }
+      }
+    }
+
     // Only the call that turns the row complete runs the side effects below,
     // so a double submit cannot email the admins or the learner twice.
     const data = {
       isComplete: true,
-      completedAt: new Date(),
-      metadata: (metadata ?? {}) as Prisma.InputJsonValue,
+      completedAt,
+      metadata: storedMetadata as Prisma.InputJsonValue,
       courseFormId: courseForm.id,
     };
     let completion: UserFormCompletion;
     if (existing) {
+      // A resubmission must also be based on the advisor's latest request: if
+      // they changed or withdrew it meanwhile, the learner has to see that.
       const claimed = await this.prisma.userFormCompletion.updateMany({
-        where: { id: existing.id, isComplete: false },
+        where: changesRequest
+          ? {
+              id: existing.id,
+              isComplete: false,
+              updatedAt: existing.updatedAt,
+            }
+          : { id: existing.id, isComplete: false },
         data,
       });
       const current = await this.prisma.userFormCompletion.findUnique({
         where: { id: existing.id },
       });
       if (claimed.count === 0) {
+        if (changesRequest && current && !current.isComplete) {
+          throw new ConflictException({
+            detail:
+              'Your learning advisor updated this registration while you were editing it. Reload the page to see their latest comments, then submit again.',
+          });
+        }
         return alreadyCompleted(current ?? existing);
       }
       completion = current ?? existing;
@@ -737,6 +886,23 @@ export class CourseService {
       );
     }
 
+    if (changesRequest && existing) {
+      try {
+        await replacePromotedFormPhoto(
+          this.prisma,
+          userId,
+          existing.metadata,
+          storedMetadata,
+        );
+      } catch (photoErr) {
+        const msg =
+          photoErr instanceof Error ? photoErr.message : String(photoErr);
+        CourseService.completionLogger.warn(
+          `Resubmitted form photo replacement failed for user ${userId}: ${msg}`,
+        );
+      }
+    }
+
     try {
       await promoteFormAddressToUserIfMissing(this.prisma, userId, metadata);
     } catch (addressErr) {
@@ -754,6 +920,7 @@ export class CourseService {
         formId,
         courseFormId: courseForm.id,
         metadata,
+        resubmissionRound: getResubmissionRound(storedMetadata),
       });
     } catch (notifyErr) {
       const msg =
@@ -767,30 +934,22 @@ export class CourseService {
   }
 
   /**
-   * Admin-only advisor review of a v2 registration form.
-   * Overwrites `metadata` only — completion flags and side effects stay untouched.
+   * Admin-only advisor review of a v2 registration form. Writes the advisor's
+   * part of the metadata; the learner's answers are kept as stored, never
+   * taken from the request, so a stale review tab cannot overwrite a newer
+   * submission. Deciding on a form that was sent back withdraws the request:
+   * the learner's original submission stands again.
    */
   async updateFormMetadata(
-    _adminId: string,
+    adminId: string,
     adminRole: Role,
     learnerUserId: string,
     courseId: string,
     formId: string,
     courseFormId: string,
     metaData: Record<string, unknown>,
-  ): Promise<{
-    success: true;
-    form: {
-      id: string;
-      userId: string;
-      courseId: string;
-      formId: string;
-      courseFormId: string;
-      isComplete: boolean;
-      completedAt: Date | null;
-      metadata: Prisma.JsonValue;
-    };
-  }> {
+    submissionCompletedAt?: string | null,
+  ): Promise<RegistrationReviewResult> {
     if (adminRole !== Role.admin) {
       throw new ForbiddenException({
         detail: 'Only admins can review registration forms',
@@ -805,11 +964,223 @@ export class CourseService {
 
     assertValidAdvisorReviewMetadata(metaData);
 
-    // The submission is unique per (learner, course, form), and that is what
-    // is being reviewed. courseFormId comes from links in notifications and
-    // emails, which keep the id of the course form row that existed when the
-    // learner submitted; a course save may have replaced that row since (as
-    // on 17 Oct), so a stale id must not block the review.
+    const existing = await this.findRegistrationSubmission(
+      learnerUserId,
+      courseId,
+      formId,
+      courseFormId,
+    );
+    if (!isV2BookingMetadata(existing.metadata)) {
+      throw new BadRequestException({
+        detail:
+          'Advisor review is only allowed for v2 registration forms (GWTC/IQA-R0014 · 15/08/2026)',
+      });
+    }
+    assertSubmissionUnchanged(existing, submissionCompletedAt);
+
+    const now = new Date();
+    const changesRequest = getChangesRequest(existing.metadata);
+    // Leaving it Pending would lock the form again with nothing for the
+    // learner to do: the very dead end sending it back exists to avoid.
+    if (
+      changesRequest &&
+      getAdvisorRegistrationStatus(metaData) === 'Pending'
+    ) {
+      throw new BadRequestException({
+        detail:
+          'This registration is with the learner to update. Approve or reject it, or update your request to the learner.',
+      });
+    }
+    const history = changesRequest
+      ? appendReviewHistory(existing.metadata, {
+          action: 'REQUEST_WITHDRAWN',
+          at: now.toISOString(),
+          byId: adminId,
+        })
+      : getReviewHistory(existing.metadata);
+    const metadata: Record<string, unknown> = {
+      ...learnerPartOfMetadata(existing.metadata),
+      advisor: metaData.advisor,
+      advisorSignature: metaData.advisorSignature,
+      advisorDate: metaData.advisorDate,
+      ...(history.length > 0 ? { reviewHistory: history } : {}),
+    };
+
+    const updated = await this.writeAdvisorUpdate(existing, {
+      metadata: metadata as Prisma.InputJsonValue,
+      ...(changesRequest
+        ? {
+            isComplete: true,
+            completedAt:
+              parseIsoDate(changesRequest.previousCompletedAt) ?? now,
+          }
+        : {}),
+    });
+
+    try {
+      await this.notifyRegistrationReviewed({
+        learnerUserId,
+        courseId,
+        metadata,
+      });
+    } catch (notifyErr) {
+      const msg =
+        notifyErr instanceof Error ? notifyErr.message : String(notifyErr);
+      CourseService.completionLogger.warn(
+        `Registration review notify failed for user ${learnerUserId}: ${msg}`,
+      );
+    }
+
+    return registrationReviewResult(updated);
+  }
+
+  /**
+   * Admin sends a v2 registration form back for the learner to update. The
+   * submission becomes editable again and stays out of the approval queue
+   * until the learner resubmits; course content stays locked meanwhile.
+   * Sending back again while waiting replaces the request.
+   */
+  async requestFormChanges(args: {
+    adminId: string;
+    adminRole: Role;
+    learnerUserId: string;
+    courseId: string;
+    formId: string;
+    courseFormId: string;
+    comments: string;
+    submissionCompletedAt?: string | null;
+  }): Promise<RegistrationReviewResult> {
+    if (args.adminRole !== Role.admin) {
+      throw new ForbiddenException({
+        detail: 'Only admins can send a registration back to the learner',
+      });
+    }
+    if (args.formId !== 'registration-form') {
+      throw new BadRequestException({
+        detail: 'Only the registration form can be sent back to the learner',
+      });
+    }
+    const comments = (args.comments ?? '').trim();
+    if (!comments) {
+      throw new BadRequestException({
+        detail: 'Tell the learner what they need to change',
+      });
+    }
+    if (comments.length > 2000) {
+      throw new BadRequestException({
+        detail: 'Comments must be 2000 characters or fewer',
+      });
+    }
+
+    const existing = await this.findRegistrationSubmission(
+      args.learnerUserId,
+      args.courseId,
+      args.formId,
+      args.courseFormId,
+    );
+    if (!isV2BookingMetadata(existing.metadata)) {
+      throw new BadRequestException({
+        detail:
+          'Only v2 registration forms (GWTC/IQA-R0014 · 15/08/2026) can be sent back to the learner',
+      });
+    }
+    if (!existing.isComplete && !getChangesRequest(existing.metadata)) {
+      throw new BadRequestException({
+        detail: 'The learner has not submitted this registration form yet',
+      });
+    }
+    assertSubmissionUnchanged(existing, args.submissionCompletedAt);
+
+    // Sending it back is only useful if the learner can submit it again;
+    // otherwise it would lock them out of the course for good. Resubmitting
+    // runs the learner's enrolment check, so the same check applies here.
+    const [courseForm, enrollment, admin] = await Promise.all([
+      this.prisma.courseForm.findUnique({
+        where: {
+          courseId_formId: { courseId: args.courseId, formId: args.formId },
+        },
+      }),
+      assertEnrollmentUsable(
+        this.prisma,
+        args.learnerUserId,
+        args.courseId,
+        Role.user,
+      ).catch((error: unknown) => {
+        if (error instanceof ForbiddenException) {
+          return null;
+        }
+        throw error;
+      }),
+      this.prisma.user.findUnique({
+        where: { id: args.adminId },
+        select: { firstName: true, lastName: true },
+      }),
+    ]);
+    if (!enrollment) {
+      throw new BadRequestException({
+        detail:
+          "This learner's enrolment on the course is inactive or their access has expired, so they could not resubmit. Reactivate it first.",
+      });
+    }
+    if (
+      !courseForm ||
+      courseForm.detachedAt ||
+      !courseFormAttachedForEnrollment(courseForm, enrollment.createdAt)
+    ) {
+      throw new BadRequestException({
+        detail:
+          "The registration form is no longer part of this learner's course, so they could not resubmit it",
+      });
+    }
+
+    const requestedAt = new Date();
+    const metadata = sendBackMetadata(existing.metadata, {
+      at: requestedAt,
+      byId: args.adminId,
+      byName:
+        `${admin?.firstName ?? ''} ${admin?.lastName ?? ''}`.trim() || null,
+      comments,
+      submissionCompletedAt: existing.completedAt,
+    });
+
+    const updated = await this.writeAdvisorUpdate(existing, {
+      isComplete: false,
+      completedAt: null,
+      metadata: metadata as Prisma.InputJsonValue,
+    });
+
+    try {
+      await this.notifyRegistrationChangesRequested({
+        learnerUserId: args.learnerUserId,
+        courseId: args.courseId,
+        courseFormId: courseForm.id,
+        comments,
+        requestedAt: requestedAt.toISOString(),
+      });
+    } catch (notifyErr) {
+      const msg =
+        notifyErr instanceof Error ? notifyErr.message : String(notifyErr);
+      CourseService.completionLogger.warn(
+        `Registration changes-requested notify failed for user ${args.learnerUserId}: ${msg}`,
+      );
+    }
+
+    return registrationReviewResult(updated);
+  }
+
+  /**
+   * The submission is unique per (learner, course, form), and that is what is
+   * reviewed. courseFormId comes from links in notifications and emails, which
+   * keep the id of the course form row that existed when the learner
+   * submitted; a course save may have replaced that row since (as on 17 Oct),
+   * so a stale id must not block the review.
+   */
+  private async findRegistrationSubmission(
+    learnerUserId: string,
+    courseId: string,
+    formId: string,
+    courseFormId: string,
+  ): Promise<UserFormCompletion> {
     const existing = await this.prisma.userFormCompletion.findUnique({
       where: {
         userId_courseId_formId: {
@@ -829,41 +1200,35 @@ export class CourseService {
         `Advisor review for user ${learnerUserId}, course ${courseId} sent stale courseFormId ${courseFormId}; reviewing submission on ${existing.courseFormId}`,
       );
     }
+    return existing;
+  }
 
-    const updated = await this.prisma.userFormCompletion.update({
-      where: { id: existing.id },
-      data: {
-        metadata: metaData as Prisma.InputJsonValue,
-      },
+  /**
+   * Writes an advisor change only if the row is still the one the decision was
+   * based on, so a concurrent learner resubmission or another advisor's save
+   * is never silently overwritten.
+   */
+  private async writeAdvisorUpdate(
+    existing: UserFormCompletion,
+    data: Prisma.UserFormCompletionUpdateManyMutationInput,
+  ): Promise<UserFormCompletion> {
+    const written = await this.prisma.userFormCompletion.updateMany({
+      where: { id: existing.id, updatedAt: existing.updatedAt },
+      data,
     });
-
-    try {
-      await this.notifyRegistrationReviewed({
-        learnerUserId,
-        courseId,
-        metadata: metaData,
+    const updated =
+      written.count > 0
+        ? await this.prisma.userFormCompletion.findUnique({
+            where: { id: existing.id },
+          })
+        : null;
+    if (!updated) {
+      throw new ConflictException({
+        detail:
+          'This registration changed while you were reviewing it. Reload the page to see the latest version.',
       });
-    } catch (notifyErr) {
-      const msg =
-        notifyErr instanceof Error ? notifyErr.message : String(notifyErr);
-      CourseService.completionLogger.warn(
-        `Registration review notify failed for user ${learnerUserId}: ${msg}`,
-      );
     }
-
-    return {
-      success: true,
-      form: {
-        id: updated.id,
-        userId: updated.userId,
-        courseId: updated.courseId,
-        formId: updated.formId,
-        courseFormId: updated.courseFormId,
-        isComplete: updated.isComplete,
-        completedAt: updated.completedAt,
-        metadata: updated.metadata,
-      },
-    };
+    return updated;
   }
 
   private async notifyRegistrationSubmittedIfV2(args: {
@@ -872,10 +1237,16 @@ export class CourseService {
     formId: string;
     courseFormId: string;
     metadata: Record<string, unknown> | undefined;
+    /** 0 for a first submission, n for the n-th resubmission after a send-back. */
+    resubmissionRound: number;
   }): Promise<void> {
     if (args.formId !== 'registration-form' || !isV2BookingMetadata(args.metadata)) {
       return;
     }
+    const resubmitted = args.resubmissionRound > 0;
+    // First submissions keep their original key; each resubmission needs its
+    // own, or the admins would never hear about it.
+    const roundSuffix = resubmitted ? `:r${args.resubmissionRound}` : '';
 
     const [learner, course, admins] = await Promise.all([
       this.prisma.user.findUnique({
@@ -905,7 +1276,9 @@ export class CourseService {
         userIds: adminIds,
         emailCcAddresses: [ADMIN_EMAIL],
         type: NotificationType.REGISTRATION_SUBMITTED,
-        message: `${studentName} submitted a registration form for ${course.title}`,
+        message: `${studentName} ${
+          resubmitted ? 'resubmitted' : 'submitted'
+        } a registration form for ${course.title}`,
         payload: {
           userId: learner.id,
           courseId: args.courseId,
@@ -914,10 +1287,11 @@ export class CourseService {
           courseFormId: args.courseFormId,
           studentFirstName: learner.firstName,
           studentLastName: learner.lastName,
+          resubmitted,
         },
         groupKey: `registration-submitted:${args.courseId}`,
         dedupeKeyFor: (adminId) =>
-          `registration-submitted:${args.courseFormId}:${learner.id}:${adminId}`,
+          `registration-submitted:${args.courseFormId}:${learner.id}:${adminId}${roundSuffix}`,
         referenceId: args.courseId,
         commenterId: learner.id,
         email: {
@@ -932,6 +1306,7 @@ export class CourseService {
             learnerUserId: learner.id,
             courseId: args.courseId,
             courseFormId: args.courseFormId,
+            resubmitted,
           }),
         },
       });
@@ -946,6 +1321,7 @@ export class CourseService {
         learnerUserId: learner.id,
         courseId: args.courseId,
         courseFormId: args.courseFormId,
+        resubmitted,
       });
     }
 
@@ -970,6 +1346,12 @@ export class CourseService {
       return;
     }
     const comments = getAdvisorComments(args.metadata);
+    // The same decision again is not news; after a send-back, a withdrawal
+    // or a resubmission (each one a review event) it is. Forms that never
+    // went through one keep their original key.
+    const history = getReviewHistory(args.metadata);
+    const lastEvent = history[history.length - 1];
+    const eventSuffix = lastEvent ? `:h${lastEvent.at}` : '';
 
     const [learner, course] = await Promise.all([
       this.prisma.user.findUnique({
@@ -998,7 +1380,7 @@ export class CourseService {
       groupKey: `registration-reviewed:${args.courseId}`,
       dedupeKey: `registration-reviewed:${args.courseId}:${learner.id}:${status}:${
         comments ?? ''
-      }`,
+      }${eventSuffix}`,
       referenceId: args.courseId,
       email: {
         build: (recipient) => ({
@@ -1010,6 +1392,60 @@ export class CourseService {
           courseId: args.courseId,
           registrationStatus: status,
           comments,
+        }),
+      },
+    });
+  }
+
+  private async notifyRegistrationChangesRequested(args: {
+    learnerUserId: string;
+    courseId: string;
+    courseFormId: string;
+    comments: string;
+    requestedAt: string;
+  }): Promise<void> {
+    const [learner, course] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: args.learnerUserId },
+        select: { id: true, firstName: true },
+      }),
+      this.prisma.course.findUnique({
+        where: { id: args.courseId },
+        select: { title: true },
+      }),
+    ]);
+    if (!learner || !course) {
+      return;
+    }
+
+    await this.notifications.createNotification({
+      userId: learner.id,
+      type: NotificationType.REGISTRATION_REVIEWED,
+      message: `Your learning advisor asked you to update your registration for ${course.title}`,
+      payload: {
+        courseId: args.courseId,
+        courseTitle: course.title,
+        registrationStatus: 'Pending',
+        comments: args.comments,
+        changesRequested: true,
+        formId: 'registration-form',
+        courseFormId: args.courseFormId,
+      },
+      groupKey: `registration-reviewed:${args.courseId}`,
+      dedupeKey: `registration-changes-requested:${args.courseId}:${learner.id}:${args.requestedAt}`,
+      referenceId: args.courseId,
+      email: {
+        build: (recipient) => ({
+          kind: 'REGISTRATION_REVIEWED',
+          to: recipient.email,
+          userId: recipient.id,
+          recipientFirstName: recipient.firstName,
+          courseTitle: course.title,
+          courseId: args.courseId,
+          registrationStatus: 'Pending',
+          comments: args.comments,
+          changesRequested: true,
+          courseFormId: args.courseFormId,
         }),
       },
     });
@@ -2928,6 +3364,14 @@ export class CourseService {
                   registrationComments: registrationGate.comments,
                 }
               : {}),
+          // Sent back for the learner to update: the form shows as incomplete,
+          // so `reason` is usually absent and this is what tells them why.
+          ...(registrationGate.changesRequestedAt
+            ? {
+                registrationChangesRequestedAt:
+                  registrationGate.changesRequestedAt,
+              }
+            : {}),
           formStatus: {
             completedForms,
             totalForms: totalRequiredForms,
@@ -8578,6 +9022,12 @@ export class CourseService {
                   registrationComments: registrationGate.comments,
                 }
               : {}),
+          ...(registrationGate.changesRequestedAt
+            ? {
+                registrationChangesRequestedAt:
+                  registrationGate.changesRequestedAt,
+              }
+            : {}),
           latestLastSeenSection: latestLastSeenSection
             ? {
                 id: latestLastSeenSection.id,

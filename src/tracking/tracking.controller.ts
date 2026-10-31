@@ -38,8 +38,8 @@ export class TrackingController {
 
   /**
    * Time-tracking heartbeat for the CURRENT user. The FE pings while a section
-   * is open; the user is always taken from the token (never the body), so a
-   * client can't accrue time for someone else.
+   * tab is visible, idle included. The user is always taken from the token
+   * (never the body), so a client can't accrue time for someone else.
    *
    * Uses `cJwtHeartbeat` (signature-only) instead of `cJwt` so we don't load
    * the full user row on every ping — this route only needs `user.id`.
