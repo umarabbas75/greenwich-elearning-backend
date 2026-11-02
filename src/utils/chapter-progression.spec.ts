@@ -47,7 +47,13 @@ describe('chapter-progression', () => {
       module: { findUnique: jest.fn(), findMany: jest.fn() },
       courseVersion: { findUnique: jest.fn() },
       section: { count: jest.fn() },
-      quiz: { count: jest.fn(), findMany: jest.fn() },
+      quiz: { findMany: jest.fn() },
+      // Chapter membership/order lives on placements. Default: no placements
+      // (an empty live chapter; pinned order falls back to the quiz row).
+      chapterQuiz: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
       quizAnswer: { findMany: jest.fn() },
       userCourseProgress: { count: jest.fn() },
       quizProgress: { findFirst: jest.fn(), findUnique: jest.fn() },
@@ -95,10 +101,10 @@ describe('chapter-progression', () => {
     // forever and permanently blocking chapter submission. The grader must use
     // the same non-archived set the learner is served.
     it('unpinned: denominator is the live non-archived quiz set (excludes archived)', async () => {
-      // Live query returns only non-archived quizzes (the archived one is gone).
-      prisma.quiz.findMany.mockResolvedValue([
-        { id: 'quiz-1' },
-        { id: 'quiz-2' },
+      // Live query returns only live placements (the archived one is gone).
+      prisma.chapterQuiz.findMany.mockResolvedValue([
+        { quizId: 'quiz-1' },
+        { quizId: 'quiz-2' },
       ]);
       prisma.quizAnswer.findMany.mockResolvedValue([
         { quizId: 'quiz-1', isAnswerCorrect: true },
@@ -117,10 +123,20 @@ describe('chapter-progression', () => {
       expect(grade.answeredQuestions).toBe(2);
       expect(grade.score).toBe(100);
       expect(grade.isPassed).toBe(true);
-      expect(prisma.quiz.findMany).toHaveBeenCalledWith({
-        where: { chapterId: 'ch-1', isArchived: false },
-        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-        select: { id: true },
+      // Live placements of the chapter: placement not removed AND quiz not
+      // archived from the bank.
+      expect(prisma.chapterQuiz.findMany).toHaveBeenCalledWith({
+        where: {
+          chapterId: 'ch-1',
+          isArchived: false,
+          quiz: { isArchived: false },
+        },
+        orderBy: [
+          { orderIndex: 'asc' },
+          { createdAt: 'asc' },
+          { quizId: 'asc' },
+        ],
+        select: { quizId: true },
       });
     });
 
@@ -149,18 +165,28 @@ describe('chapter-progression', () => {
       // Hydrates manifest ids against DB (same as loadPinnedChapterQuizzes).
       expect(prisma.quiz.findMany).toHaveBeenCalledWith({
         where: { id: { in: ['quiz-1'] } },
-        select: { id: true, orderIndex: true, createdAt: true },
+        select: { id: true, legacyOrderIndex: true, createdAt: true },
+      });
+      // ...ordered by this chapter's placement, not a quiz-global order.
+      expect(prisma.chapterQuiz.findMany).toHaveBeenCalledWith({
+        where: { chapterId: { in: ['ch-1'] }, quizId: { in: ['quiz-1'] } },
+        select: {
+          chapterId: true,
+          quizId: true,
+          orderIndex: true,
+          createdAt: true,
+        },
       });
     });
 
     // Multi-type quizzes carry partial credit via `systemScore` (e.g. Jaccard
     // similarity for MULTIPLE_CHOICE) instead of an all-or-nothing boolean.
     it('unpinned: sums systemScore for partial credit, falling back to the boolean for legacy answers', async () => {
-      prisma.quiz.findMany.mockResolvedValue([
-        { id: 'quiz-1' },
-        { id: 'quiz-2' },
-        { id: 'quiz-3' },
-        { id: 'quiz-4' },
+      prisma.chapterQuiz.findMany.mockResolvedValue([
+        { quizId: 'quiz-1' },
+        { quizId: 'quiz-2' },
+        { quizId: 'quiz-3' },
+        { quizId: 'quiz-4' },
       ]);
       prisma.quizAnswer.findMany.mockResolvedValue([
         // Typed, partial credit (e.g. MULTIPLE_CHOICE Jaccard 1/3).

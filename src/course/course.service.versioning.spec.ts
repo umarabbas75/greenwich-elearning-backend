@@ -633,7 +633,7 @@ describe('CourseService — course versioning', () => {
       ]);
       prisma.chapter.findUnique.mockResolvedValue({
         id: 'ch-1',
-        quizzes: [],
+        quizPlacements: [],
         module: { courseId: 'course-1' },
       });
 

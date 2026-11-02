@@ -7,6 +7,10 @@ import {
   loadManifestForVersion,
   sortQuizIdsByLiveOrder,
 } from '../course-version/course-version.manifest';
+import {
+  countLiveChapterQuizzes,
+  findLiveChapterQuizIds,
+} from '../quiz/chapter-quiz';
 
 /** Matches frontend CHAPTER_QUIZ_PASS_PERCENTAGE until per-chapter config exists. */
 export const DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = 70;
@@ -185,19 +189,14 @@ export async function resolveChapterQuizIds(
       for (const mod of manifest.modules) {
         for (const ch of mod.chapters) {
           if (ch.sourceId === chapterId) {
-            return sortQuizIdsByLiveOrder(prisma, ch.quizIds);
+            return sortQuizIdsByLiveOrder(prisma, chapterId, ch.quizIds);
           }
         }
       }
     }
   }
 
-  const quizzes = await prisma.quiz.findMany({
-    where: { chapterId, isArchived: false },
-    orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-    select: { id: true },
-  });
-  return quizzes.map((q) => q.id);
+  return findLiveChapterQuizIds(prisma, chapterId);
 }
 
 export async function gradeChapterQuizFromStoredAnswers(
@@ -295,7 +294,11 @@ async function resolveChapterDenominator(
       for (const mod of manifest.modules) {
         for (const ch of mod.chapters) {
           if (ch.sourceId === chapterId) {
-            const quizIds = await sortQuizIdsByLiveOrder(prisma, ch.quizIds);
+            const quizIds = await sortQuizIdsByLiveOrder(
+              prisma,
+              chapterId,
+              ch.quizIds,
+            );
             return {
               sectionCount: ch.sectionIds.length,
               quizCount: quizIds.length,
@@ -310,7 +313,7 @@ async function resolveChapterDenominator(
     prisma.section.count({
       where: { chapterId, isArchived: false, isActive: true },
     }),
-    prisma.quiz.count({ where: { chapterId, isArchived: false } }),
+    countLiveChapterQuizzes(prisma, chapterId),
   ]);
   return { sectionCount, quizCount };
 }

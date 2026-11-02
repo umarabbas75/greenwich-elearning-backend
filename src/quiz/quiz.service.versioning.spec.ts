@@ -42,8 +42,8 @@ describe('QuizService — course versioning', () => {
         findUnique: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         delete: jest.fn(),
-        aggregate: jest.fn(),
         count: jest.fn(),
       },
       quizAnswer: {
@@ -52,6 +52,20 @@ describe('QuizService — course versioning', () => {
         create: jest.fn(),
         update: jest.fn(),
       },
+      // Chapter ↔ quiz placements (a quiz can be in several chapters).
+      chapterQuiz: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+        aggregate: jest.fn().mockResolvedValue({ _max: { orderIndex: null } }),
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        delete: jest.fn().mockResolvedValue({}),
+      },
+      // Row locks taken inside interactive transactions (SELECT … FOR UPDATE)
+      // and the set-based placement insert.
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: undefined as any,
     };
 
@@ -136,22 +150,20 @@ describe('QuizService — course versioning', () => {
     });
 
     it('falls back to live quizzes for admin', async () => {
-      prisma.chapter.findUnique
-        .mockResolvedValueOnce({
-          id: 'ch-1',
-          module: { courseId: 'course-1' },
-        })
-        .mockResolvedValueOnce({
-          id: 'ch-1',
-          quizzes: [
-            {
-              id: 'quiz-live',
-              question: 'Live Q?',
-              options: ['A'],
-              answer: 'A',
-            },
-          ],
-        });
+      prisma.chapter.findUnique.mockResolvedValueOnce({
+        id: 'ch-1',
+        module: { courseId: 'course-1' },
+      });
+      prisma.chapterQuiz.findMany.mockResolvedValue([
+        {
+          quiz: {
+            id: 'quiz-live',
+            question: 'Live Q?',
+            options: ['A'],
+            answer: 'A',
+          },
+        },
+      ]);
 
       const result = await service.getAllAssignQuizzes(
         'ch-1',
@@ -160,13 +172,67 @@ describe('QuizService — course versioning', () => {
       );
 
       expect(result.data[0].id).toBe('quiz-live');
+      expect(result.data[0].answer).toBe('A');
+      // Live set = this chapter's placements that are not removed, of quizzes
+      // not deleted from the bank, in placement order.
+      expect(prisma.chapterQuiz.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            chapterId: 'ch-1',
+            isArchived: false,
+            quiz: { isArchived: false },
+          },
+          orderBy: [
+            { orderIndex: 'asc' },
+            { createdAt: 'asc' },
+            { quizId: 'asc' },
+          ],
+        }),
+      );
       expect(courseVersionService.resolveCurriculumTree).not.toHaveBeenCalled();
     });
   });
 
+  it('never sends the legacy answer key to an unpinned learner', async () => {
+    prisma.chapter.findUnique.mockResolvedValueOnce({
+      id: 'ch-1',
+      module: { courseId: 'course-1' },
+    });
+    prisma.userCourse.findUnique.mockResolvedValue(null);
+    courseVersionService.getVersionQuizzesForChapter.mockResolvedValue(null);
+    prisma.chapterQuiz.findMany.mockResolvedValue([
+      {
+        quiz: {
+          id: 'quiz-live',
+          question: 'Q?',
+          options: ['A', 'B'],
+          answer: 'A',
+        },
+      },
+    ]);
+
+    const result = await service.getAllAssignQuizzes('ch-1', 'user', 'user-1');
+
+    expect(result.data[0].id).toBe('quiz-live');
+    expect(result.data[0]).not.toHaveProperty('answer');
+  });
+
   describe('getAllQuizzes', () => {
+    const chapterRow = (id: string, courseId: string) => ({
+      id,
+      title: `Chapter ${id}`,
+      module: {
+        id: `mod-${id}`,
+        title: 'Unit',
+        courseId,
+        course: { id: courseId, title: `Course ${courseId}` },
+      },
+    });
+
     it('returns every quiz unpaginated when no page/limit is given', async () => {
-      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-1' }]);
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-1', placements: [] },
+      ]);
       prisma.quiz.count.mockResolvedValue(1);
 
       const result = await service.getAllQuizzes('admin');
@@ -174,12 +240,70 @@ describe('QuizService — course versioning', () => {
       expect(prisma.quiz.findMany).toHaveBeenCalledWith(
         expect.not.objectContaining({ skip: expect.anything() }),
       );
-      expect(result.data).toEqual([{ id: 'quiz-1' }]);
+      expect(result.data).toEqual([
+        { id: 'quiz-1', chapters: [], chapterId: null, chapter: null },
+      ]);
       expect(result.total).toBe(1);
     });
 
+    it('lists every chapter a shared quiz is used in, keeping the first as the deprecated single `chapter`', async () => {
+      const nebosh = chapterRow('ch-nebosh', 'course-nebosh');
+      const test = chapterRow('ch-test', 'course-test');
+      prisma.quiz.findMany.mockResolvedValue([
+        {
+          id: 'quiz-1',
+          question: 'Q?',
+          placements: [{ chapter: nebosh }, { chapter: test }],
+        },
+      ]);
+      prisma.quiz.count.mockResolvedValue(1);
+
+      const result = await service.getAllQuizzes('admin');
+
+      expect(result.data[0]).toMatchObject({
+        id: 'quiz-1',
+        chapters: [nebosh, test],
+        chapterId: 'ch-nebosh',
+        chapter: nebosh,
+      });
+      expect(result.data[0]).not.toHaveProperty('placements');
+      // Only placements in a live chapter are listed (archived chapters and
+      // units are gone from the course).
+      expect(prisma.quiz.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: {
+            placements: expect.objectContaining({
+              where: {
+                isArchived: false,
+                chapter: { isArchived: false, module: { isArchived: false } },
+              },
+            }),
+          },
+        }),
+      );
+    });
+
+    it('does not expose the frozen legacy chapter/order columns', async () => {
+      prisma.quiz.findMany.mockResolvedValue([
+        {
+          id: 'quiz-1',
+          legacyChapterId: 'ch-old',
+          legacyOrderIndex: 3,
+          placements: [],
+        },
+      ]);
+      prisma.quiz.count.mockResolvedValue(1);
+
+      const result = await service.getAllQuizzes('admin');
+
+      expect(result.data[0]).not.toHaveProperty('legacyChapterId');
+      expect(result.data[0]).not.toHaveProperty('legacyOrderIndex');
+    });
+
     it('applies skip/take once page or limit is passed', async () => {
-      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-2' }]);
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-2', placements: [] },
+      ]);
       prisma.quiz.count.mockResolvedValue(25);
 
       const result = await service.getAllQuizzes('admin', {
@@ -215,34 +339,89 @@ describe('QuizService — course versioning', () => {
       prisma.quiz.findMany.mockResolvedValue([]);
       prisma.quiz.count.mockResolvedValue(0);
 
+      // "Used" = placed in a chapter that is still live (not removed, and
+      // the chapter and unit not archived) — the same set the list shows.
+      const visible = {
+        isArchived: false,
+        chapter: { isArchived: false, module: { isArchived: false } },
+      };
       await service.getAllQuizzes('admin', { assigned: false });
-
-      expect(prisma.quiz.findMany).toHaveBeenCalledWith(
+      expect(prisma.quiz.findMany).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          where: { AND: [{ chapterId: null }, { isArchived: false }] },
+          where: {
+            AND: [{ placements: { none: visible } }, { isArchived: false }],
+          },
+        }),
+      );
+
+      await service.getAllQuizzes('admin', { assigned: true });
+      expect(prisma.quiz.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [{ placements: { some: visible } }, { isArchived: false }],
+          },
         }),
       );
     });
 
-    it('filters by courseId via the chapters under that course', async () => {
+    it('filters by courseId through placements in that course', async () => {
       prisma.quiz.findMany.mockResolvedValue([]);
       prisma.quiz.count.mockResolvedValue(0);
-      prisma.chapter.findMany.mockResolvedValue([
-        { id: 'ch-1' },
-        { id: 'ch-2' },
-      ]);
 
       await service.getAllQuizzes('admin', { courseId: 'course-1' });
 
-      expect(prisma.chapter.findMany).toHaveBeenCalledWith({
-        where: { module: { courseId: 'course-1' } },
-        select: { id: true },
-      });
       expect(prisma.quiz.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
             AND: [
-              { chapterId: { in: ['ch-1', 'ch-2'] } },
+              {
+                placements: {
+                  some: {
+                    isArchived: false,
+                    chapter: {
+                      isArchived: false,
+                      module: { isArchived: false, courseId: 'course-1' },
+                    },
+                  },
+                },
+              },
+              { isArchived: false },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('filters to one chapter, or hides quizzes already in a chapter (the assign picker)', async () => {
+      prisma.quiz.findMany.mockResolvedValue([]);
+      prisma.quiz.count.mockResolvedValue(0);
+
+      await service.getAllQuizzes('admin', { chapterId: 'ch-1' });
+      expect(prisma.quiz.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                placements: {
+                  some: { chapterId: 'ch-1', isArchived: false },
+                },
+              },
+              { isArchived: false },
+            ],
+          },
+        }),
+      );
+
+      await service.getAllQuizzes('admin', { excludeChapterId: 'ch-2' });
+      expect(prisma.quiz.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                placements: {
+                  none: { chapterId: 'ch-2', isArchived: false },
+                },
+              },
               { isArchived: false },
             ],
           },
@@ -295,13 +474,15 @@ describe('QuizService — course versioning', () => {
     });
   });
 
+  /** A placement row as findQuizCourses reads it. */
+  const placementIn = (courseId: string, deliveryMode = 'NATIVE') => ({
+    chapter: { module: { courseId, course: { deliveryMode } } },
+  });
+
   describe('deleteQuiz', () => {
     it('archives quiz referenced by a version', async () => {
-      prisma.quiz.findUnique.mockResolvedValue({
-        id: 'quiz-1',
-        chapter: { module: { courseId: 'course-1' } },
-      });
-      courseVersionService.isReferencedByAnyVersion.mockResolvedValue(true);
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.chapterQuiz.findMany.mockResolvedValue([placementIn('course-1')]);
       courseVersionService.getReferencingVersionsWithEnrollments.mockResolvedValue(
         {
           stillServedTo: 2,
@@ -324,20 +505,21 @@ describe('QuizService — course versioning', () => {
         data: { isArchived: true, archivedAt: expect.any(Date) },
       });
       expect(prisma.quiz.delete).not.toHaveBeenCalled();
+      // Any course's version may pin a (possibly shared) quiz: scan them all.
+      expect(
+        courseVersionService.getReferencingVersionsWithEnrollments,
+      ).toHaveBeenCalledWith('quiz', 'quiz-1');
       expect(result.message).toContain('Archived');
       expect((result as any).outcome).toBe('archived');
       expect((result as any).stillServedTo).toBe(2);
       expect(
         courseVersionService.autoPublishAfterStructuralChange,
-      ).toHaveBeenCalled();
+      ).toHaveBeenCalledWith('course-1', undefined, 'Archived quiz');
     });
 
     it('hard-deletes quiz not in any version', async () => {
-      prisma.quiz.findUnique.mockResolvedValue({
-        id: 'quiz-1',
-        chapter: { module: { courseId: 'course-1' } },
-      });
-      courseVersionService.isReferencedByAnyVersion.mockResolvedValue(false);
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.chapterQuiz.findMany.mockResolvedValue([placementIn('course-1')]);
       prisma.quiz.delete.mockResolvedValue({});
 
       await service.deleteQuiz('quiz-1');
@@ -347,14 +529,35 @@ describe('QuizService — course versioning', () => {
       });
     });
 
-    it('rejects delete on an IMPORTED_SCORM course', async () => {
-      prisma.quiz.findUnique.mockResolvedValue({
-        id: 'quiz-1',
-        chapter: { module: { courseId: 'course-1' } },
-      });
-      prisma.course.findUnique.mockResolvedValue({
-        deliveryMode: 'IMPORTED_SCORM',
-      });
+    it('publishes a version for every course a shared quiz is used in', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.chapterQuiz.findMany.mockResolvedValue([
+        placementIn('course-nebosh'),
+        placementIn('course-test'),
+        // Second chapter of the same course: one publish per course.
+        placementIn('course-test'),
+      ]);
+      prisma.quiz.delete.mockResolvedValue({});
+
+      await service.deleteQuiz('quiz-1', 'admin-1');
+
+      expect(
+        courseVersionService.autoPublishAfterStructuralChange,
+      ).toHaveBeenCalledTimes(2);
+      expect(
+        courseVersionService.autoPublishAfterStructuralChange,
+      ).toHaveBeenCalledWith('course-nebosh', 'admin-1', 'Removed quiz');
+      expect(
+        courseVersionService.autoPublishAfterStructuralChange,
+      ).toHaveBeenCalledWith('course-test', 'admin-1', 'Removed quiz');
+    });
+
+    it('rejects delete when any course using the quiz is IMPORTED_SCORM', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.chapterQuiz.findMany.mockResolvedValue([
+        placementIn('course-1'),
+        placementIn('course-scorm', 'IMPORTED_SCORM'),
+      ]);
 
       await expect(service.deleteQuiz('quiz-1')).rejects.toBeInstanceOf(
         HttpException,
@@ -367,11 +570,8 @@ describe('QuizService — course versioning', () => {
     // committed by the time it runs, so a publish failure must NOT propagate and
     // 403 the admin — it's logged and the version self-heals via reconcile.
     it('still succeeds when auto-publish throws (best-effort)', async () => {
-      prisma.quiz.findUnique.mockResolvedValue({
-        id: 'quiz-1',
-        chapter: { module: { courseId: 'course-1' } },
-      });
-      courseVersionService.isReferencedByAnyVersion.mockResolvedValue(false);
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.chapterQuiz.findMany.mockResolvedValue([placementIn('course-1')]);
       prisma.quiz.delete.mockResolvedValue({});
       courseVersionService.autoPublishAfterStructuralChange.mockRejectedValue(
         new Error('publish boom'),
@@ -383,6 +583,38 @@ describe('QuizService — course versioning', () => {
       expect(prisma.quiz.delete).toHaveBeenCalled();
       expect(result.statusCode).toBe(200);
       expect(result.publishedVersion).toBeUndefined();
+    });
+  });
+
+  describe('updateQuiz', () => {
+    it('is blocked when any course using the shared quiz is IMPORTED_SCORM', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.chapterQuiz.findMany.mockResolvedValue([
+        placementIn('course-1'),
+        placementIn('course-scorm', 'IMPORTED_SCORM'),
+      ]);
+
+      await expect(
+        service.updateQuiz('quiz-1', { question: 'Edited?' }),
+      ).rejects.toBeInstanceOf(HttpException);
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
+    });
+
+    it('edits the one shared row, so every chapter using it changes', async () => {
+      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
+      prisma.chapterQuiz.findMany.mockResolvedValue([
+        placementIn('course-nebosh'),
+        placementIn('course-test'),
+      ]);
+      prisma.quiz.update.mockResolvedValue({ id: 'quiz-1' });
+
+      await service.updateQuiz('quiz-1', { question: 'Edited?' });
+
+      expect(prisma.quiz.update).toHaveBeenCalledTimes(1);
+      expect(prisma.quiz.update).toHaveBeenCalledWith({
+        where: { id: 'quiz-1' },
+        data: { question: 'Edited?' },
+      });
     });
   });
 
@@ -400,19 +632,13 @@ describe('QuizService — course versioning', () => {
     });
 
     // THE regression that matters. A pinned learner is served their version
-    // manifest, so after an admin moves/unassigns a quiz the live
-    // quiz.chapterId no longer matches the chapter the learner is viewing —
-    // yet getAllAssignQuizzes still serves that quiz. Validating against the
-    // LIVE chapterId 400s an answer for a quiz we just handed them; measured
+    // manifest, so after an admin moves/unassigns a quiz the live chapter
+    // membership no longer matches the chapter the learner is viewing — yet
+    // getAllAssignQuizzes still serves that quiz. Validating against live
+    // membership 400s an answer for a quiz we just handed them; measured
     // against production that was 21 pinned pairs / 7 chapter-cases on 4 real
     // accounts, worst case 7-of-12 quizzes (an unpassable chapter).
-    it('accepts an answer when the pinned manifest still serves the quiz, even though live quiz.chapterId has moved away', async () => {
-      // Live: the quiz has been reassigned to a DIFFERENT chapter.
-      prisma.quiz.findUnique.mockResolvedValue({
-        id: 'quiz-1',
-        answer: 'c',
-        chapterId: 'ch-SOMEWHERE-ELSE',
-      });
+    it('accepts an answer when the pinned manifest still serves the quiz, even though it was removed from the chapter live', async () => {
       // Pinned manifest: still lists it under ch-1, which is what was served.
       progression.resolveChapterQuizIds.mockResolvedValue(['quiz-1', 'quiz-2']);
       prisma.quizAnswer.findFirst.mockResolvedValue(null);
@@ -432,23 +658,44 @@ describe('QuizService — course versioning', () => {
       });
     });
 
-    // Regression: the unique key is (userId, quizId) with no chapter component,
-    // so an existing row keeps whatever chapterId it was first created with.
-    // Reads filter on { userId, chapterId }, so a stale row is invisible to the
-    // chapter it belongs to — the quiz renders as unanswered forever.
-    it('re-homes chapterId when updating an answer created under a different chapter', async () => {
+    it("updates this chapter's existing answer in place", async () => {
       progression.resolveChapterQuizIds.mockResolvedValue(['quiz-1']);
       prisma.quizAnswer.findFirst.mockResolvedValue({
         id: 'a-1',
-        chapterId: 'ch-OLD',
+        chapterId: 'ch-1',
       });
       prisma.quizAnswer.update.mockResolvedValue({ id: 'a-1' });
 
       await service.checkQuiz('user-1', body);
 
       expect(prisma.quizAnswer.update).toHaveBeenCalledWith({
-        where: { userId_quizId: { userId: 'user-1', quizId: 'quiz-1' } },
+        where: {
+          userId_chapterId_quizId: {
+            userId: 'user-1',
+            chapterId: 'ch-1',
+            quizId: 'quiz-1',
+          },
+        },
         data: { chapterId: 'ch-1', answer: 'c', isAnswerCorrect: true },
+      });
+    });
+
+    // A quiz shared by NEBOSH and NEBOSH (TEST): a learner on both answers it
+    // in each, and neither answer may overwrite or satisfy the other.
+    it('keeps a separate answer per chapter for a quiz shared by two chapters', async () => {
+      progression.resolveChapterQuizIds.mockResolvedValue(['quiz-1']);
+      // No answer in ch-2 yet (the learner's ch-1 answer is not looked at).
+      prisma.quizAnswer.findFirst.mockResolvedValue(null);
+      prisma.quizAnswer.create.mockResolvedValue({ id: 'a-2' });
+
+      await service.checkQuiz('user-1', { ...body, chapterId: 'ch-2' });
+
+      expect(prisma.quizAnswer.findFirst).toHaveBeenCalledWith({
+        where: { quizId: 'quiz-1', userId: 'user-1', chapterId: 'ch-2' },
+      });
+      expect(prisma.quizAnswer.update).not.toHaveBeenCalled();
+      expect(prisma.quizAnswer.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ quizId: 'quiz-1', chapterId: 'ch-2' }),
       });
     });
 
@@ -479,49 +726,98 @@ describe('QuizService — course versioning', () => {
     });
   });
 
+  const chapterFixture = (deliveryMode = 'NATIVE') => ({
+    id: 'ch-1',
+    title: 'Element 2',
+    module: { courseId: 'course-1', course: { deliveryMode } },
+  });
+
+  /**
+   * placeQuizzes reads (1) this chapter's placements of the quizzes, (2) live
+   * placements of them in OTHER chapters of the same course (rejected), and
+   * (3) for a restored quiz, the courses it is still placed in.
+   */
+  const placements = (opts: {
+    here?: any[];
+    otherChaptersOfCourse?: any[];
+    elsewhere?: any[];
+  }) =>
+    prisma.chapterQuiz.findMany.mockImplementation((args: any) => {
+      if (args?.where?.chapterId?.not) {
+        return Promise.resolve(opts.otherChaptersOfCourse ?? []);
+      }
+      if (typeof args?.where?.quizId === 'string') {
+        return Promise.resolve(opts.elsewhere ?? []);
+      }
+      return Promise.resolve(opts.here ?? []);
+    });
+
+  /** The placements written by placeQuizzes' single INSERT … ON CONFLICT:
+   *  (chapterId, quizIds, orderIndexes) are its bound values, in order. */
+  const placedRows = () => {
+    const call = prisma.$executeRaw.mock.calls.at(-1);
+    if (!call) return null;
+    const [strings, chapterId, quizIds, orders] = call;
+    return { sql: (strings as string[]).join('?'), chapterId, quizIds, orders };
+  };
+
   describe('assignQuiz', () => {
-    // Regression: unAssignQuiz archives a version-referenced quiz
-    // ({ isArchived: true, chapterId: null }) to keep it for version history.
-    // Re-assigning used to `connect` only, which set chapterId but left
-    // isArchived true — so the quiz was attached yet invisible to every read
-    // (getAllChapters._count.quizzes, getAllAssignQuizzes and
-    // buildManifestFromLiveTree all filter isArchived: false), and the
-    // auto-publish then baked a quiz-less chapter into the new version.
-    it('clears isArchived when re-assigning a previously archived quiz', async () => {
-      prisma.quiz.findUnique.mockResolvedValue({
-        id: 'quiz-1',
-        isArchived: true,
-        chapterId: null,
+    it('adds the quiz to the chapter without moving it out of the chapters it is already in', async () => {
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-1', isArchived: false },
+      ]);
+      // Not in ch-1 yet (it lives in another course's chapter).
+      prisma.chapterQuiz.findMany.mockResolvedValue([]);
+      prisma.chapterQuiz.aggregate.mockResolvedValue({
+        _max: { orderIndex: 2 },
       });
-      prisma.chapter.findUnique.mockResolvedValue({
-        id: 'ch-1',
-        title: 'Element 2',
-        module: { courseId: 'course-1' },
-      });
-      prisma.quiz.aggregate.mockResolvedValue({ _max: { orderIndex: 2 } });
-      prisma.quiz.update.mockResolvedValue({});
 
       await service.assignQuiz('quiz-1', 'ch-1', 'admin-1');
 
-      // Un-archive and re-attach in the SAME write — a bare relation `connect`
-      // would leave isArchived: true.
-      expect(prisma.quiz.update).toHaveBeenCalledWith({
-        where: { id: 'quiz-1' },
-        data: { chapterId: 'ch-1', isArchived: false, orderIndex: 3 },
+      expect(placedRows()).toMatchObject({
+        chapterId: 'ch-1',
+        quizIds: ['quiz-1'],
+        orders: [3],
       });
-      // The chapter-side relation write is what left the row archived.
-      expect(prisma.chapter.update).not.toHaveBeenCalled();
+      // Creates the placement, or revives a removed one in this chapter.
+      expect(placedRows()!.sql).toMatch(
+        /ON CONFLICT \("chapterId", "quizId"\) DO UPDATE[\s\S]*"isArchived" = false/,
+      );
+      // Nothing touches its other placements or the quiz row.
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
+      expect(prisma.chapterQuiz.update).not.toHaveBeenCalled();
+      expect(prisma.chapterQuiz.delete).not.toHaveBeenCalled();
+    });
+
+    // Regression: unAssignQuiz archives a version-referenced quiz to keep it
+    // for version history. Re-assigning must make it live again, or it is
+    // attached yet invisible to every read (all filter isArchived: false) and
+    // the auto-publish bakes a quiz-less chapter into the new version.
+    it('restores an archived quiz and revives its removed placement', async () => {
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-1', isArchived: true },
+      ]);
+      placements({ here: [{ quizId: 'quiz-1', isArchived: true }] });
+      prisma.chapterQuiz.aggregate.mockResolvedValue({
+        _max: { orderIndex: 2 },
+      });
+
+      await service.assignQuiz('quiz-1', 'ch-1', 'admin-1');
+
+      expect(prisma.quiz.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['quiz-1'] } },
+        data: { isArchived: false, archivedAt: null },
+      });
+      expect(placedRows()).toMatchObject({ quizIds: ['quiz-1'], orders: [3] });
     });
 
     it('publishes a new version after assigning', async () => {
-      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
-      prisma.chapter.findUnique.mockResolvedValue({
-        id: 'ch-1',
-        title: 'Element 2',
-        module: { courseId: 'course-1' },
-      });
-      prisma.quiz.aggregate.mockResolvedValue({ _max: { orderIndex: null } });
-      prisma.quiz.update.mockResolvedValue({});
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-1', isArchived: false },
+      ]);
 
       const result = await service.assignQuiz('quiz-1', 'ch-1', 'admin-1');
 
@@ -539,37 +835,168 @@ describe('QuizService — course versioning', () => {
       });
     });
 
-    it('rejects assign on an IMPORTED_SCORM course', async () => {
-      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
-      prisma.chapter.findUnique.mockResolvedValue({
-        id: 'ch-1',
-        module: {
-          courseId: 'course-1',
-          course: { deliveryMode: 'IMPORTED_SCORM' },
-        },
+    it('is a no-op (no reorder, no publish) when the quiz is already in the chapter', async () => {
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-1', isArchived: false },
+      ]);
+      placements({ here: [{ quizId: 'quiz-1', isArchived: false }] });
+
+      const result = await service.assignQuiz('quiz-1', 'ch-1', 'admin-1');
+
+      expect(result.message).toBe('Quiz is already in this chapter');
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
+      expect(
+        courseVersionService.autoPublishAfterStructuralChange,
+      ).not.toHaveBeenCalled();
+    });
+
+    // Within one course a quiz is in at most one chapter: version references
+    // and the version diff are per course.
+    it('rejects a quiz already live in another chapter of the same course', async () => {
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-1', isArchived: false, question: 'Q?' },
+      ]);
+      placements({
+        otherChaptersOfCourse: [
+          {
+            id: 'cq-3',
+            quizId: 'quiz-1',
+            chapter: {
+              title: 'Element 3',
+              isArchived: false,
+              module: { isArchived: false },
+            },
+          },
+        ],
       });
+
+      let caught: any;
+      try {
+        await service.assignQuiz('quiz-1', 'ch-1', 'admin-1');
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(HttpException);
+      expect(caught.getResponse().error).toMatch(
+        /only one chapter of a course.*Element 3/,
+      );
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
+      // Same-course check is scoped to this course's other chapters.
+      expect(prisma.chapterQuiz.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            quizId: { in: ['quiz-1'] },
+            chapterId: { not: 'ch-1' },
+            isArchived: false,
+            chapter: { module: { courseId: 'course-1' } },
+          },
+        }),
+      );
+    });
+
+    // The old single-chapter assign MOVED a quiz; one left in an archived
+    // chapter (which the admin can no longer open to unassign) still moves.
+    it('moves a quiz out of an archived chapter of the same course', async () => {
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-1', isArchived: false, question: 'Q?' },
+      ]);
+      placements({
+        otherChaptersOfCourse: [
+          {
+            id: 'cq-old',
+            quizId: 'quiz-1',
+            chapter: {
+              title: 'Deleted element',
+              isArchived: true,
+              module: { isArchived: false },
+            },
+          },
+        ],
+      });
+
+      await service.assignQuiz('quiz-1', 'ch-1', 'admin-1');
+
+      expect(prisma.chapterQuiz.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['cq-old'] } },
+        data: { isArchived: true, archivedAt: expect.any(Date) },
+      });
+      expect(placedRows()).toMatchObject({ quizIds: ['quiz-1'] });
+    });
+
+    it('locks the quiz rows before deciding, inside one transaction', async () => {
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-1', isArchived: false },
+      ]);
+
+      await service.assignQuiz('quiz-1', 'ch-1', 'admin-1');
+
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+        maxWait: 5000,
+        timeout: 15000,
+      });
+      const sql = (prisma.$queryRaw.mock.calls[0][0] as string[]).join('?');
+      // Fixed lock order: overlapping bulk assigns cannot deadlock.
+      expect(sql).toMatch(/ORDER BY id FOR UPDATE/);
+    });
+
+    it('restoring an archived quiz also publishes the other courses it reappears in', async () => {
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-1', isArchived: true },
+      ]);
+      placements({
+        // Still placed (live) in another course, hidden only by the archive.
+        elsewhere: [placementIn('course-1'), placementIn('course-other')],
+      });
+
+      await service.assignQuiz('quiz-1', 'ch-1', 'admin-1');
+
+      expect(
+        courseVersionService.autoPublishAfterStructuralChange,
+      ).toHaveBeenCalledWith('course-other', 'admin-1', 'Restored quiz');
+      // The target course is published once, for the assign itself.
+      expect(
+        courseVersionService.autoPublishAfterStructuralChange,
+      ).toHaveBeenCalledTimes(2);
+    });
+
+    it('throws when the quiz does not exist', async () => {
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
+      prisma.quiz.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.assignQuiz('quiz-ghost', 'ch-1', 'admin-1'),
+      ).rejects.toBeInstanceOf(HttpException);
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
+    });
+
+    it('rejects assign on an IMPORTED_SCORM course', async () => {
+      prisma.chapter.findUnique.mockResolvedValue(
+        chapterFixture('IMPORTED_SCORM'),
+      );
 
       await expect(
         service.assignQuiz('quiz-1', 'ch-1', 'admin-1'),
       ).rejects.toBeInstanceOf(HttpException);
-      expect(prisma.quiz.update).not.toHaveBeenCalled();
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
     });
   });
 
   describe('bulkAssignQuiz', () => {
     it('assigns every quiz with sequential orderIndex and publishes once', async () => {
-      prisma.chapter.findUnique.mockResolvedValue({
-        id: 'ch-1',
-        title: 'Element 2',
-        module: { courseId: 'course-1' },
-      });
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
       prisma.quiz.findMany.mockResolvedValue([
-        { id: 'quiz-a' },
-        { id: 'quiz-b' },
-        { id: 'quiz-c' },
+        { id: 'quiz-a', isArchived: false },
+        { id: 'quiz-b', isArchived: false },
+        { id: 'quiz-c', isArchived: false },
       ]);
-      prisma.quiz.aggregate.mockResolvedValue({ _max: { orderIndex: 4 } });
-      prisma.quiz.update.mockResolvedValue({});
+      prisma.chapterQuiz.aggregate.mockResolvedValue({
+        _max: { orderIndex: 4 },
+      });
 
       const result = await service.bulkAssignQuiz(
         'ch-1',
@@ -577,17 +1004,23 @@ describe('QuizService — course versioning', () => {
         'admin-1',
       );
 
-      expect(prisma.quiz.update).toHaveBeenNthCalledWith(1, {
-        where: { id: 'quiz-a' },
-        data: { chapterId: 'ch-1', isArchived: false, orderIndex: 5 },
+      // One statement for the batch, appended in payload order.
+      expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+      expect(placedRows()).toMatchObject({
+        chapterId: 'ch-1',
+        quizIds: ['quiz-a', 'quiz-b', 'quiz-c'],
+        orders: [5, 6, 7],
       });
-      expect(prisma.quiz.update).toHaveBeenNthCalledWith(2, {
-        where: { id: 'quiz-b' },
-        data: { chapterId: 'ch-1', isArchived: false, orderIndex: 6 },
-      });
-      expect(prisma.quiz.update).toHaveBeenNthCalledWith(3, {
-        where: { id: 'quiz-c' },
-        data: { chapterId: 'ch-1', isArchived: false, orderIndex: 7 },
+      // The next slot is computed past the live quizzes only, ignoring the
+      // ones being (re)assigned.
+      expect(prisma.chapterQuiz.aggregate).toHaveBeenCalledWith({
+        where: {
+          chapterId: 'ch-1',
+          isArchived: false,
+          quiz: { isArchived: false },
+          quizId: { notIn: ['quiz-a', 'quiz-b', 'quiz-c'] },
+        },
+        _max: { orderIndex: true },
       });
       // One publish for the whole batch, not one per quiz.
       expect(
@@ -604,22 +1037,48 @@ describe('QuizService — course versioning', () => {
       expect(result.data).toEqual({
         chapterId: 'ch-1',
         quizIds: ['quiz-a', 'quiz-b', 'quiz-c'],
+        assignedCount: 3,
+        alreadyInChapterCount: 0,
+      });
+    });
+
+    it('leaves quizzes already in the chapter where they are and appends the rest', async () => {
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-a', isArchived: false },
+        { id: 'quiz-b', isArchived: false },
+      ]);
+      placements({ here: [{ quizId: 'quiz-a', isArchived: false }] });
+      prisma.chapterQuiz.aggregate.mockResolvedValue({
+        _max: { orderIndex: 0 },
+      });
+
+      const result = await service.bulkAssignQuiz(
+        'ch-1',
+        ['quiz-a', 'quiz-b'],
+        'admin-1',
+      );
+
+      expect(placedRows()).toMatchObject({
+        quizIds: ['quiz-b'],
+        orders: [1],
+      });
+      expect(result.message).toContain('1 already in this chapter');
+      expect(result.data).toMatchObject({
+        assignedCount: 1,
+        alreadyInChapterCount: 1,
       });
     });
 
     it('dedupes repeated quiz ids in the payload', async () => {
-      prisma.chapter.findUnique.mockResolvedValue({
-        id: 'ch-1',
-        title: 'Element 2',
-        module: { courseId: 'course-1' },
-      });
-      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-a' }]);
-      prisma.quiz.aggregate.mockResolvedValue({ _max: { orderIndex: null } });
-      prisma.quiz.update.mockResolvedValue({});
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-a', isArchived: false },
+      ]);
 
       await service.bulkAssignQuiz('ch-1', ['quiz-a', 'quiz-a'], 'admin-1');
 
-      expect(prisma.quiz.update).toHaveBeenCalledTimes(1);
+      expect(placedRows()).toMatchObject({ quizIds: ['quiz-a'] });
     });
 
     it('throws when the chapter does not exist', async () => {
@@ -628,34 +1087,29 @@ describe('QuizService — course versioning', () => {
       await expect(
         service.bulkAssignQuiz('missing-ch', ['quiz-a'], 'admin-1'),
       ).rejects.toThrow(HttpException);
-      expect(prisma.quiz.update).not.toHaveBeenCalled();
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
     });
 
     it('rejects bulk assign on an IMPORTED_SCORM course', async () => {
-      prisma.chapter.findUnique.mockResolvedValue({
-        id: 'ch-1',
-        title: 'Element 2',
-        module: {
-          courseId: 'course-1',
-          course: { deliveryMode: 'IMPORTED_SCORM' },
-        },
-      });
-      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-a' }]);
+      prisma.chapter.findUnique.mockResolvedValue(
+        chapterFixture('IMPORTED_SCORM'),
+      );
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-a', isArchived: false },
+      ]);
 
       await expect(
         service.bulkAssignQuiz('ch-1', ['quiz-a'], 'admin-1'),
       ).rejects.toBeInstanceOf(HttpException);
-      expect(prisma.quiz.update).not.toHaveBeenCalled();
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
     });
 
     it('throws naming any quiz id that does not exist, without partially assigning', async () => {
-      prisma.chapter.findUnique.mockResolvedValue({
-        id: 'ch-1',
-        title: 'Element 2',
-        module: { courseId: 'course-1' },
-      });
+      prisma.chapter.findUnique.mockResolvedValue(chapterFixture());
       // Only quiz-a is real; quiz-ghost is not.
-      prisma.quiz.findMany.mockResolvedValue([{ id: 'quiz-a' }]);
+      prisma.quiz.findMany.mockResolvedValue([
+        { id: 'quiz-a', isArchived: false },
+      ]);
 
       let caught: any;
       try {
@@ -669,7 +1123,7 @@ describe('QuizService — course versioning', () => {
       }
       expect(caught).toBeInstanceOf(HttpException);
       expect(caught.getResponse().error).toMatch(/quiz-ghost/);
-      expect(prisma.quiz.update).not.toHaveBeenCalled();
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
       expect(
         courseVersionService.autoPublishAfterStructuralChange,
       ).not.toHaveBeenCalled();
@@ -677,12 +1131,11 @@ describe('QuizService — course versioning', () => {
   });
 
   describe('reorderChapterQuizzes', () => {
-    it('updates orderIndex in a transaction without publishing', async () => {
-      prisma.quiz.findMany.mockResolvedValue([
-        { id: 'quiz-a' },
-        { id: 'quiz-b' },
+    it("updates this chapter's placement order in a transaction without publishing", async () => {
+      prisma.chapterQuiz.findMany.mockResolvedValue([
+        { quizId: 'quiz-a' },
+        { quizId: 'quiz-b' },
       ]);
-      prisma.quiz.update.mockResolvedValue({});
       prisma.$transaction = jest.fn((ops) => Promise.all(ops));
 
       const result = await service.reorderChapterQuizzes({
@@ -695,15 +1148,21 @@ describe('QuizService — course versioning', () => {
 
       expect(result.statusCode).toBe(200);
       expect(prisma.$transaction).toHaveBeenCalled();
+      // Per chapter: a shared quiz keeps its position in other chapters.
+      expect(prisma.chapterQuiz.update).toHaveBeenCalledWith({
+        where: { chapterId_quizId: { chapterId: 'ch-1', quizId: 'quiz-b' } },
+        data: { orderIndex: 0 },
+      });
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
       expect(
         courseVersionService.autoPublishAfterStructuralChange,
       ).not.toHaveBeenCalled();
     });
 
     it('rejects when payload omits an active chapter quiz', async () => {
-      prisma.quiz.findMany.mockResolvedValue([
-        { id: 'quiz-a' },
-        { id: 'quiz-b' },
+      prisma.chapterQuiz.findMany.mockResolvedValue([
+        { quizId: 'quiz-a' },
+        { quizId: 'quiz-b' },
       ]);
 
       await expect(
@@ -716,65 +1175,114 @@ describe('QuizService — course versioning', () => {
   });
 
   describe('unAssignQuiz', () => {
-    it('archives instead of disconnecting when referenced', async () => {
+    const referencedBy4 = {
+      stillServedTo: 4,
+      versions: [
+        {
+          versionId: 'v-2',
+          versionNumber: 2,
+          status: 'PUBLISHED',
+          enrollmentCount: 4,
+        },
+      ],
+    };
+
+    beforeEach(() => {
       prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
       prisma.chapter.findUnique.mockResolvedValue({
         id: 'ch-1',
         title: 'C',
         module: { courseId: 'course-1' },
       });
-      courseVersionService.isReferencedByAnyVersion.mockResolvedValue(true);
+      prisma.chapterQuiz.findUnique.mockResolvedValue({ isArchived: false });
+    });
+
+    it('archives the placement and the quiz when referenced and used nowhere else', async () => {
       courseVersionService.getReferencingVersionsWithEnrollments.mockResolvedValue(
-        {
-          stillServedTo: 4,
-          versions: [
-            {
-              versionId: 'v-2',
-              versionNumber: 2,
-              status: 'PUBLISHED',
-              enrollmentCount: 4,
-            },
-          ],
-        },
+        referencedBy4,
       );
-      prisma.quiz.update.mockResolvedValue({});
+      prisma.chapterQuiz.count.mockResolvedValue(0);
 
-      const result = await service.unAssignQuiz('quiz-1', 'ch-1');
+      const result = await service.unAssignQuiz('quiz-1', 'ch-1', 'admin-1');
 
+      expect(prisma.chapterQuiz.update).toHaveBeenCalledWith({
+        where: { chapterId_quizId: { chapterId: 'ch-1', quizId: 'quiz-1' } },
+        data: { isArchived: true, archivedAt: expect.any(Date) },
+      });
       expect(prisma.quiz.update).toHaveBeenCalledWith({
         where: { id: 'quiz-1' },
-        data: {
-          isArchived: true,
-          chapterId: null,
-          archivedAt: expect.any(Date),
-        },
+        data: { isArchived: true, archivedAt: expect.any(Date) },
       });
-      expect(prisma.chapter.update).not.toHaveBeenCalled();
+      expect(prisma.chapterQuiz.delete).not.toHaveBeenCalled();
       expect(result.message).toContain('Archived');
       expect((result as any).outcome).toBe('archived');
       expect((result as any).stillServedTo).toBe(4);
+      // Decided under a row lock, so a concurrent assign elsewhere can't race
+      // the "used nowhere else" count.
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+        maxWait: 5000,
+        timeout: 15000,
+      });
+      expect((prisma.$queryRaw.mock.calls[0][0] as string[]).join('?')).toMatch(
+        /FOR UPDATE/,
+      );
     });
 
-    it('disconnects quiz when not referenced', async () => {
-      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
-      prisma.chapter.findUnique.mockResolvedValue({
-        id: 'ch-1',
-        title: 'C',
-        module: { courseId: 'course-1' },
-      });
-      courseVersionService.isReferencedByAnyVersion.mockResolvedValue(false);
-      prisma.chapter.update.mockResolvedValue({});
+    it('only removes it from this chapter when another chapter still uses it', async () => {
+      courseVersionService.getReferencingVersionsWithEnrollments.mockResolvedValue(
+        referencedBy4,
+      );
+      // Still live in NEBOSH (TEST)'s chapter.
+      prisma.chapterQuiz.count.mockResolvedValue(1);
 
-      await service.unAssignQuiz('quiz-1', 'ch-1');
+      await service.unAssignQuiz('quiz-1', 'ch-1', 'admin-1');
 
-      expect(prisma.chapter.update).toHaveBeenCalledWith({
-        where: { id: 'ch-1' },
-        data: { quizzes: { disconnect: { id: 'quiz-1' } } },
+      expect(prisma.chapterQuiz.count).toHaveBeenCalledWith({
+        where: {
+          quizId: 'quiz-1',
+          isArchived: false,
+          chapterId: { not: 'ch-1' },
+        },
       });
+      expect(prisma.chapterQuiz.update).toHaveBeenCalled();
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
+      expect(courseVersionService.writeAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ARCHIVE_QUIZ',
+          metadata: expect.objectContaining({
+            quizArchived: false,
+            stillUsedInOtherChapters: 1,
+          }),
+        }),
+      );
+    });
+
+    it('marks just the placement removed when not referenced; the quiz stays in the bank', async () => {
+      const result = await service.unAssignQuiz('quiz-1', 'ch-1');
+
+      // Kept, never deleted: a version published concurrently may list it.
+      expect(prisma.chapterQuiz.update).toHaveBeenCalledWith({
+        where: { chapterId_quizId: { chapterId: 'ch-1', quizId: 'quiz-1' } },
+        data: { isArchived: true, archivedAt: expect.any(Date) },
+      });
+      expect(prisma.chapterQuiz.delete).not.toHaveBeenCalled();
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
+      expect(prisma.quiz.delete).not.toHaveBeenCalled();
+      expect((result as any).outcome).toBe('unassigned');
+    });
+
+    it('rejects when the quiz is not in this chapter (never touches other chapters)', async () => {
+      prisma.chapterQuiz.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.unAssignQuiz('quiz-1', 'ch-1'),
+      ).rejects.toBeInstanceOf(HttpException);
+      expect(prisma.chapterQuiz.update).not.toHaveBeenCalled();
+      expect(prisma.chapterQuiz.delete).not.toHaveBeenCalled();
+      expect(prisma.quiz.update).not.toHaveBeenCalled();
     });
 
     it('rejects unassign on an IMPORTED_SCORM course', async () => {
-      prisma.quiz.findUnique.mockResolvedValue({ id: 'quiz-1' });
       prisma.chapter.findUnique.mockResolvedValue({
         id: 'ch-1',
         title: 'C',
@@ -784,11 +1292,11 @@ describe('QuizService — course versioning', () => {
         },
       });
 
-      await expect(service.unAssignQuiz('quiz-1', 'ch-1')).rejects.toBeInstanceOf(
-        HttpException,
-      );
+      await expect(
+        service.unAssignQuiz('quiz-1', 'ch-1'),
+      ).rejects.toBeInstanceOf(HttpException);
       expect(prisma.quiz.update).not.toHaveBeenCalled();
-      expect(prisma.chapter.update).not.toHaveBeenCalled();
+      expect(prisma.chapterQuiz.delete).not.toHaveBeenCalled();
     });
   });
 
@@ -796,28 +1304,35 @@ describe('QuizService — course versioning', () => {
   // PR 1: restoreQuiz — the un-archive endpoint. Mirrors CourseService's
   // three restore endpoints; kept in this file because it lives on
   // QuizService. The parent-chain guard is the interesting bit because
-  // quizzes are two levels deep (chapter → module → course) and can
-  // legitimately be chapter-less (unassigned + archived).
+  // quizzes are two levels deep (chapter → module → course), can
+  // legitimately be in no chapter (unassigned + archived), or in several.
   // ────────────────────────────────────────────────────────────────────
 
   describe('restoreQuiz', () => {
+    const placed = (
+      chapterArchived: boolean,
+      moduleArchived: boolean,
+      id = 'ch-1',
+    ) => ({
+      chapter: {
+        id,
+        isArchived: chapterArchived,
+        title: chapterArchived ? 'Archived Ch' : 'Live Chapter',
+        module: {
+          id: `mod-${id}`,
+          isArchived: moduleArchived,
+          title: moduleArchived ? 'Archived Module' : 'Live Module',
+          courseId: 'course-1',
+        },
+      },
+    });
+
     it('flips isArchived to false, clears archivedAt, and emits RESTORE_ENTITY audit', async () => {
       prisma.quiz.findUnique.mockResolvedValue({
         id: 'quiz-1',
-        chapterId: 'ch-1',
         isArchived: true,
         question: 'Old Q?',
-        chapter: {
-          id: 'ch-1',
-          isArchived: false,
-          title: 'Live Chapter',
-          module: {
-            id: 'mod-1',
-            isArchived: false,
-            title: 'Live Module',
-            courseId: 'course-1',
-          },
-        },
+        placements: [placed(false, false)],
       });
       prisma.quiz.update.mockResolvedValue({
         id: 'quiz-1',
@@ -848,20 +1363,9 @@ describe('QuizService — course versioning', () => {
     it('returns 409 when the parent chapter is archived', async () => {
       prisma.quiz.findUnique.mockResolvedValue({
         id: 'quiz-1',
-        chapterId: 'ch-1',
         isArchived: true,
         question: 'Q?',
-        chapter: {
-          id: 'ch-1',
-          isArchived: true, // ← archived parent
-          title: 'Archived Ch',
-          module: {
-            id: 'mod-1',
-            isArchived: false,
-            title: 'Live Module',
-            courseId: 'course-1',
-          },
-        },
+        placements: [placed(true, false)],
       });
 
       await expect(service.restoreQuiz('quiz-1', 'admin-1')).rejects.toThrow(
@@ -873,20 +1377,9 @@ describe('QuizService — course versioning', () => {
     it('returns 409 with module first in chain when grandparent module is archived', async () => {
       prisma.quiz.findUnique.mockResolvedValue({
         id: 'quiz-1',
-        chapterId: 'ch-1',
         isArchived: true,
         question: 'Q?',
-        chapter: {
-          id: 'ch-1',
-          isArchived: false, // chapter live
-          title: 'Live Ch',
-          module: {
-            id: 'mod-1',
-            isArchived: true, // grandparent archived
-            title: 'Archived Module',
-            courseId: 'course-1',
-          },
-        },
+        placements: [placed(false, true)],
       });
 
       try {
@@ -899,16 +1392,30 @@ describe('QuizService — course versioning', () => {
       }
     });
 
-    it('restores a chapter-less quiz (unassigned + archived) without a parent-chain check', async () => {
-      // unAssignQuiz nulls the FK on archive. Restoring returns the quiz to
-      // the bank; assignQuiz can later put it back in a chapter. No parent
-      // to guard against.
+    it('restores a shared quiz when at least one of its chapters is live', async () => {
       prisma.quiz.findUnique.mockResolvedValue({
         id: 'quiz-1',
-        chapterId: null,
         isArchived: true,
         question: 'Q?',
-        chapter: null,
+        placements: [placed(true, false, 'ch-1'), placed(false, false, 'ch-2')],
+      });
+      prisma.quiz.update.mockResolvedValue({ id: 'quiz-1', isArchived: false });
+
+      const result = await service.restoreQuiz('quiz-1', 'admin-1');
+
+      expect(result.statusCode).toBe(200);
+      expect(prisma.quiz.update).toHaveBeenCalled();
+    });
+
+    it('restores a chapter-less quiz (unassigned + archived) without a parent-chain check', async () => {
+      // unAssignQuiz removes the placement on archive. Restoring returns the
+      // quiz to the bank; assignQuiz can later put it back in a chapter. No
+      // parent to guard against.
+      prisma.quiz.findUnique.mockResolvedValue({
+        id: 'quiz-1',
+        isArchived: true,
+        question: 'Q?',
+        placements: [],
       });
       prisma.quiz.update.mockResolvedValue({
         id: 'quiz-1',
@@ -928,20 +1435,9 @@ describe('QuizService — course versioning', () => {
     it('returns 409 when the quiz is already live', async () => {
       prisma.quiz.findUnique.mockResolvedValue({
         id: 'quiz-1',
-        chapterId: 'ch-1',
         isArchived: false,
         question: 'Q?',
-        chapter: {
-          id: 'ch-1',
-          isArchived: false,
-          title: 'Ch',
-          module: {
-            id: 'mod',
-            isArchived: false,
-            title: 'M',
-            courseId: 'course-1',
-          },
-        },
+        placements: [placed(false, false)],
       });
 
       await expect(service.restoreQuiz('quiz-1', 'admin-1')).rejects.toThrow(

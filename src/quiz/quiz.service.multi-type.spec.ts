@@ -45,6 +45,7 @@ describe('QuizService — multi-type questions', () => {
         create: jest.fn(),
         update: jest.fn(),
       },
+      chapterQuiz: { findMany: jest.fn() },
     };
 
     courseVersionService = {
@@ -199,7 +200,7 @@ describe('QuizService — multi-type questions', () => {
       });
     });
 
-    it('re-homes an existing answer via update, writing studentAnswer/systemScore (no legacy `answer` key)', async () => {
+    it("updates this chapter's existing answer, writing studentAnswer/systemScore (no legacy `answer` key)", async () => {
       prisma.quiz.findUnique.mockResolvedValue({
         id: 'quiz-1',
         type: QuestionType.TRUE_FALSE,
@@ -207,7 +208,7 @@ describe('QuizService — multi-type questions', () => {
       });
       prisma.quizAnswer.findFirst.mockResolvedValue({
         id: 'ans-1',
-        chapterId: 'ch-OLD',
+        chapterId: 'ch-1',
       });
       prisma.quizAnswer.update.mockResolvedValue({ id: 'ans-1' });
 
@@ -216,8 +217,19 @@ describe('QuizService — multi-type questions', () => {
         studentAnswer: { answer: true },
       });
 
+      // Looked up per chapter — an answer to the same (shared) quiz in another
+      // chapter is a different row.
+      expect(prisma.quizAnswer.findFirst).toHaveBeenCalledWith({
+        where: { quizId: 'quiz-1', userId: 'user-1', chapterId: 'ch-1' },
+      });
       expect(prisma.quizAnswer.update).toHaveBeenCalledWith({
-        where: { userId_quizId: { userId: 'user-1', quizId: 'quiz-1' } },
+        where: {
+          userId_chapterId_quizId: {
+            userId: 'user-1',
+            chapterId: 'ch-1',
+            quizId: 'quiz-1',
+          },
+        },
         data: {
           chapterId: 'ch-1',
           studentAnswer: { answer: true },
@@ -260,9 +272,11 @@ describe('QuizService — multi-type questions', () => {
 
       // Student path (unpinned -> live fallback; null is the documented
       // "no pinned version" signal from getVersionQuizzesForChapter).
-      prisma.chapter.findUnique
-        .mockResolvedValueOnce({ id: 'ch-1', module: { courseId: 'course-1' } })
-        .mockResolvedValueOnce({ id: 'ch-1', quizzes: [rawQuiz] });
+      prisma.chapter.findUnique.mockResolvedValueOnce({
+        id: 'ch-1',
+        module: { courseId: 'course-1' },
+      });
+      prisma.chapterQuiz.findMany.mockResolvedValue([{ quiz: rawQuiz }]);
       prisma.userCourse.findUnique.mockResolvedValue(null);
       courseVersionService.getVersionQuizzesForChapter.mockResolvedValue(null);
 
@@ -279,9 +293,11 @@ describe('QuizService — multi-type questions', () => {
       });
 
       // Admin path.
-      prisma.chapter.findUnique
-        .mockResolvedValueOnce({ id: 'ch-1', module: { courseId: 'course-1' } })
-        .mockResolvedValueOnce({ id: 'ch-1', quizzes: [rawQuiz] });
+      prisma.chapter.findUnique.mockResolvedValueOnce({
+        id: 'ch-1',
+        module: { courseId: 'course-1' },
+      });
+      prisma.chapterQuiz.findMany.mockResolvedValue([{ quiz: rawQuiz }]);
 
       const adminResult = await service.getAllAssignQuizzes(
         'ch-1',
@@ -299,9 +315,11 @@ describe('QuizService — multi-type questions', () => {
         type: QuestionType.SINGLE_CHOICE,
         content: { options: [], correctOptionId: 'b' },
       };
-      prisma.chapter.findUnique
-        .mockResolvedValueOnce({ id: 'ch-1', module: { courseId: 'course-1' } })
-        .mockResolvedValueOnce({ id: 'ch-1', quizzes: [rawQuiz] });
+      prisma.chapter.findUnique.mockResolvedValueOnce({
+        id: 'ch-1',
+        module: { courseId: 'course-1' },
+      });
+      prisma.chapterQuiz.findMany.mockResolvedValue([{ quiz: rawQuiz }]);
       prisma.userCourse.findUnique.mockResolvedValue(null);
       courseVersionService.getVersionQuizzesForChapter.mockResolvedValue(null);
       prisma.quizAnswer.findMany.mockResolvedValue([

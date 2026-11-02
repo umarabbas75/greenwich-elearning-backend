@@ -36,6 +36,7 @@ import {
 } from './course-version.manifest';
 import { computeLearnerPercentages, percentageKey } from './learner-percentage';
 import { writeAdminAudit } from '../utils/admin-audit';
+import { HAS_LIVE_QUIZ } from '../quiz/chapter-quiz';
 
 export type CurriculumResolveResult =
   | { mode: 'live' }
@@ -798,7 +799,7 @@ export class CourseVersionService {
           where: {
             isArchived: false,
             module: { courseId, isArchived: false },
-            quizzes: { some: { isArchived: false } },
+            ...HAS_LIVE_QUIZ,
           },
           select: { id: true },
         }),
@@ -862,7 +863,7 @@ export class CourseVersionService {
     const stillHasLiveQuiz = await this.prisma.chapter.findMany({
       where: {
         id: { in: manifestQuizChapterIds },
-        quizzes: { some: { isArchived: false } },
+        ...HAS_LIVE_QUIZ,
       },
       select: { id: true },
     });

@@ -47,8 +47,11 @@ describe('QuizService.createChapterQuizzesReport — course-completion trigger',
           .fn()
           .mockResolvedValue([{ chapters: [{ id: CHAPTER_ID }] }]),
       },
-      quiz: {
-        findMany: jest.fn().mockResolvedValue([{ id: 'q1' }, { id: 'q2' }]),
+      // Two live placements in the chapter.
+      chapterQuiz: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ quizId: 'q1' }, { quizId: 'q2' }]),
         count: jest.fn().mockResolvedValue(2),
       },
       quizAnswer: { findMany: jest.fn().mockResolvedValue(passingAnswers) },

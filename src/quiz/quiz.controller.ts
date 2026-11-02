@@ -48,6 +48,10 @@ export class QuizController {
     @Query('courseId') courseId?: string,
     @Query('assigned') assigned?: string,
     @Query('includeArchived') includeArchived?: string,
+    // Quizzes used in this chapter.
+    @Query('chapterId') chapterId?: string,
+    // Quizzes NOT yet in this chapter — the assign picker's list.
+    @Query('excludeChapterId') excludeChapterId?: string,
   ): Promise<ResponseDto> {
     // page/pageSize are opt-in: omitting both preserves the old "return every
     // quiz" behaviour so existing callers (e.g. AssignQuizModal, which needs
@@ -57,6 +61,8 @@ export class QuizController {
       page: page ? Number(page) : undefined,
       limit: pageSize ? Number(pageSize) : undefined,
       courseId,
+      chapterId,
+      excludeChapterId,
       assigned:
         assigned === 'true' ? true : assigned === 'false' ? false : undefined,
       includeArchived: includeArchived === 'true',
@@ -180,6 +186,23 @@ export class QuizController {
   @UseGuards(AuthGuard('jwt'))
   @Put('/assignQuiz/bulk')
   bulkAssignQuiz(
+    @GetUser() user: User,
+    @Body() body: BulkAssignQuizDto,
+  ): Promise<ResponseDto> {
+    return this.appService.bulkAssignQuiz(
+      body.chapterId,
+      body.quizIds,
+      user.id,
+    );
+  }
+
+  // Same as assignQuiz/bulk, under a route only a shared-quiz backend has: a
+  // client that relies on "assign adds, never moves" calls this, so if it ever
+  // reaches an older backend (deploy/rollback window) it gets a 404 instead of
+  // the old assign silently MOVING the quizzes out of their other chapters.
+  @UseGuards(AuthGuard('jwt'))
+  @Put('/placements/bulk')
+  addQuizzesToChapter(
     @GetUser() user: User,
     @Body() body: BulkAssignQuizDto,
   ): Promise<ResponseDto> {

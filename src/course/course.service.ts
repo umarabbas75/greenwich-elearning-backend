@@ -95,6 +95,13 @@ import {
   parseManifest,
   isIdReferencedInManifest,
 } from '../course-version/course-version.manifest';
+import {
+  exposeQuizCount,
+  LIVE_PLACEMENT,
+  PLACEMENT_ORDER,
+  quizPlacementInCourse,
+  quizzesOnlyInChapters,
+} from '../quiz/chapter-quiz';
 import { CourseCompletionService } from '../course-completion/course-completion.service';
 import { NotificationService } from '../notifications/notification.service';
 import {
@@ -2135,7 +2142,7 @@ export class CourseService {
                   },
                   _count: {
                     select: {
-                      quizzes: { where: { isArchived: false } },
+                      quizPlacements: { where: LIVE_PLACEMENT },
                     },
                   },
                 },
@@ -2178,7 +2185,7 @@ export class CourseService {
             id: chapter.id,
             title: chapter.title,
             sectionMetas,
-            quizzesTotal: chapter._count.quizzes,
+            quizzesTotal: chapter._count.quizPlacements,
             activity,
             chapterCompletedAt: chapterCompletedAtById.get(chapter.id) ?? null,
             isFrozen,
@@ -4052,7 +4059,7 @@ export class CourseService {
                         sections: {
                           where: { isArchived: false, isActive: true },
                         },
-                        quizzes: { where: { isArchived: false } },
+                        quizPlacements: { where: LIVE_PLACEMENT },
                       },
                     },
                     QuizProgress: {
@@ -4107,6 +4114,7 @@ export class CourseService {
       for (const mod of courses?.modules ?? []) {
         for (const chapter of mod.chapters ?? []) {
           chapter.completedAt = chapterCompletedAt.get(chapter.id) ?? null;
+          exposeQuizCount(chapter);
         }
       }
 
@@ -4154,7 +4162,7 @@ export class CourseService {
               // filter isArchived: false. An unfiltered count over-reports by
               // the number of archived sections/quizzes.
               sections: { where: { isArchived: false } },
-              quizzes: { where: { isArchived: false } },
+              quizPlacements: { where: LIVE_PLACEMENT },
             },
           },
         },
@@ -4168,7 +4176,7 @@ export class CourseService {
       return {
         message: 'Successfully fetch all Chapters info against module',
         statusCode: 200,
-        data: chapters,
+        data: chapters.map(exposeQuizCount),
       };
     } catch (error) {
       throw new HttpException(
@@ -4313,7 +4321,7 @@ export class CourseService {
         };
       }
 
-      const [sections, chapter] = await Promise.all([
+      const [sections, chapterRow] = await Promise.all([
         this.prisma.section.findMany({
           // isActive:true to match every other live path. The lesson-player
           // sidebar derives its "N/N" from this array's length, so including
@@ -4327,18 +4335,23 @@ export class CourseService {
         this.prisma.chapter.findUnique({
           where: { id },
           include: {
-            quizzes: {
-              where: { isArchived: false },
+            quizPlacements: {
+              where: LIVE_PLACEMENT,
+              orderBy: PLACEMENT_ORDER,
+              // No `answer`: this is the learner lesson endpoint, and the
+              // pinned branch above already strips answers too.
               select: {
-                id: true,
-                question: true,
-                options: true,
-                answer: true,
+                quiz: { select: { id: true, question: true, options: true } },
               },
             },
           },
         }),
       ]);
+      // Same `chapter.quizzes` shape as before placements existed.
+      const { quizPlacements, ...chapterFields } = chapterRow ?? {};
+      const chapter = chapterRow
+        ? { ...chapterFields, quizzes: quizPlacements.map((p) => p.quiz) }
+        : null;
 
       // Sort sections: non-null orderIndex first (ascending), then nulls at the end
       const sortedSections = [...sections].sort((a, b) => {
@@ -5333,7 +5346,7 @@ export class CourseService {
           })
         : Promise.resolve(0),
       chapterIds.length > 0
-        ? this.prisma.quiz.count({ where: { chapterId: { in: chapterIds } } })
+        ? this.prisma.quiz.count({ where: quizzesOnlyInChapters(chapterIds) })
         : Promise.resolve(0),
       this.prisma.courseForm.count({ where: { courseId } }),
       this.prisma.assignment.count({ where: { courseId } }),
@@ -6360,9 +6373,12 @@ export class CourseService {
 
         // Curriculum tree, leaf → root.
         if (chapterIds.length > 0) {
+          // Only quizzes used by this course alone. Shared ones stay in the
+          // bank for the other course; their placements here cascade with
+          // the chapters below.
           counts.quizzes = (
             await tx.quiz.deleteMany({
-              where: { chapterId: { in: chapterIds } },
+              where: quizzesOnlyInChapters(chapterIds),
             })
           ).count;
           counts.sections = (
@@ -7864,41 +7880,50 @@ export class CourseService {
           })
         : Promise.resolve([]),
       wantQuiz
-        ? this.prisma.quiz.findMany({
-            where: {
-              // Quizzes can legitimately have a null chapterId (unassigned but
-              // still in the bank). Scope to this course by joining through
-              // chapter.module. Quizzes archived via unAssignQuiz also set
-              // chapterId to null, so we need an OR: either their current
-              // chapter belongs to this course, OR they were originally
-              // assigned to a chapter in this course and are now dangling
-              // (best-effort — we can't recover the historical courseId).
-              // Pragmatic compromise: include only quizzes still linked to a
-              // chapter in this course. The unlinked-and-archived quizzes
-              // surface via the (separate) POST /quiz/:id/restore audit trail.
-              chapter: { module: { courseId } },
-              isArchived: true,
-              ...(search
-                ? { question: { contains: search, mode: 'insensitive' } }
-                : {}),
-            },
-            select: {
-              id: true,
-              question: true,
-              archivedAt: true,
-              updatedAt: true,
-              chapter: {
-                select: {
-                  id: true,
-                  title: true,
-                  isArchived: true,
-                  module: {
-                    select: { id: true, title: true, isArchived: true },
+        ? this.prisma.quiz
+            .findMany({
+              where: {
+                // Quizzes deleted from the bank while still placed in a
+                // chapter of this course (the placement stays live; the
+                // quiz-level archive hides it). Quizzes removed from a chapter
+                // have a removed placement and go back to the bank on restore,
+                // so — as before placements — they are not listed here.
+                placements: { some: quizPlacementInCourse(courseId) },
+                isArchived: true,
+                ...(search
+                  ? { question: { contains: search, mode: 'insensitive' } }
+                  : {}),
+              },
+              select: {
+                id: true,
+                question: true,
+                archivedAt: true,
+                updatedAt: true,
+                placements: {
+                  where: quizPlacementInCourse(courseId),
+                  orderBy: PLACEMENT_ORDER,
+                  take: 1,
+                  select: {
+                    chapter: {
+                      select: {
+                        id: true,
+                        title: true,
+                        isArchived: true,
+                        module: {
+                          select: { id: true, title: true, isArchived: true },
+                        },
+                      },
+                    },
                   },
                 },
               },
-            },
-          })
+            })
+            .then((rows) =>
+              rows.map(({ placements, ...q }) => ({
+                ...q,
+                chapter: placements[0]?.chapter ?? null,
+              })),
+            )
         : Promise.resolve([]),
     ]);
 

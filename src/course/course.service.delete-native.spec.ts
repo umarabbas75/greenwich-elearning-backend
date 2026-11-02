@@ -417,6 +417,32 @@ describe('CourseService — deleting a native course', () => {
     });
   });
 
+  // A quiz shared with another course (or still pinned by another course's
+  // version) must survive; only quizzes used by these chapters alone go.
+  it('deletes only the quizzes no other course uses', async () => {
+    givenNativeCourseWithModuleTree();
+    prisma.chapter.findMany.mockResolvedValue([{ id: 'chapter-1' }]);
+
+    await service.deleteCourse('course-native-1');
+
+    expect(prisma.quiz.deleteMany).toHaveBeenCalledWith({
+      where: {
+        placements: {
+          some: { chapterId: { in: ['chapter-1'] } },
+          every: { chapterId: { in: ['chapter-1'] } },
+        },
+        OR: [
+          { isArchived: true },
+          {
+            placements: {
+              some: { chapterId: { in: ['chapter-1'] }, isArchived: false },
+            },
+          },
+        ],
+      },
+    });
+  });
+
   it('names the constraint when the teardown hits a P2003, with no JS-side restore', async () => {
     givenNativeCourseWithModuleTree();
     prisma.course.delete.mockRejectedValue(

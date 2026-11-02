@@ -128,6 +128,11 @@ describe('CourseVersionService', () => {
       quiz: {
         findMany: jest.fn(),
       },
+      // Per-chapter quiz order (placements). Default: none, so pinned order
+      // falls back to the quiz row.
+      chapterQuiz: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       // Added for PR 3's diffVersionsTitled title hydration. Batched
       // findMany calls per entity type build the titles Map that the
       // pure diff function consumes.
@@ -632,7 +637,9 @@ describe('CourseVersionService', () => {
           where: {
             isArchived: false,
             module: { courseId: 'course-1', isArchived: false },
-            quizzes: { some: { isArchived: false } },
+            quizPlacements: {
+              some: { isArchived: false, quiz: { isArchived: false } },
+            },
           },
           select: { id: true },
         }),

@@ -1,9 +1,11 @@
 /**
  * audit-archived-attached-quizzes.ts   (READ-ONLY — issues no writes)
  *
- * Reports quizzes that are archived (isArchived = true) while still carrying a
- * chapterId, per chapter, alongside what the chapter's CURRENT latest published
- * version says.
+ * Reports quizzes that are archived (isArchived = true) while still placed in a
+ * chapter (a live chapter_quizzes row), per chapter, alongside what the
+ * chapter's CURRENT latest published version says. Before placements existed
+ * this was "archived while still carrying a chapterId" — the migration turned
+ * each such chapterId into a live placement, so the same rows are found.
  *
  * ⚠️ READ THIS BEFORE ACTING ON THE OUTPUT.
  *
@@ -75,24 +77,25 @@ async function main() {
       '   Cross-check the timeline before concluding anything is broken.\n',
   );
 
-  const archived = await prisma.quiz.findMany({
-    where: { isArchived: true, chapterId: { not: null } },
-    select: {
-      id: true,
-      question: true,
-      updatedAt: true,
-      chapterId: true,
-      chapter: {
-        select: {
-          title: true,
-          module: {
-            select: { courseId: true, course: { select: { title: true } } },
+  // One row per (archived quiz, chapter it is still placed in).
+  const archived = (
+    await prisma.chapterQuiz.findMany({
+      where: { isArchived: false, quiz: { isArchived: true } },
+      select: {
+        chapterId: true,
+        quiz: { select: { id: true, question: true, updatedAt: true } },
+        chapter: {
+          select: {
+            title: true,
+            module: {
+              select: { courseId: true, course: { select: { title: true } } },
+            },
           },
         },
       },
-    },
-    orderBy: { updatedAt: 'desc' },
-  });
+      orderBy: { quiz: { updatedAt: 'desc' } },
+    })
+  ).map((p) => ({ ...p.quiz, chapterId: p.chapterId, chapter: p.chapter }));
 
   if (archived.length === 0) {
     console.log('  No archived-but-attached quizzes found.\n');
@@ -125,8 +128,8 @@ async function main() {
   );
 
   for (const [chapterId, info] of byChapter) {
-    const activeNow = await prisma.quiz.count({
-      where: { chapterId, isArchived: false },
+    const activeNow = await prisma.chapterQuiz.count({
+      where: { chapterId, isArchived: false, quiz: { isArchived: false } },
     });
 
     // What the learner-facing denominator actually is right now.
@@ -199,8 +202,8 @@ async function main() {
         const ch = mod.chapters?.find((c) => c.sourceId === chapterId);
         if (ch) inManifest = ch.quizIds.length;
       }
-      const activeNow = await prisma.quiz.count({
-        where: { chapterId, isArchived: false },
+      const activeNow = await prisma.chapterQuiz.count({
+        where: { chapterId, isArchived: false, quiz: { isArchived: false } },
       });
       const agree = inManifest === activeNow;
       console.log(

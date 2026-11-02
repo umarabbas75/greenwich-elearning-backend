@@ -270,47 +270,47 @@ model UserFormCompletion {
 }
 
 model Policy {
-  id          String                 @id @default(uuid())
-  title       String // e.g., "NEBOSH Course Policy", "Greenwich Course Policy"
-  description String?
-  courseId    String
-  order       Int                    @default(0)
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
+  id              String                 @id @default(uuid())
+  title           String // e.g., "NEBOSH Course Policy", "Greenwich Course Policy"
+  description     String?
+  courseId        String
+  order           Int                    @default(0)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
   /// Set when an admin removes the policy from the course. The row and every
   /// learner's acknowledgement are kept as evidence; it no longer applies.
   /// Re-adding it clears this.
-  detachedAt  DateTime?
+  detachedAt      DateTime?
   /// Every period the policy was removed for, as [{ from, until }] ISO strings.
   /// Enrolments created inside one never had it, so it does not apply to them.
   detachedWindows Json?
-  course      Course                 @relation(fields: [courseId], references: [id])
-  items       PolicyItem[]
-  completions UserPolicyCompletion[]
+  course          Course                 @relation(fields: [courseId], references: [id])
+  items           PolicyItem[]
+  completions     UserPolicyCompletion[]
 
   @@index([courseId]) // For finding all policies in a course
   @@map("policies")
 }
 
 model PolicyItem {
-  id            String                     @id @default(uuid())
-  title         String // e.g., "Safety Guidelines", "Code of Conduct"
-  description   String?
-  link          String // URL to the document
-  isRequired    Boolean                    @default(true)
-  order         Int                        @default(0)
+  id              String                     @id @default(uuid())
+  title           String // e.g., "Safety Guidelines", "Code of Conduct"
+  description     String?
+  link            String // URL to the document
+  isRequired      Boolean                    @default(true)
+  order           Int                        @default(0)
   /// The item applies to enrolments created at or after this moment: when it
   /// was added, or when it was last switched from optional to required.
-  requiredSince DateTime                   @default(now())
+  requiredSince   DateTime                   @default(now())
   /// Set when an admin removes the item from its policy. Kept, with every
   /// learner's acknowledgement, as evidence; it no longer applies.
   /// Re-adding it clears this.
-  detachedAt    DateTime?
+  detachedAt      DateTime?
   /// Every period the item was removed for, as [{ from, until }] ISO strings.
   detachedWindows Json?
-  policyId      String
-  policy        Policy                     @relation(fields: [policyId], references: [id])
-  completions   UserPolicyItemCompletion[]
+  policyId        String
+  policy          Policy                     @relation(fields: [policyId], references: [id])
+  completions     UserPolicyItemCompletion[]
 
   @@index([policyId, isRequired]) // For finding required items
   @@index([policyId, order]) // For ordered display
@@ -459,7 +459,12 @@ model Chapter {
   UserCourseProgress     UserCourseProgress[]
   module                 Module                  @relation(fields: [moduleId], references: [id])
   QuizAnswer             QuizAnswer[]
-  quizzes                Quiz[]
+  /// Which bank quizzes this chapter uses, in order. Read through the helpers
+  /// in src/quiz/chapter-quiz.ts, which apply the "live" filter.
+  quizPlacements         ChapterQuiz[]
+  /// Pre-placement single-chapter link (`quizzes.chapterId`). Kept only so the
+  /// previous release keeps working during deploy; never read or write it.
+  legacyQuizzes          Quiz[]                  @relation("QuizLegacyChapter")
   sections               Section[]
   QuizProgress           QuizProgress[]
   userChapterCompletions UserChapterCompletion[]
@@ -546,36 +551,72 @@ model UserCourseProgress {
 }
 
 model Quiz {
-  id         String        @id @default(uuid())
-  question   String        @unique
-  options    String[]
+  id               String        @id @default(uuid())
+  question         String        @unique
+  options          String[]
   /// Legacy correct-answer string. Nullable so multi-type quizzes (type set,
   /// graded via `content` instead) don't need one — see `type`/`content` below.
-  answer     String?
+  answer           String?
   /// One of the 7 auto-gradable QuestionType values shared with the Assessment
   /// feature (SHORT_ANSWER/LONG_ANSWER excluded — a chapter quiz must stay
   /// fully automated). Null = legacy single-correct-answer MCQ using
   /// `options`/`answer` above. See docs/quiz-question-types-backend-handoff.md.
-  type       QuestionType?
+  type             QuestionType?
   /// Polymorphic per-type payload (options/correctOptionId, pairs, items, …),
   /// reused verbatim from Question.content. Null for legacy quizzes.
-  content    Json?
-  chapterId  String?
-  /// Display order within the chapter (lower first; nulls last). Reorder-only
+  content          Json?
+  /// DEPRECATED — the quiz's single chapter before a quiz could be used in
+  /// several chapters. Chapter membership now lives in `ChapterQuiz`. Frozen at
+  /// migration 20261103120000_chapter_quiz_placements; never read or write it
+  /// (a transition trigger mirrors writes from the previous release only).
+  legacyChapterId  String?       @map("chapterId")
+  /// DEPRECATED — order now lives on `ChapterQuiz.orderIndex`. Read only as
+  /// the ordering fallback for pinned learners whose manifest lists a quiz
+  /// that was unassigned before placements existed (no placement row).
+  legacyOrderIndex Int?          @map("orderIndex")
+  /// Bank-level soft delete ("deleted but still pinned by a course version").
+  /// An archived quiz is hidden from every chapter it is placed in.
+  isArchived       Boolean       @default(false)
+  /// See `Module.archivedAt` — same semantics.
+  archivedAt       DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  legacyChapter    Chapter?      @relation("QuizLegacyChapter", fields: [legacyChapterId], references: [id])
+  placements       ChapterQuiz[]
+
+  @@index([legacyChapterId], map: "quizzes_chapterId_idx")
+  @@index([legacyChapterId, legacyOrderIndex], map: "quizzes_chapterId_orderIndex_idx")
+  @@map("quizzes")
+}
+
+/// A bank quiz used in a chapter. One quiz can be placed in many chapters
+/// (e.g. the same NEBOSH questions in two courses): content stays on `Quiz`,
+/// so editing it changes every chapter; order and removal are per chapter.
+///
+/// "Live" (served to unpinned learners and captured by new versions) means
+/// `isArchived = false` here AND `quiz.isArchived = false`. Pinned learners get
+/// membership from their version manifest; order always comes from here.
+model ChapterQuiz {
+  id         String    @id @default(uuid())
+  chapterId  String
+  quizId     String
+  /// Display order within this chapter (lower first; nulls last). Reorder-only
   /// updates do not publish a new course version — see quiz reorder API.
   orderIndex Int?
-  isArchived Boolean       @default(false)
-  /// See `Module.archivedAt` — same semantics.
+  /// Removed from this chapter while a course version still references it.
+  /// Kept (not deleted) so pinned learners keep their order; re-assigning the
+  /// quiz to the chapter revives the row.
+  isArchived Boolean   @default(false)
   archivedAt DateTime?
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
-  chapter    Chapter?      @relation(fields: [chapterId], references: [id])
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  chapter    Chapter   @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  quiz       Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
 
-  // Speeds the live/unpinned quiz fetch (where: { chapterId, isArchived }).
-  // Postgres does not auto-index FK columns.
-  @@index([chapterId])
-  @@index([chapterId, orderIndex])
-  @@map("quizzes")
+  @@unique([chapterId, quizId])
+  @@index([quizId])
+  @@index([chapterId, isArchived, orderIndex])
+  @@map("chapter_quizzes")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -643,7 +684,9 @@ model QuizAnswer {
   updatedAt       DateTime @updatedAt
   Chapter         Chapter  @relation(fields: [chapterId], references: [id])
 
-  @@unique([userId, quizId])
+  // Per chapter, not per quiz: a quiz shared by two courses is answered (and
+  // retaken) separately in each.
+  @@unique([userId, chapterId, quizId])
   @@map("quiz_answers")
 }
 

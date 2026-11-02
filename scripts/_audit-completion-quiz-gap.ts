@@ -68,8 +68,10 @@ async function main() {
        WHERE c."isArchived" = false
          AND m."isArchived" = false
          AND EXISTS (
-               SELECT 1 FROM "quizzes" q
-                WHERE q."chapterId" = c.id
+               SELECT 1 FROM "chapter_quizzes" cq
+                 JOIN "quizzes" q ON q.id = cq."quizId"
+                WHERE cq."chapterId" = c.id
+                  AND cq."isArchived" = false
                   AND q."isArchived" = false
              )
     ),
@@ -152,8 +154,10 @@ async function main() {
              ) AS seq,
              COUNT(*) OVER (PARTITION BY m."courseId") AS total_chapters,
              EXISTS (
-               SELECT 1 FROM "quizzes" q
-                WHERE q."chapterId" = c.id AND q."isArchived" = false
+               SELECT 1 FROM "chapter_quizzes" cq
+                 JOIN "quizzes" q ON q.id = cq."quizId"
+                WHERE cq."chapterId" = c.id AND cq."isArchived" = false
+                  AND q."isArchived" = false
              ) AS has_quiz
         FROM "chapters" c
         JOIN "modules" m ON m.id = c."moduleId"
