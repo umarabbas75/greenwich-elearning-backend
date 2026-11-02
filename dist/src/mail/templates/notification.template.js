@@ -272,22 +272,50 @@ function renderNotificationEmail(mail) {
                 courseId: mail.courseId,
                 courseFormId: mail.courseFormId,
             });
+            const verb = mail.resubmitted
+                ? 'has updated and resubmitted'
+                : 'has submitted';
+            const subjectVerb = mail.resubmitted ? 'resubmitted' : 'submitted';
             const body = `<p>Dear ${name},</p>
-        <p style="margin-top:12px;">${student} has submitted a learner registration form for <strong>${title}</strong>. Please review it when you have a moment.</p>`;
+        <p style="margin-top:12px;">${student} ${verb} a learner registration form for <strong>${title}</strong>. Please review it when you have a moment.</p>`;
             return {
-                subject: `Registration submitted: ${mail.courseTitle}`,
+                subject: `Registration ${subjectVerb}: ${mail.courseTitle}`,
                 html: (0, mail_layout_1.layout)({
-                    heading: 'Registration form submitted',
+                    heading: mail.resubmitted
+                        ? 'Registration form resubmitted'
+                        : 'Registration form submitted',
                     bodyHtml: body,
                     ctaLabel: 'Review registration',
                     ctaUrl: url,
                 }),
-                text: `Dear ${mail.recipientFirstName || 'there'},\n\n${mail.studentName} has submitted a learner registration form for "${mail.courseTitle}".\n\nReview it: ${url}\n\nKind regards,\nThe ${mail_layout_1.BRAND.name} Team`,
+                text: `Dear ${mail.recipientFirstName || 'there'},\n\n${mail.studentName} ${verb} a learner registration form for "${mail.courseTitle}".\n\nReview it: ${url}\n\nKind regards,\nThe ${mail_layout_1.BRAND.name} Team`,
             };
         }
         case 'REGISTRATION_REVIEWED': {
             const name = (0, mail_layout_1.escapeHtml)(mail.recipientFirstName || 'there');
             const title = (0, mail_layout_1.escapeHtml)(mail.courseTitle);
+            if (mail.changesRequested && mail.courseFormId) {
+                const editUrl = (0, mail_paths_1.studentRegistrationFormEdit)(mail.courseId, mail.courseFormId);
+                const requestLine = mail.comments
+                    ? `<p style="margin-top:8px;padding:12px 16px;background:#f4f5f7;border-radius:8px;">${(0, mail_layout_1.escapeHtml)(mail.comments)}</p>`
+                    : '';
+                const body = `<p>Dear ${name},</p>
+        <p style="margin-top:12px;">Your learning advisor has asked you to update your registration form for <strong>${title}</strong> before it can be approved.</p>${requestLine}
+        <p style="margin-top:12px;">Open the form, make the changes, and submit it again. You cannot start the course until it is approved.</p>`;
+                const requestText = mail.comments
+                    ? `\n\nWhat to change: ${mail.comments}`
+                    : '';
+                return {
+                    subject: `Action needed: update your registration for ${mail.courseTitle}`,
+                    html: (0, mail_layout_1.layout)({
+                        heading: 'Please update your registration',
+                        bodyHtml: body,
+                        ctaLabel: 'Update registration',
+                        ctaUrl: editUrl,
+                    }),
+                    text: `Dear ${mail.recipientFirstName || 'there'},\n\nYour learning advisor has asked you to update your registration form for "${mail.courseTitle}" before it can be approved.${requestText}\n\nOpen the form, make the changes, and submit it again: ${editUrl}\n\nKind regards,\nThe ${mail_layout_1.BRAND.name} Team`,
+                };
+            }
             const url = (0, mail_paths_1.studentRegistrationFormView)(mail.courseId);
             const statusCopy = mail.registrationStatus === 'Approved'
                 ? 'has been approved'

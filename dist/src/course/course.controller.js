@@ -25,10 +25,22 @@ let CourseController = class CourseController {
         this.categories = categories;
     }
     markFormComplete(user, body) {
-        return this.appService.markFormComplete(user.id, user.role, body.courseId, body.formId, body.metaData, body.courseFormId);
+        return this.appService.markFormComplete(user.id, user.role, body.courseId, body.formId, body.metaData, body.courseFormId, body.changesRequestedAt);
     }
     updateFormMetadata(user, body) {
-        return this.appService.updateFormMetadata(user.id, user.role, body.userId, body.courseId, body.formId, body.courseFormId, body.metaData);
+        return this.appService.updateFormMetadata(user.id, user.role, body.userId, body.courseId, body.formId, body.courseFormId, body.metaData, body.submissionCompletedAt);
+    }
+    requestFormChanges(user, body) {
+        return this.appService.requestFormChanges({
+            adminId: user.id,
+            adminRole: user.role,
+            learnerUserId: body.userId,
+            courseId: body.courseId,
+            formId: body.formId,
+            courseFormId: body.courseFormId,
+            comments: body.comments,
+            submissionCompletedAt: body.submissionCompletedAt,
+        });
     }
     markPolicyItemAsComplete(user, body) {
         return this.appService.markPolicyItemAsComplete({
@@ -278,6 +290,15 @@ __decorate([
     __metadata("design:paramtypes", [Object, dto_1.UpdateFormMetadataDto]),
     __metadata("design:returntype", Promise)
 ], CourseController.prototype, "updateFormMetadata", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
+    (0, common_1.Post)('/requestFormChanges'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, dto_1.RequestFormChangesDto]),
+    __metadata("design:returntype", Promise)
+], CourseController.prototype, "requestFormChanges", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('cJwt')),
     (0, common_1.Post)('/markPolicyComplete'),

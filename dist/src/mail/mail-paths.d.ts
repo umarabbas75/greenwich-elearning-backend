@@ -16,4 +16,5 @@ export declare function advisorRegistrationReview(args: {
 }): string;
 export declare function studentCourseFormPage(courseId: string): string;
 export declare function studentRegistrationFormView(courseId: string): string;
+export declare function studentRegistrationFormEdit(courseId: string, courseFormId: string): string;
 export declare function appHome(): string;

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.appHome = exports.studentRegistrationFormView = exports.studentCourseFormPage = exports.advisorRegistrationReview = exports.adminIssuedCertificates = exports.adminContactInbox = exports.adminAssignmentSubmissions = exports.studentAssignmentDetail = exports.adminFeedback = exports.assessmentGrade = exports.forumThread = exports.studentCourseFeedback = exports.certificateVerify = exports.studentCourseDetail = exports.studentCoursesList = void 0;
+exports.appHome = exports.studentRegistrationFormEdit = exports.studentRegistrationFormView = exports.studentCourseFormPage = exports.advisorRegistrationReview = exports.adminIssuedCertificates = exports.adminContactInbox = exports.adminAssignmentSubmissions = exports.studentAssignmentDetail = exports.adminFeedback = exports.assessmentGrade = exports.forumThread = exports.studentCourseFeedback = exports.certificateVerify = exports.studentCourseDetail = exports.studentCoursesList = void 0;
 const mail_layout_1 = require("./templates/mail-layout");
 function studentCoursesList() {
     return `${mail_layout_1.BRAND.website}/studentCourses`;
@@ -68,6 +68,15 @@ function studentRegistrationFormView(courseId) {
     return `${mail_layout_1.BRAND.website}/studentCourses/${encodeURIComponent(courseId)}/course-form-page/forms/course-booking-form?${params.toString()}`;
 }
 exports.studentRegistrationFormView = studentRegistrationFormView;
+function studentRegistrationFormEdit(courseId, courseFormId) {
+    const params = new URLSearchParams({
+        courseId,
+        formId: 'registration-form',
+        courseFormId,
+    });
+    return `${mail_layout_1.BRAND.website}/studentCourses/${encodeURIComponent(courseId)}/course-form-page/forms/course-booking-form?${params.toString()}`;
+}
+exports.studentRegistrationFormEdit = studentRegistrationFormEdit;
 function appHome() {
     return mail_layout_1.BRAND.website;
 }

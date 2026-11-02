@@ -3,13 +3,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { CourseVersionService } from '../course-version/course-version.service';
 import { CertificateService } from '../certificate/certificate.service';
-import { AddAssessmentQuestionDto, CreateAssessmentDto, CreateQuestionCategoryDto, CreateQuestionDto, GradeAttemptDto, ReorderAssessmentQuestionsDto, SetCertificateDto, StartAttemptDto, SubmitAttemptDto, UpdateAssessmentDto, UpdateQuestionCategoryDto, UpdateQuestionDto } from '../dto';
+import { AddAssessmentQuestionDto, CreateAssessmentDto, CreateQuestionCategoryDto, CreateQuestionDto, GradeAttemptDto, ReorderAssessmentQuestionsDto, SaveAttemptAnswersDto, SetCertificateDto, StartAttemptDto, SubmitAttemptDto, UpdateAssessmentDto, UpdateQuestionCategoryDto, UpdateQuestionDto } from '../dto';
 export declare class CourseAssessmentService {
     private prisma;
     private notificationService;
     private courseVersionService;
     private certificateService;
     private static readonly ASSESSMENT_TIMER_GRACE_SECONDS;
+    private static readonly logger;
     constructor(prisma: PrismaService, notificationService: NotificationService, courseVersionService: CourseVersionService, certificateService: CertificateService);
     private throwMapped;
     private throwQuestionCategoryError;
@@ -205,6 +206,10 @@ export declare class CourseAssessmentService {
         message: string;
         statusCode: number;
         data: {
+            replaced: {
+                id: string;
+                title: string;
+            }[];
             id: string;
             courseId: string;
             title: string;
@@ -386,6 +391,13 @@ export declare class CourseAssessmentService {
             }[];
         }[];
     }>;
+    getStudentAssessmentCourseIds(userId: string): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            courseIds: string[];
+        };
+    }>;
     startAttempt(userId: string, body: StartAttemptDto): Promise<{
         message: string;
         statusCode: number;
@@ -395,6 +407,14 @@ export declare class CourseAssessmentService {
         message: string;
         statusCode: number;
         data: any;
+    }>;
+    saveAnswers(userId: string, attemptId: string, body: SaveAttemptAnswersDto): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            saved: number;
+            savedAt: Date;
+        };
     }>;
     submitAttempt(userId: string, attemptId: string, body: SubmitAttemptDto): Promise<{
         message: string;
@@ -420,6 +440,8 @@ export declare class CourseAssessmentService {
             updatedAt: Date;
         };
     }>;
+    private _gradeAndSubmit;
+    private _afterSubmit;
     getStudentAttemptHistory(userId: string, courseId: string): Promise<{
         message: string;
         statusCode: number;
@@ -686,6 +708,7 @@ export declare class CourseAssessmentService {
     private _shuffle;
     private _calculateAutoScore;
     private _expireStaleAttempts;
+    private _isPastDeadline;
     private _computeTimeInfo;
     private _stripCorrectAnswers;
     private _upsertCourseCompletion;

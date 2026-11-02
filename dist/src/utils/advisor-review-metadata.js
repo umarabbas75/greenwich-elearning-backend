@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.assertValidAdvisorReviewMetadata = exports.evaluateRegistrationAccess = exports.getAdvisorComments = exports.getAdvisorRegistrationStatus = exports.isV2BookingMetadata = exports.ADVISOR_REGISTRATION_STATUSES = exports.ADVISOR_YES_NO_KEYS = exports.COURSE_BOOKING_DOC_REF_V2 = void 0;
+exports.assertValidAdvisorReviewMetadata = exports.evaluateRegistrationAccess = exports.sendBackMetadata = exports.getResubmissionRound = exports.appendReviewHistory = exports.getReviewHistory = exports.getChangesRequest = exports.learnerPartOfMetadata = exports.getAdvisorComments = exports.getAdvisorRegistrationStatus = exports.isV2BookingMetadata = exports.ADVISOR_OWNED_METADATA_KEYS = exports.ADVISOR_REGISTRATION_STATUSES = exports.ADVISOR_YES_NO_KEYS = exports.COURSE_BOOKING_DOC_REF_V2 = void 0;
 const common_1 = require("@nestjs/common");
 exports.COURSE_BOOKING_DOC_REF_V2 = 'GWTC/IQA-R0014 · 15/08/2026';
 exports.ADVISOR_YES_NO_KEYS = [
@@ -17,6 +17,15 @@ exports.ADVISOR_REGISTRATION_STATUSES = [
     'Pending',
     'Rejected',
 ];
+exports.ADVISOR_OWNED_METADATA_KEYS = [
+    'advisor',
+    'advisorSignature',
+    'advisorDate',
+    'changesRequested',
+    'reviewHistory',
+];
+const REVIEW_HISTORY_LIMIT = 50;
+const REPLACED_SNAPSHOT_LIMIT = 3;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 function asRecord(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -55,18 +64,143 @@ function getAdvisorComments(metadata) {
     return trimmed.length > 0 ? trimmed : null;
 }
 exports.getAdvisorComments = getAdvisorComments;
+function learnerPartOfMetadata(metadata) {
+    const owned = exports.ADVISOR_OWNED_METADATA_KEYS;
+    return Object.fromEntries(Object.entries(asRecord(metadata) ?? {}).filter(([key]) => !owned.includes(key)));
+}
+exports.learnerPartOfMetadata = learnerPartOfMetadata;
+function getChangesRequest(metadata) {
+    const request = asRecord(asRecord(metadata)?.changesRequested);
+    if (!request || typeof request.requestedAt !== 'string') {
+        return null;
+    }
+    return {
+        requestedAt: request.requestedAt,
+        requestedById: typeof request.requestedById === 'string' ? request.requestedById : '',
+        requestedByName: typeof request.requestedByName === 'string'
+            ? request.requestedByName
+            : null,
+        comments: typeof request.comments === 'string' ? request.comments : '',
+        previousCompletedAt: typeof request.previousCompletedAt === 'string'
+            ? request.previousCompletedAt
+            : null,
+        previousStatus: exports.ADVISOR_REGISTRATION_STATUSES.includes(request.previousStatus)
+            ? request.previousStatus
+            : null,
+    };
+}
+exports.getChangesRequest = getChangesRequest;
+function getReviewHistory(metadata) {
+    const history = asRecord(metadata)?.reviewHistory;
+    if (!Array.isArray(history)) {
+        return [];
+    }
+    return history.filter((entry) => typeof asRecord(entry)?.action === 'string');
+}
+exports.getReviewHistory = getReviewHistory;
+function appendReviewHistory(metadata, entry) {
+    const history = [...getReviewHistory(metadata), entry].slice(-REVIEW_HISTORY_LIMIT);
+    let snapshotsKept = 0;
+    for (let i = history.length - 1; i >= 0; i--) {
+        const replaced = asRecord(history[i].replaced);
+        if (history[i].action !== 'RESUBMITTED' || !replaced?.metadata) {
+            continue;
+        }
+        snapshotsKept++;
+        if (snapshotsKept > REPLACED_SNAPSHOT_LIMIT) {
+            history[i] = {
+                ...history[i],
+                replaced: { completedAt: replaced.completedAt ?? null },
+            };
+        }
+    }
+    return history;
+}
+exports.appendReviewHistory = appendReviewHistory;
+function getResubmissionRound(metadata) {
+    return getReviewHistory(metadata).reduce((max, entry) => {
+        const round = entry.action === 'RESUBMITTED' ? Number(entry.round) : 0;
+        return Number.isInteger(round) && round > max ? round : max;
+    }, 0);
+}
+exports.getResubmissionRound = getResubmissionRound;
+function sendBackMetadata(metadata, request) {
+    const current = asRecord(metadata) ?? {};
+    const prior = getChangesRequest(metadata);
+    const statusBefore = getAdvisorRegistrationStatus(metadata);
+    const requestedAt = request.at.toISOString();
+    const changesRequested = {
+        requestedAt,
+        requestedById: request.byId,
+        requestedByName: request.byName,
+        comments: request.comments,
+        previousCompletedAt: prior
+            ? prior.previousCompletedAt
+            : request.submissionCompletedAt?.toISOString() ?? null,
+        previousStatus: prior ? prior.previousStatus : statusBefore,
+    };
+    return {
+        ...current,
+        advisor: {
+            ...(asRecord(current.advisor) ?? {}),
+            registrationStatus: 'Pending',
+            comments: request.comments,
+        },
+        changesRequested,
+        reviewHistory: appendReviewHistory(metadata, {
+            action: 'CHANGES_REQUESTED',
+            at: requestedAt,
+            byId: request.byId,
+            byName: request.byName,
+            comments: request.comments,
+            statusBefore,
+            review: {
+                advisor: current.advisor ?? null,
+                advisorSignature: current.advisorSignature ?? null,
+                advisorDate: current.advisorDate ?? null,
+            },
+        }),
+    };
+}
+exports.sendBackMetadata = sendBackMetadata;
 function evaluateRegistrationAccess(forms) {
     const registration = forms.find((f) => f.formId === 'registration-form');
     if (!registration) {
-        return { blocked: false, registrationStatus: null, comments: null };
+        return {
+            blocked: false,
+            registrationStatus: null,
+            comments: null,
+            changesRequestedAt: null,
+        };
     }
     const status = getAdvisorRegistrationStatus(registration.metadata);
     const comments = getAdvisorComments(registration.metadata);
     if (status == null) {
-        return { blocked: false, registrationStatus: null, comments };
+        return {
+            blocked: false,
+            registrationStatus: null,
+            comments,
+            changesRequestedAt: null,
+        };
+    }
+    const changesRequest = getChangesRequest(registration.metadata);
+    if (changesRequest) {
+        return {
+            blocked: true,
+            reason: 'REGISTRATION_CHANGES_REQUESTED',
+            registrationStatus: 'Pending',
+            comments: changesRequest.comments.trim() || comments,
+            message: 'Your learning advisor asked you to update your registration form.',
+            changesRequestedAt: changesRequest.requestedAt,
+        };
     }
     if (status === 'Approved') {
-        return { blocked: false, registrationStatus: status, comments };
+        return {
+            blocked: false,
+            registrationStatus: status,
+            comments,
+            changesRequestedAt: null,
+        };
     }
     if (status === 'Rejected') {
         return {
@@ -75,6 +209,7 @@ function evaluateRegistrationAccess(forms) {
             registrationStatus: status,
             comments,
             message: 'Your registration was not approved. Please review the advisor comments.',
+            changesRequestedAt: null,
         };
     }
     return {
@@ -83,6 +218,7 @@ function evaluateRegistrationAccess(forms) {
         registrationStatus: 'Pending',
         comments,
         message: 'Your registration is waiting for advisor approval.',
+        changesRequestedAt: null,
     };
 }
 exports.evaluateRegistrationAccess = evaluateRegistrationAccess;

@@ -149,6 +149,7 @@ export declare class MarkFormCompleteDto {
     formId: string;
     courseFormId: string;
     metaData?: Record<string, unknown>;
+    changesRequestedAt?: string;
 }
 export declare class UpdateFormMetadataDto {
     courseId: string;
@@ -156,6 +157,15 @@ export declare class UpdateFormMetadataDto {
     courseFormId: string;
     userId: string;
     metaData: Record<string, unknown>;
+    submissionCompletedAt?: string | null;
+}
+export declare class RequestFormChangesDto {
+    courseId: string;
+    formId: string;
+    courseFormId: string;
+    userId: string;
+    comments: string;
+    submissionCompletedAt?: string | null;
 }
 export declare class AssignCourseDto {
     userId: string;
@@ -417,6 +427,9 @@ export declare class AnswerItemDto {
     studentAnswer: Record<string, any>;
 }
 export declare class SubmitAttemptDto {
+    answers?: AnswerItemDto[];
+}
+export declare class SaveAttemptAnswersDto {
     answers: AnswerItemDto[];
 }
 export declare class QuestionScoreDto {

@@ -112,6 +112,7 @@ export type NotificationEmail = {
     learnerUserId: string;
     courseId: string;
     courseFormId: string;
+    resubmitted?: boolean;
 } | {
     kind: 'REGISTRATION_REVIEWED';
     to: string;
@@ -121,6 +122,8 @@ export type NotificationEmail = {
     courseId: string;
     registrationStatus: 'Approved' | 'Pending' | 'Rejected';
     comments?: string | null;
+    changesRequested?: boolean;
+    courseFormId?: string;
 };
 export interface RegistrationReceivedMail {
     to: string;

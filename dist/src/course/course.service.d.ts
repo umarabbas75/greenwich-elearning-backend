@@ -8,6 +8,19 @@ import { FeedbackService } from '../feedback/feedback.service';
 import { CourseVersionService } from '../course-version/course-version.service';
 import { CourseCompletionService } from '../course-completion/course-completion.service';
 import { NotificationService } from '../notifications/notification.service';
+type RegistrationReviewResult = {
+    success: true;
+    form: {
+        id: string;
+        userId: string;
+        courseId: string;
+        formId: string;
+        courseFormId: string;
+        isComplete: boolean;
+        completedAt: Date | null;
+        metadata: Prisma.JsonValue;
+    };
+};
 export declare class CourseService {
     private prisma;
     private config;
@@ -30,22 +43,23 @@ export declare class CourseService {
     private writeArchiveAudit;
     private assertValidOrderingItems;
     private sanitizeLessonSectionForStudent;
-    markFormComplete(userId: string, userRole: Role, courseId: string, formId: string, metadata: Record<string, unknown> | undefined, courseFormId: string): Promise<any>;
-    updateFormMetadata(_adminId: string, adminRole: Role, learnerUserId: string, courseId: string, formId: string, courseFormId: string, metaData: Record<string, unknown>): Promise<{
-        success: true;
-        form: {
-            id: string;
-            userId: string;
-            courseId: string;
-            formId: string;
-            courseFormId: string;
-            isComplete: boolean;
-            completedAt: Date | null;
-            metadata: Prisma.JsonValue;
-        };
-    }>;
+    markFormComplete(userId: string, userRole: Role, courseId: string, formId: string, metadata: Record<string, unknown> | undefined, courseFormId: string, seenChangesRequestedAt?: string): Promise<any>;
+    updateFormMetadata(adminId: string, adminRole: Role, learnerUserId: string, courseId: string, formId: string, courseFormId: string, metaData: Record<string, unknown>, submissionCompletedAt?: string | null): Promise<RegistrationReviewResult>;
+    requestFormChanges(args: {
+        adminId: string;
+        adminRole: Role;
+        learnerUserId: string;
+        courseId: string;
+        formId: string;
+        courseFormId: string;
+        comments: string;
+        submissionCompletedAt?: string | null;
+    }): Promise<RegistrationReviewResult>;
+    private findRegistrationSubmission;
+    private writeAdvisorUpdate;
     private notifyRegistrationSubmittedIfV2;
     private notifyRegistrationReviewed;
+    private notifyRegistrationChangesRequested;
     getStudentCourseFormsStatus(userId: string, userRole: Role, courseId: string): Promise<{
         courseId: string;
         forms: Array<{
@@ -183,3 +197,4 @@ export declare class CourseService {
     getCourseFeedbackSubmissions(courseId: string, adminId: string): Promise<ResponseDto>;
     resetUserCourseProgress(adminId: string, userId: string, courseId: string): Promise<ResponseDto>;
 }
+export {};

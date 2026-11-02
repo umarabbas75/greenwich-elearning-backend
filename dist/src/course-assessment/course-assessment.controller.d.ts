@@ -1,6 +1,6 @@
 import { AssessmentAttemptStatus, QuestionDifficulty, QuestionType } from '@prisma/client';
 import { User } from '@prisma/client';
-import { AddAssessmentQuestionDto, CreateAssessmentDto, CreateQuestionCategoryDto, CreateQuestionDto, GradeAttemptDto, ReorderAssessmentQuestionsDto, SetCertificateDto, StartAttemptDto, SubmitAttemptDto, UpdateAssessmentDto, UpdateQuestionCategoryDto, UpdateQuestionDto } from '../dto';
+import { AddAssessmentQuestionDto, CreateAssessmentDto, CreateQuestionCategoryDto, CreateQuestionDto, GradeAttemptDto, ReorderAssessmentQuestionsDto, SetCertificateDto, StartAttemptDto, SaveAttemptAnswersDto, SubmitAttemptDto, UpdateAssessmentDto, UpdateQuestionCategoryDto, UpdateQuestionDto } from '../dto';
 import { CourseAssessmentService } from './course-assessment.service';
 export declare class CourseAssessmentController {
     private readonly service;
@@ -262,6 +262,10 @@ export declare class CourseAssessmentController {
         message: string;
         statusCode: number;
         data: {
+            replaced: {
+                id: string;
+                title: string;
+            }[];
             id: string;
             courseId: string;
             title: string;
@@ -517,6 +521,13 @@ export declare class CourseAssessmentController {
         };
     }>;
     setCertificate(admin: User, attemptId: string, userId: string, courseId: string, body: SetCertificateDto): Promise<import("../dto").ResponseDto>;
+    getStudentAssessmentCourseIds(user: User): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            courseIds: string[];
+        };
+    }>;
     getActiveAssessmentForStudent(user: User, courseId: string): Promise<{
         message: string;
         statusCode: number;
@@ -566,6 +577,14 @@ export declare class CourseAssessmentController {
         message: string;
         statusCode: number;
         data: any;
+    }>;
+    saveAnswers(user: User, id: string, body: SaveAttemptAnswersDto): Promise<{
+        message: string;
+        statusCode: number;
+        data: {
+            saved: number;
+            savedAt: Date;
+        };
     }>;
     submitAttempt(user: User, id: string, body: SubmitAttemptDto): Promise<{
         message: string;

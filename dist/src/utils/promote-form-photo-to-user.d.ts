@@ -7,4 +7,8 @@ export declare function promoteFormPhotoToUserIfMissing(prisma: Db, userId: stri
     updated: boolean;
     photoUrl: string | null;
 }>;
+export declare function replacePromotedFormPhoto(prisma: Db, userId: string, previousMetadata: unknown, metadata: unknown): Promise<{
+    updated: boolean;
+    photoUrl: string | null;
+}>;
 export {};

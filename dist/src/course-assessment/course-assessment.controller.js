@@ -97,6 +97,9 @@ let CourseAssessmentController = class CourseAssessmentController {
     setCertificate(admin, attemptId, userId, courseId, body) {
         return this.service.setCertificate(admin.id, userId, courseId, body);
     }
+    getStudentAssessmentCourseIds(user) {
+        return this.service.getStudentAssessmentCourseIds(user.id);
+    }
     getActiveAssessmentForStudent(user, courseId) {
         return this.service.getActiveAssessmentForStudent(user.id, courseId);
     }
@@ -105,6 +108,9 @@ let CourseAssessmentController = class CourseAssessmentController {
     }
     getAttempt(user, id) {
         return this.service.getAttempt(user.id, id);
+    }
+    saveAnswers(user, id, body) {
+        return this.service.saveAnswers(user.id, id, body);
     }
     submitAttempt(user, id, body) {
         return this.service.submitAttempt(user.id, id, body);
@@ -327,6 +333,14 @@ __decorate([
 ], CourseAssessmentController.prototype, "setCertificate", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('uJwt')),
+    (0, common_1.Get)('student/assessment-courses'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], CourseAssessmentController.prototype, "getStudentAssessmentCourseIds", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('uJwt')),
     (0, common_1.Get)('student/assessments/:courseId'),
     __param(0, (0, decorator_1.GetUser)()),
     __param(1, (0, common_1.Param)('courseId')),
@@ -352,6 +366,16 @@ __decorate([
     __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", void 0)
 ], CourseAssessmentController.prototype, "getAttempt", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('uJwt')),
+    (0, common_1.Patch)('student/attempts/:id/answers'),
+    __param(0, (0, decorator_1.GetUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, dto_1.SaveAttemptAnswersDto]),
+    __metadata("design:returntype", void 0)
+], CourseAssessmentController.prototype, "saveAnswers", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('uJwt')),
     (0, common_1.Post)('student/attempts/:id/submit'),

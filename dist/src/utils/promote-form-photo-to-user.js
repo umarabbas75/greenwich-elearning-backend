@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.promoteFormPhotoToUserIfMissing = exports.userHasGlobalPhoto = exports.extractUserPhotoFromMetadata = void 0;
+exports.replacePromotedFormPhoto = exports.promoteFormPhotoToUserIfMissing = exports.userHasGlobalPhoto = exports.extractUserPhotoFromMetadata = void 0;
 function extractUserPhotoFromMetadata(metadata) {
     if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
         return null;
@@ -36,4 +36,19 @@ async function promoteFormPhotoToUserIfMissing(prisma, userId, metadata) {
     return { updated: true, photoUrl };
 }
 exports.promoteFormPhotoToUserIfMissing = promoteFormPhotoToUserIfMissing;
+async function replacePromotedFormPhoto(prisma, userId, previousMetadata, metadata) {
+    const previousUrl = extractUserPhotoFromMetadata(previousMetadata);
+    const photoUrl = extractUserPhotoFromMetadata(metadata);
+    if (!previousUrl || !photoUrl || previousUrl === photoUrl) {
+        return { updated: false, photoUrl: null };
+    }
+    const replaced = await prisma.user.updateMany({
+        where: { id: userId, photo: previousUrl },
+        data: { photo: photoUrl },
+    });
+    return replaced.count > 0
+        ? { updated: true, photoUrl }
+        : { updated: false, photoUrl: null };
+}
+exports.replacePromotedFormPhoto = replacePromotedFormPhoto;
 //# sourceMappingURL=promote-form-photo-to-user.js.map

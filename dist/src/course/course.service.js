@@ -42,6 +42,40 @@ const course_version_manifest_1 = require("../course-version/course-version.mani
 const course_completion_service_1 = require("../course-completion/course-completion.service");
 const notification_service_1 = require("../notifications/notification.service");
 const learner_percentage_1 = require("../course-version/learner-percentage");
+function registrationReviewResult(row) {
+    return {
+        success: true,
+        form: {
+            id: row.id,
+            userId: row.userId,
+            courseId: row.courseId,
+            formId: row.formId,
+            courseFormId: row.courseFormId,
+            isComplete: row.isComplete,
+            completedAt: row.completedAt,
+            metadata: row.metadata,
+        },
+    };
+}
+function assertSubmissionUnchanged(row, seen) {
+    if (seen === undefined) {
+        return;
+    }
+    const stored = row.completedAt?.getTime() ?? null;
+    const looked = seen === null ? null : new Date(seen).getTime();
+    if (stored !== looked) {
+        throw new common_1.ConflictException({
+            detail: 'The learner has changed this registration since you opened it. Reload the page to review the latest submission.',
+        });
+    }
+}
+function parseIsoDate(value) {
+    if (!value) {
+        return null;
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
 let CourseService = CourseService_1 = class CourseService {
     constructor(prisma, config, mail, feedbackService, courseVersionService, courseCompletion, notifications, scormCloud) {
         this.prisma = prisma;
@@ -342,7 +376,7 @@ let CourseService = CourseService_1 = class CourseService {
             }
         }
     }
-    async markFormComplete(userId, userRole, courseId, formId, metadata, courseFormId) {
+    async markFormComplete(userId, userRole, courseId, formId, metadata, courseFormId, seenChangesRequestedAt) {
         const courseForm = (await this.prisma.courseForm.findUnique({
             where: { id: courseFormId },
         })) ??
@@ -383,22 +417,69 @@ let CourseService = CourseService_1 = class CourseService {
         if (existing?.isComplete) {
             return alreadyCompleted(existing);
         }
+        if (formId === 'registration-form' && !(0, advisor_review_metadata_1.isV2BookingMetadata)(metadata)) {
+            throw new common_1.BadRequestException({
+                detail: 'This registration form is out of date. Reload the page and submit the current form.',
+            });
+        }
+        const completedAt = new Date();
+        let storedMetadata = metadata ?? {};
+        const changesRequest = formId === 'registration-form' && existing
+            ? (0, advisor_review_metadata_1.getChangesRequest)(existing.metadata)
+            : null;
+        if (changesRequest &&
+            seenChangesRequestedAt !== undefined &&
+            seenChangesRequestedAt !== changesRequest.requestedAt) {
+            throw new common_1.ConflictException({
+                detail: 'Your learning advisor updated their request while you were editing this form. Reload the page to see what they asked for now, then submit again.',
+            });
+        }
+        if (formId === 'registration-form') {
+            storedMetadata = (0, advisor_review_metadata_1.learnerPartOfMetadata)(metadata);
+            if (existing) {
+                const history = changesRequest
+                    ? (0, advisor_review_metadata_1.appendReviewHistory)(existing.metadata, {
+                        action: 'RESUBMITTED',
+                        at: completedAt.toISOString(),
+                        round: (0, advisor_review_metadata_1.getResubmissionRound)(existing.metadata) + 1,
+                        replaced: {
+                            completedAt: changesRequest.previousCompletedAt,
+                            metadata: (0, advisor_review_metadata_1.learnerPartOfMetadata)(existing.metadata),
+                        },
+                    })
+                    : (0, advisor_review_metadata_1.getReviewHistory)(existing.metadata);
+                if (history.length > 0) {
+                    storedMetadata.reviewHistory = history;
+                }
+            }
+        }
         const data = {
             isComplete: true,
-            completedAt: new Date(),
-            metadata: (metadata ?? {}),
+            completedAt,
+            metadata: storedMetadata,
             courseFormId: courseForm.id,
         };
         let completion;
         if (existing) {
             const claimed = await this.prisma.userFormCompletion.updateMany({
-                where: { id: existing.id, isComplete: false },
+                where: changesRequest
+                    ? {
+                        id: existing.id,
+                        isComplete: false,
+                        updatedAt: existing.updatedAt,
+                    }
+                    : { id: existing.id, isComplete: false },
                 data,
             });
             const current = await this.prisma.userFormCompletion.findUnique({
                 where: { id: existing.id },
             });
             if (claimed.count === 0) {
+                if (changesRequest && current && !current.isComplete) {
+                    throw new common_1.ConflictException({
+                        detail: 'Your learning advisor updated this registration while you were editing it. Reload the page to see their latest comments, then submit again.',
+                    });
+                }
                 return alreadyCompleted(current ?? existing);
             }
             completion = current ?? existing;
@@ -431,6 +512,15 @@ let CourseService = CourseService_1 = class CourseService {
             const msg = photoErr instanceof Error ? photoErr.message : String(photoErr);
             CourseService_1.completionLogger.warn(`Form photo promotion failed for user ${userId}: ${msg}`);
         }
+        if (changesRequest && existing) {
+            try {
+                await (0, promote_form_photo_to_user_1.replacePromotedFormPhoto)(this.prisma, userId, existing.metadata, storedMetadata);
+            }
+            catch (photoErr) {
+                const msg = photoErr instanceof Error ? photoErr.message : String(photoErr);
+                CourseService_1.completionLogger.warn(`Resubmitted form photo replacement failed for user ${userId}: ${msg}`);
+            }
+        }
         try {
             await (0, promote_form_address_to_user_1.promoteFormAddressToUserIfMissing)(this.prisma, userId, metadata);
         }
@@ -445,6 +535,7 @@ let CourseService = CourseService_1 = class CourseService {
                 formId,
                 courseFormId: courseForm.id,
                 metadata,
+                resubmissionRound: (0, advisor_review_metadata_1.getResubmissionRound)(storedMetadata),
             });
         }
         catch (notifyErr) {
@@ -453,7 +544,7 @@ let CourseService = CourseService_1 = class CourseService {
         }
         return completion;
     }
-    async updateFormMetadata(_adminId, adminRole, learnerUserId, courseId, formId, courseFormId, metaData) {
+    async updateFormMetadata(adminId, adminRole, learnerUserId, courseId, formId, courseFormId, metaData, submissionCompletedAt) {
         if (adminRole !== client_1.Role.admin) {
             throw new common_1.ForbiddenException({
                 detail: 'Only admins can review registration forms',
@@ -465,6 +556,149 @@ let CourseService = CourseService_1 = class CourseService {
             });
         }
         (0, advisor_review_metadata_1.assertValidAdvisorReviewMetadata)(metaData);
+        const existing = await this.findRegistrationSubmission(learnerUserId, courseId, formId, courseFormId);
+        if (!(0, advisor_review_metadata_1.isV2BookingMetadata)(existing.metadata)) {
+            throw new common_1.BadRequestException({
+                detail: 'Advisor review is only allowed for v2 registration forms (GWTC/IQA-R0014 · 15/08/2026)',
+            });
+        }
+        assertSubmissionUnchanged(existing, submissionCompletedAt);
+        const now = new Date();
+        const changesRequest = (0, advisor_review_metadata_1.getChangesRequest)(existing.metadata);
+        if (changesRequest &&
+            (0, advisor_review_metadata_1.getAdvisorRegistrationStatus)(metaData) === 'Pending') {
+            throw new common_1.BadRequestException({
+                detail: 'This registration is with the learner to update. Approve or reject it, or update your request to the learner.',
+            });
+        }
+        const history = changesRequest
+            ? (0, advisor_review_metadata_1.appendReviewHistory)(existing.metadata, {
+                action: 'REQUEST_WITHDRAWN',
+                at: now.toISOString(),
+                byId: adminId,
+            })
+            : (0, advisor_review_metadata_1.getReviewHistory)(existing.metadata);
+        const metadata = {
+            ...(0, advisor_review_metadata_1.learnerPartOfMetadata)(existing.metadata),
+            advisor: metaData.advisor,
+            advisorSignature: metaData.advisorSignature,
+            advisorDate: metaData.advisorDate,
+            ...(history.length > 0 ? { reviewHistory: history } : {}),
+        };
+        const updated = await this.writeAdvisorUpdate(existing, {
+            metadata: metadata,
+            ...(changesRequest
+                ? {
+                    isComplete: true,
+                    completedAt: parseIsoDate(changesRequest.previousCompletedAt) ?? now,
+                }
+                : {}),
+        });
+        try {
+            await this.notifyRegistrationReviewed({
+                learnerUserId,
+                courseId,
+                metadata,
+            });
+        }
+        catch (notifyErr) {
+            const msg = notifyErr instanceof Error ? notifyErr.message : String(notifyErr);
+            CourseService_1.completionLogger.warn(`Registration review notify failed for user ${learnerUserId}: ${msg}`);
+        }
+        return registrationReviewResult(updated);
+    }
+    async requestFormChanges(args) {
+        if (args.adminRole !== client_1.Role.admin) {
+            throw new common_1.ForbiddenException({
+                detail: 'Only admins can send a registration back to the learner',
+            });
+        }
+        if (args.formId !== 'registration-form') {
+            throw new common_1.BadRequestException({
+                detail: 'Only the registration form can be sent back to the learner',
+            });
+        }
+        const comments = (args.comments ?? '').trim();
+        if (!comments) {
+            throw new common_1.BadRequestException({
+                detail: 'Tell the learner what they need to change',
+            });
+        }
+        if (comments.length > 2000) {
+            throw new common_1.BadRequestException({
+                detail: 'Comments must be 2000 characters or fewer',
+            });
+        }
+        const existing = await this.findRegistrationSubmission(args.learnerUserId, args.courseId, args.formId, args.courseFormId);
+        if (!(0, advisor_review_metadata_1.isV2BookingMetadata)(existing.metadata)) {
+            throw new common_1.BadRequestException({
+                detail: 'Only v2 registration forms (GWTC/IQA-R0014 · 15/08/2026) can be sent back to the learner',
+            });
+        }
+        if (!existing.isComplete && !(0, advisor_review_metadata_1.getChangesRequest)(existing.metadata)) {
+            throw new common_1.BadRequestException({
+                detail: 'The learner has not submitted this registration form yet',
+            });
+        }
+        assertSubmissionUnchanged(existing, args.submissionCompletedAt);
+        const [courseForm, enrollment, admin] = await Promise.all([
+            this.prisma.courseForm.findUnique({
+                where: {
+                    courseId_formId: { courseId: args.courseId, formId: args.formId },
+                },
+            }),
+            (0, assert_enrollment_usable_1.assertEnrollmentUsable)(this.prisma, args.learnerUserId, args.courseId, client_1.Role.user).catch((error) => {
+                if (error instanceof common_1.ForbiddenException) {
+                    return null;
+                }
+                throw error;
+            }),
+            this.prisma.user.findUnique({
+                where: { id: args.adminId },
+                select: { firstName: true, lastName: true },
+            }),
+        ]);
+        if (!enrollment) {
+            throw new common_1.BadRequestException({
+                detail: "This learner's enrolment on the course is inactive or their access has expired, so they could not resubmit. Reactivate it first.",
+            });
+        }
+        if (!courseForm ||
+            courseForm.detachedAt ||
+            !(0, course_form_applicability_1.courseFormAttachedForEnrollment)(courseForm, enrollment.createdAt)) {
+            throw new common_1.BadRequestException({
+                detail: "The registration form is no longer part of this learner's course, so they could not resubmit it",
+            });
+        }
+        const requestedAt = new Date();
+        const metadata = (0, advisor_review_metadata_1.sendBackMetadata)(existing.metadata, {
+            at: requestedAt,
+            byId: args.adminId,
+            byName: `${admin?.firstName ?? ''} ${admin?.lastName ?? ''}`.trim() || null,
+            comments,
+            submissionCompletedAt: existing.completedAt,
+        });
+        const updated = await this.writeAdvisorUpdate(existing, {
+            isComplete: false,
+            completedAt: null,
+            metadata: metadata,
+        });
+        try {
+            await this.notifyRegistrationChangesRequested({
+                learnerUserId: args.learnerUserId,
+                courseId: args.courseId,
+                courseFormId: courseForm.id,
+                comments,
+                requestedAt: requestedAt.toISOString(),
+            });
+        }
+        catch (notifyErr) {
+            const msg = notifyErr instanceof Error ? notifyErr.message : String(notifyErr);
+            CourseService_1.completionLogger.warn(`Registration changes-requested notify failed for user ${args.learnerUserId}: ${msg}`);
+        }
+        return registrationReviewResult(updated);
+    }
+    async findRegistrationSubmission(learnerUserId, courseId, formId, courseFormId) {
         const existing = await this.prisma.userFormCompletion.findUnique({
             where: {
                 userId_courseId_formId: {
@@ -482,41 +716,31 @@ let CourseService = CourseService_1 = class CourseService {
         if (existing.courseFormId !== courseFormId) {
             CourseService_1.completionLogger.warn(`Advisor review for user ${learnerUserId}, course ${courseId} sent stale courseFormId ${courseFormId}; reviewing submission on ${existing.courseFormId}`);
         }
-        const updated = await this.prisma.userFormCompletion.update({
-            where: { id: existing.id },
-            data: {
-                metadata: metaData,
-            },
+        return existing;
+    }
+    async writeAdvisorUpdate(existing, data) {
+        const written = await this.prisma.userFormCompletion.updateMany({
+            where: { id: existing.id, updatedAt: existing.updatedAt },
+            data,
         });
-        try {
-            await this.notifyRegistrationReviewed({
-                learnerUserId,
-                courseId,
-                metadata: metaData,
+        const updated = written.count > 0
+            ? await this.prisma.userFormCompletion.findUnique({
+                where: { id: existing.id },
+            })
+            : null;
+        if (!updated) {
+            throw new common_1.ConflictException({
+                detail: 'This registration changed while you were reviewing it. Reload the page to see the latest version.',
             });
         }
-        catch (notifyErr) {
-            const msg = notifyErr instanceof Error ? notifyErr.message : String(notifyErr);
-            CourseService_1.completionLogger.warn(`Registration review notify failed for user ${learnerUserId}: ${msg}`);
-        }
-        return {
-            success: true,
-            form: {
-                id: updated.id,
-                userId: updated.userId,
-                courseId: updated.courseId,
-                formId: updated.formId,
-                courseFormId: updated.courseFormId,
-                isComplete: updated.isComplete,
-                completedAt: updated.completedAt,
-                metadata: updated.metadata,
-            },
-        };
+        return updated;
     }
     async notifyRegistrationSubmittedIfV2(args) {
         if (args.formId !== 'registration-form' || !(0, advisor_review_metadata_1.isV2BookingMetadata)(args.metadata)) {
             return;
         }
+        const resubmitted = args.resubmissionRound > 0;
+        const roundSuffix = resubmitted ? `:r${args.resubmissionRound}` : '';
         const [learner, course, admins] = await Promise.all([
             this.prisma.user.findUnique({
                 where: { id: args.learnerUserId },
@@ -542,7 +766,7 @@ let CourseService = CourseService_1 = class CourseService {
                 userIds: adminIds,
                 emailCcAddresses: [mail_layout_1.ADMIN_EMAIL],
                 type: client_1.NotificationType.REGISTRATION_SUBMITTED,
-                message: `${studentName} submitted a registration form for ${course.title}`,
+                message: `${studentName} ${resubmitted ? 'resubmitted' : 'submitted'} a registration form for ${course.title}`,
                 payload: {
                     userId: learner.id,
                     courseId: args.courseId,
@@ -551,9 +775,10 @@ let CourseService = CourseService_1 = class CourseService {
                     courseFormId: args.courseFormId,
                     studentFirstName: learner.firstName,
                     studentLastName: learner.lastName,
+                    resubmitted,
                 },
                 groupKey: `registration-submitted:${args.courseId}`,
-                dedupeKeyFor: (adminId) => `registration-submitted:${args.courseFormId}:${learner.id}:${adminId}`,
+                dedupeKeyFor: (adminId) => `registration-submitted:${args.courseFormId}:${learner.id}:${adminId}${roundSuffix}`,
                 referenceId: args.courseId,
                 commenterId: learner.id,
                 email: {
@@ -568,6 +793,7 @@ let CourseService = CourseService_1 = class CourseService {
                         learnerUserId: learner.id,
                         courseId: args.courseId,
                         courseFormId: args.courseFormId,
+                        resubmitted,
                     }),
                 },
             });
@@ -583,6 +809,7 @@ let CourseService = CourseService_1 = class CourseService {
                 learnerUserId: learner.id,
                 courseId: args.courseId,
                 courseFormId: args.courseFormId,
+                resubmitted,
             });
         }
         if (learner.email) {
@@ -601,6 +828,9 @@ let CourseService = CourseService_1 = class CourseService {
             return;
         }
         const comments = (0, advisor_review_metadata_1.getAdvisorComments)(args.metadata);
+        const history = (0, advisor_review_metadata_1.getReviewHistory)(args.metadata);
+        const lastEvent = history[history.length - 1];
+        const eventSuffix = lastEvent ? `:h${lastEvent.at}` : '';
         const [learner, course] = await Promise.all([
             this.prisma.user.findUnique({
                 where: { id: args.learnerUserId },
@@ -625,7 +855,7 @@ let CourseService = CourseService_1 = class CourseService {
                 comments,
             },
             groupKey: `registration-reviewed:${args.courseId}`,
-            dedupeKey: `registration-reviewed:${args.courseId}:${learner.id}:${status}:${comments ?? ''}`,
+            dedupeKey: `registration-reviewed:${args.courseId}:${learner.id}:${status}:${comments ?? ''}${eventSuffix}`,
             referenceId: args.courseId,
             email: {
                 build: (recipient) => ({
@@ -637,6 +867,52 @@ let CourseService = CourseService_1 = class CourseService {
                     courseId: args.courseId,
                     registrationStatus: status,
                     comments,
+                }),
+            },
+        });
+    }
+    async notifyRegistrationChangesRequested(args) {
+        const [learner, course] = await Promise.all([
+            this.prisma.user.findUnique({
+                where: { id: args.learnerUserId },
+                select: { id: true, firstName: true },
+            }),
+            this.prisma.course.findUnique({
+                where: { id: args.courseId },
+                select: { title: true },
+            }),
+        ]);
+        if (!learner || !course) {
+            return;
+        }
+        await this.notifications.createNotification({
+            userId: learner.id,
+            type: client_1.NotificationType.REGISTRATION_REVIEWED,
+            message: `Your learning advisor asked you to update your registration for ${course.title}`,
+            payload: {
+                courseId: args.courseId,
+                courseTitle: course.title,
+                registrationStatus: 'Pending',
+                comments: args.comments,
+                changesRequested: true,
+                formId: 'registration-form',
+                courseFormId: args.courseFormId,
+            },
+            groupKey: `registration-reviewed:${args.courseId}`,
+            dedupeKey: `registration-changes-requested:${args.courseId}:${learner.id}:${args.requestedAt}`,
+            referenceId: args.courseId,
+            email: {
+                build: (recipient) => ({
+                    kind: 'REGISTRATION_REVIEWED',
+                    to: recipient.email,
+                    userId: recipient.id,
+                    recipientFirstName: recipient.firstName,
+                    courseTitle: course.title,
+                    courseId: args.courseId,
+                    registrationStatus: 'Pending',
+                    comments: args.comments,
+                    changesRequested: true,
+                    courseFormId: args.courseFormId,
                 }),
             },
         });
@@ -2042,6 +2318,11 @@ let CourseService = CourseService_1 = class CourseService {
                                 registrationComments: registrationGate.comments,
                             }
                             : {}),
+                    ...(registrationGate.changesRequestedAt
+                        ? {
+                            registrationChangesRequestedAt: registrationGate.changesRequestedAt,
+                        }
+                        : {}),
                     formStatus: {
                         completedForms,
                         totalForms: totalRequiredForms,
@@ -5639,6 +5920,11 @@ let CourseService = CourseService_1 = class CourseService {
                                 registrationComments: registrationGate.comments,
                             }
                             : {}),
+                    ...(registrationGate.changesRequestedAt
+                        ? {
+                            registrationChangesRequestedAt: registrationGate.changesRequestedAt,
+                        }
+                        : {}),
                     latestLastSeenSection: latestLastSeenSection
                         ? {
                             id: latestLastSeenSection.id,
