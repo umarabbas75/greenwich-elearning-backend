@@ -175,7 +175,19 @@ export declare function compareQuizDisplayOrder(a: {
     createdAt: Date;
     id: string;
 }): number;
-export declare function sortQuizIdsByLiveOrder(prisma: Db, quizIds: string[]): Promise<string[]>;
+type QuizOrderKey = {
+    orderIndex: number | null;
+    createdAt: Date;
+    id: string;
+};
+export declare function loadQuizOrderKeys(prisma: Db, chapterIds: string[], quizzes: Array<{
+    id: string;
+    legacyOrderIndex: number | null;
+    createdAt: Date;
+}>): Promise<{
+    keyFor(chapterId: string, quizId: string): QuizOrderKey;
+}>;
+export declare function sortQuizIdsByLiveOrder(prisma: Db, chapterId: string, quizIds: string[]): Promise<string[]>;
 export declare function loadPinnedChapterQuizzes(prisma: Db, versionId: string, sourceChapterId: string, includeAnswers: boolean): Promise<Array<Omit<PinnedCurriculumQuiz, 'answer'> & {
     answer?: string;
 }>>;

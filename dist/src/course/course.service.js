@@ -39,6 +39,7 @@ const mail_layout_1 = require("../mail/templates/mail-layout");
 const feedback_service_1 = require("../feedback/feedback.service");
 const course_version_service_1 = require("../course-version/course-version.service");
 const course_version_manifest_1 = require("../course-version/course-version.manifest");
+const chapter_quiz_1 = require("../quiz/chapter-quiz");
 const course_completion_service_1 = require("../course-completion/course-completion.service");
 const notification_service_1 = require("../notifications/notification.service");
 const learner_percentage_1 = require("../course-version/learner-percentage");
@@ -1379,7 +1380,7 @@ let CourseService = CourseService_1 = class CourseService {
                                     },
                                     _count: {
                                         select: {
-                                            quizzes: { where: { isArchived: false } },
+                                            quizPlacements: { where: chapter_quiz_1.LIVE_PLACEMENT },
                                         },
                                     },
                                 },
@@ -1406,7 +1407,7 @@ let CourseService = CourseService_1 = class CourseService {
                         id: chapter.id,
                         title: chapter.title,
                         sectionMetas,
-                        quizzesTotal: chapter._count.quizzes,
+                        quizzesTotal: chapter._count.quizPlacements,
                         activity,
                         chapterCompletedAt: chapterCompletedAtById.get(chapter.id) ?? null,
                         isFrozen,
@@ -2820,7 +2821,7 @@ let CourseService = CourseService_1 = class CourseService {
                                                 sections: {
                                                     where: { isArchived: false, isActive: true },
                                                 },
-                                                quizzes: { where: { isArchived: false } },
+                                                quizPlacements: { where: chapter_quiz_1.LIVE_PLACEMENT },
                                             },
                                         },
                                         QuizProgress: {
@@ -2867,6 +2868,7 @@ let CourseService = CourseService_1 = class CourseService {
             for (const mod of courses?.modules ?? []) {
                 for (const chapter of mod.chapters ?? []) {
                     chapter.completedAt = chapterCompletedAt.get(chapter.id) ?? null;
+                    (0, chapter_quiz_1.exposeQuizCount)(chapter);
                 }
             }
             return {
@@ -2898,7 +2900,7 @@ let CourseService = CourseService_1 = class CourseService {
                     _count: {
                         select: {
                             sections: { where: { isArchived: false } },
-                            quizzes: { where: { isArchived: false } },
+                            quizPlacements: { where: chapter_quiz_1.LIVE_PLACEMENT },
                         },
                     },
                 },
@@ -2909,7 +2911,7 @@ let CourseService = CourseService_1 = class CourseService {
             return {
                 message: 'Successfully fetch all Chapters info against module',
                 statusCode: 200,
-                data: chapters,
+                data: chapters.map(chapter_quiz_1.exposeQuizCount),
             };
         }
         catch (error) {
@@ -3013,7 +3015,7 @@ let CourseService = CourseService_1 = class CourseService {
                     ...(newSinceCompletion ? { newSinceCompletion } : {}),
                 };
             }
-            const [sections, chapter] = await Promise.all([
+            const [sections, chapterRow] = await Promise.all([
                 this.prisma.section.findMany({
                     where: { chapterId: id, isArchived: false, isActive: true },
                     orderBy: {
@@ -3023,18 +3025,20 @@ let CourseService = CourseService_1 = class CourseService {
                 this.prisma.chapter.findUnique({
                     where: { id },
                     include: {
-                        quizzes: {
-                            where: { isArchived: false },
+                        quizPlacements: {
+                            where: chapter_quiz_1.LIVE_PLACEMENT,
+                            orderBy: chapter_quiz_1.PLACEMENT_ORDER,
                             select: {
-                                id: true,
-                                question: true,
-                                options: true,
-                                answer: true,
+                                quiz: { select: { id: true, question: true, options: true } },
                             },
                         },
                     },
                 }),
             ]);
+            const { quizPlacements, ...chapterFields } = chapterRow ?? {};
+            const chapter = chapterRow
+                ? { ...chapterFields, quizzes: quizPlacements.map((p) => p.quiz) }
+                : null;
             const sortedSections = [...sections].sort((a, b) => {
                 const aOrder = a.orderIndex;
                 const bOrder = b.orderIndex;
@@ -3737,7 +3741,7 @@ let CourseService = CourseService_1 = class CourseService {
                 })
                 : Promise.resolve(0),
             chapterIds.length > 0
-                ? this.prisma.quiz.count({ where: { chapterId: { in: chapterIds } } })
+                ? this.prisma.quiz.count({ where: (0, chapter_quiz_1.quizzesOnlyInChapters)(chapterIds) })
                 : Promise.resolve(0),
             this.prisma.courseForm.count({ where: { courseId } }),
             this.prisma.assignment.count({ where: { courseId } }),
@@ -4264,7 +4268,7 @@ let CourseService = CourseService_1 = class CourseService {
             counts.versions = (await tx.courseVersion.deleteMany({ where: { courseId } })).count;
             if (chapterIds.length > 0) {
                 counts.quizzes = (await tx.quiz.deleteMany({
-                    where: { chapterId: { in: chapterIds } },
+                    where: (0, chapter_quiz_1.quizzesOnlyInChapters)(chapterIds),
                 })).count;
                 counts.sections = (await tx.section.deleteMany({
                     where: { chapterId: { in: chapterIds } },
@@ -5217,9 +5221,10 @@ let CourseService = CourseService_1 = class CourseService {
                 })
                 : Promise.resolve([]),
             wantQuiz
-                ? this.prisma.quiz.findMany({
+                ? this.prisma.quiz
+                    .findMany({
                     where: {
-                        chapter: { module: { courseId } },
+                        placements: { some: (0, chapter_quiz_1.quizPlacementInCourse)(courseId) },
                         isArchived: true,
                         ...(search
                             ? { question: { contains: search, mode: 'insensitive' } }
@@ -5230,18 +5235,29 @@ let CourseService = CourseService_1 = class CourseService {
                         question: true,
                         archivedAt: true,
                         updatedAt: true,
-                        chapter: {
+                        placements: {
+                            where: (0, chapter_quiz_1.quizPlacementInCourse)(courseId),
+                            orderBy: chapter_quiz_1.PLACEMENT_ORDER,
+                            take: 1,
                             select: {
-                                id: true,
-                                title: true,
-                                isArchived: true,
-                                module: {
-                                    select: { id: true, title: true, isArchived: true },
+                                chapter: {
+                                    select: {
+                                        id: true,
+                                        title: true,
+                                        isArchived: true,
+                                        module: {
+                                            select: { id: true, title: true, isArchived: true },
+                                        },
+                                    },
                                 },
                             },
                         },
                     },
                 })
+                    .then((rows) => rows.map(({ placements, ...q }) => ({
+                    ...q,
+                    chapter: placements[0]?.chapter ?? null,
+                })))
                 : Promise.resolve([]),
         ]);
         const effArchivedAt = (r) => r.archivedAt ?? r.updatedAt;

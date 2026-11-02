@@ -14,6 +14,7 @@ const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const chapter_progression_1 = require("../utils/chapter-progression");
 const course_version_manifest_1 = require("./course-version.manifest");
+const chapter_quiz_1 = require("../quiz/chapter-quiz");
 const learner_percentage_1 = require("./learner-percentage");
 const AUDIT_LIMIT_DEFAULT = 20;
 const AUDIT_LIMIT_MAX = 100;
@@ -250,13 +251,18 @@ let LearnerSnapshotService = class LearnerSnapshotService {
                     question: true,
                     options: true,
                     answer: true,
-                    chapterId: true,
-                    orderIndex: true,
+                    legacyOrderIndex: true,
+                    createdAt: true,
                 },
             }),
             this.prisma.quizAnswer.findMany({
-                where: { userId, quizId: { in: quizIds } },
+                where: {
+                    userId,
+                    chapterId: { in: chapterIds },
+                    quizId: { in: quizIds },
+                },
                 select: {
+                    chapterId: true,
                     quizId: true,
                     answer: true,
                     isAnswerCorrect: true,
@@ -270,15 +276,9 @@ let LearnerSnapshotService = class LearnerSnapshotService {
         const chapterCompletedAt = new Map(chapterCompletions.map((c) => [c.chapterId, c.completedAt]));
         const moduleCompletedAt = new Map(moduleCompletions.map((m) => [m.moduleId, m.completedAt]));
         const quizProgressByChapter = new Map(quizProgressRows.map((q) => [q.chapterId, q]));
-        const answerByQuiz = new Map(quizAnswers.map((a) => [a.quizId, a]));
-        const quizzesByChapter = new Map();
-        for (const quiz of quizzes) {
-            if (!quiz.chapterId)
-                continue;
-            const list = quizzesByChapter.get(quiz.chapterId) ?? [];
-            list.push(quiz);
-            quizzesByChapter.set(quiz.chapterId, list);
-        }
+        const answerByChapterQuiz = new Map(quizAnswers.map((a) => [`${a.chapterId}:${a.quizId}`, a]));
+        const quizById = new Map(quizzes.map((q) => [q.id, q]));
+        const quizOrder = await (0, course_version_manifest_1.loadQuizOrderKeys)(this.prisma, chapterIds, quizzes);
         const modules = structure.map((mod) => {
             const chapters = mod.chapters.map((chapter) => {
                 const sections = chapter.sections.map((section) => {
@@ -300,11 +300,12 @@ let LearnerSnapshotService = class LearnerSnapshotService {
                         lastAttemptAt: time?.lastAttemptAt ?? null,
                     };
                 });
-                const chapterQuizzes = (quizzesByChapter.get(chapter.chapterId) ?? [])
-                    .slice()
-                    .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0))
+                const chapterQuizzes = chapter.quizIds
+                    .map((quizId) => quizById.get(quizId))
+                    .filter((quiz) => Boolean(quiz))
+                    .sort((a, b) => (0, course_version_manifest_1.compareQuizDisplayOrder)(quizOrder.keyFor(chapter.chapterId, a.id), quizOrder.keyFor(chapter.chapterId, b.id)))
                     .map((quiz) => {
-                    const given = answerByQuiz.get(quiz.id);
+                    const given = answerByChapterQuiz.get(`${chapter.chapterId}:${quiz.id}`);
                     return {
                         quizId: quiz.id,
                         question: quiz.question,
@@ -428,10 +429,10 @@ let LearnerSnapshotService = class LearnerSnapshotService {
                     select: {
                         id: true,
                         title: true,
-                        quizzes: {
-                            where: { isArchived: false },
-                            select: { id: true },
-                            orderBy: { orderIndex: 'asc' },
+                        quizPlacements: {
+                            where: chapter_quiz_1.LIVE_PLACEMENT,
+                            orderBy: chapter_quiz_1.PLACEMENT_ORDER,
+                            select: { quizId: true },
                         },
                         sections: {
                             where: { isArchived: false, isActive: true },
@@ -448,7 +449,7 @@ let LearnerSnapshotService = class LearnerSnapshotService {
             chapters: mod.chapters.map((chapter) => ({
                 chapterId: chapter.id,
                 title: chapter.title,
-                quizIds: chapter.quizzes.map((q) => q.id),
+                quizIds: chapter.quizPlacements.map((p) => p.quizId),
                 sections: chapter.sections.map((section) => ({
                     sectionId: section.id,
                     title: section.title,
@@ -475,7 +476,7 @@ let LearnerSnapshotService = class LearnerSnapshotService {
                         where: {
                             module: { courseId: enrollment.courseId, isArchived: false },
                             isArchived: false,
-                            quizzes: { some: { isArchived: false } },
+                            ...chapter_quiz_1.HAS_LIVE_QUIZ,
                         },
                         select: { id: true },
                     });

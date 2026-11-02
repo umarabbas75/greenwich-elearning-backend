@@ -17,6 +17,8 @@ export declare class QuizService {
         page?: number;
         limit?: number;
         courseId?: string;
+        chapterId?: string;
+        excludeChapterId?: string;
         assigned?: boolean;
         includeArchived?: boolean;
     }): Promise<ResponseDto>;
@@ -29,9 +31,12 @@ export declare class QuizService {
     reorderChapterQuizzes(body: UpdateChapterQuizOrderDto): Promise<ResponseDto>;
     assignQuiz(quizId: string, chapterId: string, adminId?: string): Promise<ResponseDto>;
     bulkAssignQuiz(chapterId: string, quizIds: string[], adminId?: string): Promise<ResponseDto>;
+    private placeQuizzes;
     unAssignQuiz(quizId: string, chapterId: string, adminId?: string): Promise<ResponseDto>;
     updateQuiz(id: string, body: UpdateQuizDto): Promise<ResponseDto>;
     deleteQuiz(id: string, adminId?: string): Promise<ResponseDto>;
+    private findQuizCourses;
+    private assertQuizCoursesEditable;
     restoreQuiz(id: string, adminId?: string): Promise<ResponseDto>;
     checkQuiz(userId: string, body: CheckQuiz, userEmail?: string | null): Promise<ResponseDto>;
     getUserQuizAnswers(userId: string, chapterId: string): Promise<ResponseDto>;

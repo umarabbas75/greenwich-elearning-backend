@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.recordChapterAndModuleCompletionIfNeeded = exports.getChapterIdsInModuleForUser = exports.enrichQuizProgressReport = exports.assertChapterAccessible = exports.isChapterComplete = exports.gradeChapterQuizFromStoredAnswers = exports.resolveChapterQuizIds = exports.getPreviousChapterId = exports.getOrderedChapterIdsForUser = exports.getOrderedChapterIdsForVersion = exports.getOrderedChapterIdsInCourse = exports.getCourseIdForChapter = exports.isFreeRoamUser = exports.resolvePassingCriteria = exports.DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = void 0;
 const common_1 = require("@nestjs/common");
 const course_version_manifest_1 = require("../course-version/course-version.manifest");
+const chapter_quiz_1 = require("../quiz/chapter-quiz");
 exports.DEFAULT_CHAPTER_QUIZ_PASS_PERCENTAGE = 70;
 function resolvePassingCriteria(stored) {
     if (stored != null && stored > 0) {
@@ -104,18 +105,13 @@ async function resolveChapterQuizIds(prisma, userId, chapterId, ctx) {
             for (const mod of manifest.modules) {
                 for (const ch of mod.chapters) {
                     if (ch.sourceId === chapterId) {
-                        return (0, course_version_manifest_1.sortQuizIdsByLiveOrder)(prisma, ch.quizIds);
+                        return (0, course_version_manifest_1.sortQuizIdsByLiveOrder)(prisma, chapterId, ch.quizIds);
                     }
                 }
             }
         }
     }
-    const quizzes = await prisma.quiz.findMany({
-        where: { chapterId, isArchived: false },
-        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-        select: { id: true },
-    });
-    return quizzes.map((q) => q.id);
+    return (0, chapter_quiz_1.findLiveChapterQuizIds)(prisma, chapterId);
 }
 exports.resolveChapterQuizIds = resolveChapterQuizIds;
 async function gradeChapterQuizFromStoredAnswers(prisma, userId, chapterId, storedPassingCriteria, ctx) {
@@ -174,7 +170,7 @@ async function resolveChapterDenominator(prisma, userId, chapterId, ctx) {
             for (const mod of manifest.modules) {
                 for (const ch of mod.chapters) {
                     if (ch.sourceId === chapterId) {
-                        const quizIds = await (0, course_version_manifest_1.sortQuizIdsByLiveOrder)(prisma, ch.quizIds);
+                        const quizIds = await (0, course_version_manifest_1.sortQuizIdsByLiveOrder)(prisma, chapterId, ch.quizIds);
                         return {
                             sectionCount: ch.sectionIds.length,
                             quizCount: quizIds.length,
@@ -188,7 +184,7 @@ async function resolveChapterDenominator(prisma, userId, chapterId, ctx) {
         prisma.section.count({
             where: { chapterId, isArchived: false, isActive: true },
         }),
-        prisma.quiz.count({ where: { chapterId, isArchived: false } }),
+        (0, chapter_quiz_1.countLiveChapterQuizzes)(prisma, chapterId),
     ]);
     return { sectionCount, quizCount };
 }

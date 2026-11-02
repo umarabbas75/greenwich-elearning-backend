@@ -17,6 +17,7 @@ const prisma_service_1 = require("../prisma/prisma.service");
 const course_version_manifest_1 = require("./course-version.manifest");
 const learner_percentage_1 = require("./learner-percentage");
 const admin_audit_1 = require("../utils/admin-audit");
+const chapter_quiz_1 = require("../quiz/chapter-quiz");
 let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
     constructor(prisma) {
         this.prisma = prisma;
@@ -429,7 +430,7 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
                     where: {
                         isArchived: false,
                         module: { courseId, isArchived: false },
-                        quizzes: { some: { isArchived: false } },
+                        ...chapter_quiz_1.HAS_LIVE_QUIZ,
                     },
                     select: { id: true },
                 }),
@@ -465,7 +466,7 @@ let CourseVersionService = CourseVersionService_1 = class CourseVersionService {
         const stillHasLiveQuiz = await this.prisma.chapter.findMany({
             where: {
                 id: { in: manifestQuizChapterIds },
-                quizzes: { some: { isArchived: false } },
+                ...chapter_quiz_1.HAS_LIVE_QUIZ,
             },
             select: { id: true },
         });

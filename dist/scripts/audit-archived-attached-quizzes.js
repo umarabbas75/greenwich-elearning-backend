@@ -21,13 +21,11 @@ async function main() {
     console.log('\n📋 Archived-but-attached quizzes (READ-ONLY)\n');
     console.log('   Reminder: this state is NORMAL for intentionally retired quizzes.\n' +
         '   Cross-check the timeline before concluding anything is broken.\n');
-    const archived = await prisma.quiz.findMany({
-        where: { isArchived: true, chapterId: { not: null } },
+    const archived = (await prisma.chapterQuiz.findMany({
+        where: { isArchived: false, quiz: { isArchived: true } },
         select: {
-            id: true,
-            question: true,
-            updatedAt: true,
             chapterId: true,
+            quiz: { select: { id: true, question: true, updatedAt: true } },
             chapter: {
                 select: {
                     title: true,
@@ -37,8 +35,8 @@ async function main() {
                 },
             },
         },
-        orderBy: { updatedAt: 'desc' },
-    });
+        orderBy: { quiz: { updatedAt: 'desc' } },
+    })).map((p) => ({ ...p.quiz, chapterId: p.chapterId, chapter: p.chapter }));
     if (archived.length === 0) {
         console.log('  No archived-but-attached quizzes found.\n');
         return;
@@ -57,8 +55,8 @@ async function main() {
     }
     console.log(`  ${archived.length} archived quiz row(s) still attached, across ${byChapter.size} chapter(s):\n`);
     for (const [chapterId, info] of byChapter) {
-        const activeNow = await prisma.quiz.count({
-            where: { chapterId, isArchived: false },
+        const activeNow = await prisma.chapterQuiz.count({
+            where: { chapterId, isArchived: false, quiz: { isArchived: false } },
         });
         const [answers, progress] = await Promise.all([
             prisma.quizAnswer.count({ where: { chapterId } }),
@@ -110,8 +108,8 @@ async function main() {
                 if (ch)
                     inManifest = ch.quizIds.length;
             }
-            const activeNow = await prisma.quiz.count({
-                where: { chapterId, isArchived: false },
+            const activeNow = await prisma.chapterQuiz.count({
+                where: { chapterId, isArchived: false, quiz: { isArchived: false } },
             });
             const agree = inManifest === activeNow;
             console.log(`    v${latest.versionNumber} "${info.chapterTitle.slice(0, 34)}": manifest=${inManifest ?? 'absent'} live=${activeNow} ${agree ? '✓ agree' : '✗ DRIFT — run script:reconcile-drift'}`);

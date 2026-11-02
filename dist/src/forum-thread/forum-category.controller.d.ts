@@ -10,9 +10,9 @@ export declare class ForumCategoryController {
             threadCount: number;
             lastActivityAt: Date;
             id: string;
-            description: string;
             createdAt: Date;
             updatedAt: Date;
+            description: string;
             isActive: boolean;
             name: string;
             sortOrder: number;
@@ -33,9 +33,9 @@ export declare class ForumCategoryController {
         statusCode: number;
         data: {
             id: string;
-            description: string;
             createdAt: Date;
             updatedAt: Date;
+            description: string;
             isActive: boolean;
             name: string;
             sortOrder: number;
@@ -56,9 +56,9 @@ export declare class ForumCategoryController {
         statusCode: number;
         data: {
             id: string;
-            description: string;
             createdAt: Date;
             updatedAt: Date;
+            description: string;
             isActive: boolean;
             name: string;
             sortOrder: number;

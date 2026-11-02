@@ -20,8 +20,32 @@ const course_version_manifest_1 = require("../course-version/course-version.mani
 const chapter_progression_1 = require("../utils/chapter-progression");
 const course_completion_service_1 = require("../course-completion/course-completion.service");
 const assert_imported_course_tree_locked_1 = require("../utils/assert-imported-course-tree-locked");
+const chapter_quiz_1 = require("./chapter-quiz");
 const question_grading_1 = require("../utils/question-grading");
 const QUIZ_QUESTION_MAX_MARKS = 1;
+const QUIZ_TX_OPTIONS = { maxWait: 5000, timeout: 15000 };
+const QUIZ_CHAPTERS_INCLUDE = {
+    placements: {
+        where: chapter_quiz_1.VISIBLE_PLACEMENT,
+        orderBy: { createdAt: 'asc' },
+        select: {
+            chapter: {
+                select: {
+                    id: true,
+                    title: true,
+                    module: {
+                        select: {
+                            id: true,
+                            title: true,
+                            courseId: true,
+                            course: { select: { id: true, title: true } },
+                        },
+                    },
+                },
+            },
+        },
+    },
+};
 let QuizService = QuizService_1 = class QuizService {
     constructor(prisma, config, courseVersionService, courseCompletion) {
         this.prisma = prisma;
@@ -46,7 +70,20 @@ let QuizService = QuizService_1 = class QuizService {
         try {
             let quiz = {};
             if (role == 'admin') {
-                quiz = await this.prisma.quiz.findUnique({ where: { id } });
+                const row = await this.prisma.quiz.findUnique({
+                    where: { id },
+                    include: QUIZ_CHAPTERS_INCLUDE,
+                });
+                if (row) {
+                    const { placements, ...rest } = row;
+                    quiz = {
+                        ...(0, chapter_quiz_1.withoutLegacyQuizFields)(rest),
+                        chapters: placements.map((p) => p.chapter),
+                    };
+                }
+                else {
+                    quiz = row;
+                }
             }
             else if (role == 'user') {
                 quiz = await this.prisma.quiz.findUnique({
@@ -85,18 +122,36 @@ let QuizService = QuizService_1 = class QuizService {
                 });
             }
             if (query?.assigned === true) {
-                conditions.push({ chapterId: { not: null } });
+                conditions.push({ placements: { some: chapter_quiz_1.VISIBLE_PLACEMENT } });
             }
             else if (query?.assigned === false) {
-                conditions.push({ chapterId: null });
+                conditions.push({ placements: { none: chapter_quiz_1.VISIBLE_PLACEMENT } });
             }
             if (query?.courseId) {
-                const chaptersInCourse = await this.prisma.chapter.findMany({
-                    where: { module: { courseId: query.courseId } },
-                    select: { id: true },
-                });
                 conditions.push({
-                    chapterId: { in: chaptersInCourse.map((c) => c.id) },
+                    placements: {
+                        some: {
+                            isArchived: false,
+                            chapter: {
+                                isArchived: false,
+                                module: { isArchived: false, courseId: query.courseId },
+                            },
+                        },
+                    },
+                });
+            }
+            if (query?.chapterId) {
+                conditions.push({
+                    placements: {
+                        some: { chapterId: query.chapterId, isArchived: false },
+                    },
+                });
+            }
+            if (query?.excludeChapterId) {
+                conditions.push({
+                    placements: {
+                        none: { chapterId: query.excludeChapterId, isArchived: false },
+                    },
                 });
             }
             if (!query?.includeArchived) {
@@ -105,34 +160,28 @@ let QuizService = QuizService_1 = class QuizService {
             const where = conditions.length
                 ? { AND: conditions }
                 : {};
-            const chapterInclude = {
-                chapter: {
-                    select: {
-                        id: true,
-                        title: true,
-                        module: {
-                            select: {
-                                id: true,
-                                title: true,
-                                courseId: true,
-                                course: { select: { id: true, title: true } },
-                            },
-                        },
-                    },
-                },
-            };
             let quizzes = [];
             let total;
             if (role == 'admin') {
-                [quizzes, total] = await Promise.all([
+                let rows;
+                [rows, total] = await Promise.all([
                     this.prisma.quiz.findMany({
                         where,
                         orderBy: { createdAt: 'desc' },
-                        include: chapterInclude,
+                        include: QUIZ_CHAPTERS_INCLUDE,
                         ...(paginate ? { skip: (page - 1) * limit, take: limit } : {}),
                     }),
                     this.prisma.quiz.count({ where }),
                 ]);
+                quizzes = rows.map(({ placements, ...quiz }) => {
+                    const chapters = placements.map((p) => p.chapter);
+                    return {
+                        ...(0, chapter_quiz_1.withoutLegacyQuizFields)(quiz),
+                        chapters,
+                        chapterId: chapters[0]?.id ?? null,
+                        chapter: chapters[0] ?? null,
+                    };
+                });
             }
             else if (role == 'user') {
                 [quizzes, total] = await Promise.all([
@@ -218,16 +267,11 @@ let QuizService = QuizService_1 = class QuizService {
                 });
             }
             if (!resolvedFromVersion && quizzes.length === 0) {
-                const chapter = await this.prisma.chapter.findUnique({
-                    where: { id: chapterId },
-                    include: {
-                        quizzes: {
-                            where: { isArchived: false },
-                            orderBy: [
-                                { orderIndex: 'asc' },
-                                { createdAt: 'asc' },
-                                { id: 'asc' },
-                            ],
+                const placements = await this.prisma.chapterQuiz.findMany({
+                    where: { chapterId, ...chapter_quiz_1.LIVE_PLACEMENT },
+                    orderBy: chapter_quiz_1.PLACEMENT_ORDER,
+                    select: {
+                        quiz: {
                             select: {
                                 id: true,
                                 question: true,
@@ -239,7 +283,12 @@ let QuizService = QuizService_1 = class QuizService {
                         },
                     },
                 });
-                quizzes = chapter?.quizzes ?? [];
+                quizzes = placements.map(({ quiz }) => {
+                    if (role === 'admin')
+                        return quiz;
+                    const { answer, ...forLearner } = quiz;
+                    return forLearner;
+                });
             }
             const isStudentRole = role !== 'admin';
             const updatedUserQuizData = quizzes?.map((item) => {
@@ -460,7 +509,7 @@ let QuizService = QuizService_1 = class QuizService {
             return {
                 message: 'Successfully create quiz record',
                 statusCode: 200,
-                data: quiz,
+                data: (0, chapter_quiz_1.withoutLegacyQuizFields)(quiz),
             };
         }
         catch (error) {
@@ -476,11 +525,11 @@ let QuizService = QuizService_1 = class QuizService {
         try {
             const { chapterId, quizzes: items } = body;
             const quizIds = items.map((q) => q.id);
-            const active = await this.prisma.quiz.findMany({
-                where: { chapterId, isArchived: false },
-                select: { id: true },
+            const active = await this.prisma.chapterQuiz.findMany({
+                where: { chapterId, ...chapter_quiz_1.LIVE_PLACEMENT },
+                select: { quizId: true },
             });
-            const activeIds = new Set(active.map((q) => q.id));
+            const activeIds = new Set(active.map((p) => p.quizId));
             if (active.length !== quizIds.length) {
                 throw new common_1.BadRequestException('Quiz list must include every active quiz in the chapter exactly once');
             }
@@ -492,8 +541,8 @@ let QuizService = QuizService_1 = class QuizService {
             if (new Set(quizIds).size !== quizIds.length) {
                 throw new common_1.BadRequestException('Duplicate quiz ids in reorder payload');
             }
-            await this.prisma.$transaction(items.map((item) => this.prisma.quiz.update({
-                where: { id: item.id },
+            await this.prisma.$transaction(items.map((item) => this.prisma.chapterQuiz.update({
+                where: { chapterId_quizId: { chapterId, quizId: item.id } },
                 data: { orderIndex: item.orderIndex },
             })));
             return {
@@ -514,48 +563,16 @@ let QuizService = QuizService_1 = class QuizService {
     }
     async assignQuiz(quizId, chapterId, adminId) {
         try {
-            const isQuizExist = await this.prisma.quiz.findUnique({
-                where: { id: quizId },
-            });
-            if (!isQuizExist) {
-                throw new Error('quiz not exist');
-            }
-            const chapter = await this.prisma.chapter.findUnique({
-                where: { id: chapterId },
-                include: {
-                    module: {
-                        select: {
-                            courseId: true,
-                            course: { select: { deliveryMode: true } },
-                        },
-                    },
-                },
-            });
-            if (!chapter) {
-                throw new Error('chapter not exist');
-            }
-            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: chapter.module.courseId }, { deliveryMode: chapter.module.course?.deliveryMode });
-            const maxOrder = await this.prisma.quiz.aggregate({
-                where: {
-                    chapterId,
-                    isArchived: false,
-                    id: { not: quizId },
-                },
-                _max: { orderIndex: true },
-            });
-            const orderIndex = (maxOrder._max.orderIndex ?? -1) + 1;
-            await this.prisma.quiz.update({
-                where: { id: quizId },
-                data: { chapterId, isArchived: false, orderIndex },
-            });
-            const publishedVersion = await this.autoPublishAfterQuizChange(chapter.module.courseId, adminId, `Assigned quiz to chapter "${chapter.title}"`);
+            const result = await this.placeQuizzes(chapterId, [quizId], adminId);
             return {
-                message: publishedVersion
-                    ? `Successfully assigned quiz to chapter (published v${publishedVersion.versionNumber})`
-                    : 'Successfully assign quiz to chapter',
+                message: result.publishedVersion
+                    ? `Successfully assigned quiz to chapter (published v${result.publishedVersion.versionNumber})`
+                    : result.placedCount === 0
+                        ? 'Quiz is already in this chapter'
+                        : 'Successfully assign quiz to chapter',
                 statusCode: 200,
                 data: {},
-                publishedVersion: publishedVersion ?? undefined,
+                publishedVersion: result.publishedVersion ?? undefined,
             };
         }
         catch (error) {
@@ -573,51 +590,21 @@ let QuizService = QuizService_1 = class QuizService {
             if (uniqueIds.length === 0) {
                 throw new Error('No quizzes provided');
             }
-            const chapter = await this.prisma.chapter.findUnique({
-                where: { id: chapterId },
-                include: {
-                    module: {
-                        select: {
-                            courseId: true,
-                            course: { select: { deliveryMode: true } },
-                        },
-                    },
-                },
-            });
-            if (!chapter) {
-                throw new Error('chapter not exist');
-            }
-            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: chapter.module.courseId }, { deliveryMode: chapter.module.course?.deliveryMode });
-            const existing = await this.prisma.quiz.findMany({
-                where: { id: { in: uniqueIds } },
-                select: { id: true },
-            });
-            const existingIds = new Set(existing.map((q) => q.id));
-            const missing = uniqueIds.filter((id) => !existingIds.has(id));
-            if (missing.length > 0) {
-                throw new Error(`Quiz(zes) not found: ${missing.join(', ')}`);
-            }
-            const maxOrder = await this.prisma.quiz.aggregate({
-                where: {
-                    chapterId,
-                    isArchived: false,
-                    id: { notIn: uniqueIds },
-                },
-                _max: { orderIndex: true },
-            });
-            let nextOrder = (maxOrder._max.orderIndex ?? -1) + 1;
-            await this.prisma.$transaction(uniqueIds.map((quizId) => this.prisma.quiz.update({
-                where: { id: quizId },
-                data: { chapterId, isArchived: false, orderIndex: nextOrder++ },
-            })));
-            const publishedVersion = await this.autoPublishAfterQuizChange(chapter.module.courseId, adminId, `Assigned ${uniqueIds.length} quiz(zes) to chapter "${chapter.title}"`);
+            const result = await this.placeQuizzes(chapterId, uniqueIds, adminId);
+            const already = uniqueIds.length - result.placedCount;
+            const alreadyNote = already > 0 ? `; ${already} already in this chapter` : '';
             return {
-                message: publishedVersion
-                    ? `Successfully assigned ${uniqueIds.length} quiz(zes) to chapter (published v${publishedVersion.versionNumber})`
-                    : `Successfully assigned ${uniqueIds.length} quiz(zes) to chapter`,
+                message: result.publishedVersion
+                    ? `Successfully assigned ${result.placedCount} quiz(zes) to chapter (published v${result.publishedVersion.versionNumber})${alreadyNote}`
+                    : `Successfully assigned ${result.placedCount} quiz(zes) to chapter${alreadyNote}`,
                 statusCode: 200,
-                data: { chapterId, quizIds: uniqueIds },
-                publishedVersion: publishedVersion ?? undefined,
+                data: {
+                    chapterId,
+                    quizIds: uniqueIds,
+                    assignedCount: result.placedCount,
+                    alreadyInChapterCount: already,
+                },
+                publishedVersion: result.publishedVersion ?? undefined,
             };
         }
         catch (error) {
@@ -628,6 +615,125 @@ let QuizService = QuizService_1 = class QuizService {
                 cause: error,
             });
         }
+    }
+    async placeQuizzes(chapterId, quizIds, adminId) {
+        const chapter = await this.prisma.chapter.findUnique({
+            where: { id: chapterId },
+            include: {
+                module: {
+                    select: {
+                        courseId: true,
+                        course: { select: { deliveryMode: true } },
+                    },
+                },
+            },
+        });
+        if (!chapter) {
+            throw new Error('chapter not exist');
+        }
+        const courseId = chapter.module.courseId;
+        await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId }, { deliveryMode: chapter.module.course?.deliveryMode });
+        const { placed, restored } = await this.prisma.$transaction(async (tx) => {
+            await tx.$queryRaw `SELECT id FROM "quizzes" WHERE id IN (${client_1.Prisma.join(quizIds)}) ORDER BY id FOR UPDATE`;
+            const [existing, placementsHere, inOtherChapters] = await Promise.all([
+                tx.quiz.findMany({
+                    where: { id: { in: quizIds } },
+                    select: { id: true, isArchived: true, question: true },
+                }),
+                tx.chapterQuiz.findMany({
+                    where: { chapterId, quizId: { in: quizIds } },
+                    select: { quizId: true, isArchived: true },
+                }),
+                tx.chapterQuiz.findMany({
+                    where: {
+                        quizId: { in: quizIds },
+                        chapterId: { not: chapterId },
+                        isArchived: false,
+                        chapter: { module: { courseId } },
+                    },
+                    select: {
+                        id: true,
+                        quizId: true,
+                        chapter: {
+                            select: {
+                                title: true,
+                                isArchived: true,
+                                module: { select: { isArchived: true } },
+                            },
+                        },
+                    },
+                }),
+            ]);
+            const quizById = new Map(existing.map((q) => [q.id, q]));
+            const missing = quizIds.filter((id) => !quizById.has(id));
+            if (missing.length > 0) {
+                throw new Error(missing.length === 1 && quizIds.length === 1
+                    ? 'quiz not exist'
+                    : `Quiz(zes) not found: ${missing.join(', ')}`);
+            }
+            const stale = inOtherChapters.filter((p) => p.chapter.isArchived || p.chapter.module.isArchived);
+            const blocking = inOtherChapters.filter((p) => !stale.includes(p));
+            if (blocking.length > 0) {
+                const list = blocking
+                    .map((p) => `"${quizById.get(p.quizId)?.question.slice(0, 60)}" (in "${p.chapter.title}")`)
+                    .join(', ');
+                throw new Error(`A quiz can be in only one chapter of a course. Unassign it from its current chapter first: ${list}`);
+            }
+            const liveHere = new Set(placementsHere
+                .filter((p) => !p.isArchived && !quizById.get(p.quizId)?.isArchived)
+                .map((p) => p.quizId));
+            const toPlace = quizIds.filter((id) => !liveHere.has(id));
+            if (toPlace.length === 0) {
+                return { placed: [], restored: [] };
+            }
+            const now = new Date();
+            if (stale.length > 0) {
+                await tx.chapterQuiz.updateMany({
+                    where: { id: { in: stale.map((p) => p.id) } },
+                    data: { isArchived: true, archivedAt: now },
+                });
+            }
+            const firstOrder = await (0, chapter_quiz_1.nextPlacementOrderIndex)(tx, chapterId, toPlace);
+            const archivedQuizIds = toPlace.filter((id) => quizById.get(id)?.isArchived);
+            if (archivedQuizIds.length > 0) {
+                await tx.quiz.updateMany({
+                    where: { id: { in: archivedQuizIds } },
+                    data: { isArchived: false, archivedAt: null },
+                });
+            }
+            const orders = toPlace.map((_, i) => firstOrder + i);
+            await tx.$executeRaw `
+        INSERT INTO "chapter_quizzes"
+          ("id", "chapterId", "quizId", "orderIndex", "isArchived", "archivedAt", "createdAt", "updatedAt")
+        SELECT gen_random_uuid()::text, ${chapterId}, t.quiz_id, t.order_index, false, NULL,
+               (now() AT TIME ZONE 'UTC'), (now() AT TIME ZONE 'UTC')
+        FROM unnest(${toPlace}::text[], ${orders}::int[]) AS t(quiz_id, order_index)
+        ON CONFLICT ("chapterId", "quizId") DO UPDATE
+        SET "orderIndex" = EXCLUDED."orderIndex",
+            "isArchived" = false,
+            "archivedAt" = NULL,
+            "updatedAt" = (now() AT TIME ZONE 'UTC')`;
+            return { placed: toPlace, restored: archivedQuizIds };
+        }, QUIZ_TX_OPTIONS);
+        if (placed.length === 0) {
+            return { placedCount: 0, publishedVersion: null };
+        }
+        const publishedVersion = await this.autoPublishAfterQuizChange(courseId, adminId, placed.length === 1
+            ? `Assigned quiz to chapter "${chapter.title}"`
+            : `Assigned ${placed.length} quiz(zes) to chapter "${chapter.title}"`);
+        const otherCourses = new Set();
+        for (const quizId of restored) {
+            for (const c of await this.findQuizCourses(quizId, {
+                includeRemoved: false,
+            })) {
+                if (c.courseId !== courseId)
+                    otherCourses.add(c.courseId);
+            }
+        }
+        for (const otherCourseId of otherCourses) {
+            await this.autoPublishAfterQuizChange(otherCourseId, adminId, 'Restored quiz');
+        }
+        return { placedCount: placed.length, publishedVersion };
     }
     async unAssignQuiz(quizId, chapterId, adminId) {
         try {
@@ -654,15 +760,35 @@ let QuizService = QuizService_1 = class QuizService {
             await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: chapter.module.courseId }, { deliveryMode: chapter.module.course?.deliveryMode });
             const references = await this.courseVersionService.getReferencingVersionsWithEnrollments('quiz', quizId, chapter.module.courseId);
             const referenced = references.versions.length > 0;
-            if (referenced) {
-                await this.prisma.quiz.update({
-                    where: { id: quizId },
-                    data: {
-                        isArchived: true,
-                        chapterId: null,
-                        archivedAt: new Date(),
-                    },
+            const { archiveQuiz, otherLivePlacements } = await this.prisma.$transaction(async (tx) => {
+                await tx.$queryRaw `SELECT id FROM "quizzes" WHERE id = ${quizId} FOR UPDATE`;
+                const placement = await tx.chapterQuiz.findUnique({
+                    where: { chapterId_quizId: { chapterId, quizId } },
+                    select: { isArchived: true },
                 });
+                if (!placement || placement.isArchived) {
+                    throw new Error('This quiz is not assigned to this chapter');
+                }
+                const now = new Date();
+                await tx.chapterQuiz.update({
+                    where: { chapterId_quizId: { chapterId, quizId } },
+                    data: { isArchived: true, archivedAt: now },
+                });
+                if (!referenced) {
+                    return { archiveQuiz: false, otherLivePlacements: 0 };
+                }
+                const others = await tx.chapterQuiz.count({
+                    where: { quizId, isArchived: false, chapterId: { not: chapterId } },
+                });
+                if (others === 0) {
+                    await tx.quiz.update({
+                        where: { id: quizId },
+                        data: { isArchived: true, archivedAt: now },
+                    });
+                }
+                return { archiveQuiz: others === 0, otherLivePlacements: others };
+            }, QUIZ_TX_OPTIONS);
+            if (referenced) {
                 const publishedVersion = await this.autoPublishAfterQuizChange(chapter.module.courseId, adminId, `Archived quiz from chapter "${chapter.title}"`);
                 if (adminId) {
                     await this.courseVersionService.writeAudit({
@@ -675,6 +801,8 @@ let QuizService = QuizService_1 = class QuizService {
                             via: 'unAssignQuiz',
                             chapterId,
                             chapterTitle: chapter.title,
+                            quizArchived: archiveQuiz,
+                            stillUsedInOtherChapters: otherLivePlacements,
                             stillServedTo: references.stillServedTo,
                             versions: references.versions.map((v) => ({
                                 versionNumber: v.versionNumber,
@@ -694,14 +822,6 @@ let QuizService = QuizService_1 = class QuizService {
                     publishedVersion: publishedVersion ?? undefined,
                 };
             }
-            await this.prisma.chapter.update({
-                where: { id: chapterId },
-                data: {
-                    quizzes: {
-                        disconnect: { id: quizId },
-                    },
-                },
-            });
             const publishedVersion = await this.autoPublishAfterQuizChange(chapter.module.courseId, adminId, `Unassigned quiz from chapter "${chapter.title}"`);
             return {
                 message: publishedVersion
@@ -729,22 +849,7 @@ let QuizService = QuizService_1 = class QuizService {
             if (!isQuizExist) {
                 throw new Error('Quizzes does not exist ');
             }
-            if (isQuizExist.chapterId) {
-                const chapter = await this.prisma.chapter.findUnique({
-                    where: { id: isQuizExist.chapterId },
-                    include: {
-                        module: {
-                            select: {
-                                courseId: true,
-                                course: { select: { deliveryMode: true } },
-                            },
-                        },
-                    },
-                });
-                if (chapter) {
-                    await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: chapter.module.courseId }, { deliveryMode: chapter.module.course?.deliveryMode });
-                }
-            }
+            await this.assertQuizCoursesEditable(await this.findQuizCourses(id, { includeRemoved: true }));
             if (Object.entries(body).length === 0) {
                 throw new Error('wrong keys');
             }
@@ -759,7 +864,7 @@ let QuizService = QuizService_1 = class QuizService {
             return {
                 message: 'Successfully create quiz record',
                 statusCode: 200,
-                data: updated,
+                data: (0, chapter_quiz_1.withoutLegacyQuizFields)(updated),
             };
         }
         catch (error) {
@@ -775,49 +880,51 @@ let QuizService = QuizService_1 = class QuizService {
         try {
             const quiz = await this.prisma.quiz.findUnique({
                 where: { id },
-                include: {
-                    chapter: { include: { module: { select: { courseId: true } } } },
-                },
+                select: { id: true },
             });
             if (!quiz) {
                 throw new Error('Course not found');
             }
-            const courseId = quiz.chapter?.module?.courseId ?? null;
-            if (courseId) {
-                await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId });
-            }
-            const references = await this.courseVersionService.getReferencingVersionsWithEnrollments('quiz', id, courseId ?? undefined);
+            const [allCourses, liveCourses] = await Promise.all([
+                this.findQuizCourses(id, { includeRemoved: true }),
+                this.findQuizCourses(id, { includeRemoved: false }),
+            ]);
+            await this.assertQuizCoursesEditable(allCourses);
+            const references = await this.courseVersionService.getReferencingVersionsWithEnrollments('quiz', id);
             const referenced = references.versions.length > 0;
             if (referenced) {
                 const archived = await this.prisma.quiz.update({
                     where: { id },
                     data: { isArchived: true, archivedAt: new Date() },
                 });
-                const publishedVersion = courseId
-                    ? await this.autoPublishAfterQuizChange(courseId, adminId, 'Archived quiz')
-                    : null;
-                if (adminId && courseId) {
-                    await this.courseVersionService.writeAudit({
-                        adminId,
-                        action: 'ARCHIVE_QUIZ',
-                        targetType: 'Quiz',
-                        targetId: id,
-                        courseId,
-                        metadata: {
-                            via: 'deleteQuiz',
-                            stillServedTo: references.stillServedTo,
-                            versions: references.versions.map((v) => ({
-                                versionNumber: v.versionNumber,
-                                status: v.status,
-                                enrollmentCount: v.enrollmentCount,
-                            })),
-                        },
-                    });
+                let publishedVersion = null;
+                for (const course of liveCourses) {
+                    const published = await this.autoPublishAfterQuizChange(course.courseId, adminId, 'Archived quiz');
+                    publishedVersion = publishedVersion ?? published;
+                    if (adminId) {
+                        await this.courseVersionService.writeAudit({
+                            adminId,
+                            action: 'ARCHIVE_QUIZ',
+                            targetType: 'Quiz',
+                            targetId: id,
+                            courseId: course.courseId,
+                            metadata: {
+                                via: 'deleteQuiz',
+                                usedInCourses: liveCourses.length,
+                                stillServedTo: references.stillServedTo,
+                                versions: references.versions.map((v) => ({
+                                    versionNumber: v.versionNumber,
+                                    status: v.status,
+                                    enrollmentCount: v.enrollmentCount,
+                                })),
+                            },
+                        });
+                    }
                 }
                 return {
                     message: this.courseVersionService.buildArchiveMessage('Quiz', references.stillServedTo, references.versions),
                     statusCode: 200,
-                    data: archived,
+                    data: (0, chapter_quiz_1.withoutLegacyQuizFields)(archived),
                     outcome: 'archived',
                     stillServedTo: references.stillServedTo,
                     versionsReferencing: references.versions,
@@ -827,9 +934,11 @@ let QuizService = QuizService_1 = class QuizService {
             await this.prisma.quiz.delete({
                 where: { id },
             });
-            const publishedVersion = courseId
-                ? await this.autoPublishAfterQuizChange(courseId, adminId, 'Removed quiz')
-                : null;
+            let publishedVersion = null;
+            for (const course of liveCourses) {
+                const published = await this.autoPublishAfterQuizChange(course.courseId, adminId, 'Removed quiz');
+                publishedVersion = publishedVersion ?? published;
+            }
             return {
                 message: publishedVersion
                     ? `Successfully deleted quiz (published v${publishedVersion.versionNumber})`
@@ -859,26 +968,62 @@ let QuizService = QuizService_1 = class QuizService {
             }
         }
     }
+    async findQuizCourses(quizId, opts) {
+        const placements = await this.prisma.chapterQuiz.findMany({
+            where: { quizId, ...(opts.includeRemoved ? {} : { isArchived: false }) },
+            orderBy: { createdAt: 'asc' },
+            select: {
+                chapter: {
+                    select: {
+                        module: {
+                            select: {
+                                courseId: true,
+                                course: { select: { deliveryMode: true } },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        const byCourse = new Map();
+        for (const p of placements) {
+            const { courseId, course } = p.chapter.module;
+            if (!byCourse.has(courseId)) {
+                byCourse.set(courseId, { courseId, deliveryMode: course.deliveryMode });
+            }
+        }
+        return Array.from(byCourse.values());
+    }
+    async assertQuizCoursesEditable(courses) {
+        for (const course of courses) {
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: course.courseId }, { deliveryMode: course.deliveryMode });
+        }
+    }
     async restoreQuiz(id, adminId) {
         const quiz = await this.prisma.quiz.findUnique({
             where: { id },
             select: {
                 id: true,
-                chapterId: true,
                 isArchived: true,
                 question: true,
-                chapter: {
+                placements: {
+                    where: { isArchived: false },
+                    orderBy: { createdAt: 'asc' },
                     select: {
-                        id: true,
-                        isArchived: true,
-                        title: true,
-                        module: {
+                        chapter: {
                             select: {
                                 id: true,
                                 isArchived: true,
                                 title: true,
-                                courseId: true,
-                                course: { select: { deliveryMode: true } },
+                                module: {
+                                    select: {
+                                        id: true,
+                                        isArchived: true,
+                                        title: true,
+                                        courseId: true,
+                                        course: { select: { deliveryMode: true } },
+                                    },
+                                },
                             },
                         },
                     },
@@ -888,8 +1033,10 @@ let QuizService = QuizService_1 = class QuizService {
         if (!quiz) {
             throw new common_1.HttpException({ status: common_1.HttpStatus.NOT_FOUND, error: 'Quiz not found' }, common_1.HttpStatus.NOT_FOUND);
         }
-        if (quiz.chapter?.module?.courseId) {
-            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: quiz.chapter.module.courseId }, { deliveryMode: quiz.chapter.module.course?.deliveryMode });
+        const chapters = quiz.placements.map((p) => p.chapter);
+        const courseIds = Array.from(new Set(chapters.map((c) => c.module.courseId)));
+        for (const chapter of chapters) {
+            await (0, assert_imported_course_tree_locked_1.assertImportedCourseTreeLocked)(this.prisma, { courseId: chapter.module.courseId }, { deliveryMode: chapter.module.course?.deliveryMode });
         }
         if (!quiz.isArchived) {
             throw new common_1.HttpException({
@@ -898,52 +1045,54 @@ let QuizService = QuizService_1 = class QuizService {
                 details: { id: quiz.id, isArchived: false },
             }, common_1.HttpStatus.CONFLICT);
         }
-        if (quiz.chapter) {
+        const parentChain = (chapter) => {
             const chain = [];
-            if (quiz.chapter.module?.isArchived) {
+            if (chapter.module?.isArchived) {
                 chain.push({
                     entityType: 'module',
-                    id: quiz.chapter.module.id,
-                    title: quiz.chapter.module.title,
+                    id: chapter.module.id,
+                    title: chapter.module.title,
                 });
             }
-            if (quiz.chapter.isArchived) {
+            if (chapter.isArchived) {
                 chain.push({
                     entityType: 'chapter',
-                    id: quiz.chapter.id,
-                    title: quiz.chapter.title,
+                    id: chapter.id,
+                    title: chapter.title,
                 });
             }
-            if (chain.length > 0) {
-                const highest = chain[0];
-                throw new common_1.HttpException({
-                    status: common_1.HttpStatus.CONFLICT,
-                    error: `Cannot restore: parent ${highest.entityType === 'module' ? 'Module' : 'Chapter'} "${highest.title}" is archived; restore the ${highest.entityType} first`,
-                    details: {
-                        parentEntityType: highest.entityType,
-                        parentId: highest.id,
-                        parentTitle: highest.title,
-                        chain,
-                    },
-                }, common_1.HttpStatus.CONFLICT);
-            }
+            return chain;
+        };
+        const chains = chapters.map(parentChain);
+        if (chains.length > 0 && chains.every((chain) => chain.length > 0)) {
+            const chain = chains[0];
+            const highest = chain[0];
+            throw new common_1.HttpException({
+                status: common_1.HttpStatus.CONFLICT,
+                error: `Cannot restore: parent ${highest.entityType === 'module' ? 'Module' : 'Chapter'} "${highest.title}" is archived; restore the ${highest.entityType} first`,
+                details: {
+                    parentEntityType: highest.entityType,
+                    parentId: highest.id,
+                    parentTitle: highest.title,
+                    chain,
+                },
+            }, common_1.HttpStatus.CONFLICT);
         }
         const restored = await this.prisma.quiz.update({
             where: { id },
             data: { isArchived: false, archivedAt: null },
         });
-        const courseId = quiz.chapter?.module?.courseId ?? null;
+        const courseId = courseIds[0] ?? null;
         let publishedInLatest = false;
         let latest = null;
-        if (courseId) {
-            latest =
-                await this.courseVersionService.getLatestPublishedVersion(courseId);
-            if (latest) {
-                const parsed = (0, course_version_manifest_1.parseManifest)(latest.manifest);
-                publishedInLatest = parsed
-                    ? (0, course_version_manifest_1.isIdReferencedInManifest)(parsed, 'quiz', id)
-                    : false;
-            }
+        for (const cid of courseIds) {
+            latest = await this.courseVersionService.getLatestPublishedVersion(cid);
+            const parsed = latest ? (0, course_version_manifest_1.parseManifest)(latest.manifest) : null;
+            publishedInLatest = parsed
+                ? (0, course_version_manifest_1.isIdReferencedInManifest)(parsed, 'quiz', id)
+                : false;
+            if (!publishedInLatest)
+                break;
         }
         if (adminId) {
             await this.courseVersionService.writeAudit({
@@ -957,6 +1106,7 @@ let QuizService = QuizService_1 = class QuizService {
                     priorIsArchived: true,
                     parentWasArchived: false,
                     publishedInLatest,
+                    usedInCourses: courseIds.length,
                     questionSnippet: quiz.question.length > 100
                         ? quiz.question.slice(0, 100) + '…'
                         : quiz.question,
@@ -967,7 +1117,7 @@ let QuizService = QuizService_1 = class QuizService {
             message: 'Restored',
             statusCode: 200,
             data: {
-                ...restored,
+                ...(0, chapter_quiz_1.withoutLegacyQuizFields)(restored),
                 entityType: 'quiz',
                 latestPublishedVersionId: latest?.id ?? null,
                 latestPublishedVersionNumber: latest?.versionNumber ?? null,
@@ -988,6 +1138,7 @@ let QuizService = QuizService_1 = class QuizService {
                     where: {
                         quizId: body.quizId,
                         userId: userId,
+                        chapterId: body.chapterId,
                     },
                 }),
             ]);
@@ -1018,8 +1169,9 @@ let QuizService = QuizService_1 = class QuizService {
             const quizAnswerPromise = existingQuizAnswer
                 ? this.prisma.quizAnswer.update({
                     where: {
-                        userId_quizId: {
+                        userId_chapterId_quizId: {
                             userId: userId,
+                            chapterId: body.chapterId,
                             quizId: body.quizId,
                         },
                     },
